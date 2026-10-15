@@ -171,3 +171,26 @@ class LayerTest(unittest.TestCase):
         # The agent's MCP server and the runtime's model go with them; an unused server stays.
         self.assertEqual(hidden, {"agent:a", "mcp:s", "runtime:r", "model:r:n"})
         self.assertEqual(graph.hidden_by_layers(self.g, set(graph.LAYERS), {"model:x:m"}), {"model:x:m"})
+
+
+class VllmServiceTest(unittest.TestCase):
+    def test_installer_service_found(self):
+        import tempfile
+        from pathlib import Path
+        import inventory
+        with tempfile.TemporaryDirectory() as root:
+            env = Path(root, "server.env")
+            env.write_text("HF_HOME=/m\nVLLM_MODEL=Qwen/Qwen3-8B\n")
+            unit = Path(root, "vllm.service")
+            unit.write_text(f"[Service]\nEnvironmentFile={env}\n"
+                            "ExecStart=/home/u/.local/bin/vllm serve ${VLLM_MODEL} --host 127.0.0.1 --port 8000\n")
+            old = inventory.unit_files
+            inventory.unit_files = lambda: [unit]
+            try:
+                rt = inventory.vllm([])
+            finally:
+                inventory.unit_files = old
+        self.assertEqual(rt.service, "vllm")
+        self.assertTrue(rt.installed)
+        self.assertFalse(rt.running)
+        self.assertEqual(rt.models, ["Qwen/Qwen3-8B"])

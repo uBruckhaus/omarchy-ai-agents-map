@@ -89,6 +89,7 @@ class MapView(Gtk.DrawingArea):
         self.column_x = {}       # column -> x of its boxes, for the headings
         self.zoom = 1.0          # drawing scale (ZOOM_STEPS)
         self.on_zoom = None      # callback(zoom) after Ctrl+scroll
+        self.usage = None        # gpu_usage.Usage: GPU memory per local LLM, loaded models, activity
         self.set_draw_func(self.on_draw)
         self.set_hexpand(True)
         self.set_vexpand(True)
@@ -115,6 +116,18 @@ class MapView(Gtk.DrawingArea):
         self.colors = dict(colors)
         self.radius = max(0, min(radius, 12))
         self.queue_draw()
+
+    def set_usage(self, usage):
+        self.usage = usage
+        self.queue_draw()
+
+    def runtime_use(self, node):
+        """gpu_usage.RuntimeUse of a local LLM box, or of the LLM serving a model box."""
+        if self.usage is None or node.kind not in ("runtime", "model") or not node.id.count(":") >= 1:
+            return None
+        parts = node.id.split(":", 3)
+        key = parts[1] if node.kind == "runtime" else (parts[2] if len(parts) > 3 and parts[1] == "runtime" else "")
+        return self.usage.runtimes.get(key)
 
     def set_graph(self, graph, headers):
         self.graph = graph
@@ -745,13 +758,41 @@ class MapView(Gtk.DrawingArea):
                 PangoCairo.show_layout(cr, layout)
 
             text_x = x + 10
+            use = self.runtime_use(node)
+            detail = node.detail
+            right = 0                # room kept free at the right for the loaded mark
             if node.status:
                 # Status dot: green running, yellow installed but stopped, grey not installed.
                 name = {"running": "green", "stopped": "yellow"}.get(node.status, "muted")
                 cr.set_source_rgba(*self.color(name, 0.35 if faded else 1.0))
                 cr.arc(text_x + 4, y + h / 2, 4, 0, 2 * math.pi)
                 cr.fill()
+                if node.kind == "runtime" and use is not None and use.vram >= 256 * 1024 ** 2 \
+                        and self.usage.generating:
+                    # Working: a ring around the dot, as LLM Monitor's "generating".
+                    cr.set_source_rgba(*self.color("accent", 0.35 if faded else 1.0))
+                    cr.set_line_width(1.5)
+                    cr.arc(text_x + 4, y + h / 2, 7, 0, 2 * math.pi)
+                    cr.stroke()
                 text_x += 16
+            if node.kind == "runtime" and use is not None and use.vram >= 64 * 1024 ** 2:
+                detail = " · ".join(filter(None, [detail, f"{use.vram / 1024 ** 3:.1f} GB GPU"]))
+            if node.kind == "model" and use is not None:
+                state = use.models.get(node.label.lower())
+                if state:
+                    # Loaded (green), loading (yellow), asleep (a grey ring: listed, GPU memory free).
+                    cx, cy = x + w - (34 if node.id in self.selected else 12), y + h / 2
+                    if state == "sleeping":
+                        cr.set_source_rgba(*self.color("muted", 0.35 if faded else 1.0))
+                        cr.set_line_width(1.5)
+                        cr.arc(cx, cy, 3.5, 0, 2 * math.pi)
+                        cr.stroke()
+                    else:
+                        cr.set_source_rgba(*self.color("green" if state == "loaded" else "yellow",
+                                                       0.35 if faded else 1.0))
+                        cr.arc(cx, cy, 4, 0, 2 * math.pi)
+                        cr.fill()
+                    right = 14
             if node.icon:
                 family = "omarchy" if node.icon_font == "omarchy" else "JetBrainsMono Nerd Font"
                 layout.set_font_description(Pango.FontDescription.from_string(f"{family} 13"))
@@ -761,16 +802,16 @@ class MapView(Gtk.DrawingArea):
                 cr.move_to(text_x, y + (h - layout.get_pixel_size()[1]) / 2)
                 PangoCairo.show_layout(cr, layout)
                 text_x += 24
-            layout.set_width(int((x + w - (26 if node.id in self.selected else 8) - text_x) * Pango.SCALE))
+            layout.set_width(int((x + w - (26 if node.id in self.selected else 8) - right - text_x) * Pango.SCALE))
             layout.set_ellipsize(Pango.EllipsizeMode.END)
-            if node.detail:
+            if detail:
                 layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 9"))
                 layout.set_text(node.label, -1)
                 cr.set_source_rgba(*self.color("fg", alpha))
                 cr.move_to(text_x, y + 4)
                 PangoCairo.show_layout(cr, layout)
                 layout.set_font_description(Pango.FontDescription.from_string("Sans 8"))
-                layout.set_text(node.detail, -1)
+                layout.set_text(detail, -1)
                 cr.set_source_rgba(*self.color("dim", alpha))
                 cr.move_to(text_x, y + h / 2 + 1)
                 PangoCairo.show_layout(cr, layout)
@@ -797,3 +838,38 @@ class MapView(Gtk.DrawingArea):
         cr.arc(x + r, y + h - r, r, math.pi / 2, math.pi)
         cr.arc(x + r, y + r, r, math.pi, 3 * math.pi / 2)
         cr.close_path()
+
+
+class Meter(Gtk.DrawingArea):
+    """A thin rounded bar split into parts, as LLM Monitor's GPU memory and
+    activity meters: parts = [(fraction, colour name, alpha)], the rest is the
+    empty track. `colors`: a function (name, alpha) -> rgba, the map's palette."""
+
+    def __init__(self, colors, width: int = 120, height: int = 8):
+        super().__init__()
+        self.colors = colors
+        self.parts = []
+        self.set_content_width(width)
+        self.set_content_height(height)
+        self.set_valign(Gtk.Align.CENTER)
+        self.set_draw_func(self.on_draw)
+
+    def set_parts(self, parts):
+        self.parts = list(parts)
+        self.queue_draw()
+
+    def on_draw(self, _area, cr, width, height):
+        radius = height / 2
+        MapView.rounded(cr, 0, 0, width, height, radius)
+        cr.set_source_rgba(*self.colors("fg", 0.12))
+        cr.fill_preserve()
+        cr.save()
+        cr.clip()
+        x = 0.0
+        for fraction, name, alpha in self.parts:
+            part = width * max(0.0, min(1.0, fraction))
+            cr.rectangle(x, 0, part, height)
+            cr.set_source_rgba(*self.colors(name, alpha))
+            cr.fill()
+            x += part
+        cr.restore()

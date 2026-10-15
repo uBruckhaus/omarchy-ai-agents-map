@@ -79,7 +79,31 @@ the old file in `~/.local/state/ai-agents-map/backups/`, and can be undone from 
   gets one link per skill in its own skills folder. A folder an agent reads by itself (most read
   `~/.agents/skills`) cannot be taken from that one agent; the page says so.
 - **Local LLMs**: right-click to **Start** or **Stop** one or to start it at login (its user
-  service, or `lms server` for LM Studio).
+  service, or `lms server` for LM Studio), or **Free GPU memory**: its models are unloaded, it keeps
+  running and loads one again when asked (vLLM cannot unload, so it is stopped).
+
+## Local LLMs start and stop with their agents
+
+Connect an agent to a local LLM once, close AI Agents Map and just start the agent: its local LLMs
+start with it, and when the last agent using one closes, that LLM stops, so its GPU memory is free
+again. This works with the window closed and after a reboot.
+
+- A small watcher does it, the user service `ai-agents-map-providers.service`
+  (`provider_watch.py`). It is set up when the first agent is connected to a local LLM and removed
+  when the last connection goes or the setting **Start local LLMs with their agents** is switched off.
+- Once a second it looks at this user's processes (`/proc` only). A connected agent starts →
+  `systemctl --user start` its LLMs' services (`lms server start` for LM Studio). The last one closes
+  → after 5 s the LLM is stopped, unless another program still has a connection open to it.
+- Background servers of agents (OpenCode's `opencode serve --service`, which runs all the time) do
+  not count as the agent being open, and their idle connections do not keep an LLM running.
+- If `lms server start` had to start LM Studio itself (a hidden `lm-studio --run-as-service`), that
+  one is ended too; an LM Studio window you opened is left alone.
+- What it still has to stop is kept in `~/.local/state/ai-agents-map/provider-watch.json`, so a
+  restart (reboot, plugin update) or removing an LLM's last connection never leaves it running.
+
+Above the map, **GPU memory** (in use, free, split into local LLMs, desktop & apps and free) and
+**GPU activity** (load, temperature, power; green while a model is generating) show the same as LLM
+Monitor. Each local LLM's box shows how much GPU memory it holds, and loaded models get a green dot.
 
 ## Adding MCP servers and skills
 
@@ -170,13 +194,17 @@ Studio keeps its context in its own settings; set it there.
   one overall deadline.
 - **Reads** (to draw the setup): the agents' settings files, mise's install folders, the pacman
   database, user services (`~/.config/systemd/user`), model folders and this user's own processes
-  (`/proc`, own UID only). From settings it takes names, model ids, folders and addresses; it never
+  (`/proc`, own UID only, including their GPU memory from DRM fdinfo), the GPU's sysfs values
+  (memory, load, temperature, power) and `/proc/net/tcp` (who listens on or is connected to a local
+  LLM's port). From settings it takes names, model ids, folders and addresses; it never
   opens credential files (`auth.json`, `.credentials.json`). MCP server entries are read whole so
   they can be copied to another agent; their environment and header values are never shown.
 - **Network** (each only on a click, except where noted): GitHub's release API and release
   downloads for Ollama and llama.cpp, `lmstudio.ai`/`installers.lmstudio.ai` for LM Studio, PyPI
   (and `uv`) for vLLM; `huggingface.co` for model search and downloads; the local Ollama on
-  127.0.0.1 only after checking that the listening socket belongs to you;
+  127.0.0.1 only after checking that the listening socket belongs to you; the same for each running
+  local LLM's own API every 2 s while the window is open (which models are loaded) and for
+  **Free GPU memory** (unload); answers are capped at 1 MiB and only shown, never run;
   `registry.modelcontextprotocol.io`; `skills.sh`, `api.github.com` and
   `raw.githubusercontent.com` for skills; an MCP server's own address when you click **Test**; and,
   for a newly installed unknown agent (automatic, see above), whatever Claude Code or Codex
@@ -186,6 +214,10 @@ Studio keeps its context in its own settings; set it there.
 - **Starts**: `systemctl --user` start/stop/enable/disable/daemon-reload for the services it
   installed or that start a local LLM (service-management); the installers' `curl`, `tar`, the LM
   Studio AppImage's `--appimage-extract`, `uv venv`/`uv pip install` (installer);
+  the watcher service described above (service-management: `systemctl --user start/stop` of the
+  connected LLMs' services, `lms server start/stop`, `lms daemon down`; a hidden LM Studio it
+  started is signalled through a pidfd taken when it is found, so a reused PID is never hit);
+  `lms unload --all` for **Free GPU memory**;
   `omarchy-agent-usage-update <agent>` when an agent card's usage is older than ten minutes; an MCP
   server's command when you click **Test** or ask for its tools (in its own process group, stopped
   afterwards); an AppImage's `--appimage-extract` only on **Look inside…** or when adding a server
@@ -198,7 +230,9 @@ Studio keeps its context in its own settings; set it there.
   `~/.config/systemd/user`, their settings in `~/.config/<runtime>/`, an LM Studio desktop entry,
   `~/.config/llama.cpp/models.ini` (context sizes). Generated service files refuse paths with `%`,
   quotes, `$`, backslashes or control characters. Own state: `~/.config/omarchy/ai-agents-map/`
-  (settings, the MCP list, looked-up agents; private files), `~/.local/state/ai-agents-map/backups/`
+  (settings, the MCP list, looked-up agents, `providers-with-agents.json` for the watcher; private
+  files), the watcher's unit `~/.config/systemd/user/ai-agents-map-providers.service` and its state
+  `~/.local/state/ai-agents-map/provider-watch.json`, `~/.local/state/ai-agents-map/backups/`
   (0700), `~/.cache/ai-agents-map/` (scan results and tool lists).
 - Text pasted into its fields is read with `wl-paste` (at most 8 KiB, 2 s deadline) instead of
   GTK's built-in paste, which buffers whatever another app offers with no limit; middle-click paste
@@ -210,7 +244,7 @@ Studio keeps its context in its own settings; set it there.
 
 The gear (Ctrl+,) opens the settings: **Language** (system or one of English, Deutsch, Français,
 Español, Italiano, Português, Nederlands, Polski), **Corners** (like windows, rounded or square, as
-in App Manager and Theme Manager) and **Look up new agents**. Backspace or Esc goes back. Settings
+in App Manager and Theme Manager), **Look up new agents** and **Start local LLMs with their agents**. Backspace or Esc goes back. Settings
 live in `~/.config/omarchy/ai-agents-map/settings.json`.
 
 ## Remove
@@ -219,7 +253,15 @@ live in `~/.config/omarchy/ai-agents-map/settings.json`.
 omarchy plugin remove ubruckhaus.ai-agents-map
 ```
 
-This removes the bar button and the window. Changes you made with it stay (agents' settings, MCP
+This removes the bar button and the window. Switch off **Start local LLMs with their agents**
+first, or remove the watcher by hand:
+
+```sh
+systemctl --user disable --now ai-agents-map-providers.service
+rm ~/.config/systemd/user/ai-agents-map-providers.service && systemctl --user daemon-reload
+```
+
+Changes you made with it stay (agents' settings, MCP
 servers, skills, installed local LLMs); uninstall a local LLM first with right-click →
 **Uninstall…** if you want it gone. To also drop AI Agents Map's own state:
 
@@ -238,6 +280,8 @@ rm -rf ~/.config/omarchy/ai-agents-map ~/.local/state/ai-agents-map ~/.cache/ai-
 | `map_view.py`, `graph.py` | The map: drawing, selection, lines; what it shows |
 | `agents.py`, `agent_details.py`, `inventory.py` | What is installed and set up (read only) |
 | `connect.py` | Planned changes: diff, backup, apply, Undo |
+| `provider_watch.py` | The watcher service: start local LLMs with their agents, stop them after |
+| `gpu_usage.py` | GPU memory and activity, per local LLM and loaded models |
 | `mcp_ctl.py`, `mcp_library.py`, `mcp_tools.py` | MCP servers per agent, the list, asking a server for its tools |
 | `mcp_scan.py`, `mcp_registry.py` | MCP servers found on this PC and in the official registry |
 | `skills_ctl.py`, `skills_scan.py`, `skills_web.py` | Skill folders per agent, from apps, from skills.sh |

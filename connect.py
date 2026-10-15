@@ -192,10 +192,17 @@ def pi_texts(models_text: str, settings_text: str, provider: str, url: str, mode
             entries.append(item)
         providers[provider] = {"baseUrl": url, "api": "openai-completions", "apiKey": "local", "models": entries}
     settings = _json(settings_text)
-    if use_now and not remove:
+    if remove:
+        if settings.get("defaultProvider") != provider:
+            return _dump(data), settings_text
+        # The default would point at a provider that is gone.
+        settings.pop("defaultProvider")
+        settings.pop("defaultModel", None)
+        return _dump(data), _dump(settings)
+    if use_now:
         settings["defaultProvider"] = provider
         settings["defaultModel"] = model
-    return _dump(data), (_dump(settings) if use_now and not remove else settings_text)
+    return _dump(data), (_dump(settings) if use_now else settings_text)
 
 
 # --- OpenCode (JSON) ---------------------------------------------------------------------------
@@ -208,6 +215,9 @@ def opencode_text(text: str, provider: str, label: str, url: str, models: list, 
         providers.pop(provider, None)
         if not providers:
             data.pop("provider")
+        # Its model would point at a provider that is gone: OpenCode falls back to its own default.
+        if str(data.get("model", "")).startswith(provider + "/"):
+            data.pop("model")
     else:
         providers[provider] = {"npm": "@ai-sdk/openai-compatible", "name": label, "options": {"baseURL": url},
                                "models": {name: {"name": name} for name in models}}

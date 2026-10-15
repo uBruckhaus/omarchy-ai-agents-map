@@ -63,3 +63,30 @@ def set_start_at_login(rt, on: bool) -> tuple[bool, str]:
     if not rt.service:
         return False, "no user service"
     return _run(["systemctl", "--user", "enable" if on else "disable", f"{rt.service}.service"])
+
+
+def unload(rt) -> tuple[bool, str]:
+    """Free the GPU memory without stopping the server: unload every loaded model
+    (the next request loads it again). vLLM cannot unload, so it is stopped."""
+    import gpu_usage
+    port = gpu_usage.port_of(rt)
+    if rt.key == "vllm":
+        return stop(rt) if can_control(rt) else (False, "no way to stop it")
+    if rt.key == "lmstudio":
+        binary = lms_binary()
+        return _run([binary, "unload", "--all"]) if binary else (False, "lms not found")
+    names = [name for name, state in gpu_usage.loaded_models(rt).items() if state in ("loaded", "loading", "sleeping")]
+    if rt.key == "llamacpp":
+        rows = (gpu_usage.http_json(port, "/models") or {}).get("data", [])
+        ids = [str(r.get("id")) for r in rows if isinstance(r, dict) and str(r.get("id", "")).lower() in names]
+        failed = [i for i in ids if gpu_usage.http_json(port, "/models/unload", "POST", {"model": i}, timeout=30) is None]
+    elif rt.key == "ollama":
+        rows = (gpu_usage.http_json(port, "/api/ps") or {}).get("models", [])
+        ids = [str(r.get("name")) for r in rows if isinstance(r, dict) and r.get("name")]
+        failed = [i for i in ids if gpu_usage.http_json(port, "/api/generate", "POST",
+                                                        {"model": i, "keep_alive": 0}, timeout=30) is None]
+    else:
+        return False, "unknown runtime"
+    if failed:
+        return False, f"could not unload {', '.join(failed)[:200]}"
+    return True, ""

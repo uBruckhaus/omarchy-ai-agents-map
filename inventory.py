@@ -115,6 +115,11 @@ def process_env(pid: int, names: tuple[str, ...]) -> dict:
     return values
 
 
+def parent_pid(pid: int) -> int:
+    fields = _read_bytes(Path(f"/proc/{pid}/stat"), 1024).decode("utf-8", "replace").rpartition(")")[2].split()
+    return int(fields[1]) if len(fields) > 1 and fields[1].isdigit() else 0
+
+
 def arg_value(argv: list[str], *flags: str) -> str:
     for i, arg in enumerate(argv):
         for flag in flags:
@@ -205,9 +210,13 @@ def llamacpp(processes) -> Runtime:
     rt = Runtime("llamacpp", "llama.cpp", installed=bool(shutil.which("llama-server")))
     rt.service, env = unit_for("llama-server")
     models, folder = [], ""
+    servers = {pid for pid, comm, _argv in processes if comm == "llama-server"}
     for pid, comm, argv in processes:
         if comm != "llama-server":
             continue
+        if parent_pid(pid) in servers:
+            rt.running = rt.installed = True
+            continue       # a model the router started on a port of its own: the router is the address
         rt.running = rt.installed = True
         penv = process_env(pid, ("LLAMA_ARG_MODELS_DIR", "LLAMA_MODELS_DIR", "LLAMA_ARG_MODEL",
                                  "LLAMA_ARG_HOST", "LLAMA_ARG_PORT", "LLAMA_PORT", "LLAMA_HOST"))
@@ -327,6 +336,11 @@ def lmstudio(processes) -> Runtime:
 
 def vllm(processes) -> Runtime:
     rt = Runtime("vllm", "vLLM", installed=bool(shutil.which("vllm")), address="127.0.0.1:8000")
+    # The user service AI Agents Map's installer writes (vllm.service: `vllm serve ${VLLM_MODEL}`).
+    rt.service, env = unit_for("vllm")
+    rt.installed = rt.installed or bool(rt.service)
+    if env.get("VLLM_MODEL") and NAME_RE.fullmatch(env["VLLM_MODEL"]):
+        rt.models = [clean(env["VLLM_MODEL"])]
     for _pid, _comm, argv in processes:
         if len(argv) > 2 and Path(argv[0]).name.startswith(("vllm", "python")) and "serve" in argv[1:3] \
                 and any(Path(a).name == "vllm" for a in argv[:2]):

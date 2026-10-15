@@ -67,12 +67,14 @@ import shutil
 import subprocess
 from pathlib import Path
 import graph
+import gpu_usage
 import inventory
+import provider_watch
 import i18n
 import pidfile
 from i18n import _, ngettext
 from layer_watch import LayerWatch
-from map_view import MapView
+from map_view import MapView, Meter
 from palette import ThemePalette
 
 # Smallest card (a small monitor); normally the card fills the screen.
@@ -422,6 +424,7 @@ class AgentsMap(Gtk.Application):
         body.append(self.list_pane)
         # Wide: the map beside the cards; a click on a card selects it there.
         side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, hexpand=True)
+        side.append(self.build_gpu_line())
         side.append(self.build_layer_toggles())
         # The filter line: a hint, or what is selected and a way back to everything.
         bar = Gtk.Box(spacing=8)
@@ -476,11 +479,145 @@ class AgentsMap(Gtk.Application):
         page.append(body)
         return page
 
+    # --- GPU memory and activity (as LLM Monitor shows them) --------------------------------------
+
+    def build_gpu_line(self) -> Gtk.Widget:
+        """Above the map, as in LLM Monitor: GPU MEMORY (in use, free, a bar split into
+        local LLMs / desktop & apps / free, with a legend) and GPU ACTIVITY (load,
+        temperature, power, a bar; green while a model is generating)."""
+        colors = lambda name, alpha=1.0: self.side_map.color(name, alpha)
+        line = Gtk.Box(spacing=24, homogeneous=True)
+        line.set_margin_bottom(18)       # air before the Show line
+
+        def block(title):
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, hexpand=True)
+            heading = Gtk.Label(label=title.upper(), xalign=0)
+            heading.add_css_class("am-section-title")
+            box.append(heading)
+            top = Gtk.Box(spacing=8)
+            main = Gtk.Label(xalign=0, hexpand=True)
+            main.add_css_class("am-agent-name")
+            side = Gtk.Label(xalign=1)
+            side.add_css_class("am-agent-detail")
+            top.append(main)
+            top.append(side)
+            box.append(top)
+            meter = Meter(colors, 100, 10)
+            meter.set_hexpand(True)
+            box.append(meter)
+            line.append(box)
+            return box, main, side, meter
+
+        memory, self.gpu_memory_text, self.gpu_free_text, self.gpu_memory = block(_("GPU memory"))
+        legend = Gtk.Box(spacing=16)
+        legend.set_margin_top(4)
+        self.gpu_legend = {}
+        for key, name, alpha, outlined in (("llm", _("Local LLMs"), 1.0, False), ("other", _("Desktop & apps"), 0.45, False),
+                                           ("free", _("Free"), 1.0, True)):
+            item = Gtk.Box(spacing=6)
+            swatch = Gtk.DrawingArea(content_width=10, content_height=10, valign=Gtk.Align.CENTER)
+            swatch.set_draw_func(lambda _a, cr, w, h, k=key, a=alpha, o=outlined: self.draw_swatch(cr, w, h, k, a, o))
+            label = Gtk.Label(xalign=0)
+            label.add_css_class("am-agent-detail")
+            item.append(swatch)
+            item.append(label)
+            legend.append(item)
+            self.gpu_legend[key] = (name, label)
+        memory.append(legend)
+        _activity, self.gpu_activity_text, self.gpu_activity_side, self.gpu_activity = block(_("GPU activity"))
+        line.set_visible(False)        # until the first reading (no GPU: never)
+        self.gpu_line = line
+        self.gpu_timer = None
+        self.gpu_reading = False
+        return line
+
+    def draw_swatch(self, cr, width, height, key, alpha, outlined):
+        MapView.rounded(cr, 0, 0, width, height, 2)
+        if outlined:
+            cr.set_source_rgba(*self.side_map.color("dim"))
+            cr.set_line_width(1)
+            cr.stroke()
+        else:
+            cr.set_source_rgba(*self.side_map.color("accent" if key == "llm" else "fg", alpha))
+            cr.fill()
+
+    def start_gpu_poll(self):
+        self.stop_gpu_poll()
+        self.poll_gpu()
+        self.gpu_timer = GLib.timeout_add_seconds(2, self.poll_gpu)
+
+    def stop_gpu_poll(self):
+        if self.gpu_timer:
+            GLib.source_remove(self.gpu_timer)
+            self.gpu_timer = None
+
+    def poll_gpu(self):
+        if self.gpu_reading:
+            return True
+        self.gpu_reading = True
+        runtimes = list(self.inventory.runtimes)
+
+        def work():
+            try:
+                usage = gpu_usage.snapshot(runtimes)
+            except Exception:
+                usage = None
+            GLib.idle_add(done, usage)
+
+        def done(usage):
+            self.gpu_reading = False
+            if usage is not None and self.window.is_visible():
+                self.show_gpu(usage, runtimes)
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
+        return True
+
+    def show_gpu(self, usage, runtimes):
+        gib = gpu_usage.gib
+        total = usage.vram_total
+        self.gpu_line.set_visible(total > 0)
+        if total:
+            free = max(0, total - usage.vram_used)
+            self.gpu_memory.set_parts([(usage.llm_vram / total, "accent", 1.0), (usage.other_vram / total, "fg", 0.45)])
+            self.gpu_memory_text.set_label(_("{0} of {1} GB in use").format(gib(usage.vram_used), gib(total)))
+            self.gpu_free_text.set_label(_("{0} GB free").format(gib(free)))
+            for key, size in (("llm", usage.llm_vram), ("other", usage.other_vram), ("free", free)):
+                name, label = self.gpu_legend[key]
+                label.set_label(f"{name}  {gib(size)} GB")
+        busy = usage.busy or 0
+        self.gpu_activity.set_parts([(busy / 100, "green" if usage.generating else "accent", 1.0)])
+        self.gpu_activity_text.set_label(f"{round(busy)} %" + ("  ·  " + _("generating") if usage.generating else ""))
+        extra = [f"{round(usage.temp)} °C" if usage.temp else "", f"{round(usage.power)} W" if usage.power else ""]
+        self.gpu_activity_side.set_label("  ·  ".join(e for e in extra if e))
+        self.side_map.set_usage(usage)
+        # The watcher (or something else) started or stopped a local LLM: show it.
+        changed = any(rt.running != usage.runtimes[rt.key].running for rt in runtimes if rt.key in usage.runtimes)
+        if changed and runtimes is self.inventory.runtimes and self.side_map.link is None \
+                and self.stack.get_visible_child_name() == "main":
+            self.collect()
+            self.refresh_overview()
+            self.refresh_map()
+
     def collect(self):
         """Everything both views show (file system and /proc only, ~0.1 s)."""
         self.agent_list = agents.list_agents()
         self.inventory = inventory.collect(self.agent_list)
         self.configured_now = None     # installed_mcp() reads the settings again
+        try:
+            changed = provider_watch.write_config(self.inventory)
+        except OSError:
+            changed = False
+        if changed:
+            self.sync_provider_watch()
+
+    def sync_provider_watch(self):
+        """The watcher that starts an agent's local LLMs with it (and stops them when it
+        closes) runs while the setting is on and some agent is connected to a local LLM.
+        It is a user service, so it works with this window closed and after a reboot."""
+        wanted = bool(ai_core.load_settings().get("providers_with_agents", True)) and \
+            any(rt.installed and rt.agents and (rt.service or rt.key == "lmstudio") for rt in self.inventory.runtimes)
+        threading.Thread(target=provider_watch.ensure_service, args=(wanted,), daemon=True).start()
 
     def refresh_overview(self):
         """Rebuild the main view: agents, local LLMs, MCP servers, skills."""
@@ -3594,6 +3731,13 @@ class AgentsMap(Gtk.Application):
                 button.connect("clicked", lambda _b, a=action, l=label: (popover.popdown(),
                                                                           self.control_runtime(rt, a, l)))
                 row.append(button)
+            free = Gtk.Button(label=_("Free GPU memory"))
+            free.add_css_class("am-small-btn")
+            free.set_sensitive(rt.running)
+            free.set_tooltip_text(_("Unloads its models; it keeps running and loads one again when asked."))
+            free.connect("clicked", lambda _b: (popover.popdown(),
+                                                self.control_runtime(rt, runtime_ctl.unload, _("Free GPU memory"))))
+            row.append(free)
             box.append(row)
             login = runtime_ctl.start_at_login(rt)
             if login is not None:
@@ -3798,6 +3942,15 @@ class AgentsMap(Gtk.Application):
         self.setting_line(box, _("Look up new agents"),
                           _("When a new agent is installed, Claude Code or Codex finds out on the web where it keeps "
                             "MCP servers and skills (once, a few minutes in the background)."), look_up)
+        with_agents = Gtk.Switch(active=ai_core.load_settings().get("providers_with_agents", True),
+                                 valign=Gtk.Align.CENTER)
+        with_agents.connect("notify::active", lambda w, *_: self.settings_ready
+                            and (self.save_setting(providers_with_agents=w.get_active()), self.sync_provider_watch()))
+        self.setting_line(box, _("Start local LLMs with their agents"),
+                          _("When an agent connected to a local LLM starts, its LLM starts too; when the last such "
+                            "agent closes, the LLM stops and its GPU memory is free again. Works with this window "
+                            "closed and after a reboot (user service {0}).").format(provider_watch.UNIT_NAME),
+                          with_agents)
         self.settings_ready = True
 
     @staticmethod
@@ -4125,6 +4278,8 @@ class AgentsMap(Gtk.Application):
         self.refresh_overview()
         self.refresh_map()
         self.window.present()
+        self.sync_provider_watch()
+        self.start_gpu_poll()
         self.research_new_agents()
         self.check_new_apps()
         self.layer_watch.start()
@@ -4149,6 +4304,7 @@ class AgentsMap(Gtk.Application):
 
     def close(self):
         self.layer_watch.stop()
+        self.stop_gpu_poll()
         self.map_view.set_shift(False)   # Shift may have been let go elsewhere
         if self.stack.get_visible_child_name() == "settings":
             self.close_settings()   # never reopen onto the settings page

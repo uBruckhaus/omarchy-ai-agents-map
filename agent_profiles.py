@@ -209,6 +209,8 @@ SCHEMA = {"type": "object", "additionalProperties": True,
 
 def _bounded(argv, **kwargs):
     import ai_core
+    # Our own look-up run: the provider watcher does not start the agent's local LLMs for it.
+    kwargs.setdefault("env", {**os.environ, "AI_AGENTS_MAP_NO_PROVIDERS": "1"})
     return ai_core.read_bounded_output(argv, **kwargs)
 
 
