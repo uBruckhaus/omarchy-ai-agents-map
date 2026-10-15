@@ -2,7 +2,10 @@
 
 Hovering a box lights it and everything it is joined to; the rest fades.
 A click selects a box (agent, provider, anything), Shift+click adds or
-removes more. In a category with a selection (agents, say) only the
+removes more; only one agent at a time (another agent replaces it). With
+an agent selected, a click on a model of a local LLM the agent is
+connected to calls on_pick_model(agent id, runtime id, model) to make it
+the agent's model. In a category with a selection (agents, say) only the
 selected boxes stay; the other columns keep every box, but only the
 connections of the selection are drawn and the rest fades. Holding Shift
 brings the hidden boxes back (faded) so more can be added.
@@ -61,6 +64,7 @@ class MapView(Gtk.DrawingArea):
         self.link = None         # while drawing: {"from": id, "x": .., "y": .., "target": id or None}
         self.on_relink = None    # callback(agent id, old runtime id, new runtime id)
         self.on_context = None   # callback(node id, (x, y, w, h)) for a right-click
+        self.on_pick_model = None  # callback(agent id, runtime id, model name): a model clicked
         self.selected_edge = None  # (agent id, runtime id) of the clicked line
         self.shift = False       # Shift held: hidden boxes come back to be added
         self.layers = set(graph_model.LAYERS)   # categories switched on
@@ -418,15 +422,37 @@ class MapView(Gtk.DrawingArea):
                 return
         if node_id is None:
             return
+        pick = self.model_pick(node_id)
+        if pick is not None and self.on_pick_model is not None:
+            self.on_pick_model(*pick)
+            return
         adding = bool(gesture.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK)
         if adding:
             if node_id in self.selected:
                 self.selected.remove(node_id)
             else:
+                if node_id.startswith("agent:"):
+                    # One agent at a time: another one replaces it.
+                    self.selected = [i for i in self.selected if not i.startswith("agent:")]
                 self.selected.append(node_id)
         else:
             self.selected = [] if self.selected == [node_id] else [node_id]
         self.selection_changed()
+
+    def model_pick(self, node_id):
+        """(agent id, runtime id, model name) when node_id is a model of a local
+        LLM the one selected agent is connected to; else None."""
+        agents = [i for i in self.selected if i.startswith("agent:")]
+        if self.graph is None or len(agents) != 1 or self.kind_of(node_id) != "model":
+            return None
+        agent = agents[0]
+        node = next(n for n in self.graph.nodes if n.id == node_id)
+        for edge in self.graph.edges:
+            if edge.target == node_id and edge.kind == "serves" and edge.source.startswith("runtime:") \
+                    and any(e.source == agent and e.target == edge.source and e.kind in ("uses", "available")
+                            for e in self.graph.edges):
+                return agent, edge.source, node.label
+        return None
 
     def set_selected(self, ids):
         """Selection from outside (the other map, the cards): no callback."""

@@ -168,6 +168,7 @@ class AgentsMap(Gtk.Application):
         self.selection = []        # node ids selected in the maps and (wide overview) the cards
         self.card_widgets = {}     # card key -> (card box, check mark label)
         self.split = False         # wide overview: cards left, map right
+        self.sidebar_visible = True  # the cards beside the map (header toggle, Ctrl+B); shown on every open
 
     def do_shutdown(self):
         cleanup_pid()
@@ -264,6 +265,14 @@ class AgentsMap(Gtk.Application):
     def build_header(self) -> Gtk.Widget:
         header = Gtk.Box(spacing=8)
         self.header = header
+        # Show or hide the cards beside the map (Overview, wide screens only).
+        sidebar_button = Gtk.ToggleButton(icon_name="sidebar-show-symbolic", active=True)
+        sidebar_button.set_tooltip_text(_("Show or hide the cards (Ctrl+B)"))
+        sidebar_button.add_css_class("flat")
+        sidebar_button.add_css_class("am-header-btn")
+        sidebar_button.connect("toggled", lambda b: self.set_sidebar(b.get_active()))
+        header.append(sidebar_button)
+        self.sidebar_button = sidebar_button
         title = Gtk.Label(label="AI Agents Map", xalign=0)
         title.add_css_class("am-title")
         title.set_ellipsize(Pango.EllipsizeMode.END)
@@ -345,6 +354,7 @@ class AgentsMap(Gtk.Application):
         self.side_map.on_selection = self.on_map_selection
         self.side_map.on_link = self.on_map_link
         self.side_map.on_relink = self.on_map_relink
+        self.side_map.on_pick_model = self.on_map_pick_model
         self.side_map.on_context = lambda node_id, rect, v=self.side_map: self.show_context(v, node_id, rect)
         self.side_map.on_header = lambda column, rect: self.show_provider_list(self.side_map, rect)
         side.append(self.page_scroller(self.side_map))
@@ -541,8 +551,10 @@ class AgentsMap(Gtk.Application):
         return {n.id for n in graph_now.nodes} if graph_now is not None else set()
 
     def set_selection(self, ids):
-        """One selection for both maps and the cards."""
-        self.selection = list(dict.fromkeys(ids))
+        """One selection for both maps and the cards; one agent at most (the last one picked)."""
+        ids = list(dict.fromkeys(ids))
+        agents = [i for i in ids if i.startswith("agent:")]
+        self.selection = [i for i in ids if not i.startswith("agent:") or i == agents[-1]]
         for view in (self.map_view, self.side_map):
             view.set_selected(self.selection)
         for key, (card, check) in self.card_widgets.items():
@@ -791,6 +803,7 @@ class AgentsMap(Gtk.Application):
         self.map_view.on_selection = self.on_map_selection
         self.map_view.on_link = self.on_map_link
         self.map_view.on_relink = self.on_map_relink
+        self.map_view.on_pick_model = self.on_map_pick_model
         self.map_view.on_context = lambda node_id, rect, v=self.map_view: self.show_context(v, node_id, rect)
         self.map_view.on_header = lambda column, rect: self.show_provider_list(self.map_view, rect)
         page.append(self.page_scroller(self.map_view))
@@ -899,15 +912,18 @@ class AgentsMap(Gtk.Application):
     def update_selection_labels(self):
         by_id = {n.id: n for n in self.map_view.graph.nodes} if self.map_view.graph else {}
         nodes = [by_id[i] for i in self.selection if i in by_id]
+        # With an agent selected, a click on a model of its local LLMs makes it the agent's model.
+        pick_hint = " · " + _("click a model of its local LLM to use it") \
+            if any(n.kind == "agent" for n in nodes) else ""
         if nodes:
             self.side_filter.set_label(_("Selected: {0} · hold Shift and click to add or remove one")
-                                       .format(", ".join(n.label for n in nodes)))
+                                       .format(", ".join(n.label for n in nodes)) + pick_hint)
         else:
             self.side_filter.set_label(_("Click a card or a box to see only its connections; "
                                          "Shift+click selects more than one."))
         if nodes:
             self.map_filter.set_label(_("Selected: {0} · hold Shift and click to add or remove one")
-                                      .format(", ".join(n.label for n in nodes)))
+                                      .format(", ".join(n.label for n in nodes)) + pick_hint)
         else:
             self.map_filter.set_label(_("Click a box to see only its connections; Shift+click selects more than one."))
         self.map_filter.set_tooltip_text(self.map_filter.get_label())
@@ -968,6 +984,8 @@ class AgentsMap(Gtk.Application):
             widget.set_can_target(not on_settings)
             widget.set_can_focus(not on_settings)
             widget.set_sensitive(not on_settings)
+        # The sidebar button only where there is a sidebar: the Overview with the map beside the cards.
+        self.sidebar_button.set_visible(page == "main" and self.split)
         self.updating_buttons = True
         for name, button in self.view_buttons.items():
             button.set_active(name == page)
@@ -1045,6 +1063,31 @@ class AgentsMap(Gtk.Application):
             self.on_map_link(agent_id, old_id, remove_only=True)
         else:
             self.on_map_link(agent_id, new_id, replaces_id=old_id)
+
+    def on_map_pick_model(self, agent_id: str, runtime_id: str, model: str):
+        """A model clicked while an agent connected to its local LLM is selected:
+        the agent uses it from now on (backup, Undo)."""
+        agent = next((a for a in self.agent_list if f"agent:{a.command}" == agent_id), None)
+        runtime = next((r for r in self.inventory.runtimes if f"runtime:{r.key}" == runtime_id), None)
+        if agent is None or runtime is None:
+            return
+        if agent.command not in connect.SUPPORTED:
+            self.show_note(_("{0} cannot be changed from here yet. Hermes, Pi and OpenCode can.").format(agent.name))
+            return
+        try:
+            context = inventory.llama_context() if runtime.key == "llamacpp" else {}
+            plan_now = connect.plan(agent.command, runtime, model, use_now=True, context=context)
+            if not plan_now.changes:
+                self.show_note(_("{0} uses {1} already.").format(agent.name, model))
+                return
+            backup = connect.apply(plan_now)
+        except (OSError, ValueError, RuntimeError) as error:
+            self.show_note(_("Not changed: {0}").format(error))
+            return
+        self.collect()
+        self.refresh_overview()
+        self.refresh_map()
+        self.show_undo(_("{0} uses {1} ({2}) now").format(agent.name, model, runtime.name), backup)
 
     def on_map_link(self, agent_id: str, runtime_id: str, replaces_id: str | None = None,
                     remove_only: bool = False):
@@ -2172,6 +2215,16 @@ class AgentsMap(Gtk.Application):
         return (max(CARD_WIDTH, width - 80),
                 max(ai_core.MIN_WINDOW_SIZE[1], monitor_height() - 2 * SCREEN_MARGIN))
 
+    def set_sidebar(self, visible: bool):
+        """The cards left of the side map: hidden, the map takes the whole width."""
+        self.sidebar_visible = visible
+        if getattr(self, "list_pane", None) is None:
+            return
+        self.list_pane.set_visible(visible or not self.split)
+        if self.sidebar_button.get_active() != visible:
+            self.sidebar_button.set_active(visible)
+        self.update_header()
+
     def fit(self):
         """As large as the screen allows (checked on every open: another monitor)."""
         self.card_w, self.list_h = self.size_limits()
@@ -2182,6 +2235,7 @@ class AgentsMap(Gtk.Application):
             self.side_pane.set_visible(self.split)
             self.list_pane.set_hexpand(not self.split)
             self.list_pane.set_size_request(LIST_PANE_WIDTH if self.split else -1, -1)
+            self.set_sidebar(self.sidebar_visible)
         for scroller in self.scrollers:
             # Raise the maximum first: GTK refuses a minimum above the maximum.
             scroller.set_max_content_height(100000)
@@ -2398,6 +2452,9 @@ class AgentsMap(Gtk.Application):
         if ctrl and keyval == Gdk.KEY_comma:
             self.open_settings()
             return True
+        if ctrl and keyval in (Gdk.KEY_b, Gdk.KEY_B) and page == "main" and self.split:
+            self.set_sidebar(not self.sidebar_visible)
+            return True
         return False
 
     # --- open / close ------------------------------------------------------------
@@ -2409,6 +2466,7 @@ class AgentsMap(Gtk.Application):
             self.open()
 
     def open(self):
+        self.sidebar_visible = True
         self.fit()
         self.collect()
         self.refresh_overview()
