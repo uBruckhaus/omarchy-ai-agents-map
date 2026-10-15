@@ -85,13 +85,27 @@ def last_view(path: Path | None = None) -> str:
 
 # --- Hyprland -----------------------------------------------------------------
 
-def read_bounded_output(argv: list[str], max_bytes: int = 64 * 1024, timeout: float = 5.0) -> tuple[bytes, bool]:
-    """Run argv (no shell), read stdout with a byte cap and a deadline."""
+def read_bounded_output(argv: list[str], max_bytes: int = 64 * 1024, timeout: float = 5.0,
+                        stdin: bytes | None = None, cwd: str | None = None, env: dict | None = None,
+                        merge_stderr: bool = False) -> tuple[bytes, bool]:
+    """Run argv (no shell), read stdout with a byte cap and one deadline.
+    `stdin`: bytes handed to the program (private data never goes into argv);
+    `merge_stderr`: read error messages too (same cap)."""
     try:
-        proc = subprocess.Popen(list(argv), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                stderr=subprocess.DEVNULL)
+        proc = subprocess.Popen(list(argv), stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT if merge_stderr else subprocess.DEVNULL,
+                                cwd=cwd, env=env, start_new_session=True)
     except (OSError, ValueError):
         return b"", False
+    if stdin is not None:
+        def feed():
+            try:
+                proc.stdin.write(stdin)
+                proc.stdin.close()
+            except (OSError, ValueError):
+                pass
+        threading.Thread(target=feed, daemon=True).start()
     chunks, state = [], {"total": 0, "over": False}
 
     def reader():
@@ -109,7 +123,10 @@ def read_bounded_output(argv: list[str], max_bytes: int = 64 * 1024, timeout: fl
     thread.start()
     thread.join(timeout)
     if thread.is_alive() or state["over"]:
-        proc.kill()
+        try:
+            os.killpg(proc.pid, 9)          # its children too (curl, npx, …)
+        except OSError:
+            proc.kill()
         thread.join(2.0)
         state["over"] = True
     try:
@@ -204,3 +221,33 @@ def hidden_providers(path: Path | None = None) -> list:
     """Provider node ids unticked in the map's provider list ("cloud:anthropic", "runtime:vllm", …)."""
     value = load_settings(path).get("hidden_providers")
     return [v for v in value if isinstance(v, str) and len(v) < 200][:100] if isinstance(value, list) else []
+
+
+# --- clipboard ---------------------------------------------------------------------------------
+
+MAX_PASTE_BYTES = 8192                 # text pasted into a field
+_TEXT_MIMES = ("text/plain;charset=utf-8", "text/plain", "UTF8_STRING", "TEXT", "STRING")
+
+
+def clipboard_text(max_bytes: int = MAX_PASTE_BYTES, timeout: float = 2.0, lines: bool = False) -> str | None:
+    """Plain text from the Wayland clipboard, read with `wl-paste` under a
+    byte cap and a deadline (GTK's own paste buffers the whole offer with
+    neither). Control characters become spaces (line breaks stay when
+    `lines`). '' when the clipboard has no text; None when the offer was too
+    long, too slow or failed."""
+    types_raw, _ = read_bounded_output(["wl-paste", "--list-types"], max_bytes=65536, timeout=timeout)
+    # An empty clipboard makes wl-paste fail: nothing to paste, not an error.
+    offered = {line.strip() for line in types_raw.decode("utf-8", "replace").splitlines()}
+    for mime in _TEXT_MIMES:
+        if mime not in offered:
+            continue
+        data, ok = read_bounded_output(["wl-paste", "--no-newline", "--type", mime],
+                                       max_bytes=max_bytes, timeout=timeout)
+        if not ok:
+            return None
+        text = data.decode("utf-8", "replace")
+        if lines:
+            return "".join(ch if ch == "\n" or not (ord(ch) < 32 or 127 <= ord(ch) < 160) else " "
+                           for ch in text.replace("\r\n", "\n"))
+        return " ".join("".join(" " if ord(ch) < 32 or 127 <= ord(ch) < 160 else ch for ch in text).split())
+    return ""

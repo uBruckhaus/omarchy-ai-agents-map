@@ -19,7 +19,6 @@ import select
 import signal
 import subprocess
 import time
-import urllib.request
 from pathlib import Path
 
 HOME = Path.home()
@@ -96,6 +95,7 @@ class _Stdio:
 # --- streamable HTTP -------------------------------------------------------------------------------
 
 class _Http:
+    """Streamable HTTP through netfetch: bounded, headers (keys) on curl's stdin."""
     def __init__(self, entry: dict):
         self.url = entry["url"]
         self.headers = {**entry["headers"], "Content-Type": "application/json",
@@ -104,21 +104,36 @@ class _Http:
         self.results = {}
 
     def send(self, message: dict):
+        import netfetch
         headers = dict(self.headers)
         if self.session:
             headers["Mcp-Session-Id"] = self.session
-        request = urllib.request.Request(self.url, data=json.dumps(message).encode(), headers=headers, method="POST")
-        with urllib.request.urlopen(request, timeout=30) as response:
-            self.session = response.headers.get("Mcp-Session-Id") or self.session
-            body = response.read(MAX_LINE).decode("utf-8", "replace")
-            kind = response.headers.get("Content-Type", "")
+        try:
+            raw = netfetch.fetch(self.url, max_bytes=MAX_LINE, timeout=30, user_url=True, include=True,
+                                 headers=headers, data=json.dumps(message).encode(), method="POST")
+        except netfetch.FetchError as error:
+            raise RuntimeError(str(error)) from error
+        text = raw.decode("utf-8", "replace")
+        # Headers of the last response (a "100 Continue" may come first), then the body.
+        head, body = "", text
+        while body.startswith("HTTP/"):
+            found = re.match(r"(.*?)\r?\n\r?\n", body, re.DOTALL)
+            if not found:
+                break
+            head, body = found.group(1), body[found.end():]
+            if not re.match(r"HTTP/\S+ 100\b", head):
+                break
+        session = re.search(r"^mcp-session-id:\s*([!-~]{1,200})\s*$", head, re.MULTILINE | re.IGNORECASE)
+        if session:
+            self.session = session.group(1)
+        kind = re.search(r"^content-type:\s*(\S+)", head, re.MULTILINE | re.IGNORECASE)
         if "id" not in message:
             return
         texts = [line[5:].strip() for line in body.splitlines() if line.startswith("data:")] \
-            if "event-stream" in kind else [body]
-        for text in texts:
+            if kind and "event-stream" in kind.group(1) else [body]
+        for item in texts:
             try:
-                answer = json.loads(text)
+                answer = json.loads(item)
             except ValueError:
                 continue
             if isinstance(answer, dict) and answer.get("id") == message["id"]:
@@ -194,8 +209,6 @@ def ask_and_keep(name: str, entry: dict) -> dict:
         result = {"status": "ok", "checked": now, **ask(entry)}
     except (OSError, ValueError, RuntimeError, TimeoutError) as error:
         result = {"status": "failed", "checked": now, "error": str(error)[:300]}
-    CACHE_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
-    path = cache_file(name)
-    path.write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
-    os.chmod(path, 0o600)
+    import ai_core
+    ai_core.atomic_write(cache_file(name), json.dumps(result, ensure_ascii=False, indent=1))   # 0600, no links followed
     return result

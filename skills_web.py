@@ -16,7 +16,6 @@ the repository before anything is fetched.
 import json
 import re
 import urllib.parse
-import urllib.request
 from dataclasses import dataclass
 
 SEARCH = "https://skills.sh/api/search"
@@ -40,12 +39,15 @@ class Skill:
 
 
 def _get(url: str, limit: int, accept: str = "application/json") -> bytes:
-    request = urllib.request.Request(url, headers={"Accept": accept, "User-Agent": "ai-agents-map"})
-    with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
-        data = response.read(limit + 1)
-    if len(data) > limit:
-        raise ValueError("too large")
-    return data
+    """Only the three fixed hosts; no redirects (raw files and the API answer directly)."""
+    import netfetch
+    if not url.startswith(("https://skills.sh/api/", "https://api.github.com/repos/",
+                           "https://raw.githubusercontent.com/")):
+        raise ValueError("not an address this page fetches")
+    try:
+        return netfetch.fetch(url, max_bytes=limit, timeout=TIMEOUT, redirects=0, headers={"Accept": accept})
+    except netfetch.FetchError as error:
+        raise ValueError(str(error)) from error
 
 
 def parse_search(data: dict) -> list[Skill]:

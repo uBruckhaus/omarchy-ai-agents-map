@@ -3,10 +3,11 @@
 Where it looks:
 - the user's own programs: ~/.local/bin, ~/bin, ~/Applications/<app>/
   (extracted AppImages: usr/bin), /opt/*/bin;
-- AppImages in ~/Applications, ~/.local/bin and ~/Downloads: only their
-  usr/bin is unpacked (the AppImage's own --appimage-extract, a fraction of
-  a second) into ~/.cache/ai-agents-map/appimages, kept while the file is
-  unchanged;
+- AppImages in ~/Applications and ~/.local/bin: never run by the scan.
+  Only when the user clicks "Look inside" (look_inside) is each one's
+  usr/bin unpacked (the AppImage's own --appimage-extract) into a private
+  temporary folder, read, and deleted again; what was found is kept per
+  file (path, size, time) in the scan cache. Downloads are not looked at;
 - anything on PATH with "mcp" in its name.
 
 A program counts when its file holds the MCP protocol's own words (two of
@@ -20,12 +21,14 @@ Programs already set up for an agent are marked.
 import os
 import re
 import shutil
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
 HOME = Path.home()
-CACHE = HOME / ".cache/ai-agents-map/appimages"
+CACHE = HOME / ".cache/ai-agents-map/appimages"     # old versions unpacked here; removed (cleanup_old_cache)
+TEMP = HOME / ".cache/ai-agents-map/tmp"
+MAX_BIN_BYTES = 2 * 1024 ** 3      # usr/bin of one AppImage, unpacked to look inside
+MAX_APP_BYTES = 10 * 1024 ** 3     # a whole AppImage unpacked for a server in it
 OPT = Path("/opt")
 MARKERS = (b"notifications/initialized", b"protocolVersion", b"tools/list", b"modelcontextprotocol")
 CLIENTS = {"claude", "codex", "copilot", "crush", "cursor-agent", "gemini", "grok", "hermes", "muse", "omp",
@@ -47,6 +50,7 @@ class Candidate:
     appimage: str = ""        # the AppImage it lives in (to unpack on adding)
     configured: list = field(default_factory=list)   # agents that have it already
     sure: bool = True         # the usage text names an mcp mode
+    inner: str = ""           # an AppImage's program: its name in usr/bin
 
 
 def _is_elf_or_script(path: Path) -> bool:
@@ -58,7 +62,7 @@ def _is_elf_or_script(path: Path) -> bool:
     return head == b"\x7fELF" or head[:2] == b"#!"
 
 
-def scan_file(path: Path) -> tuple[int, bytes]:
+def scan_file(path: Path, keep: bool = True) -> tuple[int, bytes]:
     """(how many MARKERS, the MCP usage block or b"") from the file's bytes.
     Kept per file (size, time) in SCAN_CACHE: these programs are large."""
     try:
@@ -66,7 +70,7 @@ def scan_file(path: Path) -> tuple[int, bytes]:
     except OSError:
         return 0, b""
     key = f"{path}|{info.st_size}|{int(info.st_mtime)}"
-    if key in _cache():
+    if keep and key in _cache():
         count, usage = _cache()[key]
         return count, usage.encode("utf-8", "replace")
     if info.st_size > MAX_BYTES or info.st_size == 0:
@@ -91,7 +95,8 @@ def scan_file(path: Path) -> tuple[int, bytes]:
                 count = max(count, 1)
     except (OSError, ValueError):
         return 0, b""
-    _cache()[key] = (count, usage.decode("utf-8", "replace"))
+    if keep:
+        _cache()[key] = (count, usage.decode("utf-8", "replace"))
     return count, usage
 
 
@@ -115,9 +120,9 @@ def _save_cache():
     import json
     if _CACHE is None:
         return
+    import ai_core
     try:
-        SCAN_CACHE.parent.mkdir(parents=True, exist_ok=True)
-        SCAN_CACHE.write_text(json.dumps(dict(list(_CACHE.items())[-2000:])), encoding="utf-8")
+        ai_core.atomic_write(SCAN_CACHE, json.dumps(dict(list(_CACHE.items())[-2000:])))
     except OSError:
         pass
 
@@ -194,10 +199,12 @@ def path_programs() -> list[Path]:
 
 
 def appimages() -> list[Path]:
+    """AppImages the user keeps as programs (executable, in ~/Applications or ~/.local/bin)."""
     found = []
-    for folder in (HOME / "Applications", HOME / ".local/bin", HOME / "Downloads"):
+    for folder in (HOME / "Applications", HOME / ".local/bin"):
         try:
-            found += sorted(p for p in folder.iterdir() if p.name.lower().endswith(".appimage") and p.is_file())[:100]
+            found += sorted(p for p in folder.iterdir() if p.name.lower().endswith(".appimage")
+                            and p.is_file() and os.access(p, os.X_OK))[:100]
         except OSError:
             continue
     return found
@@ -210,24 +217,86 @@ def appimage_stem(path: Path) -> str:
                   flags=re.IGNORECASE)
 
 
-def appimage_bin(path: Path) -> Path | None:
-    """usr/bin of an AppImage, unpacked into the cache (again only when the file changed)."""
+def _image_key(path: Path) -> str | None:
     try:
         info = path.stat()
     except OSError:
         return None
-    target = CACHE / f"{appimage_stem(path)}-{int(info.st_mtime)}-{info.st_size}"
-    if not (target / "squashfs-root/usr/bin").is_dir():
-        shutil.rmtree(target, ignore_errors=True)
-        target.mkdir(parents=True, exist_ok=True)
+    return f"appimage:{path}|{info.st_size}|{int(info.st_mtime)}"
+
+
+def looked_into(path: Path):
+    """What look_inside found in this AppImage ([(program, count, usage)]), or None if not looked yet."""
+    key = _image_key(path)
+    found = _cache().get(key) if key else None
+    return [tuple(item) for item in found] if isinstance(found, (list, tuple)) else None
+
+
+def _folder_size(folder: Path) -> int:
+    total = 0
+    for root, _dirs, files in os.walk(folder):
+        for name in files:
+            try:
+                total += os.lstat(os.path.join(root, name)).st_size
+            except OSError:
+                pass
+    return total
+
+
+def unpack_bin(path: Path) -> tuple[Path, Path]:
+    """usr/bin of an AppImage unpacked into a new private temporary folder:
+    (that folder, its usr/bin). The caller removes the folder (shutil.rmtree)."""
+    import tempfile
+    import ai_core
+    TEMP.mkdir(parents=True, exist_ok=True, mode=0o700)
+    work = Path(tempfile.mkdtemp(prefix="appimage-", dir=str(TEMP)))
+    _out, ok = ai_core.read_bounded_output([str(path), "--appimage-extract", "usr/bin/*"], max_bytes=256 * 1024,
+                                           timeout=60, cwd=str(work))
+    folder = work / "squashfs-root/usr/bin"
+    if not ok or not folder.is_dir() or _folder_size(work) > MAX_BIN_BYTES:
+        shutil.rmtree(work, ignore_errors=True)
+        raise RuntimeError(f"could not look inside {path.name}")
+    return work, folder
+
+
+def look_inside(paths) -> dict:
+    """The user's "Look inside": each AppImage's programs are read once
+    (unpacked to a temporary folder that is removed right after)."""
+    results = {}
+    for path in paths:
+        key = _image_key(path)
+        if key is None:
+            continue
+        found = []
         try:
-            subprocess.run([str(path), "--appimage-extract", "usr/bin/*"], cwd=str(target), timeout=60,
-                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                           env={**os.environ, "APPIMAGE_EXTRACT_AND_RUN": ""})
-        except (OSError, subprocess.TimeoutExpired):
-            return None
-    folder = target / "squashfs-root/usr/bin"
-    return folder if folder.is_dir() else None
+            work, folder = unpack_bin(path)
+        except RuntimeError:
+            _cache()[key] = []
+            continue
+        try:
+            for program in _executables(folder):
+                if not program.is_symlink() and _is_elf_or_script(program):
+                    count, usage = scan_file(program, keep=False)
+                    found.append((program.name, count, usage.decode("utf-8", "replace")))
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        _cache()[key] = found
+        results[str(path)] = found
+    _save_cache()
+    return results
+
+
+def not_looked_into() -> list[Path]:
+    """AppImages whose programs were never looked at (and not unpacked by hand)."""
+    extracted = {p.name for p in (HOME / "Applications").iterdir() if p.is_dir()} \
+        if (HOME / "Applications").is_dir() else set()
+    return [i for i in appimages() if appimage_stem(i) not in extracted and looked_into(i) is None]
+
+
+def cleanup_old_cache():
+    """Earlier versions kept unpacked usr/bin folders here (large): gone."""
+    if CACHE.is_dir() and not CACHE.is_symlink():
+        shutil.rmtree(CACHE, ignore_errors=True)
 
 
 # --- all together -------------------------------------------------------------------------------
@@ -238,6 +307,15 @@ def scan(configured_commands: dict | None = None, agent_commands=()) -> list[Can
     configured_commands = configured_commands or {}
     skip = CLIENTS | set(agent_commands)
     seen, found = set(), []
+
+    def offer(program: Path, count: int, text: str, appimage: str = "", inner: str = ""):
+        named = "mcp" in program.name.lower()
+        # Its usage text has an "mcp" mode and the protocol shows up, or the name says MCP.
+        if not ((text and count >= 1) or count >= 2 or (named and count >= 1)):
+            return
+        command, sure = command_for(program, text)
+        found.append(Candidate(server_name(program), str(program), command, text, appimage,
+                               configured_commands.get(str(program), []), sure, inner))
 
     def consider(program: Path, appimage: str = ""):
         try:
@@ -268,9 +346,10 @@ def scan(configured_commands: dict | None = None, agent_commands=()) -> list[Can
     for image in appimages():
         if appimage_stem(image) in extracted:
             continue          # already unpacked by hand (~/Applications/<app>-<version>/)
-        folder = appimage_bin(image)
-        for program in _executables(folder) if folder else []:
-            consider(program, appimage=str(image))
+        for name, count, text in looked_into(image) or []:
+            # Where it will live once added (unpacked into ~/Applications/<app>-<version>/).
+            program = HOME / "Applications" / appimage_stem(image) / "usr/bin" / name
+            offer(program, count, text, appimage=str(image), inner=name)
     _save_cache()
     return found
 
@@ -281,12 +360,17 @@ def unpack(appimage: Path, into: Path | None = None) -> Path:
     into = into or HOME / "Applications" / appimage_stem(appimage)
     if into.exists():
         return into
+    import ai_core
     work = into.with_name(f".{into.name}.unpacking")
     shutil.rmtree(work, ignore_errors=True)
-    work.mkdir(parents=True)
+    work.mkdir(parents=True, mode=0o700)
     try:
-        subprocess.run([str(appimage), "--appimage-extract"], cwd=str(work), timeout=600, check=True,
-                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        _out, ok = ai_core.read_bounded_output([str(appimage), "--appimage-extract"], max_bytes=256 * 1024,
+                                               timeout=600, cwd=str(work))
+        if not ok or not (work / "squashfs-root").is_dir():
+            raise RuntimeError(f"could not unpack {appimage.name}")
+        if _folder_size(work) > MAX_APP_BYTES:
+            raise RuntimeError(f"{appimage.name} is too large to unpack")
         os.replace(work / "squashfs-root", into)
     finally:
         shutil.rmtree(work, ignore_errors=True)

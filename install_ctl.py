@@ -27,11 +27,16 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import ai_core
+import netfetch
+
 HOME = Path.home()
 BIN_DIR = HOME / ".local/bin"
 UNIT_DIR = HOME / ".config/systemd/user"
 MARKER = ".ai-agents-map"
 API_TIMEOUT = 20
+MAX_DOWNLOAD = 8 * 1024 ** 3      # when a release does not name its size
+MAX_UNPACKED = 20 * 1024 ** 3     # an unpacked release (Ollama with ROCm is a few GB)
 NAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
 
@@ -80,7 +85,7 @@ def detect_gpu() -> Gpu:
     gpu = Gpu("amd" if vendor == "0x1002" else "nvidia", count=len(same), vram=vram)
     gpu.index = same.index((vendor, vram, _slot)) if len(same) > 1 else None
     try:
-        out = subprocess.run(["lspci"], capture_output=True, text=True, timeout=5).stdout
+        out = ai_core.read_bounded_output(["lspci"], max_bytes=256 * 1024, timeout=5)[0].decode("utf-8", "replace")
         names = [l.split(": ", 1)[-1] for l in out.splitlines() if re.search(r"VGA|Display|3D", l)]
         gpu.name = next((n for n in names if ("AMD" in n) == (gpu.vendor == "amd")), "")[:120]
     except (OSError, subprocess.SubprocessError):
@@ -99,11 +104,21 @@ def free_bytes(folder: Path) -> int:
         return 0
 
 
+# Paths go into systemd units and EnvironmentFile lines: no specifiers (%), quotes,
+# backslashes, $ or control characters there.
+_UNIT_SAFE = re.compile(r"^[^\x00-\x1f\x7f%\"'\\$`]+$")
+
+
+def check_env_value(value: str):
+    if not _UNIT_SAFE.match(value or "x") or len(value) > 1024:
+        raise ValueError("this path has characters a service file cannot hold (% \" ' \\ $ `)")
+
+
 def check_folder(text: str) -> Path:
     """A folder the user typed: absolute (or ~), no control characters, ours to write."""
     text = (text or "").strip()
-    if not text or len(text) > 1024 or any(ord(c) < 32 for c in text):
-        raise ValueError("not a folder path")
+    if not text or len(text) > 1024 or not _UNIT_SAFE.match(text):
+        raise ValueError("not a folder path (no % \" ' \\ $ ` or control characters)")
     path = Path(os.path.expanduser(text))
     if not path.is_absolute():
         raise ValueError("the folder must be an absolute path")
@@ -120,11 +135,10 @@ def check_folder(text: str) -> Path:
 # --- downloads ------------------------------------------------------------------------------------
 
 def _curl_json(url: str) -> dict:
-    out = subprocess.run(["curl", "-fsSL", "--max-time", str(API_TIMEOUT), "--proto", "=https", url],
-                         capture_output=True, timeout=API_TIMEOUT + 5)
-    if out.returncode != 0:
-        raise RuntimeError(f"could not reach {url.split('/')[2]}")
-    data = json.loads(out.stdout[:2_000_000])
+    try:
+        data = netfetch.fetch_json(url, max_bytes=2_000_000, timeout=API_TIMEOUT)
+    except netfetch.FetchError as error:
+        raise RuntimeError(str(error)) from error
     if not isinstance(data, dict):
         raise RuntimeError("unexpected answer")
     return data
@@ -134,14 +148,20 @@ def download(url: str, target: Path, size: int, progress, cancelled, done_before
     """curl into target, reporting how far along (of total bytes) it is."""
     target.parent.mkdir(parents=True, exist_ok=True)
     partial = target.with_name(target.name + ".part")
-    proc = subprocess.Popen(["curl", "-fsSL", "--proto", "=https", "--proto-redir", "=https", "-C", "-",
-                             "-o", str(partial), url], stdin=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    # The size from the release list caps the download (a wrong or endless body stops there).
+    limit = ["--max-filesize", str(size)] if size else ["--max-filesize", str(MAX_DOWNLOAD)]
+    proc = subprocess.Popen(["curl", "-fsSL", "--proto", "=https", "--proto-redir", "=https", "--max-redirs", "5",
+                             "-C", "-", *limit, "-o", str(partial), "--", url],
+                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     try:
         while proc.poll() is None:
             if cancelled():
                 proc.kill()
                 raise Cancelled()
             have = partial.stat().st_size if partial.exists() else 0
+            if have > (size or MAX_DOWNLOAD):
+                proc.kill()
+                raise RuntimeError("the download is larger than announced")
             progress((done_before + have) / max(1, total or size), None)
             time.sleep(0.4)
     finally:
@@ -157,15 +177,20 @@ def download(url: str, target: Path, size: int, progress, cancelled, done_before
 def extract(archive: Path, folder: Path):
     folder.mkdir(parents=True, exist_ok=True)
     flag = "--zstd" if archive.name.endswith(".zst") else "-z" if archive.name.endswith((".tgz", ".gz")) else ""
-    argv = ["tar", "-x", "-f", str(archive), "-C", str(folder), "--no-same-owner"] + ([flag] if flag else [])
-    result = subprocess.run(argv, capture_output=True, text=True, timeout=1800)
-    if result.returncode != 0:
-        raise RuntimeError(f"unpacking failed: {result.stderr.strip()[:300]}")
+    argv = ["tar", "-x", "-f", str(archive), "-C", str(folder), "--no-same-owner", "--no-same-permissions"] \
+        + ([flag] if flag else [])
+    out, ok = ai_core.read_bounded_output(argv, max_bytes=64 * 1024, timeout=1800, merge_stderr=True)
+    if not ok:
+        raise RuntimeError(f"unpacking failed: {out.decode('utf-8', 'replace').strip()[:300]}")
+    check_unpacked_size(folder)
 
 
 # --- files and services ------------------------------------------------------------------------------
 
 def _write(path: Path, text: str, mode: int = 0o644):
+    if path.suffix in (".service", ".desktop") and ("%" in text.replace(" %U", "")
+                                                   or any(ord(c) < 32 and c != "\n" for c in text)):
+        raise ValueError(f"{path.name}: a path holds characters a service file cannot have")
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}-", dir=str(path.parent))
     try:
@@ -179,11 +204,24 @@ def _write(path: Path, text: str, mode: int = 0o644):
 
 
 def _systemctl(*args) -> tuple[bool, str]:
-    try:
-        result = subprocess.run(["systemctl", "--user", *args], capture_output=True, text=True, timeout=60)
-    except (OSError, subprocess.SubprocessError) as error:
-        return False, str(error)
-    return result.returncode == 0, (result.stderr or result.stdout).strip()[:300]
+    out, ok = ai_core.read_bounded_output(["systemctl", "--user", *args], max_bytes=64 * 1024, timeout=60,
+                                          merge_stderr=True)
+    return ok, out.decode("utf-8", "replace").strip()[:300]
+
+
+def check_unpacked_size(folder: Path, limit: int = 0):
+    """An unpacked release larger than MAX_UNPACKED (a crafted archive) is removed again."""
+    limit = limit or MAX_UNPACKED
+    total = 0
+    for root, _dirs, files in os.walk(folder):
+        for name in files:
+            try:
+                total += os.lstat(os.path.join(root, name)).st_size
+            except OSError:
+                continue
+            if total > limit:
+                shutil.rmtree(folder, ignore_errors=True)
+                raise RuntimeError("the unpacked release is too large")
 
 
 def read_env(path: Path) -> dict:
@@ -199,13 +237,14 @@ def read_env(path: Path) -> dict:
 
 def set_env_value(path: Path, key: str, value: str):
     """Change (or add) one KEY=value line, keeping everything else in the file."""
+    check_env_value(value)
     try:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
         text = ""
     line = f"{key}={value}"
     if re.search(rf"^\s*{key}=", text, re.MULTILINE):
-        text = re.sub(rf"^\s*{key}=.*$", line, text, count=1, flags=re.MULTILINE)
+        text = re.sub(rf"^\s*{key}=.*$", lambda _m: line, text, count=1, flags=re.MULTILINE)
     else:
         text = text.rstrip("\n") + ("\n" if text.strip() else "") + line + "\n"
     _write(path, text, 0o600)
@@ -214,11 +253,10 @@ def set_env_value(path: Path, key: str, value: str):
 # --- installers ------------------------------------------------------------------------------------
 
 def _curl_json_any(url: str):
-    out = subprocess.run(["curl", "-fsSL", "--max-time", str(API_TIMEOUT), "--proto", "=https", url],
-                         capture_output=True, timeout=API_TIMEOUT + 5)
-    if out.returncode != 0:
-        raise RuntimeError(f"could not reach {url.split('/')[2]}")
-    return json.loads(out.stdout[:5_000_000])
+    try:
+        return netfetch.fetch_json(url, max_bytes=5_000_000, timeout=API_TIMEOUT)
+    except netfetch.FetchError as error:
+        raise RuntimeError(str(error)) from error
 
 
 class Installer:
@@ -547,24 +585,31 @@ class LmStudio(Installer):
     desktop = HOME / ".local/share/applications/lm-studio-ai-agents-map.desktop"
 
     def latest(self, gpu: Gpu, build: str = "") -> Release:
-        out = subprocess.run(["curl", "-fsSI", "--max-time", str(API_TIMEOUT), "--proto", "=https",
-                              "https://lmstudio.ai/download/latest/linux/x64"], capture_output=True, text=True,
-                             timeout=API_TIMEOUT + 5)
+        try:
+            first = netfetch.fetch("https://lmstudio.ai/download/latest/linux/x64", head=True, redirects=0,
+                                   max_bytes=16384, timeout=API_TIMEOUT).decode("utf-8", "replace")
+        except netfetch.FetchError as error:
+            raise RuntimeError("could not find the latest LM Studio") from error
         location = re.search(r"^location:\s*(https://installers\.lmstudio\.ai/linux/x64/([\w.-]+)/[\w.-]+\.AppImage)\s*$",
-                             out.stdout, re.MULTILINE | re.IGNORECASE)
-        if out.returncode != 0 or not location:
+                             first, re.MULTILINE | re.IGNORECASE)
+        if not location:
             raise RuntimeError("could not find the latest LM Studio")
         url, version = location.group(1), location.group(2)
-        head = subprocess.run(["curl", "-fsSIL", "--max-time", str(API_TIMEOUT), "--proto", "=https", url],
-                              capture_output=True, text=True, timeout=API_TIMEOUT + 5)
-        sizes = re.findall(r"^content-length:\s*(\d+)", head.stdout, re.MULTILINE | re.IGNORECASE)
+        try:
+            head = netfetch.fetch(url, head=True, redirects=0, max_bytes=16384,
+                                  timeout=API_TIMEOUT).decode("utf-8", "replace")
+        except netfetch.FetchError:
+            head = ""
+        sizes = re.findall(r"^content-length:\s*(\d+)", head, re.MULTILINE | re.IGNORECASE)
         return Release(f"v{version}", [(Path(url).name, url, int(sizes[-1]) if sizes else 0)])
 
     def unpack(self, archive: Path, folder: Path):
-        archive.chmod(0o755)
-        result = subprocess.run([str(archive), "--appimage-extract"], cwd=folder, capture_output=True, timeout=900)
-        if result.returncode != 0:
+        archive.chmod(0o755)        # our own download, from installers.lmstudio.ai
+        _out, ok = ai_core.read_bounded_output([str(archive), "--appimage-extract"], max_bytes=64 * 1024,
+                                               timeout=900, cwd=str(folder))
+        if not ok:
             raise RuntimeError("unpacking the AppImage failed")
+        check_unpacked_size(folder)
 
     def models_folder(self) -> str:
         try:
@@ -632,9 +677,9 @@ class Vllm(Installer):
             if cancelled():
                 raise Cancelled()
             progress(0.1 if "venv" in argv[1] else 0.3, " ".join(argv[1:3]))
-            result = subprocess.run(argv, capture_output=True, text=True, timeout=3600)
-            if result.returncode != 0:
-                raise RuntimeError(result.stderr.strip()[-300:])
+            out, ok = ai_core.read_bounded_output(argv, max_bytes=1024 * 1024, timeout=3600, merge_stderr=True)
+            if not ok:
+                raise RuntimeError(out.decode("utf-8", "replace").strip()[-300:] or "pip failed")
         version_dir = folder / release.version
         shutil.rmtree(version_dir, ignore_errors=True)
         os.replace(partial, version_dir)
@@ -661,7 +706,7 @@ After=network.target
 Type=exec
 EnvironmentFile={self.env_file}
 # Serves the model named in VLLM_MODEL (a Hugging Face id).
-ExecStart=/bin/sh -c 'exec {BIN_DIR / self.command} serve "$VLLM_MODEL" --host {host} --port {port}'
+ExecStart={BIN_DIR / self.command} serve ${{VLLM_MODEL}} --host {host} --port {port}
 Restart=on-failure
 KillMode=control-group
 

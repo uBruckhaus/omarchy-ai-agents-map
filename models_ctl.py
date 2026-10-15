@@ -12,6 +12,7 @@ cancelled().
 """
 
 import json
+import time
 import os
 import re
 import urllib.parse
@@ -98,12 +99,11 @@ def files(repo: str, vram: int = 0) -> list[GgufFile]:
 
 
 def _json_list(url: str) -> list:
-    import subprocess
-    out = subprocess.run(["curl", "-fsSL", "--proto", "=https", "--max-time", "20", url],
-                         capture_output=True, timeout=25)
-    if out.returncode != 0:
-        raise RuntimeError("Hugging Face did not answer")
-    data = json.loads(out.stdout[:5_000_000])
+    import netfetch
+    try:
+        data = netfetch.fetch_json(url, max_bytes=5_000_000, timeout=20)
+    except netfetch.FetchError as error:
+        raise RuntimeError("Hugging Face did not answer") from error
     if not isinstance(data, list):
         raise RuntimeError("unexpected answer from Hugging Face")
     return data
@@ -203,6 +203,9 @@ def ollama_name_for(repo: str, entry: GgufFile) -> str:
     return f"hf.co/{repo}" + (f":{entry.quant}" if entry.quant else "")
 
 
+PULL_DEADLINE = 12 * 3600
+
+
 def ollama_pull(name: str, address: str, progress, cancelled):
     name = (name or "").strip()
     if not OLLAMA_NAME_RE.fullmatch(name) or ".." in name:
@@ -214,10 +217,20 @@ def ollama_pull(name: str, address: str, progress, cancelled):
                                      data=json.dumps({"model": name, "stream": True}).encode(),
                                      headers={"Content-Type": "application/json"}, method="POST")
     with urllib.request.urlopen(request, timeout=60) as response:
-        for raw in response:
+        # Our own Ollama (require_own_listener): still one line at most 64 KiB, at most 200000 lines,
+        # and one overall deadline (a large model can take hours, not forever).
+        deadline = time.monotonic() + PULL_DEADLINE
+        for _count in range(200000):
+            if time.monotonic() > deadline:
+                raise RuntimeError("the download took too long")
+            raw = response.readline(65537)
+            if not raw:
+                break
             if cancelled():
                 raise install_ctl.Cancelled()
             if len(raw) > 65536:
+                while raw and not raw.endswith(b"\n"):
+                    raw = response.readline(65537)
                 continue
             try:
                 line = json.loads(raw)

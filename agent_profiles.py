@@ -207,7 +207,12 @@ SCHEMA = {"type": "object", "additionalProperties": True,
           "required": ["skills", "mcp", "sources", "notes"]}
 
 
-def research(agent, installed, run=subprocess.run) -> dict:
+def _bounded(argv, **kwargs):
+    import ai_core
+    return ai_core.read_bounded_output(argv, **kwargs)
+
+
+def research(agent, installed, run=_bounded) -> dict:
     """Look `agent` (agents.Agent) up and store the result. Returns the stored
     profile; a failure is stored too (tried again after RETRY_AFTER)."""
     now = dt.datetime.now().isoformat(timespec="seconds")
@@ -222,15 +227,17 @@ def research(agent, installed, run=subprocess.run) -> dict:
                            version=f", version {agent.version}" if agent.version else "")
     WORK_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     schema_file = WORK_DIR / "schema.json"
-    schema_file.write_text(json.dumps(SCHEMA), encoding="utf-8")
+    import ai_core
+    ai_core.atomic_write(schema_file, json.dumps(SCHEMA))
     errors = []
     for researcher in found:
         try:
-            done = run(research_command(researcher, prompt, schema_file), capture_output=True, text=True,
-                       timeout=TIMEOUT, cwd=str(WORK_DIR), stdin=subprocess.DEVNULL)
-            if done.returncode != 0:
-                raise RuntimeError((done.stderr or done.stdout or "").strip()[-200:] or f"exit {done.returncode}")
-            profile = validate(first_json(done.stdout[-MAX_ANSWER:]))
+            out, ok = run(research_command(researcher, prompt, schema_file), max_bytes=MAX_ANSWER * 4,
+                          timeout=TIMEOUT, cwd=str(WORK_DIR))
+            text = out.decode("utf-8", "replace")
+            if not ok:
+                raise RuntimeError(text.strip()[-200:] or "no answer")
+            profile = validate(first_json(text[-MAX_ANSWER:]))
         except (OSError, subprocess.TimeoutExpired, RuntimeError, ValueError) as error:
             errors.append(f"{researcher}: {error}")
             continue

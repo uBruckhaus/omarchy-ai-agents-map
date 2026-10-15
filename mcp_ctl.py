@@ -396,6 +396,13 @@ def plan(agent: str, name: str, sources=(), remove: bool = False, entry: dict | 
     if agent == "claude":
         claude = shutil.which("claude") or str(HOME / ".local/bin/claude")
         old = normal(raw_entries("claude").get(name))
+        if (entry and (entry["env"] or entry["headers"])) or (old and (old["env"] or old["headers"])):
+            # Keys in env or headers never go into argv (other accounts can read
+            # /proc/<pid>/cmdline): ~/.claude.json is edited directly instead, as
+            # one planned change (preview, backup, Undo; refused if Claude wrote
+            # the file in the meantime).
+            result.changes = _claude_json_change(name, None if remove else native("claude", entry))
+            return result
         remove_cmd = [claude, "mcp", "remove", "--scope", "user", name]
         add = lambda e: [claude, "mcp", "add-json", "--scope", "user", name,   # noqa: E731
                          json.dumps(native("claude", e), ensure_ascii=False)]
@@ -436,6 +443,30 @@ def plan(agent: str, name: str, sources=(), remove: bool = False, entry: dict | 
     if new_text != old_text:
         result.changes = [connect.Change(path, old_text, new_text)]
     return result
+
+
+def _claude_json_change(name: str, item: dict | None) -> list:
+    path = HOME / ".claude.json"
+    try:
+        if path.stat().st_size > 8 * 1024 * 1024:
+            raise ValueError("~/.claude.json is too large to edit here")
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        text = ""
+    data = json.loads(text) if text.strip() else {}
+    if not isinstance(data, dict):
+        raise ValueError("~/.claude.json is not a JSON object")
+    servers = data.setdefault("mcpServers", {})
+    if not isinstance(servers, dict):
+        raise ValueError("mcpServers is not an object")
+    if item is None:
+        if name not in servers:
+            return []
+        servers.pop(name)
+    else:
+        servers[name] = item
+    new = json.dumps(data, indent=2, ensure_ascii=False) + ("\n" if text.endswith("\n") else "")
+    return [connect.Change(path, text, new)] if new != text else []
 
 
 def describe(entry: dict) -> str:

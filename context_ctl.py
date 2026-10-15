@@ -25,7 +25,6 @@ import os
 import re
 import struct
 import tempfile
-import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -202,7 +201,7 @@ def llama_settings(name: str, ini: Path = MODELS_INI) -> tuple[int, str]:
 
 def llama_context_text(old: str, name: str, ctx: int) -> str:
     """models.ini with ctx-size set in the model's section (made if missing); the rest stays."""
-    if not re.fullmatch(r"[^\[\]\n]{1,200}", name) or not 0 < ctx < 10_000_000:
+    if not re.fullmatch(r"[^\[\]\x00-\x1f\x7f]{1,200}", name) or not 0 < ctx < 10_000_000:
         raise ValueError("bad model or context")
     old = old or "version = 1\n"
     lines = old.splitlines(keepends=True)
@@ -274,9 +273,12 @@ def ollama_set_context(name: str, ctx: int, address: str):
     port = int(address.rsplit(":", 1)[-1])
     models_ctl.require_own_listener(port)
     body = json.dumps({"model": name, "from": name, "parameters": {"num_ctx": int(ctx)}, "stream": False}).encode()
-    request = urllib.request.Request(f"http://127.0.0.1:{port}/api/create", data=body,
-                                     headers={"Content-Type": "application/json"}, method="POST")
-    with urllib.request.urlopen(request, timeout=120) as response:
-        answer = json.loads(response.read(65536) or b"{}")
+    import netfetch
+    try:
+        raw = netfetch.fetch(f"http://127.0.0.1:{port}/api/create", max_bytes=65536, timeout=120, local=True,
+                             headers={"Content-Type": "application/json"}, data=body, method="POST")
+        answer = json.loads(raw or b"{}")
+    except (netfetch.FetchError, ValueError) as error:
+        raise RuntimeError(f"Ollama: {error}") from error
     if isinstance(answer, dict) and answer.get("error"):
         raise RuntimeError(str(answer["error"])[:300])

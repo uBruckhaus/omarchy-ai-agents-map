@@ -25,12 +25,10 @@ def lms_binary() -> str | None:
 
 
 def _run(argv: list[str]) -> tuple[bool, str]:
-    try:
-        result = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=TIMEOUT)
-    except (OSError, subprocess.SubprocessError) as error:
-        return False, str(error)
-    message = (result.stderr or result.stdout or "").strip().splitlines()
-    return result.returncode == 0, (message[-1] if message else "")[:300]
+    import ai_core
+    out, ok = ai_core.read_bounded_output(argv, max_bytes=64 * 1024, timeout=TIMEOUT, merge_stderr=True)
+    message = out.decode("utf-8", "replace").strip().splitlines()
+    return ok, (message[-1] if message else "")[:300]
 
 
 def can_control(rt) -> bool:

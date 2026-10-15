@@ -47,7 +47,7 @@ class ProfileTest(unittest.TestCase):
     def fake_run(self, text, code=0):
         def run(argv, **_kw):
             self.argv = argv
-            return subprocess.CompletedProcess(argv, code, stdout=text, stderr="boom" if code else "")
+            return (text if not code else "boom").encode(), code == 0
         return run
 
     def test_rules_for_web_answers(self):

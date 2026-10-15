@@ -98,6 +98,17 @@ class McpTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             mcp_ctl.plan("openclaw", "tools", ["pi"])
 
+    def test_claude_keys_never_in_argv(self):
+        result = mcp_ctl.plan("claude", "tools", ["pi"])      # env API_KEY
+        self.assertEqual(result.commands, [])
+        self.assertNotIn("abcd-1234", json.dumps(result.commands + result.undo_commands))
+        connect.apply(result, self.home / "b")
+        data = json.loads((self.home / ".claude.json").read_text())
+        self.assertEqual(data["mcpServers"]["tools"]["env"], {"API_KEY": "abcd-1234"})
+        removed = mcp_ctl.plan("claude", "tools", remove=True)
+        self.assertEqual(removed.commands, [])
+        self.assertNotIn("abcd-1234", removed.diff())
+
     def test_unknown_server_or_agent(self):
         with self.assertRaises(ValueError):
             mcp_ctl.plan("hermes", "nothere", ["pi"])

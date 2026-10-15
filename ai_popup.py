@@ -206,6 +206,75 @@ class AgentsMap(Gtk.Application):
 
     # --- window ----------------------------------------------------------------
 
+    # --- text fields: paste and drops only through bounded reads --------------------------------
+
+    def guard_text_field(self, field):
+        """Route every way text can enter a field from another client through a
+        bounded read. GTK's own paste, middle-click paste and text drops buffer
+        the whole offer in memory with no limit or deadline (as in Theme
+        Manager). `field`: a Gtk.Entry (or its Gtk.Text) or a Gtk.TextView."""
+        text = field.get_delegate() if isinstance(field, Gtk.Entry) else field
+        text = text or field
+        if getattr(text, "_am_guarded", False):
+            return
+        text._am_guarded = True
+        if isinstance(text, Gtk.Text) and text.get_max_length() == 0:
+            text.set_max_length(4096)
+        # Ctrl+V, Shift+Insert and the context menu's Paste all emit this.
+        text.connect("paste-clipboard", self.on_field_paste, field)
+        middle = Gtk.GestureClick(button=Gdk.BUTTON_MIDDLE)
+        middle.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        middle.connect("pressed", lambda gesture, *_: gesture.set_state(Gtk.EventSequenceState.CLAIMED))
+        field.add_controller(middle)
+        controllers = text.observe_controllers()
+        for i in reversed(range(controllers.get_n_items())):
+            controller = controllers.get_item(i)
+            if isinstance(controller, (Gtk.DropTarget, Gtk.DropTargetAsync)):
+                text.remove_controller(controller)
+
+    def guard_text_fields_in(self, root):
+        guarded = 0
+        stack = [root]
+        while stack:
+            widget = stack.pop()
+            if isinstance(widget, (Gtk.Text, Gtk.TextView)):
+                self.guard_text_field(widget)
+                guarded += 1
+                continue
+            child = widget.get_first_child()
+            while child is not None:
+                stack.append(child)
+                child = child.get_next_sibling()
+        return guarded
+
+    def on_field_paste(self, text, field):
+        text.stop_emission_by_name("paste-clipboard")
+        if isinstance(field, Gtk.TextView) and not field.get_editable():
+            return
+        lines = isinstance(field, Gtk.TextView)
+
+        def worker():
+            pasted = ai_core.clipboard_text(lines=lines)
+            GLib.idle_add(self.insert_pasted, field, pasted)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def insert_pasted(self, field, pasted):
+        if pasted is None:
+            self.show_note(_("Clipboard text is too long to paste (max {0} KiB)").format(
+                ai_core.MAX_PASTE_BYTES // 1024))
+        elif pasted and isinstance(field, Gtk.TextView):
+            buffer = field.get_buffer()
+            buffer.delete_selection(True, True)
+            buffer.insert_at_cursor(pasted)
+        elif pasted:
+            text = field.get_delegate() if isinstance(field, Gtk.Entry) else field
+            text = text or field
+            text.delete_selection()
+            position = text.insert_text(pasted, text.get_position())
+            text.set_position(position)
+        return GLib.SOURCE_REMOVE
+
     def build_window(self):
         settings = Gtk.Settings.get_default()
         if settings is not None:
@@ -266,6 +335,7 @@ class AgentsMap(Gtk.Application):
         stack.add_named(self.build_mcp_page(), "mcp")
         stack.add_named(self.build_add_mcp_page(), "addmcp")
         stack.add_named(self.build_add_skills_page(), "addskills")
+        self.guard_text_fields_in(window)
         stack.connect("notify::visible-child-name", lambda *_: self.update_header())
         card.append(stack)
         self.stack = stack
@@ -1113,6 +1183,19 @@ class AgentsMap(Gtk.Application):
         body.append(self.add_found_status)
         self.add_found_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         body.append(self.add_found_list)
+        # AppImages are never run by the scan: looking inside them is the user's click.
+        self.add_inside_row = Gtk.Box(spacing=8)
+        self.add_inside_label = Gtk.Label(xalign=0, hexpand=True, wrap=True, max_width_chars=1)
+        self.add_inside_label.add_css_class("am-agent-detail")
+        self.add_inside_row.append(self.add_inside_label)
+        self.add_inside = Gtk.Button(label=_("Look inside…"))
+        self.add_inside.add_css_class("am-small-btn")
+        self.add_inside.set_tooltip_text(_("Each AppImage is unpacked into a temporary folder, its programs are "
+                                           "read, and the folder is removed again. Nothing is started."))
+        self.add_inside.connect("clicked", lambda *_: self.look_inside_appimages())
+        self.add_inside_row.append(self.add_inside)
+        self.add_inside_row.set_visible(False)
+        body.append(self.add_inside_row)
 
         # Search the web (the official MCP registry).
         self.settings_heading(body, _("Search the web"))
@@ -1313,12 +1396,36 @@ class AgentsMap(Gtk.Application):
             text += " " + ngettext("1 more is set up already.", "{0} more are set up already.",
                                    len(found) - len(fresh)).format(len(found) - len(fresh))
         self.add_found_status.set_label(text)
+        pending = mcp_scan.not_looked_into()
+        self.add_inside_row.set_visible(bool(pending))
+        self.add_inside_label.set_label(ngettext(
+            "1 AppImage not looked into yet ({1}).", "{0} AppImages not looked into yet ({1}).", len(pending))
+            .format(len(pending), ", ".join(p.name for p in pending[:4]) + ("…" if len(pending) > 4 else "")))
         for candidate in sorted(fresh, key=lambda c: (c.program in seen, c.name)):
             where = Path(candidate.appimage).name if candidate.appimage else skills_ctl.tilde(candidate.program)
             if candidate.program not in seen:
                 where = "★ " + _("new") + " · " + where
             self.add_found_list.append(self.choice_row(candidate.name, where,
                                                        lambda *_, c=candidate: self.use_found(c)))
+
+    def look_inside_appimages(self):
+        pending = mcp_scan.not_looked_into()
+        if not pending:
+            return
+        self.add_inside.set_sensitive(False)
+        self.add_inside_label.set_label(_("Looking inside {0} AppImages…").format(len(pending)))
+
+        def work():
+            mcp_scan.look_inside(pending)
+            GLib.idle_add(done)
+
+        def done():
+            self.add_inside.set_sensitive(True)
+            self.found_mcp = None
+            self.scan_mcp()
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
 
     def choice_row(self, title: str, detail: str, on_use) -> Gtk.Widget:
         """name ······ [Add…] on one line (a dotted line leads the eye to the
@@ -1355,7 +1462,7 @@ class AgentsMap(Gtk.Application):
                 Path(candidate.appimage).name, skills_ctl.tilde(folder))
         if candidate.usage:
             source += "\n" + _("Its usage: {0}").format(candidate.usage)
-        self.add_from = {"appimage": candidate.appimage, "program": candidate.program} if candidate.appimage else None
+        self.add_from = {"appimage": candidate.appimage, "inner": candidate.inner} if candidate.appimage else None
         self.fill_add_form(candidate.name, 0, " ".join(shlex.quote(c) for c in command), "", "", [], source)
 
     def search_mcp(self):
@@ -1421,6 +1528,7 @@ class AgentsMap(Gtk.Application):
             entry = Gtk.Entry(hexpand=True, text=need.value or "", visibility=not need.secret,
                               placeholder_text=_("needed") if need.required else _("optional"))
             entry.connect("changed", lambda *_: self.add_changed())
+            self.guard_text_field(entry)
             label = need.description if need.name.startswith("arg:") else need.name
             self.setting_line(box, label[:40], need.description, entry)
             entry.set_halign(Gtk.Align.FILL)
@@ -1540,18 +1648,25 @@ class AgentsMap(Gtk.Application):
             self.add_status.set_label(str(error))
             return
         found = (self.add_from or {})
-        if found.get("appimage") and entry["transport"] == "stdio":
-            entry = {**entry, "command": found["program"]}      # the unpacked usr/bin in the cache
         self.add_status.set_label(_("Asking the server…"))
         self.add_test.set_sensitive(False)
 
         def work():
+            temp = None
             try:
-                result = mcp_tools.ask(entry)
+                run = entry
+                if found.get("appimage") and entry["transport"] == "stdio":
+                    # Not unpacked yet: its usr/bin into a temporary folder, removed below.
+                    temp, folder = mcp_scan.unpack_bin(Path(found["appimage"]))
+                    run = {**entry, "command": str(folder / found["inner"])}
+                result = mcp_tools.ask(run)
                 text = ngettext("Works: {1} offers 1 tool.", "Works: {1} offers {0} tools.", len(result["tools"])) \
                     .format(len(result["tools"]), result["server"] or self.add_name.get_text())
             except (OSError, ValueError, RuntimeError, TimeoutError) as error:
                 text = _("Does not answer: {0}").format(error)
+            finally:
+                if temp is not None:
+                    shutil.rmtree(temp, ignore_errors=True)
             GLib.idle_add(done, text)
 
         def done(text):
@@ -1641,6 +1756,7 @@ class AgentsMap(Gtk.Application):
         before = self.new_found()
 
         def work():
+            mcp_scan.cleanup_old_cache()
             try:
                 mcp = mcp_scan.scan(configured, commands)
             except OSError:
@@ -3034,6 +3150,7 @@ class AgentsMap(Gtk.Application):
     def folder_field(self, box, title: str, hint: str, value: str, suggestions) -> Gtk.Entry:
         """A path field with the suggested folders as buttons under it."""
         entry = Gtk.Entry(text=value, hexpand=True, max_length=1024)
+        self.guard_text_field(entry)
         entry.add_css_class("am-path")
         entry.connect("changed", lambda *_: self.update_install_check())
         column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, hexpand=True)
@@ -3903,6 +4020,8 @@ class AgentsMap(Gtk.Application):
             GLib.idle_add(self.open_add_mcp)
         elif page == "addskills":
             GLib.idle_add(self.open_add_skills)
+        elif page.startswith("details:") and mcp_ctl.NAME_RE.match(page[8:]):
+            GLib.idle_add(self.open_mcp_details, page[8:])
 
     def on_menu_opened(self, _name):
         """Another menu wants the keyboard: get out of its way at once."""

@@ -15,7 +15,6 @@ import json
 import re
 import shutil
 import urllib.parse
-import urllib.request
 from dataclasses import dataclass, field
 
 API = "https://registry.modelcontextprotocol.io/v0/servers"
@@ -150,11 +149,13 @@ def parse(data: dict) -> list[Server]:
 
 def search(query: str, limit: int = 30) -> list[Server]:
     params = urllib.parse.urlencode({"search": query.strip()[:100], "limit": limit, "version": "latest"})
-    request = urllib.request.Request(f"{API}?{params}", headers={"Accept": "application/json",
-                                                                 "User-Agent": "ai-agents-map"})
-    with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
-        data = json.loads(response.read(MAX_BYTES).decode("utf-8", "replace"))
-    return parse(data)
+    import netfetch
+    try:
+        data = netfetch.fetch_json(f"{API}?{params}", max_bytes=MAX_BYTES, timeout=TIMEOUT, redirects=0,
+                                   headers={"Accept": "application/json"})
+    except netfetch.FetchError as error:
+        raise ValueError(str(error)) from error
+    return parse(data if isinstance(data, dict) else {})
 
 
 def fill(entry: dict, values: dict) -> dict:

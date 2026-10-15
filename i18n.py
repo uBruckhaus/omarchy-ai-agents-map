@@ -119,6 +119,10 @@ def ngettext(one, other, n):
 
 STRINGS = {
  "de": {
+  "\u00041 AppImage not looked into yet ({1}).": [
+   "1 AppImage noch nicht angesehen ({1}).",
+   "{0} AppImages noch nicht angesehen ({1})."
+  ],
   "\u00041 active day": [
    "1 aktiver Tag",
    "{0} aktive Tage"
@@ -225,6 +229,7 @@ STRINGS = {
   "Clear selection": "Auswahl aufheben",
   "Clear the selection (Esc)": "Auswahl aufheben (Esc)",
   "Click a card or a box to see only its connections; Shift+click selects more than one.": "Eine Karte oder ein Feld anklicken zeigt nur seine Verbindungen; Umschalt+Klick wählt mehrere.",
+  "Clipboard text is too long to paste (max {0} KiB)": "Text in der Zwischenablage ist zu lang zum Einfügen (max. {0} KiB)",
   "Command": "Befehl",
   "Connect": "Verbinden",
   "Connect {0} to {1}": "{0} mit {1} verbinden",
@@ -237,6 +242,7 @@ STRINGS = {
   "Does not answer: {0}": "Antwortet nicht: {0}",
   "Download": "Herunterladen",
   "Downloaded: {0}": "Heruntergeladen: {0}",
+  "Each AppImage is unpacked into a temporary folder, its programs are read, and the folder is removed again. Nothing is started.": "Jedes AppImage wird in einen temporären Ordner entpackt, seine Programme werden gelesen, dann wird der Ordner wieder gelöscht. Nichts wird gestartet.",
   "Enables or disables the user service {0}.": "Schaltet den Benutzerdienst {0} ein oder aus.",
   "Environment": "Umgebung",
   "Every program found here is set up already.": "Alle hier gefundenen Programme sind schon eingerichtet.",
@@ -272,6 +278,7 @@ STRINGS = {
   "Local": "Lokal",
   "Local LLMs": "Lokale LLMs",
   "Local LLMs ({0})": "Lokale LLMs ({0})",
+  "Look inside…": "Hineinsehen…",
   "Look up again on the web": "Noch einmal im Web nachsehen",
   "Look up new agents": "Neue Agenten nachschlagen",
   "Look-up failed: {0}": "Nachschlagen fehlgeschlagen: {0}",
@@ -279,6 +286,7 @@ STRINGS = {
   "Looking for programs that offer an MCP server…": "Suche Programme, die einen MCP-Server anbieten…",
   "Looking for skills that apps brought along…": "Suche Skills, die Apps mitgebracht haben…",
   "Looking for the latest version…": "Suche die neueste Version…",
+  "Looking inside {0} AppImages…": "Sehe in {0} AppImages hinein…",
   "Looking up on the web where it keeps MCP servers and skills…": "Sucht im Web, wo er MCP-Server und Skills ablegt…",
   "MCP server {0}": "MCP-Server {0}",
   "MCP servers": "MCP-Server",
@@ -523,6 +531,10 @@ STRINGS = {
   "{3} → {0} ({1} download) for {2}. The settings and models stay.": "{3} → {0} ({1} Download) für {2}. Einstellungen und Modelle bleiben."
  },
  "es": {
+  "\u00041 AppImage not looked into yet ({1}).": [
+   "1 AppImage aún sin revisar ({1}).",
+   "{0} AppImages aún sin revisar ({1})."
+  ],
   "\u00041 active day": [
    "1 día activo",
    "{0} días activos"
@@ -629,6 +641,7 @@ STRINGS = {
   "Clear selection": "Quitar selección",
   "Clear the selection (Esc)": "Quitar la selección (Esc)",
   "Click a card or a box to see only its connections; Shift+click selects more than one.": "Haz clic en una tarjeta o una caja para ver solo sus conexiones; Mayús+clic selecciona varias.",
+  "Clipboard text is too long to paste (max {0} KiB)": "El texto del portapapeles es demasiado largo para pegar (máx. {0} KiB)",
   "Command": "Comando",
   "Connect": "Conectar",
   "Connect {0} to {1}": "Conectar {0} con {1}",
@@ -641,6 +654,7 @@ STRINGS = {
   "Does not answer: {0}": "No responde: {0}",
   "Download": "Descargar",
   "Downloaded: {0}": "Descargado: {0}",
+  "Each AppImage is unpacked into a temporary folder, its programs are read, and the folder is removed again. Nothing is started.": "Cada AppImage se descomprime en una carpeta temporal, se leen sus programas y la carpeta se borra. No se inicia nada.",
   "Enables or disables the user service {0}.": "Activa o desactiva el servicio de usuario {0}.",
   "Environment": "Entorno",
   "Every program found here is set up already.": "Todos los programas encontrados aquí ya están configurados.",
@@ -676,6 +690,7 @@ STRINGS = {
   "Local": "Local",
   "Local LLMs": "LLM locales",
   "Local LLMs ({0})": "LLM locales ({0})",
+  "Look inside…": "Mirar dentro…",
   "Look up again on the web": "Buscar de nuevo en la web",
   "Look up new agents": "Buscar agentes nuevos",
   "Look-up failed: {0}": "Falló la búsqueda: {0}",
@@ -683,6 +698,7 @@ STRINGS = {
   "Looking for programs that offer an MCP server…": "Buscando programas que ofrecen un servidor MCP…",
   "Looking for skills that apps brought along…": "Buscando skills que trajeron las apps…",
   "Looking for the latest version…": "Buscando la última versión…",
+  "Looking inside {0} AppImages…": "Mirando dentro de {0} AppImages…",
   "Looking up on the web where it keeps MCP servers and skills…": "Buscando en la web dónde guarda servidores MCP y skills…",
   "MCP server {0}": "Servidor MCP {0}",
   "MCP servers": "Servidores MCP",
@@ -927,6 +943,10 @@ STRINGS = {
   "{3} → {0} ({1} download) for {2}. The settings and models stay.": "{3} → {0} ({1} de descarga) para {2}. Los ajustes y modelos se quedan."
  },
  "fr": {
+  "\u00041 AppImage not looked into yet ({1}).": [
+   "1 AppImage pas encore examinée ({1}).",
+   "{0} AppImages pas encore examinées ({1})."
+  ],
   "\u00041 active day": [
    "{0} jour actif",
    "{0} jours actifs"
@@ -1033,6 +1053,7 @@ STRINGS = {
   "Clear selection": "Effacer la sélection",
   "Clear the selection (Esc)": "Effacer la sélection (Échap)",
   "Click a card or a box to see only its connections; Shift+click selects more than one.": "Cliquez sur une carte ou une case pour ne voir que ses liens ; Maj+clic en sélectionne plusieurs.",
+  "Clipboard text is too long to paste (max {0} KiB)": "Le texte du presse-papiers est trop long à coller (max. {0} Kio)",
   "Command": "Commande",
   "Connect": "Connecter",
   "Connect {0} to {1}": "Connecter {0} à {1}",
@@ -1045,6 +1066,7 @@ STRINGS = {
   "Does not answer: {0}": "Ne répond pas : {0}",
   "Download": "Télécharger",
   "Downloaded: {0}": "Téléchargé : {0}",
+  "Each AppImage is unpacked into a temporary folder, its programs are read, and the folder is removed again. Nothing is started.": "Chaque AppImage est décompressée dans un dossier temporaire, ses programmes sont lus, puis le dossier est supprimé. Rien n'est lancé.",
   "Enables or disables the user service {0}.": "Active ou désactive le service utilisateur {0}.",
   "Environment": "Environnement",
   "Every program found here is set up already.": "Tous les programmes trouvés ici sont déjà configurés.",
@@ -1080,6 +1102,7 @@ STRINGS = {
   "Local": "Local",
   "Local LLMs": "LLM locaux",
   "Local LLMs ({0})": "LLM locaux ({0})",
+  "Look inside…": "Regarder dedans…",
   "Look up again on the web": "Rechercher à nouveau sur le web",
   "Look up new agents": "Rechercher les nouveaux agents",
   "Look-up failed: {0}": "Échec de la recherche : {0}",
@@ -1087,6 +1110,7 @@ STRINGS = {
   "Looking for programs that offer an MCP server…": "Recherche des programmes qui proposent un serveur MCP…",
   "Looking for skills that apps brought along…": "Recherche des skills apportés par des apps…",
   "Looking for the latest version…": "Recherche de la dernière version…",
+  "Looking inside {0} AppImages…": "Examen de {0} AppImages…",
   "Looking up on the web where it keeps MCP servers and skills…": "Recherche sur le web de l'emplacement de ses serveurs MCP et skills…",
   "MCP server {0}": "Serveur MCP {0}",
   "MCP servers": "Serveurs MCP",
@@ -1331,6 +1355,10 @@ STRINGS = {
   "{3} → {0} ({1} download) for {2}. The settings and models stay.": "{3} → {0} ({1} à télécharger) pour {2}. Les réglages et les modèles restent."
  },
  "it": {
+  "\u00041 AppImage not looked into yet ({1}).": [
+   "1 AppImage non ancora esaminata ({1}).",
+   "{0} AppImage non ancora esaminate ({1})."
+  ],
   "\u00041 active day": [
    "1 giorno attivo",
    "{0} giorni attivi"
@@ -1437,6 +1465,7 @@ STRINGS = {
   "Clear selection": "Annulla selezione",
   "Clear the selection (Esc)": "Annulla la selezione (Esc)",
   "Click a card or a box to see only its connections; Shift+click selects more than one.": "Fai clic su una scheda o un riquadro per vedere solo i suoi collegamenti; Maiusc+clic ne seleziona più di uno.",
+  "Clipboard text is too long to paste (max {0} KiB)": "Il testo negli appunti è troppo lungo da incollare (max {0} KiB)",
   "Command": "Comando",
   "Connect": "Collega",
   "Connect {0} to {1}": "Collega {0} a {1}",
@@ -1449,6 +1478,7 @@ STRINGS = {
   "Does not answer: {0}": "Non risponde: {0}",
   "Download": "Scarica",
   "Downloaded: {0}": "Scaricato: {0}",
+  "Each AppImage is unpacked into a temporary folder, its programs are read, and the folder is removed again. Nothing is started.": "Ogni AppImage viene estratta in una cartella temporanea, i suoi programmi vengono letti e la cartella viene rimossa. Non viene avviato nulla.",
   "Enables or disables the user service {0}.": "Attiva o disattiva il servizio utente {0}.",
   "Environment": "Ambiente",
   "Every program found here is set up already.": "Tutti i programmi trovati qui sono già configurati.",
@@ -1484,6 +1514,7 @@ STRINGS = {
   "Local": "Locale",
   "Local LLMs": "LLM locali",
   "Local LLMs ({0})": "LLM locali ({0})",
+  "Look inside…": "Guarda dentro…",
   "Look up again on the web": "Cerca di nuovo sul web",
   "Look up new agents": "Cerca i nuovi agenti",
   "Look-up failed: {0}": "Ricerca non riuscita: {0}",
@@ -1491,6 +1522,7 @@ STRINGS = {
   "Looking for programs that offer an MCP server…": "Cerco programmi che offrono un server MCP…",
   "Looking for skills that apps brought along…": "Cerco skill portate dalle app…",
   "Looking for the latest version…": "Cerco l'ultima versione…",
+  "Looking inside {0} AppImages…": "Guardo dentro {0} AppImage…",
   "Looking up on the web where it keeps MCP servers and skills…": "Cerca sul web dove tiene server MCP e skill…",
   "MCP server {0}": "Server MCP {0}",
   "MCP servers": "Server MCP",
@@ -1735,6 +1767,10 @@ STRINGS = {
   "{3} → {0} ({1} download) for {2}. The settings and models stay.": "{3} → {0} ({1} da scaricare) per {2}. Impostazioni e modelli restano."
  },
  "nl": {
+  "\u00041 AppImage not looked into yet ({1}).": [
+   "1 AppImage nog niet bekeken ({1}).",
+   "{0} AppImages nog niet bekeken ({1})."
+  ],
   "\u00041 active day": [
    "1 actieve dag",
    "{0} actieve dagen"
@@ -1841,6 +1877,7 @@ STRINGS = {
   "Clear selection": "Selectie wissen",
   "Clear the selection (Esc)": "Selectie wissen (Esc)",
   "Click a card or a box to see only its connections; Shift+click selects more than one.": "Klik op een kaart of vak om alleen zijn verbindingen te zien; Shift+klik selecteert er meer.",
+  "Clipboard text is too long to paste (max {0} KiB)": "Tekst op het klembord is te lang om te plakken (max. {0} KiB)",
   "Command": "Opdracht",
   "Connect": "Verbinden",
   "Connect {0} to {1}": "{0} met {1} verbinden",
@@ -1853,6 +1890,7 @@ STRINGS = {
   "Does not answer: {0}": "Antwoordt niet: {0}",
   "Download": "Downloaden",
   "Downloaded: {0}": "Gedownload: {0}",
+  "Each AppImage is unpacked into a temporary folder, its programs are read, and the folder is removed again. Nothing is started.": "Elke AppImage wordt in een tijdelijke map uitgepakt, de programma's worden gelezen en de map wordt weer verwijderd. Er wordt niets gestart.",
   "Enables or disables the user service {0}.": "Zet de gebruikersdienst {0} aan of uit.",
   "Environment": "Omgeving",
   "Every program found here is set up already.": "Alle hier gevonden programma's zijn al ingesteld.",
@@ -1888,6 +1926,7 @@ STRINGS = {
   "Local": "Lokaal",
   "Local LLMs": "Lokale LLM's",
   "Local LLMs ({0})": "Lokale LLM's ({0})",
+  "Look inside…": "Binnenin kijken…",
   "Look up again on the web": "Opnieuw op het web opzoeken",
   "Look up new agents": "Nieuwe agents opzoeken",
   "Look-up failed: {0}": "Opzoeken mislukt: {0}",
@@ -1895,6 +1934,7 @@ STRINGS = {
   "Looking for programs that offer an MCP server…": "Zoekt programma's die een MCP-server bieden…",
   "Looking for skills that apps brought along…": "Zoekt skills die apps hebben meegebracht…",
   "Looking for the latest version…": "Zoeken naar de nieuwste versie…",
+  "Looking inside {0} AppImages…": "Kijkt in {0} AppImages…",
   "Looking up on the web where it keeps MCP servers and skills…": "Zoekt op het web waar hij MCP-servers en skills bewaart…",
   "MCP server {0}": "MCP-server {0}",
   "MCP servers": "MCP-servers",
@@ -2139,6 +2179,11 @@ STRINGS = {
   "{3} → {0} ({1} download) for {2}. The settings and models stay.": "{3} → {0} ({1} download) voor {2}. Instellingen en modellen blijven."
  },
  "pl": {
+  "\u00041 AppImage not looked into yet ({1}).": [
+   "1 AppImage jeszcze nie sprawdzony ({1}).",
+   "{0} AppImage jeszcze nie sprawdzone ({1}).",
+   "{0} AppImage jeszcze nie sprawdzonych ({1})."
+  ],
   "\u00041 active day": [
    "1 aktywny dzień",
    "{0} aktywne dni",
@@ -2261,6 +2306,7 @@ STRINGS = {
   "Clear selection": "Wyczyść zaznaczenie",
   "Clear the selection (Esc)": "Wyczyść zaznaczenie (Esc)",
   "Click a card or a box to see only its connections; Shift+click selects more than one.": "Kliknij kartę lub pole, aby zobaczyć tylko jego połączenia; Shift+klik zaznacza więcej.",
+  "Clipboard text is too long to paste (max {0} KiB)": "Tekst w schowku jest za długi do wklejenia (maks. {0} KiB)",
   "Command": "Polecenie",
   "Connect": "Połącz",
   "Connect {0} to {1}": "Połącz {0} z {1}",
@@ -2273,6 +2319,7 @@ STRINGS = {
   "Does not answer: {0}": "Nie odpowiada: {0}",
   "Download": "Pobierz",
   "Downloaded: {0}": "Pobrano: {0}",
+  "Each AppImage is unpacked into a temporary folder, its programs are read, and the folder is removed again. Nothing is started.": "Każdy AppImage jest rozpakowywany do folderu tymczasowego, jego programy są odczytywane, a folder jest usuwany. Nic nie jest uruchamiane.",
   "Enables or disables the user service {0}.": "Włącza lub wyłącza usługę użytkownika {0}.",
   "Environment": "Środowisko",
   "Every program found here is set up already.": "Wszystkie znalezione tu programy są już skonfigurowane.",
@@ -2308,6 +2355,7 @@ STRINGS = {
   "Local": "Lokalne",
   "Local LLMs": "Lokalne LLM",
   "Local LLMs ({0})": "Lokalne LLM ({0})",
+  "Look inside…": "Zajrzyj do środka…",
   "Look up again on the web": "Sprawdź ponownie w sieci",
   "Look up new agents": "Sprawdzaj nowe agenty",
   "Look-up failed: {0}": "Sprawdzanie nie powiodło się: {0}",
@@ -2315,6 +2363,7 @@ STRINGS = {
   "Looking for programs that offer an MCP server…": "Szukam programów oferujących serwer MCP…",
   "Looking for skills that apps brought along…": "Szukam skilli dostarczonych przez aplikacje…",
   "Looking for the latest version…": "Szukam najnowszej wersji…",
+  "Looking inside {0} AppImages…": "Zaglądam do {0} AppImage…",
   "Looking up on the web where it keeps MCP servers and skills…": "Szuka w sieci, gdzie trzyma serwery MCP i skille…",
   "MCP server {0}": "Serwer MCP {0}",
   "MCP servers": "Serwery MCP",
@@ -2559,6 +2608,10 @@ STRINGS = {
   "{3} → {0} ({1} download) for {2}. The settings and models stay.": "{3} → {0} ({1} do pobrania) dla {2}. Ustawienia i modele zostają."
  },
  "pt": {
+  "\u00041 AppImage not looked into yet ({1}).": [
+   "1 AppImage ainda não examinada ({1}).",
+   "{0} AppImages ainda não examinadas ({1})."
+  ],
   "\u00041 active day": [
    "{0} dia ativo",
    "{0} dias ativos"
@@ -2665,6 +2718,7 @@ STRINGS = {
   "Clear selection": "Limpar seleção",
   "Clear the selection (Esc)": "Limpar a seleção (Esc)",
   "Click a card or a box to see only its connections; Shift+click selects more than one.": "Clique num cartão ou numa caixa para ver só as suas ligações; Shift+clique seleciona vários.",
+  "Clipboard text is too long to paste (max {0} KiB)": "O texto da área de transferência é longo demais para colar (máx. {0} KiB)",
   "Command": "Comando",
   "Connect": "Ligar",
   "Connect {0} to {1}": "Ligar {0} a {1}",
@@ -2677,6 +2731,7 @@ STRINGS = {
   "Does not answer: {0}": "Não responde: {0}",
   "Download": "Descarregar",
   "Downloaded: {0}": "Descarregado: {0}",
+  "Each AppImage is unpacked into a temporary folder, its programs are read, and the folder is removed again. Nothing is started.": "Cada AppImage é descompactada numa pasta temporária, os seus programas são lidos e a pasta é removida. Nada é iniciado.",
   "Enables or disables the user service {0}.": "Ativa ou desativa o serviço de utilizador {0}.",
   "Environment": "Ambiente",
   "Every program found here is set up already.": "Todos os programas encontrados aqui já estão configurados.",
@@ -2712,6 +2767,7 @@ STRINGS = {
   "Local": "Local",
   "Local LLMs": "LLMs locais",
   "Local LLMs ({0})": "LLMs locais ({0})",
+  "Look inside…": "Ver por dentro…",
   "Look up again on the web": "Pesquisar de novo na web",
   "Look up new agents": "Pesquisar agentes novos",
   "Look-up failed: {0}": "A pesquisa falhou: {0}",
@@ -2719,6 +2775,7 @@ STRINGS = {
   "Looking for programs that offer an MCP server…": "A procurar programas que oferecem um servidor MCP…",
   "Looking for skills that apps brought along…": "A procurar skills trazidas por apps…",
   "Looking for the latest version…": "A procurar a versão mais recente…",
+  "Looking inside {0} AppImages…": "A ver dentro de {0} AppImages…",
   "Looking up on the web where it keeps MCP servers and skills…": "A pesquisar na web onde guarda servidores MCP e skills…",
   "MCP server {0}": "Servidor MCP {0}",
   "MCP servers": "Servidores MCP",

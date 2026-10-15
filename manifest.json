@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "author": "Uwe Bruckhaus",
   "license": "MIT",
-  "description": "An easy overview of the AI setup on this computer: coding agents with plan, limits and usage, local LLMs (llama.cpp, Ollama, LM Studio, vLLM) and the models they serve, MCP servers and skills, as cards or drawn as a map. Reads only, starts nothing. 8 languages.",
+  "description": "The AI setup on this computer as cards and a map: coding agents with plan, limits and usage, local LLMs (llama.cpp, Ollama, LM Studio, vLLM) and their models, MCP servers and skills. Connect agents to LLMs, MCP servers and skills by drawing a line, with a preview and Undo; install local LLMs and models, add MCP servers and skills found on this PC or on the web. 8 languages.",
   "kinds": [
     "bar-widget"
   ],

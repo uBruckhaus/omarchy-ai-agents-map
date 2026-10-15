@@ -97,7 +97,8 @@ def base_url(address: str) -> str:
 
 def _read(path: Path) -> str:
     try:
-        if path.stat().st_size > MAX_BYTES:
+        limit = 8 * 1024 * 1024 if path.name == ".claude.json" else MAX_BYTES
+        if path.stat().st_size > limit:
             raise ValueError(f"{path} is too large")
         return path.read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -408,13 +409,11 @@ def undo(folder: Path) -> list[Path]:
 
 def _run(argv: list):
     """A settings command (claude mcp …): no shell, short timeout, its error as the message."""
-    try:
-        done = subprocess.run(argv, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise RuntimeError(f"{Path(argv[0]).name}: {error}") from error
-    if done.returncode != 0:
-        message = (done.stderr or done.stdout).strip().splitlines()
-        raise RuntimeError(f"{Path(argv[0]).name}: {message[-1] if message else done.returncode}")
+    import ai_core
+    out, ok = ai_core.read_bounded_output(argv, max_bytes=64 * 1024, timeout=60, merge_stderr=True)
+    if not ok:
+        message = out.decode("utf-8", "replace").strip().splitlines()
+        raise RuntimeError(f"{Path(argv[0]).name}: {message[-1] if message else 'failed'}")
 
 
 def tilde(path) -> str:
