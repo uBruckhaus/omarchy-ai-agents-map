@@ -212,3 +212,14 @@ def hyprland_rounding() -> int:
         return max(0, min(64, int(json.loads(raw).get("int", 0))))
     except (ValueError, AttributeError, TypeError):
         return 0
+
+
+MAP_LAYERS = ("agents", "online", "local", "models", "mcp", "skills")
+
+
+def map_layers(path: Path | None = None) -> list:
+    """The categories switched on in the Map (all by default)."""
+    value = load_settings(path).get("map_layers")
+    if isinstance(value, list):
+        return [v for v in MAP_LAYERS if v in value]
+    return list(MAP_LAYERS)

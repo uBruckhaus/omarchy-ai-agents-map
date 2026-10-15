@@ -24,6 +24,32 @@ PROVIDER_NAMES = {
 }
 MAX_MODELS_PER_PROVIDER = 10
 
+# Categories the map can show or hide, in toolbar order, and what each needs.
+LAYERS = ("agents", "online", "local", "models", "mcp", "skills")
+LAYER_OF = {"agent": "agents", "cloud": "online", "runtime": "local", "model": "models", "more": "models",
+            "mcp": "mcp", "skills": "skills"}
+REQUIRES = {"models": ("online", "local"), "mcp": ("agents",), "skills": ("agents",)}   # any one of them
+
+
+def effective_layers(enabled) -> set:
+    """The categories actually shown: those switched on whose needs are met."""
+    enabled = {layer for layer in enabled if layer in LAYERS}
+    return {layer for layer in enabled
+            if not REQUIRES.get(layer) or any(need in enabled for need in REQUIRES[layer])}
+
+
+def hidden_by_layers(graph, enabled) -> set:
+    """Node ids the switched-off categories hide. A model also goes when none
+    of the providers serving it is shown."""
+    shown = effective_layers(enabled)
+    hidden = {n.id for n in graph.nodes if LAYER_OF.get(n.kind) not in shown}
+    for node in graph.nodes:
+        if LAYER_OF.get(node.kind) == "models" and node.id not in hidden:
+            providers = [e.source for e in graph.edges if e.target == node.id and e.kind == "serves"]
+            if providers and all(p in hidden for p in providers):
+                hidden.add(node.id)
+    return hidden
+
 
 @dataclass
 class Node:

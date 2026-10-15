@@ -11,6 +11,8 @@ Colours come from the Omarchy theme (set_palette).
 
 import math
 
+import graph as graph_model
+
 import gi
 
 gi.require_version("PangoCairo", "1.0")
@@ -21,6 +23,7 @@ NODE_GAP = 8
 HEADER_H = 30
 PAD = 12
 COLUMN_GAP_MIN = 56
+COLUMN_GAP_MAX = 300
 NODE_W_MAX = 260
 NODE_W_MIN = 120
 # Categories: selecting in one hides that category's other boxes.
@@ -49,6 +52,8 @@ class MapView(Gtk.DrawingArea):
         self.selected = []       # node ids picked by clicking, in click order
         self.on_selection = None # callback(list of selected nodes)
         self.shift = False       # Shift held: hidden boxes come back to be added
+        self.layers = set(graph_model.LAYERS)   # categories switched on
+        self.column_x = {}       # column -> x of its boxes, for the headings
         self.set_draw_func(self.on_draw)
         self.set_hexpand(True)
         self.set_vexpand(True)
@@ -89,27 +94,53 @@ class MapView(Gtk.DrawingArea):
         self.boxes = {}
         if self.graph is None:
             return 0, 0
-        node_w = max(NODE_W_MIN, min(NODE_W_MAX, (width - 2 * PAD - 3 * COLUMN_GAP_MIN) // 4))
-        gap = max(COLUMN_GAP_MIN, (width - 2 * PAD - 4 * node_w) // 3)
+        # Only columns with something to show take room; they share the width.
+        active = [c for c in range(4) if self.shown(c)]
+        count = max(1, len(active))
+        node_w = max(NODE_W_MIN, min(NODE_W_MAX, (width - 2 * PAD - (count - 1) * COLUMN_GAP_MIN) // count))
+        gap = max(COLUMN_GAP_MIN, (width - 2 * PAD - count * node_w) // max(1, count - 1))
+        gap = min(gap, COLUMN_GAP_MAX)   # few columns: keep them together, centred
+        if count == 1:
+            gap = 0
+        used = count * node_w + (count - 1) * gap
+        left = PAD + max(0, (width - 2 * PAD - used) // 2)
         body = max(0, height - HEADER_H - PAD)
-        for column in range(4):
+        self.column_x = {}
+        for slot, column in enumerate(active):
             nodes = self.shown(column)
             total = len(nodes) * NODE_H + max(0, len(nodes) - 1) * NODE_GAP
             y = HEADER_H + max(0, (body - total) // 2)
-            x = PAD + column * (node_w + gap)
+            x = left + slot * (node_w + gap)
+            self.column_x[column] = x
             for node in nodes:
                 self.boxes[node.id] = (x, y, node_w, NODE_H)
                 y += NODE_H + NODE_GAP
         return node_w, gap
 
     def hidden(self) -> set:
-        """Unselected boxes of every category that has a selection (none while Shift is held)."""
-        if not self.selected or self.shift or self.graph is None:
+        """Boxes of switched-off categories, and the unselected boxes of every
+        category that has a selection (those come back while Shift is held)."""
+        if self.graph is None:
             return set()
+        off = graph_model.hidden_by_layers(self.graph, self.layers)
+        if not self.selected or self.shift:
+            return off
+        return off | self.selection_hidden()
+
+    def selection_hidden(self) -> set:
         by_id = {n.id: n for n in self.graph.nodes}
         picked = {CATEGORY.get(by_id[i].kind) for i in self.selected if i in by_id}
         return {n.id for n in self.graph.nodes
                 if CATEGORY.get(n.kind) in picked and n.id not in self.selected}
+
+    def set_layers(self, layers):
+        self.layers = set(layers)
+        if self.graph is not None:
+            off = graph_model.hidden_by_layers(self.graph, self.layers)
+            if any(i in off for i in self.selected):
+                self.selected = [i for i in self.selected if i not in off]
+                self.selection_changed()
+        self.relayout()
 
     def shown(self, column: int) -> list:
         hidden = self.hidden()
@@ -236,7 +267,9 @@ class MapView(Gtk.DrawingArea):
         # Column headings.
         for column, title in enumerate(self.headers):
             nodes = [n for n in self.graph.column(column) if n.id in self.boxes]
-            x = PAD + column * (node_w + _gap)
+            if not nodes:
+                continue
+            x = self.column_x[column]
             layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 8"))
             layout.set_text(title.upper() if nodes else "", -1)
             layout.set_width(node_w * Pango.SCALE)

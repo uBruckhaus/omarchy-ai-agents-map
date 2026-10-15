@@ -685,6 +685,7 @@ class AiManager(Gtk.Application):
         card as large as the screen allows; leaving it restores the size."""
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         page.append(self.view_heading(_("Map")))
+        page.append(self.build_layer_toggles())
         # The filter line: a hint, or what is selected and a way back to everything.
         bar = Gtk.Box(spacing=8)
         self.map_filter = Gtk.Label(xalign=0, hexpand=True)
@@ -700,10 +701,56 @@ class AiManager(Gtk.Application):
         bar.append(self.map_show_all)
         page.append(bar)
         self.map_view = MapView()
+        self.map_view.set_layers(ai_core.map_layers())
+        self.update_layer_toggles()
         self.map_view.on_selection = self.on_map_selection
         self.on_map_selection([])
         page.append(self.page_scroller(self.map_view))
         return page
+
+    def build_layer_toggles(self) -> Gtk.Widget:
+        """One toggle per category: shorten the map to what you are setting up."""
+        row = Gtk.Box(spacing=6)
+        label = Gtk.Label(label=_("Show:"))
+        label.add_css_class("am-line-label")
+        row.append(label)
+        names = {"agents": _("Agents"), "online": _("Online providers"), "local": _("Local LLMs"),
+                 "models": _("Models"), "mcp": _("MCP servers"), "skills": _("Skills")}
+        self.layer_buttons = {}
+        for layer in graph.LAYERS:
+            button = Gtk.ToggleButton(label=names[layer])
+            button.add_css_class("am-chip")
+            button.connect("toggled", lambda b, l=layer: self.on_layer_toggled(l, b.get_active()))
+            row.append(button)
+            self.layer_buttons[layer] = button
+        return row
+
+    def update_layer_toggles(self):
+        """Pressed = switched on; greyed out while what it needs is off."""
+        on = self.map_view.layers
+        needs = {"models": _("Needs Online providers or Local LLMs"),
+                 "mcp": _("Needs Agents"), "skills": _("Needs Agents")}
+        self.updating_layers = True
+        for layer, button in self.layer_buttons.items():
+            button.set_active(layer in on)
+            usable = not graph.REQUIRES.get(layer) or any(n in on for n in graph.REQUIRES[layer])
+            button.set_sensitive(usable)
+            button.set_tooltip_text(None if usable else needs[layer])
+        self.updating_layers = False
+
+    updating_layers = False
+
+    def on_layer_toggled(self, layer: str, active: bool):
+        if self.updating_layers:
+            return
+        layers = set(self.map_view.layers)
+        layers.add(layer) if active else layers.discard(layer)
+        if not graph.effective_layers(layers):
+            self.update_layer_toggles()   # keep at least one category on
+            return
+        self.map_view.set_layers(layers)
+        self.update_layer_toggles()
+        self.save_setting(map_layers=[l for l in graph.LAYERS if l in layers])
 
     def on_map_selection(self, nodes):
         if nodes:
@@ -1164,6 +1211,11 @@ class AiManager(Gtk.Application):
         levelbar.am-limit block.empty {{ background: transparent; }}
         .am-card button.am-small-btn {{ font-size: 11px; min-height: 0; padding: 1px 10px;
             border: 1px solid alpha({fg_hex}, 0.35); border-radius: {radius}px; }}
+        .am-card button.am-chip {{ font-size: 11px; min-height: 0; padding: 1px 10px; border-radius: 999px;
+            border: 1px solid alpha({fg_hex}, 0.25); background: transparent; color: {dim_hex}; }}
+        .am-card button.am-chip:checked {{ background: alpha({accent_hex}, 0.18); border-color: {accent_hex};
+            color: {fg_hex}; }}
+        .am-card button.am-chip:disabled {{ opacity: 0.4; }}
         .am-canvas {{ border: 1px dashed alpha({fg_hex}, 0.25); border-radius: {radius}px; padding: 12px; }}
         """
         if getattr(self, "map_view", None) is not None:

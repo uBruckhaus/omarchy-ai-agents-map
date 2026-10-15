@@ -128,3 +128,23 @@ class GraphTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LayerTest(unittest.TestCase):
+    def setUp(self):
+        self.g = graph.Graph()
+        for node in (graph.Node("agent:a", 1, "A", kind="agent"), graph.Node("cloud:x", 2, "X", kind="cloud"),
+                     graph.Node("runtime:r", 2, "R", kind="runtime"), graph.Node("model:x:m", 3, "m", kind="model"),
+                     graph.Node("model:r:n", 3, "n", kind="model"), graph.Node("mcp:s", 0, "s", kind="mcp")):
+            self.g.add(node)
+        self.g.link("cloud:x", "model:x:m", "serves")
+        self.g.link("runtime:r", "model:r:n", "serves")
+
+    def test_needs(self):
+        self.assertEqual(graph.effective_layers({"models"}), set())
+        self.assertEqual(graph.effective_layers({"models", "local"}), {"models", "local"})
+        self.assertEqual(graph.effective_layers({"mcp", "online"}), {"online"})
+
+    def test_models_follow_their_providers(self):
+        hidden = graph.hidden_by_layers(self.g, {"agents", "local", "models"})
+        self.assertEqual(hidden, {"cloud:x", "model:x:m", "mcp:s"})
