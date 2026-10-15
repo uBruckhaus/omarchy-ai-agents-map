@@ -10,6 +10,7 @@ left, the map beside them; it is neither moved nor resized.
 """
 
 import colorsys
+import re
 import os
 import datetime as dt
 import signal
@@ -47,6 +48,9 @@ import agents
 import ai_core
 import connect
 import runtime_ctl
+import install_ctl
+import subprocess
+from pathlib import Path
 import graph
 import inventory
 import i18n
@@ -108,6 +112,25 @@ def when(moment, future: bool = False) -> str:
     if future and 1 < days < 7:
         return moment.strftime("%a ") + clock
     return moment.strftime("%Y-%m-%d")
+
+
+def size_text(n: int) -> str:
+    """2490000000 -> "2.5 GB"."""
+    for size, unit in ((1e12, "TB"), (1e9, "GB"), (1e6, "MB")):
+        if n >= size:
+            return f"{n / size:.1f} {unit}"
+    return f"{max(0, n) // 1000} kB"
+
+
+def short_gpu(name: str, vram: int = 0) -> str:
+    """"Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 [Radeon RX 7900 XT/7900 XTX/…] (rev c8)" + 24 GB
+    -> "Radeon RX 7900 · 24 GB" (lspci names the family, not the exact card)."""
+    bracket = re.findall(r"\[([^\]]+)\]", name or "")
+    text = bracket[-1] if bracket else (name or "")
+    if "/" in text:
+        text = text.split("/")[0].strip().rsplit(" ", 1)[0]
+    text = text.strip() or (name or "")
+    return f"{text} · {round(vram / 2**30)} GB" if vram else text
 
 
 def monitor_height() -> int:
@@ -216,6 +239,7 @@ class AgentsMap(Gtk.Application):
         stack.add_named(self.build_map_page(), "map")
         stack.add_named(self.build_settings_page(), "settings")
         stack.add_named(self.build_connect_page(), "connect")
+        stack.add_named(self.build_install_page(), "install")
         stack.connect("notify::visible-child-name", lambda *_: self.update_header())
         card.append(stack)
         self.stack = stack
@@ -931,7 +955,7 @@ class AgentsMap(Gtk.Application):
 
     def update_header(self):
         page = self.stack.get_visible_child_name()
-        on_settings = page in ("settings", "connect")
+        on_settings = page in ("settings", "connect", "install")
         # Faded out rather than hidden: the header keeps its height, so the
         # card does not jump when the settings page opens.
         for widget in (self.settings_button, self.view_switch):
@@ -1135,6 +1159,278 @@ class AgentsMap(Gtk.Application):
         self.connecting = None
         self.show_view(info["from"] if info else self.view, save=False)
 
+    # --- installing local LLMs (right-click → Install… / Update… / Model folder… / Uninstall…) --------
+
+    def build_install_page(self) -> Gtk.Widget:
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        header = Gtk.Box(spacing=8)
+        back = Gtk.Button()
+        back.add_css_class("flat")
+        back.add_css_class("am-header-btn")
+        back.add_css_class("am-back-bordered")
+        back_box = Gtk.Box(spacing=6)
+        back_box.append(Gtk.Image.new_from_icon_name("go-previous-symbolic"))
+        back_box.append(Gtk.Label(label=_("Back")))
+        back_box.append(Gtk.Label(label="· ⌫"))
+        back.set_child(back_box)
+        back.set_tooltip_text(_("Back without changing anything (Backspace, Esc)"))
+        back.connect("clicked", lambda *_: self.close_install())
+        header.append(back)
+        self.install_title = Gtk.Label(xalign=0, hexpand=True)
+        self.install_title.add_css_class("am-section-title")
+        header.append(self.install_title)
+        page.append(header)
+        rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        rule.add_css_class("am-settings-rule")
+        page.append(rule)
+        self.install_intro = Gtk.Label(xalign=0, wrap=True, max_width_chars=1)
+        self.install_intro.add_css_class("am-detail-value")
+        page.append(self.install_intro)
+        self.install_form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.install_form.add_css_class("am-settings")
+        page.append(self.install_form)
+        self.install_bar = Gtk.ProgressBar(show_text=False)
+        self.install_bar.add_css_class("am-progress")
+        page.append(self.install_bar)
+        self.install_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1)
+        self.install_status.add_css_class("am-agent-detail")
+        page.append(self.install_status)
+        page.append(Gtk.Box(vexpand=True))
+        buttons = Gtk.Box(spacing=8, halign=Gtk.Align.END)
+        self.install_cancel = Gtk.Button(label=_("Cancel"))
+        self.install_cancel.add_css_class("am-small-btn")
+        self.install_cancel.connect("clicked", lambda *_: self.cancel_install())
+        buttons.append(self.install_cancel)
+        self.install_ok = Gtk.Button()
+        self.install_ok.add_css_class("am-small-btn")
+        self.install_ok.add_css_class("am-primary")
+        self.install_ok.connect("clicked", lambda *_: self.run_install())
+        buttons.append(self.install_ok)
+        page.append(buttons)
+        self.installing = None
+        return page
+
+    def folder_field(self, box, title: str, hint: str, value: str, suggestions) -> Gtk.Entry:
+        """A path field with the suggested folders as buttons under it."""
+        entry = Gtk.Entry(text=value, hexpand=True, max_length=1024)
+        entry.add_css_class("am-path")
+        entry.connect("changed", lambda *_: self.update_install_check())
+        column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, hexpand=True)
+        column.append(entry)
+        if suggestions:
+            chips = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=6, row_spacing=4,
+                                column_spacing=4)
+            for path in suggestions:
+                chip = Gtk.Button(label=str(path).replace(str(Path.home()), "~", 1))
+                chip.add_css_class("am-chip")
+                chip.connect("clicked", lambda _b, p=str(path): entry.set_text(p))
+                chips.append(chip)
+            column.append(chips)
+        self.setting_line(box, title, hint, column)
+        return entry
+
+    def open_install(self, rt, mode: str):
+        """mode: "install", "update", "models" (change the model folder) or "uninstall"."""
+        inst = install_ctl.installer(rt.key)
+        if inst is None:
+            self.show_note(_("{0} cannot be installed from here yet.").format(rt.name))
+            return
+        self.installing = {"rt": rt, "inst": inst, "mode": mode, "release": None, "gpu": None,
+                           "cancel": False, "busy": False, "from": self.view}
+        titles = {"install": _("Install {0}"), "update": _("Update {0}"), "models": _("Model folder of {0}"),
+                  "uninstall": _("Uninstall {0}")}
+        self.install_title.set_label(titles[mode].format(rt.name).upper())
+        form = self.install_form
+        while (child := form.get_first_child()) is not None:
+            form.remove(child)
+        self.install_bar.set_fraction(0)
+        self.install_bar.set_visible(mode in ("install", "update"))
+        self.install_status.set_label("")
+        self.install_cancel.set_label(_("Cancel"))
+        self.install_ok.remove_css_class("am-danger")
+        self.install_ok.set_sensitive(True)
+        self.install_ok.set_visible(True)
+        self.install_folder = self.install_models = self.install_login = self.install_start = None
+        runtimes = self.inventory.runtimes
+        if mode == "install":
+            self.install_intro.set_label(_("Looking for the latest version…"))
+            folders = install_ctl.folder_suggestions(rt.key, runtimes)
+            self.install_folder = self.folder_field(
+                form, _("Program folder"), _("Where the program goes. Each version gets its own folder in it."),
+                str(folders[0]), folders)
+            models = install_ctl.models_suggestions(runtimes, folders[0])
+            self.install_models = self.folder_field(
+                form, _("Model folder"), _("Where the models go. You can change it later (right-click → Model folder…)."),
+                str(models[0]), models)
+            self.install_login = Gtk.Switch(active=False)
+            self.setting_line(form, _("Start at login"), _("Start it with every login (its user service)."),
+                              self.install_login)
+            self.install_start = Gtk.Switch(active=True)
+            self.setting_line(form, _("Start now"), _("Start it as soon as it is installed."), self.install_start)
+            self.install_ok.set_label(_("Install"))
+            self.install_ok.set_sensitive(False)
+            self.fetch_release()
+        elif mode == "update":
+            self.install_intro.set_label(_("Looking for the latest version…"))
+            self.install_ok.set_label(_("Update"))
+            self.install_ok.set_sensitive(False)
+            self.fetch_release()
+        elif mode == "models":
+            current = inst.models_folder()
+            self.install_intro.set_label(_("{0} looks for its models here. Models already in the old folder stay "
+                                           "there; move them yourself if you want them in the new one.").format(rt.name))
+            self.install_models = self.folder_field(form, _("Model folder"), "", current,
+                                                    install_ctl.models_suggestions(runtimes, inst.installed_folder()))
+            self.install_ok.set_label(_("Change"))
+        else:
+            folder = inst.installed_folder()
+            self.install_intro.set_label(
+                _("Removes the program folder {0}, the command, the user service and its settings. "
+                  "The models in {1} stay.").format(folder, inst.models_folder() or "—"))
+            self.install_ok.set_label(_("Uninstall"))
+            self.install_ok.add_css_class("am-danger")
+        self.stack.set_visible_child_name("install")
+        self.update_install_check()
+
+    def fetch_release(self):
+        info = self.installing
+
+        def work():
+            try:
+                gpu = install_ctl.detect_gpu()
+                release = info["inst"].latest(gpu)
+                error = None
+            except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as problem:
+                gpu = release = None
+                error = str(problem)
+            GLib.idle_add(done, gpu, release, error)
+
+        def done(gpu, release, error):
+            if self.installing is not info:
+                return False
+            if error:
+                self.install_intro.set_label(_("Could not find a version to download: {0}").format(error))
+                return False
+            info["gpu"], info["release"] = gpu, release
+            card = {"amd": _("{0} (ROCm)"), "nvidia": _("{0} (CUDA)")}.get(gpu.vendor, "{0}").format(
+                short_gpu(gpu.name, gpu.vram)) if gpu.vendor != "cpu" else _("no graphics card found: the processor")
+            current = info["inst"].current_version()
+            if info["mode"] == "update" and current == release.version:
+                self.install_intro.set_label(_("{0} is up to date ({1}).").format(info["rt"].name, current))
+                self.install_ok.set_visible(False)
+                return False
+            self.install_intro.set_label(
+                (_("Version {0} ({1} download) for {2}. Installed in your own folder: no password needed.")
+                 if info["mode"] == "install" else _("{3} → {0} ({1} download) for {2}. The settings and models stay."))
+                .format(release.version, size_text(release.size), card, current))
+            self.update_install_check()
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def update_install_check(self):
+        """Folder checks and free space, as the folders are typed."""
+        info = self.installing
+        if info is None or info["busy"]:
+            return
+        problems = []
+        for entry in (self.install_folder, self.install_models):
+            if entry is None:
+                continue
+            try:
+                install_ctl.check_folder(entry.get_text())
+                entry.remove_css_class("error")
+            except ValueError as error:
+                entry.add_css_class("error")
+                problems.append(str(error))
+        release = info.get("release")
+        if release is not None and self.install_folder is not None and not problems:
+            free = install_ctl.free_bytes(install_ctl.check_folder(self.install_folder.get_text()))
+            needed = release.size * 3          # the archives and what they unpack to
+            if free < needed:
+                problems.append(_("not enough space: {0} free, about {1} needed").format(size_text(free),
+                                                                                         size_text(needed)))
+        self.install_status.set_label(" · ".join(problems))
+        ready = not problems and (info["mode"] in ("models", "uninstall") or release is not None)
+        self.install_ok.set_sensitive(ready)
+
+    def run_install(self):
+        info = self.installing
+        if info is None or info["busy"]:
+            return
+        inst, mode = info["inst"], info["mode"]
+        info["busy"] = True
+        info["cancel"] = False
+        self.install_ok.set_sensitive(False)
+        for widget in (self.install_folder, self.install_models, self.install_login, self.install_start):
+            if widget is not None:
+                widget.set_sensitive(False)
+        folder = install_ctl.check_folder(self.install_folder.get_text()) if self.install_folder else None
+        models = install_ctl.check_folder(self.install_models.get_text()) if self.install_models else None
+        login = self.install_login.get_active() if self.install_login else False
+        start_now = self.install_start.get_active() if self.install_start else False
+
+        def progress(fraction, text):
+            GLib.idle_add(show_progress, fraction, text)
+
+        def show_progress(fraction, text):
+            self.install_bar.set_fraction(max(0.0, min(1.0, fraction)))
+            if text:
+                self.install_status.set_label(text)
+            return False
+
+        def work():
+            try:
+                if mode == "install":
+                    inst.install(folder, models, login, start_now, info["gpu"], info["release"], progress,
+                                 lambda: info["cancel"])
+                elif mode == "update":
+                    inst.update(info["release"], info["gpu"], progress, lambda: info["cancel"])
+                elif mode == "models":
+                    inst.set_models_folder(models)
+                else:
+                    inst.uninstall()
+                error = None
+            except install_ctl.Cancelled:
+                error = _("cancelled")
+            except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as problem:
+                error = str(problem)
+            GLib.idle_add(finished, error)
+
+        def finished(error):
+            info["busy"] = False
+            if error:
+                self.install_status.set_label(_("Not done: {0}").format(error))
+                self.install_ok.set_sensitive(True)
+                for widget in (self.install_folder, self.install_models, self.install_login, self.install_start):
+                    if widget is not None:
+                        widget.set_sensitive(True)
+                return False
+            messages = {"install": _("{0} installed"), "update": _("{0} updated"),
+                        "models": _("{0}: model folder changed"), "uninstall": _("{0} uninstalled")}
+            self.close_install()
+            self.collect()
+            self.refresh_overview()
+            self.refresh_map()
+            self.show_note(messages[mode].format(info["rt"].name))
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def cancel_install(self):
+        info = self.installing
+        if info is not None and info["busy"]:
+            info["cancel"] = True          # the download stops; the page stays to show it
+            return
+        self.close_install()
+
+    def close_install(self):
+        info = self.installing
+        if info is not None and info["busy"]:
+            return                         # still working: stay (Cancel stops it)
+        self.installing = None
+        self.show_view(info["from"] if info else self.view, save=False)
+
     # --- right-click on a box ---------------------------------------------------------------
 
     def show_context(self, view, node_id: str, rect):
@@ -1155,12 +1451,34 @@ class AgentsMap(Gtk.Application):
         title = Gtk.Label(label=f"{rt.name} · {state}", xalign=0)
         title.add_css_class("am-agent-name")
         box.append(title)
+        inst = install_ctl.installer(rt.key)
+        ours = inst is not None and inst.installed_folder() is not None
+        actions = []
+        if not rt.installed and inst is not None:
+            actions.append((_("Install…"), "install"))
+        elif ours:
+            actions += [(_("Update…"), "update"), (_("Model folder…"), "models"), (_("Uninstall…"), "uninstall")]
+        if actions:
+            column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            for label, mode in actions:
+                button = Gtk.Button(label=label, halign=Gtk.Align.START)
+                button.add_css_class("flat")
+                button.add_css_class("am-menu-item")
+                button.connect("clicked", lambda _b, m=mode: (popover.popdown(), self.open_install(rt, m)))
+                column.append(button)
+            box.append(column)
+        elif rt.installed and inst is not None:
+            note = Gtk.Label(label=_("Installed by hand: AI Agents Map does not update or remove it."), xalign=0,
+                             wrap=True, max_width_chars=36)
+            note.add_css_class("am-agent-detail")
+            box.append(note)
         if not runtime_ctl.can_control(rt):
             note = Gtk.Label(label=_("Not installed.") if not rt.installed else
                              _("No user service starts it, so it cannot be started from here."), xalign=0,
                              wrap=True, max_width_chars=36)
             note.add_css_class("am-agent-detail")
-            box.append(note)
+            if rt.installed or inst is None:
+                box.append(note)
         else:
             row = Gtk.Box(spacing=6)
             for label, action, enabled in ((_("Start"), runtime_ctl.start, not rt.running),
@@ -1510,6 +1828,11 @@ class AgentsMap(Gtk.Application):
         .am-provider-list checkbutton check {{ border: 1px solid alpha({fg_hex}, 0.4); background: transparent; }}
         .am-provider-list checkbutton check:checked {{ background: {accent_hex}; border-color: {accent_hex};
             color: {bg_hex}; }}
+        .am-card entry.am-path {{ font-family: monospace; font-size: 12px; min-height: 0; padding: 3px 8px; }}
+        .am-card entry.am-path.error {{ border-color: {red_hex}; }}
+        progressbar.am-progress trough {{ min-height: 6px; background: alpha({fg_hex}, 0.10); border-radius: 3px; }}
+        progressbar.am-progress progress {{ min-height: 6px; background: {accent_hex}; border-radius: 3px; }}
+        .am-card button.am-menu-item {{ padding: 3px 8px; font-size: 12px; }}
         .am-card-check {{ color: {accent_hex}; font-weight: 700; }}
         .am-agent.am-agent-default {{ border-color: alpha({accent_hex}, 0.7); }}
         .am-agent-icon {{ font-family: "JetBrainsMono Nerd Font", "Symbols Nerd Font", monospace;
@@ -1569,14 +1892,19 @@ class AgentsMap(Gtk.Application):
                 self.close_settings()
             elif page == "connect":
                 self.close_connect()
+            elif page == "install":
+                self.cancel_install()
             elif page in ("map", "main") and self.selection:
                 self.set_selection([])   # the first Esc clears the selection
             else:
                 self.close()
             return True
-        if page in ("settings", "connect"):
+        if page == "install" and keyval == Gdk.KEY_BackSpace and isinstance(self.window.get_focus(), Gtk.Text):
+            return False          # Backspace edits the folder fields
+        if page in ("settings", "connect", "install"):
             if keyval == Gdk.KEY_BackSpace:
-                self.close_settings() if page == "settings" else self.close_connect()
+                {"settings": self.close_settings, "connect": self.close_connect,
+                 "install": self.close_install}[page]()
                 return True
             return False          # Tab and arrows move between the controls
         if ctrl and keyval in (Gdk.KEY_1, Gdk.KEY_KP_1):
@@ -1624,6 +1952,8 @@ class AgentsMap(Gtk.Application):
             self.close_settings()   # never reopen onto the settings page
         elif self.stack.get_visible_child_name() == "connect":
             self.close_connect()    # nor onto a half-made connection
+        elif self.stack.get_visible_child_name() == "install" and not (self.installing or {}).get("busy"):
+            self.close_install()
         self.window.hide()
 
 

@@ -38,6 +38,17 @@ The **LLM PROVIDERS ▾** heading opens a list of the online and local providers
 one's state): untick one to leave it and its models out of the map. The heading shows how many are
 shown (e.g. 6/9); the choice is remembered.
 
+## Installing local LLMs
+
+Right-click a local LLM on the map. Not installed (grey): **Install…** downloads the official release
+into a program folder you choose (one folder per version, a `current` link, the command in
+`~/.local/bin`) and sets up a user service, so no password is needed; you also choose the model
+folder (the one your other local LLMs use is suggested) and whether it starts at login. Installed
+this way: **Update…** (new version folder, the previous one is kept as a fallback), **Model folder…**
+(change it later) and **Uninstall…** (program, command, service and settings; never the models).
+Installs made by hand are shown but never changed. Ollama can be installed so far; llama.cpp,
+LM Studio and vLLM follow.
+
 ## Connecting by drawing
 
 On the map, press on an agent and drag to a local LLM (or the other way round): the boxes you can
