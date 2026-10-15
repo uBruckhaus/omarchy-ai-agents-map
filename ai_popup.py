@@ -50,7 +50,9 @@ import connect
 import runtime_ctl
 import install_ctl
 import models_ctl
+import context_ctl
 import time
+import struct
 import subprocess
 from pathlib import Path
 import graph
@@ -1289,17 +1291,121 @@ class AgentsMap(Gtk.Application):
         self.models_search.grab_focus()
 
     def fill_model_list(self, rt):
+        """The installed models, each with its context now and the best one for the card."""
         box = self.models_have
         while (child := box.get_first_child()) is not None:
             box.remove(child)
         self.models_have_heading.set_label(
             ngettext("1 model installed", "{0} models installed", len(rt.models)).format(len(rt.models)).upper())
+        rows = {}
         for name in rt.models:
-            label = Gtk.Label(label=name, xalign=0, selectable=True)
+            row = Gtk.Box(spacing=6)
+            label = Gtk.Label(label=name, xalign=0, hexpand=True)
             label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
             label.set_max_width_chars(1)
             label.add_css_class("am-detail-value")
-            box.append(label)
+            row.append(label)
+            info = Gtk.Label(xalign=1)
+            info.add_css_class("am-agent-detail")
+            row.append(info)
+            button = Gtk.Button(label=_("Set"))
+            button.add_css_class("am-small-btn")
+            button.set_visible(False)
+            row.append(button)
+            box.append(row)
+            rows[name] = (info, button)
+        state = self.models_state
+        vram = state["vram"] if state else 0
+
+        def work():
+            results = {}
+            for name in rt.models:
+                try:
+                    results[name] = self.context_for(rt, name, vram)
+                except (OSError, ValueError, KeyError, struct.error) as problem:
+                    results[name] = (None, None, str(problem))
+            GLib.idle_add(done, results)
+
+        def done(results):
+            if self.models_state is not state:
+                return False
+            for name, (now, fit_info, error) in results.items():
+                info, button = rows[name]
+                if fit_info is None:
+                    info.set_label(_("context: ?"))
+                    info.set_tooltip_text(error or "")
+                    continue
+                best = fit_info.best
+                if not fit_info.known:
+                    info.set_label(_("now {0}").format(context_ctl.short_context(now) if now else _("default")))
+                    info.set_tooltip_text(_("Not a chat model, or its file does not say how much memory its context needs."))
+                    continue
+                info.set_label(_("now {0} · best {1}").format(context_ctl.short_context(now) if now else _("default"),
+                                                               context_ctl.short_context(best) if best else _("too big")))
+                info.set_tooltip_text(_("Trained for {0} tokens; each token of context takes {1} of video memory.")
+                                      .format(fit_info.native or "?", size_text(fit_info.per_token)))
+                if best and best != now and rt.key in ("llamacpp", "ollama"):
+                    button.set_visible(True)
+                    button.set_tooltip_text(_("Set the context of {0} to {1} tokens.").format(name, best))
+                    button.connect("clicked", lambda _b, n=name, c=best: self.set_model_context(rt, n, c))
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def context_for(self, rt, name: str, vram: int):
+        """(context now, Fit, error) for one installed model."""
+        folder = Path(os.path.expanduser(rt.models_dir)) if rt.models_dir else None
+        if folder is None:
+            return None, None, "no model folder"
+        if rt.key == "llamacpp":
+            now, cache = context_ctl.llama_settings(name)
+            model_file = context_ctl.llama_model_file(folder, name)
+        elif rt.key == "ollama":
+            env = install_ctl.read_env(install_ctl.Ollama.env_file)
+            cache = env.get("OLLAMA_KV_CACHE_TYPE", "f16")
+            default = int(env.get("OLLAMA_CONTEXT_LENGTH", "0") or 0)
+            now = context_ctl.ollama_context(folder, name, default)
+            model_file = context_ctl.ollama_model_file(folder, name)
+        else:
+            return None, None, _("set the context in LM Studio itself")
+        if model_file is None:
+            return now, None, "model file not found"
+        return now, context_ctl.fit(model_file, vram, cache), None
+
+    def set_model_context(self, rt, name: str, ctx: int):
+        state = self.models_state
+        self.models_status.set_label(_("{0}: context → {1}…").format(name, ctx))
+
+        def work():
+            try:
+                backup = None
+                if rt.key == "llamacpp":
+                    # Like a connection: written with a backup, and Undo puts it back.
+                    ini = context_ctl.MODELS_INI
+                    before = connect._read(ini)
+                    change = connect.Change(ini, before, context_ctl.llama_context_text(before, name, ctx))
+                    backup = connect.apply(connect.Plan("llama.cpp", "llamacpp", "", [change]))
+                else:
+                    context_ctl.ollama_set_context(name, ctx, rt.address)
+                error = None
+            except (OSError, ValueError, RuntimeError) as problem:
+                error, backup = str(problem), None
+            GLib.idle_add(done, error, backup)
+
+        def done(error, backup):
+            if self.models_state is not state:
+                return False
+            if backup is not None:
+                self.show_undo(_("{0}: context set to {1}").format(name, ctx), backup)
+            if error:
+                self.models_status.set_label(_("Not changed: {0}").format(error))
+                return False
+            note = _(" Restart llama.cpp for it to take effect.") if rt.key == "llamacpp" and rt.running else ""
+            self.models_status.set_label(_("{0}: context set to {1}").format(name, ctx) + "." + note)
+            self.fill_model_list(state["rt"])
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
 
     def list_row(self, title: str, detail: str, mark: str = "") -> Gtk.ListBoxRow:
         row = Gtk.ListBoxRow()

@@ -61,3 +61,42 @@ class ModelsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ContextTest(unittest.TestCase):
+    def test_ini_text(self):
+        import context_ctl as cc
+        ini = "version = 1\n\n[*]\nctx-size = 8192\n\n; comment\n[A]\ncache-type-k = q4_0\nctx-size = 4096\n\n[B]\nx = 1\n"
+        new = cc.llama_context_text(ini, "A", 98304)
+        self.assertIn("[A]\ncache-type-k = q4_0\nctx-size = 98304\n", new)
+        self.assertIn("[*]\nctx-size = 8192", new)
+        self.assertIn("; comment", new)
+        self.assertIn("[B]\nctx-size = 65536\nx = 1", cc.llama_context_text(ini, "B", 65536))
+        self.assertTrue(cc.llama_context_text(ini, "C", 4096).endswith("[C]\nctx-size = 4096\n"))
+        with self.assertRaises(ValueError):
+            cc.llama_context_text(ini, "bad]name", 4096)
+
+    def test_kv_bytes(self):
+        import context_ctl as cc
+        meta = {"general.architecture": "x", "x.block_count": 10, "x.attention.head_count": 8,
+                "x.attention.head_count_kv": 2, "x.embedding_length": 1024}
+        # 10 layers × 2 heads × (128 + 128) × 2 bytes (f16)
+        self.assertEqual(cc.kv_bytes_per_token(meta, "f16"), 10 * 2 * 256 * 2)
+        meta["x.attention.head_count_kv"] = [2, 0, 2, 0, 2, 0, 2, 0, 2, 0]   # hybrid: half the layers attend
+        self.assertEqual(cc.kv_bytes_per_token(meta, "f16"), 5 * 2 * 256 * 2)
+
+
+class SlidingWindowTest(unittest.TestCase):
+    def test_gemma_style(self):
+        import context_ctl as cc
+        meta = {"general.architecture": "g", "g.block_count": 6, "g.attention.head_count": 16,
+                "g.attention.head_count_kv": [8, 8, 8, 8, 8, 1], "g.attention.key_length": 512,
+                "g.attention.value_length": 512, "g.attention.key_length_swa": 256, "g.attention.value_length_swa": 256,
+                "g.attention.sliding_window": 1024, "g.attention.sliding_window_pattern": [True] * 5 + [False]}
+        per_token, fixed = cc.kv_layout(meta, "f16")
+        self.assertEqual(per_token, 1 * 1024 * 2)                      # only the global layer grows
+        self.assertEqual(fixed, 5 * 8 * 512 * 2 * (1024 + cc.UBATCH))   # the window layers are fixed
+
+    def test_unknown_model(self):
+        import context_ctl as cc
+        self.assertEqual(cc.kv_layout({"general.architecture": "tts"}), (0, 0))

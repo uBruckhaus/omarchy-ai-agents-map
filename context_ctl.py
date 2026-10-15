@@ -1,0 +1,282 @@
+"""The best context size per model, and setting it.
+
+The context a model can hold is limited by video memory: the model's file is
+loaded whole, and every token of context needs KV-cache memory
+
+    bytes per token = Σ over layers (KV heads × (key size + value size)) × bytes per cache element
+
+read from the GGUF header (block_count, head_count_kv – a number or one per
+layer –, key_length/value_length or embedding_length / head_count). Layers
+with a sliding window (sliding_window_pattern, e.g. Gemma) keep only the last
+`sliding_window` tokens: a fixed amount, whatever the context. Layers without
+attention (recurrent, hybrid models: 0 KV heads) take nothing per token.
+What is left after the model, those fixed amounts and a reserve (compute
+buffers, the desktop) divided by the bytes per token gives the context,
+rounded down to a multiple of 4096 and capped at what the model was trained for.
+
+Setting it:
+- llama.cpp: `ctx-size` in the model's section of ~/.config/llama.cpp/models.ini
+- Ollama: `num_ctx`, through its API (/api/create from the model itself)
+"""
+
+import json
+import math
+import os
+import re
+import struct
+import tempfile
+import urllib.request
+from dataclasses import dataclass
+from pathlib import Path
+
+GiB = 2 ** 30
+RESERVE = int(1.5 * GiB)       # compute buffers and what the desktop keeps
+STEP = 4096
+MIN_CONTEXT = 4096
+# Bytes per cache element (q4_0/q8_0 blocks of 32 carry a 2-byte scale).
+CACHE_BYTES = {"f16": 2.0, "bf16": 2.0, "f32": 4.0, "q8_0": 34 / 32, "q4_0": 18 / 32, "q4_1": 20 / 32,
+               "q5_0": 22 / 32, "q5_1": 24 / 32, "iq4_nl": 18 / 32}
+MODELS_INI = Path.home() / ".config/llama.cpp/models.ini"
+MAX_KV = 100_000
+MAX_ARRAY = 4096
+
+
+@dataclass
+class Fit:
+    native: int              # what the model was trained for (0: unknown)
+    best: int                # the context that fits (0: the model alone does not fit)
+    per_token: int           # KV bytes per token
+    model_size: int
+    known: bool = True       # False: the header says nothing about attention (TTS, tokenizer models)
+    fixed: int = 0           # bytes the sliding-window layers keep whatever the context
+
+
+# --- GGUF header -----------------------------------------------------------------------------
+
+def read_gguf(path: Path) -> dict:
+    """The header values needed here; arrays only for the per-layer head counts."""
+    meta = {}
+    with open(path, "rb") as f:
+        if f.read(4) != b"GGUF":
+            raise ValueError("not a GGUF file")
+        version = struct.unpack("<I", f.read(4))[0]
+        _tensors, count = struct.unpack("<QQ", f.read(16)) if version >= 2 else struct.unpack("<II", f.read(8))
+        if count > MAX_KV:
+            raise ValueError("implausible header")
+
+        def string():
+            (length,) = struct.unpack("<Q", f.read(8))
+            if length > 1 << 20:
+                raise ValueError("implausible string")
+            return f.read(length).decode("utf-8", "replace")
+
+        sizes = {0: ("<B", 1), 1: ("<b", 1), 2: ("<H", 2), 3: ("<h", 2), 4: ("<I", 4), 5: ("<i", 4),
+                 6: ("<f", 4), 7: ("<?", 1), 10: ("<Q", 8), 11: ("<q", 8), 12: ("<d", 8)}
+
+        def value(kind, keep=True):
+            if kind in sizes:
+                fmt, size = sizes[kind]
+                return struct.unpack(fmt, f.read(size))[0]
+            if kind == 8:
+                return string()
+            if kind == 9:
+                sub, length = struct.unpack("<I", f.read(4))[0], struct.unpack("<Q", f.read(8))[0]
+                if sub in sizes and not keep:
+                    f.seek(sizes[sub][1] * length, os.SEEK_CUR)     # skip big arrays (vocabularies)
+                    return None
+                items = [value(sub, keep) for _ in range(length)]
+                return items[:MAX_ARRAY] if keep else None
+            raise ValueError(f"unknown value type {kind}")
+
+        wanted = (".context_length", ".block_count", ".head_count_kv", ".head_count", ".embedding_length",
+                  ".key_length", ".value_length", ".key_length_swa", ".value_length_swa", ".sliding_window",
+                  ".sliding_window_pattern")
+        for _ in range(count):
+            key = string()
+            kind = struct.unpack("<I", f.read(4))[0]
+            keep = key == "general.architecture" or key.endswith(wanted)
+            result = value(kind, keep)
+            if keep:
+                meta[key] = result
+    return meta
+
+
+UBATCH = 1024               # a sliding-window cache also holds one batch beyond the window
+
+
+def kv_layout(meta: dict, cache: str = "f16") -> tuple[int, int]:
+    """(bytes per token of context, fixed bytes of the sliding-window layers)."""
+    arch = meta.get("general.architecture", "")
+    get = lambda key: meta.get(f"{arch}.{key}")   # noqa: E731
+    layers = int(get("block_count") or 0)
+    heads = get("attention.head_count")
+    first = lambda v: (max(v) if v else 0) if isinstance(v, list) else v   # noqa: E731
+    embed = int(get("embedding_length") or 0)
+    head_dim = embed // int(first(heads)) if embed and first(heads) else 128
+    k_dim = int(get("attention.key_length") or head_dim)
+    v_dim = int(get("attention.value_length") or head_dim)
+    k_swa = int(get("attention.key_length_swa") or k_dim)
+    v_swa = int(get("attention.value_length_swa") or v_dim)
+    kv = get("attention.head_count_kv")
+    kv = heads if kv is None else kv
+    per_layer_kv = [int(x or 0) for x in kv[:layers]] if isinstance(kv, list) else [int(kv or 0)] * layers
+    window = int(get("attention.sliding_window") or 0)
+    pattern = get("attention.sliding_window_pattern")
+    if isinstance(pattern, list):
+        swa = [bool(x) for x in pattern[:layers]] + [False] * max(0, layers - len(pattern))
+    elif isinstance(pattern, int) and pattern > 1 and window:
+        swa = [(i % pattern) < pattern - 1 for i in range(layers)]   # every pattern-th layer sees everything
+    else:
+        swa = [False] * layers
+    element = CACHE_BYTES.get(cache, 2.0)
+    per_token = fixed = 0.0
+    for heads_kv, sliding in zip(per_layer_kv, swa):
+        if sliding and window:
+            fixed += heads_kv * (k_swa + v_swa) * element * (window + UBATCH)
+        else:
+            per_token += heads_kv * (k_dim + v_dim) * element
+    return math.ceil(per_token), math.ceil(fixed)
+
+
+def kv_bytes_per_token(meta: dict, cache: str = "f16") -> int:
+    return kv_layout(meta, cache)[0]
+
+
+def fit(model_file: Path, vram: int, cache: str = "f16", model_size: int | None = None) -> Fit:
+    meta = read_gguf(model_file)
+    arch = meta.get("general.architecture", "")
+    native = int(meta.get(f"{arch}.context_length") or 0)
+    size = model_size if model_size is not None else _size_of(model_file)
+    per_token, fixed = kv_layout(meta, cache)
+    if not per_token and not fixed:
+        return Fit(native, native, 0, size, known=False)
+    room = vram - RESERVE - size - fixed
+    if room <= 0:
+        return Fit(native, 0, per_token, size, fixed=fixed)
+    best = room // per_token if per_token else (native or 0)
+    best = (best // STEP) * STEP
+    if native:
+        best = min(best, native)
+    return Fit(native, max(0, best if best >= MIN_CONTEXT else 0), per_token, size, fixed=fixed)
+
+
+def _size_of(model_file: Path) -> int:
+    """All parts of a split model (…-00001-of-00003.gguf)."""
+    split = re.match(r"^(.*)-\d{5}-of-(\d{5})\.gguf$", model_file.name)
+    if not split:
+        return model_file.stat().st_size
+    return sum(p.stat().st_size for p in model_file.parent.glob(f"{split.group(1)}-*-of-{split.group(2)}.gguf"))
+
+
+def short_context(n: int) -> str:
+    return f"{n // 1024}k" if n and n % 1024 == 0 else str(n)
+
+
+# --- llama.cpp (models.ini) ---------------------------------------------------------------------
+
+def _ini_sections(text: str) -> dict:
+    sections, current = {}, None
+    for line in text.splitlines():
+        header = re.match(r"^\s*\[([^\]]+)\]\s*$", line)
+        if header:
+            current = header.group(1)
+            sections.setdefault(current, {})
+            continue
+        pair = re.match(r"^\s*([A-Za-z0-9_-]+)\s*=\s*(.*?)\s*$", line)
+        if current is not None and pair:
+            sections[current][pair.group(1)] = pair.group(2)
+    return sections
+
+
+def llama_settings(name: str, ini: Path = MODELS_INI) -> tuple[int, str]:
+    """(ctx-size, KV cache type) for a router model: its section, else [*]."""
+    try:
+        sections = _ini_sections(ini.read_text(encoding="utf-8"))
+    except OSError:
+        sections = {}
+    own, shared = sections.get(name, {}), sections.get("*", {})
+    ctx = own.get("ctx-size") or shared.get("ctx-size") or "0"
+    cache = own.get("cache-type-k") or shared.get("cache-type-k") or "f16"
+    return (int(ctx) if ctx.isdigit() else 0), cache
+
+
+def llama_context_text(old: str, name: str, ctx: int) -> str:
+    """models.ini with ctx-size set in the model's section (made if missing); the rest stays."""
+    if not re.fullmatch(r"[^\[\]\n]{1,200}", name) or not 0 < ctx < 10_000_000:
+        raise ValueError("bad model or context")
+    old = old or "version = 1\n"
+    lines = old.splitlines(keepends=True)
+    start = next((i for i, l in enumerate(lines) if re.match(rf"^\s*\[{re.escape(name)}\]\s*$", l)), None)
+    if start is None:
+        return old.rstrip("\n") + f"\n\n[{name}]\nctx-size = {ctx}\n"
+    end = next((i for i in range(start + 1, len(lines)) if re.match(r"^\s*\[", lines[i])), len(lines))
+    for i in range(start + 1, end):
+        if re.match(r"^\s*ctx-size\s*=", lines[i]):
+            lines[i] = f"ctx-size = {ctx}\n"
+            break
+    else:
+        lines.insert(start + 1, f"ctx-size = {ctx}\n")
+    return "".join(lines)
+
+
+def llama_model_file(models_dir: Path, name: str) -> Path | None:
+    for candidate in (models_dir / f"{name}.gguf", *models_dir.glob(f"{name}*.gguf")):
+        if candidate.exists():
+            return Path(os.path.realpath(candidate))
+    return None
+
+
+# --- Ollama --------------------------------------------------------------------------------------
+
+def ollama_manifest(models_root: Path, name: str) -> dict:
+    """The manifest of "name:tag" (library) or "host/owner/name:tag"."""
+    base, _sep, tag = name.partition(":")
+    tag = tag or "latest"
+    parts = base.split("/")
+    if len(parts) == 1:
+        parts = ["registry.ollama.ai", "library", parts[0]]
+    elif len(parts) == 2:
+        parts = ["registry.ollama.ai", *parts]
+    path = models_root / "manifests" / Path(*parts) / tag
+    if any(p in ("..", "") for p in parts) or ".." in tag:
+        raise ValueError("bad model name")
+    return json.loads(path.read_text(encoding="utf-8")[:1_000_000])
+
+
+def ollama_model_file(models_root: Path, name: str) -> Path | None:
+    manifest = ollama_manifest(models_root, name)
+    for layer in manifest.get("layers", []):
+        if layer.get("mediaType") == "application/vnd.ollama.image.model":
+            digest = str(layer.get("digest", "")).replace(":", "-")
+            if re.fullmatch(r"sha256-[0-9a-f]{64}", digest):
+                return models_root / "blobs" / digest
+    return None
+
+
+def ollama_context(models_root: Path, name: str, default: int = 0) -> int:
+    """num_ctx set on the model, else default (OLLAMA_CONTEXT_LENGTH)."""
+    manifest = ollama_manifest(models_root, name)
+    for layer in manifest.get("layers", []):
+        if layer.get("mediaType") == "application/vnd.ollama.image.params":
+            digest = str(layer.get("digest", "")).replace(":", "-")
+            try:
+                params = json.loads((models_root / "blobs" / digest).read_text(encoding="utf-8")[:100_000])
+            except (OSError, ValueError):
+                continue
+            if isinstance(params, dict) and isinstance(params.get("num_ctx"), int):
+                return params["num_ctx"]
+    return default
+
+
+def ollama_set_context(name: str, ctx: int, address: str):
+    """Give the model num_ctx (Ollama keeps everything else, the weights are not copied)."""
+    import models_ctl
+    port = int(address.rsplit(":", 1)[-1])
+    models_ctl.require_own_listener(port)
+    body = json.dumps({"model": name, "from": name, "parameters": {"num_ctx": int(ctx)}, "stream": False}).encode()
+    request = urllib.request.Request(f"http://127.0.0.1:{port}/api/create", data=body,
+                                     headers={"Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(request, timeout=120) as response:
+        answer = json.loads(response.read(65536) or b"{}")
+    if isinstance(answer, dict) and answer.get("error"):
+        raise RuntimeError(str(answer["error"])[:300])

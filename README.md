@@ -60,6 +60,16 @@ For Ollama there is also a field for library names (qwen3:8b); a Hugging Face mo
 hf.co/<repo>:<size>, and Ollama is started for it if it is not running. Before anything is sent to
 Ollama on 127.0.0.1, AI Agents Map checks that the listening port belongs to you.
 
+### Context size
+
+Each installed model shows its context now and the best one for your graphics card ("now 96k ·
+best 92k"), calculated from the model file's header: its size, and how much video memory every token
+of context takes (KV heads × key and value size × the cache type: f16, q8_0, q4_0). Sliding-window
+layers (Gemma) only keep their window and recurrent layers nothing, so those models get much more.
+**Set** writes it: for llama.cpp `ctx-size` in the model's section of `~/.config/llama.cpp/models.ini`
+(backup and Undo, restart llama.cpp for it to take effect), for Ollama the model's `num_ctx`. LM
+Studio keeps its context in its own settings; set it there.
+
 ## Connecting by drawing
 
 On the map, press on an agent and drag to a local LLM (or the other way round): the boxes you can
