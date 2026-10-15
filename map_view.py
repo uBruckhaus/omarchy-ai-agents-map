@@ -6,6 +6,9 @@ removes more. In a category with a selection (agents, say) only the
 selected boxes stay; the other columns keep every box, but only the
 connections of the selection are drawn and the rest fades. Holding Shift
 brings the hidden boxes back (faded) so more can be added.
+
+Dragging from an agent to a local LLM (or back) draws a line; letting go
+over a fitting box calls on_link(agent id, runtime id) to set it up.
 Colours come from the Omarchy theme (set_palette).
 """
 
@@ -51,6 +54,8 @@ class MapView(Gtk.DrawingArea):
         self.defaults = set()    # model ids some agent uses by default
         self.selected = []       # node ids picked by clicking, in click order
         self.on_selection = None # callback(list of selected nodes)
+        self.on_link = None      # callback(agent node id, runtime node id) after a drawn line
+        self.link = None         # while drawing: {"from": id, "x": .., "y": .., "target": id or None}
         self.shift = False       # Shift held: hidden boxes come back to be added
         self.layers = set(graph_model.LAYERS)   # categories switched on
         self.column_x = {}       # column -> x of its boxes, for the headings
@@ -64,6 +69,11 @@ class MapView(Gtk.DrawingArea):
         click = Gtk.GestureClick()
         click.connect("released", self.on_click)
         self.add_controller(click)
+        drawer = Gtk.GestureDrag()
+        drawer.connect("drag-begin", self.on_link_begin)
+        drawer.connect("drag-update", self.on_link_update)
+        drawer.connect("drag-end", self.on_link_end)
+        self.add_controller(drawer)
 
     def set_palette(self, colors: dict, radius: int):
         self.colors = dict(colors)
@@ -157,6 +167,82 @@ class MapView(Gtk.DrawingArea):
         self.queue_draw()
 
     # --- hover ---------------------------------------------------------------------------
+
+    # --- drawing a connection ---------------------------------------------------------------
+
+    def kind_of(self, node_id):
+        node = next((n for n in self.graph.nodes if n.id == node_id), None) if self.graph else None
+        return node.kind if node else None
+
+    def link_target_ok(self, source: str, target: str) -> bool:
+        """Agent ↔ installed local runtime, in either direction."""
+        kinds = {self.kind_of(source), self.kind_of(target)}
+        if kinds != {"agent", "runtime"}:
+            return False
+        runtime = source if self.kind_of(source) == "runtime" else target
+        node = next(n for n in self.graph.nodes if n.id == runtime)
+        return node.status != "missing"
+
+    def on_link_begin(self, gesture, x, y):
+        node_id = self.node_at(x, y)
+        if node_id is None or self.kind_of(node_id) not in ("agent", "runtime"):
+            gesture.set_state(Gtk.EventSequenceState.DENIED)
+            self.link = None
+            return
+        self.link = {"from": node_id, "start": (x, y), "x": x, "y": y, "target": None, "drawing": False}
+
+    def on_link_update(self, gesture, dx, dy):
+        if self.link is None:
+            return
+        if not self.link["drawing"]:
+            if abs(dx) + abs(dy) < 8:
+                return
+            self.link["drawing"] = True
+            gesture.set_state(Gtk.EventSequenceState.CLAIMED)   # a drag, not a click
+            self.set_cursor_from_name("crosshair")
+        x0, y0 = self.link["start"]
+        self.link["x"], self.link["y"] = x0 + dx, y0 + dy
+        target = self.node_at(self.link["x"], self.link["y"])
+        self.link["target"] = target if target and self.link_target_ok(self.link["from"], target) else None
+        self.queue_draw()
+
+    def on_link_end(self, _gesture, _dx, _dy):
+        link, self.link = self.link, None
+        self.set_cursor_from_name(None)
+        self.queue_draw()
+        if link and link["drawing"] and link["target"] and self.on_link is not None:
+            a, b = link["from"], link["target"]
+            agent, runtime = (a, b) if self.kind_of(a) == "agent" else (b, a)
+            self.on_link(agent, runtime)
+
+    def draw_link(self, cr):
+        """The line being drawn, and the boxes it may end on."""
+        link = self.link
+        if not link or not link["drawing"] or link["from"] not in self.boxes:
+            return
+        for node in self.graph.nodes:
+            if node.id in self.boxes and self.link_target_ok(link["from"], node.id):
+                x, y, w, h = self.boxes[node.id]
+                self.rounded(cr, x - 2, y - 2, w + 4, h + 4, self.radius + 2)
+                cr.set_source_rgba(*self.color("accent", 0.9 if node.id == link["target"] else 0.35))
+                cr.set_line_width(2.5 if node.id == link["target"] else 1.2)
+                cr.set_dash([] if node.id == link["target"] else [4, 3])
+                cr.stroke()
+                cr.set_dash([])
+        sx, sy, sw, sh = self.boxes[link["from"]]
+        x1 = sx + sw if link["x"] > sx + sw / 2 else sx
+        y1 = sy + sh / 2
+        x2, y2 = link["x"], link["y"]
+        bend = (x2 - x1) * 0.5
+        cr.set_source_rgba(*self.color("accent", 0.95))
+        cr.set_line_width(2.2)
+        cr.set_dash([6, 4])
+        cr.move_to(x1, y1)
+        cr.curve_to(x1 + bend, y1, x2 - bend, y2, x2, y2)
+        cr.stroke()
+        cr.set_dash([])
+        cr.arc(x2, y2, 4, 0, 2 * math.pi)
+        cr.fill()
 
     def on_motion(self, controller, x, y):
         self.set_shift(bool(controller.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK))
@@ -377,6 +463,8 @@ class MapView(Gtk.DrawingArea):
                 cr.set_source_rgba(*self.color("fg", alpha))
                 cr.move_to(text_x, y + (h - layout.get_pixel_size()[1]) / 2)
                 PangoCairo.show_layout(cr, layout)
+
+        self.draw_link(cr)
 
     @staticmethod
     def rounded(cr, x, y, w, h, r):

@@ -34,9 +34,19 @@ skills each agent has. For people new to it as much as for checking your own set
   servers and skills need Agents; empty columns make room for the others. The choice is remembered.
   
 
+## Connecting by drawing
+
+On the map, press on an agent and drag to a local LLM (or the other way round): the boxes you can
+connect to light up, and letting go opens **Connect**. Pick the model, choose whether the agent
+should use it right away, and see exactly which lines of the agent's settings change. **Connect**
+writes them (the old file is kept in `~/.local/state/ai-agents-map/backups/`); **Undo** in the bar
+that follows puts it back. Drawing to a provider the agent already has offers **Update** and
+**Remove connection**. Supported now: Hermes (`~/.hermes/config.yaml`), Pi (`~/.pi/agent/`) and
+OpenCode (`~/.config/opencode/opencode.json`); speech and embedding models are left out.
+
 ## What is read
 
-Nothing is started and nothing is sent: AI Agents Map reads the agents' settings files, mise's install
+Nothing is started and nothing is sent. To show the setup, AI Agents Map reads the agents' settings files, mise's install
 folders, the pacman database, user services (`~/.config/systemd/user`), model folders and this
 user's processes. It takes only names, model ids, folders and local addresses from those files,
 never keys, tokens, environment values or headers, and it does not open credential files. The only

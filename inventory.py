@@ -188,6 +188,17 @@ def llama_presets() -> list[str]:
     return [s for s in re.findall(r"^\[([^\]\n]{1,120})\]", text, re.MULTILINE) if s != "*"][:MAX_ITEMS]
 
 
+def llama_context() -> dict:
+    """Context size per llama.cpp router preset (ctx-size in models.ini)."""
+    text = ad._read(HOME / ".config/llama.cpp/models.ini") or ""
+    sizes = {}
+    for name, body in re.findall(r"^\[([^\]\n]{1,120})\]\n((?:(?!\[).*\n?)*)", text, re.MULTILINE):
+        match = re.search(r"^\s*ctx-size\s*=\s*(\d{1,8})", body, re.MULTILINE)
+        if match and name != "*":
+            sizes[name] = int(match.group(1))
+    return sizes
+
+
 def llamacpp(processes) -> Runtime:
     rt = Runtime("llamacpp", "llama.cpp", installed=bool(shutil.which("llama-server")))
     rt.service, env = unit_for("llama-server")

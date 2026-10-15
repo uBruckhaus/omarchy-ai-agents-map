@@ -1,0 +1,104 @@
+import json
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import connect  # noqa: E402
+import inventory  # noqa: E402
+
+HERMES = """model:
+  default: stealth/model
+  provider: nous
+  base_url: ''
+agent:
+  x: 1
+image_gen:
+  provider: nous
+whatsapp:
+  a: b
+"""
+
+
+class ConnectTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.home = Path(self.tmp.name)
+        patcher = mock.patch.object(connect, "HOME", self.home)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(self.tmp.cleanup)
+        self.rt = inventory.Runtime("llamacpp", "llama.cpp", True, False, address="127.0.0.1:8080",
+                                    models=["Qwen", "Gemma"])
+
+    def write(self, rel, text):
+        path = self.home / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        return path
+
+    def test_hermes_add_use_now_and_remove(self):
+        cfg = self.write(".hermes/config.yaml", HERMES)
+        result = connect.plan("hermes", self.rt, "Qwen", use_now=True, context={"Qwen": 98304})
+        self.assertFalse(result.connected)
+        new = result.changes[0].new
+        self.assertIn("providers:\n  llama-local:\n    name: llama.cpp (local)\n    api: http://127.0.0.1:8080/v1", new)
+        self.assertIn("      Qwen:\n        context_length: 98304\n      Gemma: {}", new)
+        self.assertIn("model:\n  default: Qwen\n  provider: llama-local\n  base_url: ''\nagent:", new)
+        self.assertIn("image_gen:\n  provider: nous", new)     # other blocks untouched
+        backup = connect.apply(result, self.home / "backups")
+        self.assertTrue(connect.is_connected("hermes", "llamacpp"))
+        again = connect.plan("hermes", self.rt, "Gemma", use_now=False)
+        self.assertTrue(again.connected)
+        self.assertEqual(again.changes[0].new.count("llama-local:"), 1)   # replaced, not doubled
+        connect.undo(backup)
+        self.assertEqual(cfg.read_text(), HERMES)
+
+    def test_hermes_remove_leaves_rest(self):
+        self.write(".hermes/config.yaml", HERMES)
+        connect.apply(connect.plan("hermes", self.rt, "Qwen", use_now=False), self.home / "b")
+        removed = connect.plan("hermes", self.rt, "Qwen", use_now=False, remove=True)
+        self.assertEqual(removed.changes[0].new, HERMES)
+
+    def test_pi(self):
+        self.write(".pi/agent/models.json", json.dumps({"providers": {"other": {"baseUrl": "x"}}}))
+        self.write(".pi/agent/settings.json", json.dumps({"theme": "dark"}))
+        result = connect.plan("pi", self.rt, "Qwen", use_now=True)
+        connect.apply(result, self.home / "b")
+        models = json.loads((self.home / ".pi/agent/models.json").read_text())
+        settings = json.loads((self.home / ".pi/agent/settings.json").read_text())
+        self.assertEqual(sorted(models["providers"]), ["llama-local", "other"])
+        self.assertEqual(models["providers"]["llama-local"]["baseUrl"], "http://127.0.0.1:8080/v1")
+        self.assertEqual((settings["defaultProvider"], settings["defaultModel"], settings["theme"]),
+                         ("llama-local", "Qwen", "dark"))
+
+    def test_opencode_new_file_and_undo_deletes_it(self):
+        result = connect.plan("opencode", self.rt, "Qwen", use_now=True)
+        backup = connect.apply(result, self.home / "b")
+        data = json.loads((self.home / ".config/opencode/opencode.json").read_text())
+        self.assertEqual(data["model"], "llama-local/Qwen")
+        connect.undo(backup)
+        self.assertFalse((self.home / ".config/opencode/opencode.json").exists())
+
+    def test_changed_file_is_not_overwritten(self):
+        cfg = self.write(".hermes/config.yaml", HERMES)
+        result = connect.plan("hermes", self.rt, "Qwen", use_now=False)
+        cfg.write_text(HERMES + "extra: 1\n")
+        with self.assertRaises(RuntimeError):
+            connect.apply(result, self.home / "b")
+
+    def test_unsupported_agent(self):
+        with self.assertRaises(ValueError):
+            connect.plan("claude", self.rt, "Qwen", use_now=False)
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+class ChatModelsTest(unittest.TestCase):
+    def test_speech_models_left_out(self):
+        self.assertEqual(connect.chat_models(["Qwen3.8-27B", "Qwen3-TTS-12Hz", "qwen3-tts-tokenizer", "nomic-embed"]),
+                         ["Qwen3.8-27B"])

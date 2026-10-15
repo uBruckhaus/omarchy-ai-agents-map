@@ -45,6 +45,7 @@ import atexit
 import agent_details
 import agents
 import ai_core
+import connect
 import graph
 import inventory
 import i18n
@@ -197,6 +198,7 @@ class AgentsMap(Gtk.Application):
         frame.set_halign(Gtk.Align.CENTER)
         frame.set_valign(Gtk.Align.CENTER)
         overlay.add_overlay(frame)
+        frame.add_overlay(self.build_undo_bar())
         self.card = card
         self.card_frame = frame
         self.list_h = max(ai_core.MIN_WINDOW_SIZE[1], min(self.list_h, monitor_height() - 2 * SCREEN_MARGIN))
@@ -212,6 +214,7 @@ class AgentsMap(Gtk.Application):
         stack.add_named(self.build_main_page(), "main")
         stack.add_named(self.build_map_page(), "map")
         stack.add_named(self.build_settings_page(), "settings")
+        stack.add_named(self.build_connect_page(), "connect")
         stack.connect("notify::visible-child-name", lambda *_: self.update_header())
         card.append(stack)
         self.stack = stack
@@ -310,6 +313,7 @@ class AgentsMap(Gtk.Application):
         side.append(self.side_filter)
         self.side_map = MapView()
         self.side_map.on_selection = self.on_map_selection
+        self.side_map.on_link = self.on_map_link
         side.append(self.page_scroller(self.side_map))
         side.set_visible(False)
         self.side_pane = side
@@ -752,6 +756,7 @@ class AgentsMap(Gtk.Application):
         self.map_view.set_layers(ai_core.map_layers())
         self.update_layer_toggles()
         self.map_view.on_selection = self.on_map_selection
+        self.map_view.on_link = self.on_map_link
         page.append(self.page_scroller(self.map_view))
         return page
 
@@ -867,7 +872,7 @@ class AgentsMap(Gtk.Application):
 
     def update_header(self):
         page = self.stack.get_visible_child_name()
-        on_settings = page == "settings"
+        on_settings = page in ("settings", "connect")
         # Faded out rather than hidden: the header keeps its height, so the
         # card does not jump when the settings page opens.
         for widget in (self.settings_button, self.view_switch):
@@ -879,6 +884,205 @@ class AgentsMap(Gtk.Application):
         for name, button in self.view_buttons.items():
             button.set_active(name == page)
         self.updating_buttons = False
+
+    # --- connecting (a line drawn on the map) -----------------------------------------------
+
+    def build_connect_page(self) -> Gtk.Widget:
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        header = Gtk.Box(spacing=8)
+        back = Gtk.Button()
+        back.add_css_class("flat")
+        back.add_css_class("am-header-btn")
+        back.add_css_class("am-back-bordered")
+        back_box = Gtk.Box(spacing=6)
+        back_box.append(Gtk.Image.new_from_icon_name("go-previous-symbolic"))
+        back_box.append(Gtk.Label(label=_("Back")))
+        back_box.append(Gtk.Label(label="· ⌫"))
+        back.set_child(back_box)
+        back.set_tooltip_text(_("Back without changing anything (Backspace, Esc)"))
+        back.connect("clicked", lambda *_: self.close_connect())
+        header.append(back)
+        self.connect_title = Gtk.Label(xalign=0, hexpand=True)
+        self.connect_title.add_css_class("am-section-title")
+        header.append(self.connect_title)
+        page.append(header)
+        rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        rule.add_css_class("am-settings-rule")
+        page.append(rule)
+
+        self.connect_intro = Gtk.Label(xalign=0, wrap=True, max_width_chars=1)
+        self.connect_intro.add_css_class("am-detail-value")
+        page.append(self.connect_intro)
+        self.connect_form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.connect_form.add_css_class("am-settings")
+        page.append(self.connect_form)
+
+        heading = Gtk.Label(label=_("What changes").upper(), xalign=0)
+        heading.add_css_class("am-group-heading")
+        self.connect_preview_heading = heading
+        page.append(heading)
+        self.connect_preview = Gtk.TextView(editable=False, cursor_visible=False, monospace=True)
+        self.connect_preview.add_css_class("am-diff")
+        self.connect_preview.set_wrap_mode(Gtk.WrapMode.CHAR)
+        self.connect_preview_scroller = Gtk.ScrolledWindow(vexpand=True)
+        self.connect_preview_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.connect_preview_scroller.set_child(self.connect_preview)
+        page.append(self.connect_preview_scroller)
+        self.connect_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1)
+        self.connect_status.add_css_class("am-agent-detail")
+        page.append(self.connect_status)
+
+        buttons = Gtk.Box(spacing=8, halign=Gtk.Align.END)
+        cancel = Gtk.Button(label=_("Cancel"))
+        cancel.add_css_class("am-small-btn")
+        cancel.connect("clicked", lambda *_: self.close_connect())
+        buttons.append(cancel)
+        self.connect_remove = Gtk.Button(label=_("Remove connection"))
+        self.connect_remove.add_css_class("am-small-btn")
+        self.connect_remove.add_css_class("am-danger")
+        self.connect_remove.connect("clicked", lambda *_: self.apply_connect(remove=True))
+        buttons.append(self.connect_remove)
+        self.connect_ok = Gtk.Button(label=_("Connect"))
+        self.connect_ok.add_css_class("am-small-btn")
+        self.connect_ok.add_css_class("am-primary")
+        self.connect_ok.connect("clicked", lambda *_: self.apply_connect(remove=False))
+        buttons.append(self.connect_ok)
+        page.append(buttons)
+        return page
+
+    def on_map_link(self, agent_id: str, runtime_id: str):
+        """A line drawn from an agent to a local LLM: ask how, show what changes."""
+        agent = next((a for a in self.agent_list if f"agent:{a.command}" == agent_id), None)
+        runtime = next((r for r in self.inventory.runtimes if f"runtime:{r.key}" == runtime_id), None)
+        if agent is None or runtime is None:
+            return
+        self.connecting = {"agent": agent, "runtime": runtime, "from": self.view}
+        self.connect_title.set_label(_("Connect {0} to {1}").format(agent.name, runtime.name).upper())
+        form = self.connect_form
+        while (child := form.get_first_child()) is not None:
+            form.remove(child)
+        supported = agent.command in connect.SUPPORTED
+        self.connect_preview_heading.set_visible(supported)
+        self.connect_preview_scroller.set_visible(supported)
+        self.connect_ok.set_visible(supported)
+        self.connect_remove.set_visible(False)
+        self.connect_status.set_label("")
+        if not supported:
+            self.connect_intro.set_label(_("{0} cannot be connected from here yet. Hermes, Pi and OpenCode can.")
+                                         .format(agent.name))
+        else:
+            already = connect.is_connected(agent.command, runtime.key)
+            self.connect_intro.set_label(
+                (_("{0} already has {1} as a provider. Change it, or remove the connection.") if already else
+                 _("{0} gets {1} as a provider ({2}), with all its models. Nothing else in its settings changes."))
+                .format(agent.name, runtime.name, connect.base_url(runtime.address)))
+            self.connect_remove.set_visible(already)
+            self.connect_ok.set_label(_("Update") if already else _("Connect"))
+            self.settings_ready = False
+            models = connect.chat_models(runtime.models)
+            self.connect_models = models
+            context = inventory.llama_context() if runtime.key == "llamacpp" else {}
+            self.connect_context = context
+            self.connect_model = self.dropdown(models or [_("(no models found)")], 0,
+                                               lambda _i: self.update_connect_preview())
+            self.setting_line(form, _("Model"), _("The model the agent uses when it works with this provider."),
+                              self.connect_model)
+            self.connect_use_now = Gtk.Switch(active=True)
+            self.connect_use_now.connect("notify::active", lambda *_: self.settings_ready and self.update_connect_preview())
+            self.setting_line(form, _("Use it now"),
+                              _("Make it the agent's model right away. Off: only set it up, to switch later."),
+                              self.connect_use_now)
+            self.settings_ready = True
+            self.update_connect_preview()
+        self.stack.set_visible_child_name("connect")
+
+    def current_connect_plan(self, remove: bool = False):
+        info = self.connecting
+        models = self.connect_models
+        model = models[self.connect_model.get_selected()] if models else ""
+        return connect.plan(info["agent"].command, info["runtime"], model, self.connect_use_now.get_active(),
+                            remove=remove, context=self.connect_context)
+
+    def update_connect_preview(self):
+        try:
+            plan_now = self.current_connect_plan()
+            text = plan_now.diff() or _("Nothing changes: it is set up like this already.")
+            self.connect_ok.set_sensitive(bool(plan_now.changes))
+        except (OSError, ValueError) as error:
+            text = _("Cannot read the agent's settings: {0}").format(error)
+            self.connect_ok.set_sensitive(False)
+        self.connect_preview.get_buffer().set_text(text)
+
+    def apply_connect(self, remove: bool):
+        info = self.connecting
+        try:
+            plan_now = self.current_connect_plan(remove=remove)
+            if not plan_now.changes:
+                self.close_connect()
+                return
+            backup = connect.apply(plan_now)
+        except (OSError, ValueError, RuntimeError) as error:
+            self.connect_status.set_label(_("Not changed: {0}").format(error))
+            return
+        message = (_("{0}: {1} removed") if remove else _("{0} connected to {1}")).format(
+            info["agent"].name, info["runtime"].name)
+        self.close_connect()
+        self.collect()
+        self.refresh_overview()
+        self.refresh_map()
+        self.show_undo(message, backup)
+
+    def close_connect(self):
+        info = getattr(self, "connecting", None)
+        self.connecting = None
+        self.show_view(info["from"] if info else self.view, save=False)
+
+    def build_undo_bar(self) -> Gtk.Widget:
+        """Floats over the bottom of the card after a change: what happened, and Undo."""
+        bar = Gtk.Revealer(transition_type=Gtk.RevealerTransitionType.SLIDE_UP)
+        bar.set_valign(Gtk.Align.END)
+        bar.set_halign(Gtk.Align.CENTER)
+        bar.set_margin_bottom(24)
+        line = Gtk.Box(spacing=12)
+        line.add_css_class("am-undo")
+        self.undo_label = Gtk.Label()
+        line.append(self.undo_label)
+        undo_button = Gtk.Button(label=_("Undo"))
+        undo_button.add_css_class("am-small-btn")
+        undo_button.connect("clicked", lambda *_: self.undo_last())
+        line.append(undo_button)
+        bar.set_child(line)
+        self.undo_bar = bar
+        self.undo_backup = None
+        self.undo_timer = 0
+        return bar
+
+    def show_undo(self, message: str, backup):
+        self.undo_label.set_label(message)
+        self.undo_backup = backup
+        self.undo_bar.set_reveal_child(True)
+        if self.undo_timer:
+            GLib.source_remove(self.undo_timer)
+        self.undo_timer = GLib.timeout_add_seconds(30, self.hide_undo)
+
+    def hide_undo(self):
+        self.undo_timer = 0
+        self.undo_bar.set_reveal_child(False)
+        return False
+
+    def undo_last(self):
+        if self.undo_backup is None:
+            return
+        try:
+            connect.undo(self.undo_backup)
+        except (OSError, ValueError) as error:
+            self.undo_label.set_label(_("Undo failed: {0}").format(error))
+            return
+        self.undo_backup = None
+        self.hide_undo()
+        self.collect()
+        self.refresh_overview()
+        self.refresh_map()
 
     # --- settings ----------------------------------------------------------------
 
@@ -1117,6 +1321,12 @@ class AgentsMap(Gtk.Application):
         .am-agent-icon.am-status-running {{ color: {green_hex}; }}
         .am-agent-icon.am-status-stopped {{ color: {yellow_hex}; }}
         .am-agent-icon.am-status-missing {{ color: {muted_hex}; }}
+        .am-card textview.am-diff, .am-card textview.am-diff text {{ background: alpha({fg_hex}, 0.04);
+            color: {fg_hex}; font-size: 11px; }}
+        .am-card button.am-primary {{ background: alpha({accent_hex}, 0.25); border-color: {accent_hex}; }}
+        .am-card button.am-danger {{ color: {red_hex}; border-color: alpha({red_hex}, 0.6); }}
+        .am-undo {{ background: {bg_hex}; border: 1px solid {accent_hex}; border-radius: {radius}px;
+            padding: 8px 14px; }}
         .am-card-check {{ color: {accent_hex}; font-weight: 700; }}
         .am-agent.am-agent-default {{ border-color: alpha({accent_hex}, 0.7); }}
         .am-agent-icon {{ font-family: "JetBrainsMono Nerd Font", "Symbols Nerd Font", monospace;
@@ -1174,14 +1384,16 @@ class AgentsMap(Gtk.Application):
         if keyval == Gdk.KEY_Escape:
             if page == "settings":
                 self.close_settings()
+            elif page == "connect":
+                self.close_connect()
             elif page in ("map", "main") and self.selection:
                 self.set_selection([])   # the first Esc clears the selection
             else:
                 self.close()
             return True
-        if page == "settings":
+        if page in ("settings", "connect"):
             if keyval == Gdk.KEY_BackSpace:
-                self.close_settings()
+                self.close_settings() if page == "settings" else self.close_connect()
                 return True
             return False          # Tab and arrows move between the controls
         if ctrl and keyval in (Gdk.KEY_1, Gdk.KEY_KP_1):
@@ -1227,6 +1439,8 @@ class AgentsMap(Gtk.Application):
         self.map_view.set_shift(False)   # Shift may have been let go elsewhere
         if self.stack.get_visible_child_name() == "settings":
             self.close_settings()   # never reopen onto the settings page
+        elif self.stack.get_visible_child_name() == "connect":
+            self.close_connect()    # nor onto a half-made connection
         self.window.hide()
 
 
