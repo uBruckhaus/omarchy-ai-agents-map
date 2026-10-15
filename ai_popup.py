@@ -236,6 +236,7 @@ class AiManager(Gtk.Application):
         keys = Gtk.EventControllerKey()
         keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
         keys.connect("key-pressed", self.on_key)
+        keys.connect("key-released", self.on_key_released)
         window.add_controller(keys)
 
         self.resize_to(self.card_w, self.list_h)
@@ -706,7 +707,7 @@ class AiManager(Gtk.Application):
 
     def on_map_selection(self, nodes):
         if nodes:
-            self.map_filter.set_label(_("Selected: {0} · Shift+click adds or removes one")
+            self.map_filter.set_label(_("Selected: {0} · hold Shift and click to add or remove one")
                                       .format(", ".join(n.label for n in nodes)))
         else:
             self.map_filter.set_label(_("Click a box to see only its connections; Shift+click selects more than one."))
@@ -1175,7 +1176,14 @@ class AiManager(Gtk.Application):
 
     # --- keys ------------------------------------------------------------------------
 
+    def on_key_released(self, _controller, keyval, _keycode, _state):
+        if keyval in (Gdk.KEY_Shift_L, Gdk.KEY_Shift_R):
+            self.map_view.set_shift(False)
+
     def on_key(self, _controller, keyval, _keycode, state):
+        if keyval in (Gdk.KEY_Shift_L, Gdk.KEY_Shift_R):
+            self.map_view.set_shift(True)
+            return False
         page = self.stack.get_visible_child_name()
         ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
         if keyval == Gdk.KEY_Escape:
@@ -1234,6 +1242,7 @@ class AiManager(Gtk.Application):
     def close(self):
         self.layer_watch.stop()
         self.drag_mode = None
+        self.map_view.set_shift(False)   # Shift may have been let go elsewhere
         if self.stack.get_visible_child_name() == "settings":
             self.close_settings()   # never reopen onto the settings page
         self.window.hide()

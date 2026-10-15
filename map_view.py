@@ -2,8 +2,10 @@
 
 Hovering a box lights it and everything it is joined to; the rest fades.
 A click selects a box (agent, provider, anything), Shift+click adds or
-removes more: every box stays on the map, but only the connections of the
-selected ones are drawn and everything else fades.
+removes more. In a category with a selection (agents, say) only the
+selected boxes stay; the other columns keep every box, but only the
+connections of the selection are drawn and the rest fades. Holding Shift
+brings the hidden boxes back (faded) so more can be added.
 Colours come from the Omarchy theme (set_palette).
 """
 
@@ -21,6 +23,9 @@ PAD = 12
 COLUMN_GAP_MIN = 56
 NODE_W_MAX = 260
 NODE_W_MIN = 120
+# Categories: selecting in one hides that category's other boxes.
+CATEGORY = {"agent": "agent", "cloud": "provider", "runtime": "provider", "model": "model", "more": "model",
+            "mcp": "tool", "skills": "tool"}
 EDGE_COLORS = {"uses": "accent", "serves": "muted", "mcp": "yellow", "skills": "green"}
 
 
@@ -43,6 +48,7 @@ class MapView(Gtk.DrawingArea):
         self.defaults = set()    # model ids some agent uses by default
         self.selected = []       # node ids picked by clicking, in click order
         self.on_selection = None # callback(list of selected nodes)
+        self.shift = False       # Shift held: hidden boxes come back to be added
         self.set_draw_func(self.on_draw)
         self.set_hexpand(True)
         self.set_vexpand(True)
@@ -74,7 +80,7 @@ class MapView(Gtk.DrawingArea):
     def needed_height(self) -> int:
         if self.graph is None:
             return 0
-        rows = max((len(self.graph.column(c)) for c in range(4)), default=0)
+        rows = max((len(self.shown(c)) for c in range(4)), default=0)
         return HEADER_H + PAD * 2 + rows * (NODE_H + NODE_GAP)
 
     # --- layout -----------------------------------------------------------------------
@@ -87,7 +93,7 @@ class MapView(Gtk.DrawingArea):
         gap = max(COLUMN_GAP_MIN, (width - 2 * PAD - 4 * node_w) // 3)
         body = max(0, height - HEADER_H - PAD)
         for column in range(4):
-            nodes = self.graph.column(column)
+            nodes = self.shown(column)
             total = len(nodes) * NODE_H + max(0, len(nodes) - 1) * NODE_GAP
             y = HEADER_H + max(0, (body - total) // 2)
             x = PAD + column * (node_w + gap)
@@ -96,9 +102,33 @@ class MapView(Gtk.DrawingArea):
                 y += NODE_H + NODE_GAP
         return node_w, gap
 
+    def hidden(self) -> set:
+        """Unselected boxes of every category that has a selection (none while Shift is held)."""
+        if not self.selected or self.shift or self.graph is None:
+            return set()
+        by_id = {n.id: n for n in self.graph.nodes}
+        picked = {CATEGORY.get(by_id[i].kind) for i in self.selected if i in by_id}
+        return {n.id for n in self.graph.nodes
+                if CATEGORY.get(n.kind) in picked and n.id not in self.selected}
+
+    def shown(self, column: int) -> list:
+        hidden = self.hidden()
+        return [n for n in self.graph.column(column) if n.id not in hidden]
+
+    def set_shift(self, held: bool):
+        if held != self.shift:
+            self.shift = held
+            if self.selected:
+                self.relayout()
+
+    def relayout(self):
+        self.set_content_height(self.needed_height())
+        self.queue_draw()
+
     # --- hover ---------------------------------------------------------------------------
 
-    def on_motion(self, _controller, x, y):
+    def on_motion(self, controller, x, y):
+        self.set_shift(bool(controller.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK))
         found = self.node_at(x, y)
         self.set_cursor_from_name("pointer" if found else None)
         self.set_hover(found)
@@ -184,7 +214,7 @@ class MapView(Gtk.DrawingArea):
         return True
 
     def selection_changed(self):
-        self.queue_draw()
+        self.relayout()
         if self.on_selection is not None and self.graph is not None:
             by_id = {n.id: n for n in self.graph.nodes}
             self.on_selection([by_id[i] for i in self.selected if i in by_id])

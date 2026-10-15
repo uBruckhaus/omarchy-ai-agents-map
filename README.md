@@ -22,8 +22,9 @@ skills each agent has. For people new to it as much as for checking your own set
 - **Map** (Ctrl+2): the same as a picture, drawn at the largest size: MCP servers and skills ←
   agents → LLM providers → models. Hover a box to light up everything it is joined to. A click
   selects a box (an agent, a provider such as llama.cpp, an MCP server, …), Shift+click adds or
-  removes more: every box stays, but only the connections of the selected ones are drawn and the
-  rest fades. Selected boxes are filled and carry a ✓; Esc or **Clear selection** clears it.
+  removes more. The category you select in (agents, providers, models, MCP servers and skills) then
+  shows only the selected boxes; the other columns keep every box, but only the connections of the
+  selection are drawn and the rest fades. Hold Shift to bring the hidden boxes back and add one. Selected boxes are filled and carry a ✓; Esc or **Clear selection** clears it.
   Leaving the Map gives the card its size back.
 
 ## What is read
