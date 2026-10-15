@@ -88,15 +88,17 @@ def read_config(path: Path = CONFIG) -> tuple[dict, dict]:
 
 
 def write_config(inventory, path: Path = CONFIG) -> bool:
-    """Plugin side: which agents use which local LLM (inventory.Runtime.agents).
-    Returns True when the file changed."""
+    """Plugin side: which local LLM each agent uses now (inventory.Runtime.active_agents:
+    only the provider of its current model is started with it, not every one it is
+    connected to). Every connected LLM is listed under "runtimes", so the watcher
+    knows how to stop it. Returns True when the file changed."""
     runtimes, agents = {}, {}
     for rt in inventory.runtimes:
         if not rt.installed or not rt.agents or not (rt.service or rt.key == "lmstudio"):
             continue
         port = rt.address.rpartition(":")[2]
         runtimes[rt.key] = {"service": rt.service, "port": int(port) if port.isdigit() else 0}
-        for agent in rt.agents:
+        for agent in getattr(rt, "active_agents", rt.agents):
             agents.setdefault(agent, []).append(rt.key)
     text = json.dumps({"agents": agents, "runtimes": runtimes}, indent=2, sort_keys=True) + "\n"
     try:

@@ -92,7 +92,9 @@ again. This works with the window closed and after a reboot.
   (`provider_watch.py`). It is set up when the first agent is connected to a local LLM and removed
   when the last connection goes or the setting **Start local LLMs with their agents** is switched off.
 - Once a second it looks at this user's processes (`/proc` only). A connected agent starts →
-  `systemctl --user start` its LLMs' services (`lms server start` for LM Studio). The last one closes
+  `systemctl --user start` the service of the local LLM it uses now, the one its current model is
+  on (`lms server start` for LM Studio); other LLMs it is only set up for stay off. Choosing
+  another model on the map while the agent runs starts that LLM within a second. The last one closes
   → after 5 s the LLM is stopped, unless another program still has a connection open to it.
 - Background servers of agents (OpenCode's `opencode serve --service`, which runs all the time) do
   not count as the agent being open, and their idle connections do not keep an LLM running.

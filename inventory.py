@@ -38,6 +38,7 @@ class Runtime:
     models_dir: str = ""
     models: list = field(default_factory=list)
     agents: list = field(default_factory=list)   # agents with a provider pointing at it
+    active_agents: list = field(default_factory=list)   # of those, the ones using it now (their model is here)
 
 
 @dataclass
@@ -472,6 +473,8 @@ def collect(agent_list) -> Inventory:
                 for rt in inv.runtimes:
                     if rt.name == provider.runtime and command not in rt.agents:
                         rt.agents.append(command)
+                    if rt.name == provider.runtime and provider.active and command not in rt.active_agents:
+                        rt.active_agents.append(command)
         names = []
         for name, kind, target in mcp_for(command):
             server = servers.setdefault(name, McpServer(name, kind, target))

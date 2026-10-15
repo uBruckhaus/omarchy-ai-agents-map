@@ -10,8 +10,9 @@ import provider_watch as pw  # noqa: E402
 
 
 class FakeRuntime:
-    def __init__(self, key, service, address, agents, installed=True):
+    def __init__(self, key, service, address, agents, installed=True, active=None):
         self.key, self.service, self.address, self.agents, self.installed = key, service, address, agents, installed
+        self.active_agents = agents if active is None else active
 
 
 class FakeInventory:
@@ -37,6 +38,14 @@ class ConfigTest(unittest.TestCase):
         agents, runtimes = pw.read_config(self.path)
         self.assertEqual(agents, {"opencode": ["llamacpp"], "pi": ["llamacpp"]})
         self.assertEqual(runtimes, {"llamacpp": {"service": "llama-server", "port": 8080}})
+
+    def test_only_the_provider_in_use_starts(self):
+        inv = FakeInventory([FakeRuntime("llamacpp", "llama-server", "127.0.0.1:8080", ["opencode"], active=[]),
+                             FakeRuntime("ollama", "ollama", "127.0.0.1:11434", ["opencode"], active=["opencode"])])
+        pw.write_config(inv, self.path)
+        agents, runtimes = pw.read_config(self.path)
+        self.assertEqual(agents, {"opencode": ["ollama"]})
+        self.assertEqual(set(runtimes), {"llamacpp", "ollama"})      # both known, so both can be stopped
 
     def test_bad_entries_dropped(self):
         self.path.write_text(json.dumps({
