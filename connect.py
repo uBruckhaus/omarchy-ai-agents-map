@@ -214,24 +214,50 @@ def is_connected(agent: str, runtime: str) -> bool:
     return False
 
 
-def plan(agent: str, runtime, model: str, use_now: bool, remove: bool = False, context: dict | None = None) -> Plan:
-    """runtime: inventory.Runtime. Raises ValueError for an agent we cannot set up."""
-    if agent not in SUPPORTED:
-        raise ValueError(agent)
+def _transform(agent: str, texts: list, runtime, model: str, use_now: bool, remove: bool, context: dict) -> list:
     provider = KEYS[runtime.key]
     url = base_url(runtime.address)
     models = chat_models(runtime.models) or ([model] if model else [])
-    context = context or {}
-    result = Plan(agent, runtime.key, provider, connected=is_connected(agent, runtime.key))
+    if agent == "hermes":
+        return [hermes_text(texts[0], provider, LABELS[runtime.key], url, models, context, model, use_now, remove)]
+    if agent == "pi":
+        return list(pi_texts(texts[0], texts[1], provider, url, models, context, model, use_now, remove))
+    return [opencode_text(texts[0], provider, LABELS[runtime.key], url, models, model, use_now, remove)]
+
+
+def is_active(agent: str, runtime: str) -> bool:
+    """The agent uses this runtime's provider right now (its current model)."""
+    provider = KEYS.get(runtime, "")
+    try:
+        if agent == "hermes":
+            text = _read(paths_for(agent)[0])
+            block = _top_block(text, "model")
+            return bool(block) and re.search(rf"^  provider:\s*{re.escape(provider)}\s*$", text[block[0]:block[1]],
+                                             re.MULTILINE) is not None
+        if agent == "pi":
+            return _json(_read(paths_for(agent)[1])).get("defaultProvider") == provider
+        if agent == "opencode":
+            return str(_json(_read(paths_for(agent)[0])).get("model", "")).startswith(provider + "/")
+    except (OSError, ValueError):
+        return False
+    return False
+
+
+def plan(agent: str, runtime, model: str, use_now: bool, remove: bool = False, context: dict | None = None,
+         replaces=None) -> Plan:
+    """runtime: inventory.Runtime. replaces: a runtime whose provider goes in the
+    same step (a connection moved on the map). Raises ValueError for an agent
+    we cannot set up."""
+    if agent not in SUPPORTED:
+        raise ValueError(agent)
+    result = Plan(agent, runtime.key, KEYS[runtime.key], connected=is_connected(agent, runtime.key))
     files = paths_for(agent)
     old = [_read(p) for p in files]
-    if agent == "hermes":
-        new = [hermes_text(old[0], provider, LABELS[runtime.key], url, models, context, model, use_now, remove)]
-    elif agent == "pi":
-        new = list(pi_texts(old[0], old[1], provider, url, models, context, model, use_now, remove))
-    else:
-        new = [opencode_text(old[0], provider, LABELS[runtime.key], url, models, model, use_now, remove)]
-    result.changes = [Change(p, o, n) for p, o, n in zip(files, old, new) if o != n]
+    texts = list(old)
+    if replaces is not None and replaces.key != runtime.key:
+        texts = _transform(agent, texts, replaces, "", False, True, {})
+    texts = _transform(agent, texts, runtime, model, use_now, remove, context or {})
+    result.changes = [Change(p, o, n) for p, o, n in zip(files, old, texts) if o != n]
     return result
 
 

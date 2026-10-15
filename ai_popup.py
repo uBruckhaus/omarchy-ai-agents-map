@@ -46,6 +46,7 @@ import agent_details
 import agents
 import ai_core
 import connect
+import runtime_ctl
 import graph
 import inventory
 import i18n
@@ -314,6 +315,8 @@ class AgentsMap(Gtk.Application):
         self.side_map = MapView()
         self.side_map.on_selection = self.on_map_selection
         self.side_map.on_link = self.on_map_link
+        self.side_map.on_relink = self.on_map_relink
+        self.side_map.on_context = lambda node_id, rect, v=self.side_map: self.show_context(v, node_id, rect)
         self.side_map.on_header = lambda column, rect: self.show_provider_list(self.side_map, rect)
         side.append(self.page_scroller(self.side_map))
         side.set_visible(False)
@@ -758,6 +761,8 @@ class AgentsMap(Gtk.Application):
         self.update_layer_toggles()
         self.map_view.on_selection = self.on_map_selection
         self.map_view.on_link = self.on_map_link
+        self.map_view.on_relink = self.on_map_relink
+        self.map_view.on_context = lambda node_id, rect, v=self.map_view: self.show_context(v, node_id, rect)
         self.map_view.on_header = lambda column, rect: self.show_provider_list(self.map_view, rect)
         page.append(self.page_scroller(self.map_view))
         return page
@@ -1004,14 +1009,28 @@ class AgentsMap(Gtk.Application):
         page.append(buttons)
         return page
 
-    def on_map_link(self, agent_id: str, runtime_id: str):
+    def on_map_relink(self, agent_id: str, old_id: str, new_id: str | None):
+        """A line moved to another local LLM: the old provider goes, the new one
+        comes. Dropped on empty space (new_id None): the connection is removed."""
+        if new_id is None:
+            self.on_map_link(agent_id, old_id, remove_only=True)
+        else:
+            self.on_map_link(agent_id, new_id, replaces_id=old_id)
+
+    def on_map_link(self, agent_id: str, runtime_id: str, replaces_id: str | None = None,
+                    remove_only: bool = False):
         """A line drawn from an agent to a local LLM: ask how, show what changes."""
         agent = next((a for a in self.agent_list if f"agent:{a.command}" == agent_id), None)
         runtime = next((r for r in self.inventory.runtimes if f"runtime:{r.key}" == runtime_id), None)
+        replaces = next((r for r in self.inventory.runtimes if f"runtime:{r.key}" == replaces_id), None)
         if agent is None or runtime is None:
             return
-        self.connecting = {"agent": agent, "runtime": runtime, "from": self.view}
-        self.connect_title.set_label(_("Connect {0} to {1}").format(agent.name, runtime.name).upper())
+        self.connecting = {"agent": agent, "runtime": runtime, "from": self.view, "replaces": replaces,
+                           "remove_only": remove_only}
+        self.connect_title.set_label((_("Remove {0}'s connection to {1}").format(agent.name, runtime.name)
+                                      if remove_only else
+                                      _("Move {0} from {1} to {2}").format(agent.name, replaces.name, runtime.name)
+                                      if replaces else _("Connect {0} to {1}").format(agent.name, runtime.name)).upper())
         form = self.connect_form
         while (child := form.get_first_child()) is not None:
             form.remove(child)
@@ -1026,12 +1045,25 @@ class AgentsMap(Gtk.Application):
                                          .format(agent.name))
         else:
             already = connect.is_connected(agent.command, runtime.key)
-            self.connect_intro.set_label(
-                (_("{0} already has {1} as a provider. Change it, or remove the connection.") if already else
-                 _("{0} gets {1} as a provider ({2}), with all its models. Nothing else in its settings changes."))
-                .format(agent.name, runtime.name, connect.base_url(runtime.address)))
-            self.connect_remove.set_visible(already)
-            self.connect_ok.set_label(_("Update") if already else _("Connect"))
+            if remove_only:
+                warning = _(" {0} uses it right now: choose another model in {0} afterwards (or draw a line to "
+                            "another local LLM instead).").format(agent.name) \
+                    if connect.is_active(agent.command, runtime.key) else ""
+                self.connect_intro.set_label(_("The {0} provider is removed from {1}'s settings.")
+                                             .format(runtime.name, agent.name) + warning)
+            elif replaces is not None:
+                self.connect_intro.set_label(
+                    _("{0} gets {1} as a provider ({2}) instead of {3}; the {3} provider is removed from its "
+                      "settings. Nothing else changes.").format(agent.name, runtime.name,
+                                                               connect.base_url(runtime.address), replaces.name))
+            else:
+                self.connect_intro.set_label(
+                    (_("{0} already has {1} as a provider. Change it, or remove the connection.") if already else
+                     _("{0} gets {1} as a provider ({2}), with all its models. Nothing else in its settings changes."))
+                    .format(agent.name, runtime.name, connect.base_url(runtime.address)))
+            self.connect_remove.set_visible(already and replaces is None)
+            self.connect_ok.set_visible(not remove_only)
+            self.connect_ok.set_label(_("Move") if replaces else _("Update") if already else _("Connect"))
             self.settings_ready = False
             models = connect.chat_models(runtime.models)
             self.connect_models = models
@@ -1039,13 +1071,21 @@ class AgentsMap(Gtk.Application):
             self.connect_context = context
             self.connect_model = self.dropdown(models or [_("(no models found)")], 0,
                                                lambda _i: self.update_connect_preview())
-            self.setting_line(form, _("Model"), _("The model the agent uses when it works with this provider."),
-                              self.connect_model)
+            if not remove_only:
+                self.setting_line(form, _("Model"), _("The model the agent uses when it works with this provider."),
+                                  self.connect_model)
             self.connect_use_now = Gtk.Switch(active=True)
+            if replaces is not None:
+                # Moving the line of the provider the agent uses now: it must use the new one.
+                # Moving a line only set up: stays only set up unless switched on.
+                in_use = connect.is_active(agent.command, replaces.key)
+                self.connect_use_now.set_active(in_use)
+                self.connect_use_now.set_sensitive(not in_use)
             self.connect_use_now.connect("notify::active", lambda *_: self.settings_ready and self.update_connect_preview())
-            self.setting_line(form, _("Use it now"),
-                              _("Make it the agent's model right away. Off: only set it up, to switch later."),
-                              self.connect_use_now)
+            if not remove_only:
+                self.setting_line(form, _("Use it now"),
+                                  _("Make it the agent's model right away. Off: only set it up, to switch later."),
+                                  self.connect_use_now)
             self.settings_ready = True
             self.update_connect_preview()
         self.stack.set_visible_child_name("connect")
@@ -1055,11 +1095,12 @@ class AgentsMap(Gtk.Application):
         models = self.connect_models
         model = models[self.connect_model.get_selected()] if models else ""
         return connect.plan(info["agent"].command, info["runtime"], model, self.connect_use_now.get_active(),
-                            remove=remove, context=self.connect_context)
+                            remove=remove, context=self.connect_context,
+                            replaces=None if remove else info.get("replaces"))
 
     def update_connect_preview(self):
         try:
-            plan_now = self.current_connect_plan()
+            plan_now = self.current_connect_plan(remove=bool(self.connecting.get("remove_only")))
             text = plan_now.diff() or _("Nothing changes: it is set up like this already.")
             self.connect_ok.set_sensitive(bool(plan_now.changes))
         except (OSError, ValueError) as error:
@@ -1080,6 +1121,9 @@ class AgentsMap(Gtk.Application):
             return
         message = (_("{0}: {1} removed") if remove else _("{0} connected to {1}")).format(
             info["agent"].name, info["runtime"].name)
+        if info.get("replaces") and not remove:
+            message = _("{0} moved from {1} to {2}").format(info["agent"].name, info["replaces"].name,
+                                                            info["runtime"].name)
         self.close_connect()
         self.collect()
         self.refresh_overview()
@@ -1090,6 +1134,84 @@ class AgentsMap(Gtk.Application):
         info = getattr(self, "connecting", None)
         self.connecting = None
         self.show_view(info["from"] if info else self.view, save=False)
+
+    # --- right-click on a box ---------------------------------------------------------------
+
+    def show_context(self, view, node_id: str, rect):
+        """Local LLM: start, stop, start at login."""
+        rt = next((r for r in self.inventory.runtimes if f"runtime:{r.key}" == node_id), None)
+        if rt is None:
+            return
+        popover = Gtk.Popover()
+        popover.set_parent(view)
+        area = Gdk.Rectangle()
+        area.x, area.y, area.width, area.height = (int(v) for v in rect)
+        popover.set_pointing_to(area)
+        popover.set_position(Gtk.PositionType.BOTTOM)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.add_css_class("am-provider-list")
+        state = {"running": _("running"), "stopped": _("installed, not running")}.get(graph.runtime_status(rt),
+                                                                                       _("not installed"))
+        title = Gtk.Label(label=f"{rt.name} · {state}", xalign=0)
+        title.add_css_class("am-agent-name")
+        box.append(title)
+        if not runtime_ctl.can_control(rt):
+            note = Gtk.Label(label=_("Not installed.") if not rt.installed else
+                             _("No user service starts it, so it cannot be started from here."), xalign=0,
+                             wrap=True, max_width_chars=36)
+            note.add_css_class("am-agent-detail")
+            box.append(note)
+        else:
+            row = Gtk.Box(spacing=6)
+            for label, action, enabled in ((_("Start"), runtime_ctl.start, not rt.running),
+                                           (_("Stop"), runtime_ctl.stop, rt.running)):
+                button = Gtk.Button(label=label)
+                button.add_css_class("am-small-btn")
+                button.set_sensitive(enabled)
+                button.connect("clicked", lambda _b, a=action, l=label: (popover.popdown(),
+                                                                          self.control_runtime(rt, a, l)))
+                row.append(button)
+            box.append(row)
+            login = runtime_ctl.start_at_login(rt)
+            if login is not None:
+                check = Gtk.CheckButton(label=_("Start at login"), active=login)
+                check.set_tooltip_text(_("Enables or disables the user service {0}.").format(rt.service))
+                check.connect("toggled", lambda b: self.control_runtime(
+                    rt, lambda r: runtime_ctl.set_start_at_login(r, b.get_active()), _("Start at login")))
+                box.append(check)
+        popover.set_child(box)
+        popover.connect("closed", lambda p: GLib.idle_add(p.unparent))
+        popover.popup()
+
+    def control_runtime(self, rt, action, label: str):
+        """Run a start/stop on a thread; look again once it has had a moment."""
+        self.show_note(_("{0}: {1}…").format(rt.name, label))
+
+        def work():
+            ok, message = action(rt)
+            GLib.timeout_add(1500, lambda: done(ok, message))
+
+        def done(ok, message):
+            self.collect()
+            self.refresh_overview()
+            self.refresh_map()
+            status = {"running": _("running"), "stopped": _("installed, not running")}.get(
+                graph.runtime_status(next(r for r in self.inventory.runtimes if r.key == rt.key)), "")
+            self.show_note(_("{0}: {1}").format(rt.name, status) if ok else
+                           _("{0}: {1} failed ({2})").format(rt.name, label, message))
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def show_note(self, message: str):
+        """The undo bar without Undo: a short message."""
+        self.undo_label.set_label(message)
+        self.undo_backup = None
+        self.undo_button.set_visible(False)
+        self.undo_bar.set_reveal_child(True)
+        if self.undo_timer:
+            GLib.source_remove(self.undo_timer)
+        self.undo_timer = GLib.timeout_add_seconds(6, self.hide_undo)
 
     def build_undo_bar(self) -> Gtk.Widget:
         """Floats over the bottom of the card after a change: what happened, and Undo."""
@@ -1105,6 +1227,7 @@ class AgentsMap(Gtk.Application):
         undo_button.add_css_class("am-small-btn")
         undo_button.connect("clicked", lambda *_: self.undo_last())
         line.append(undo_button)
+        self.undo_button = undo_button
         bar.set_child(line)
         self.undo_bar = bar
         self.undo_backup = None
@@ -1114,6 +1237,7 @@ class AgentsMap(Gtk.Application):
     def show_undo(self, message: str, backup):
         self.undo_label.set_label(message)
         self.undo_backup = backup
+        self.undo_button.set_visible(True)
         self.undo_bar.set_reveal_child(True)
         if self.undo_timer:
             GLib.source_remove(self.undo_timer)

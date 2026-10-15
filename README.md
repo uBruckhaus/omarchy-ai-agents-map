@@ -45,7 +45,11 @@ connect to light up, and letting go opens **Connect**. Pick the model, choose wh
 should use it right away, and see exactly which lines of the agent's settings change. **Connect**
 writes them (the old file is kept in `~/.local/state/ai-agents-map/backups/`); **Undo** in the bar
 that follows puts it back. Drawing to a provider the agent already has offers **Update** and
-**Remove connection**. Supported now: Hermes (`~/.hermes/config.yaml`), Pi (`~/.pi/agent/`) and
+**Remove connection**. To change a connection, click its line: it gets a handle at the LLM end. Drag that
+end to another local LLM to move the connection there (the old provider is removed in the same
+step), or drop it on empty space to remove the connection; both show the change first.
+Right-click a local LLM to **Start** or **Stop** it, or to start it at login (its user service, or
+`lms server` for LM Studio; no password needed). Supported now: Hermes (`~/.hermes/config.yaml`), Pi (`~/.pi/agent/`) and
 OpenCode (`~/.config/opencode/opencode.json`); speech and embedding models are left out.
 
 ## What is read

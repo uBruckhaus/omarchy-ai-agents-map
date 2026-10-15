@@ -102,3 +102,24 @@ class ChatModelsTest(unittest.TestCase):
     def test_speech_models_left_out(self):
         self.assertEqual(connect.chat_models(["Qwen3.8-27B", "Qwen3-TTS-12Hz", "qwen3-tts-tokenizer", "nomic-embed"]),
                          ["Qwen3.8-27B"])
+
+
+class MoveTest(ConnectTest):
+    def test_move_hermes_from_llama_to_ollama(self):
+        self.write(".hermes/config.yaml", HERMES)
+        connect.apply(connect.plan("hermes", self.rt, "Qwen", use_now=True), self.home / "b")
+        ollama = inventory.Runtime("ollama", "Ollama", True, False, address="127.0.0.1:11434", models=["gemma:latest"])
+        moved = connect.plan("hermes", ollama, "gemma:latest", use_now=True, replaces=self.rt)
+        new = moved.changes[0].new
+        self.assertNotIn("  llama-local:", new)
+        self.assertIn("  ollama-local:\n", new)
+        self.assertIn("  default: gemma:latest\n  provider: ollama-local", new)
+
+
+class ActiveTest(ConnectTest):
+    def test_is_active(self):
+        self.write(".hermes/config.yaml", HERMES)
+        connect.apply(connect.plan("hermes", self.rt, "Qwen", use_now=False), self.home / "b")
+        self.assertFalse(connect.is_active("hermes", "llamacpp"))
+        connect.apply(connect.plan("hermes", self.rt, "Qwen", use_now=True), self.home / "b")
+        self.assertTrue(connect.is_active("hermes", "llamacpp"))

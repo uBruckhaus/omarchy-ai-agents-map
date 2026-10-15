@@ -9,6 +9,9 @@ brings the hidden boxes back (faded) so more can be added.
 
 Dragging from an agent to a local LLM (or back) draws a line; letting go
 over a fitting box calls on_link(agent id, runtime id) to set it up.
+Clicking an agent's line to a local LLM selects it (a handle at the LLM
+end); dragging it to another LLM calls on_relink(agent, old, new).
+Right-click on a box calls on_context(node id, box rectangle).
 Colours come from the Omarchy theme (set_palette).
 """
 
@@ -56,6 +59,9 @@ class MapView(Gtk.DrawingArea):
         self.on_selection = None # callback(list of selected nodes)
         self.on_link = None      # callback(agent node id, runtime node id) after a drawn line
         self.link = None         # while drawing: {"from": id, "x": .., "y": .., "target": id or None}
+        self.on_relink = None    # callback(agent id, old runtime id, new runtime id)
+        self.on_context = None   # callback(node id, (x, y, w, h)) for a right-click
+        self.selected_edge = None  # (agent id, runtime id) of the clicked line
         self.shift = False       # Shift held: hidden boxes come back to be added
         self.layers = set(graph_model.LAYERS)   # categories switched on
         self.hidden_providers = set()  # provider node ids unticked in the column's list
@@ -72,6 +78,9 @@ class MapView(Gtk.DrawingArea):
         click = Gtk.GestureClick()
         click.connect("released", self.on_click)
         self.add_controller(click)
+        context = Gtk.GestureClick(button=Gdk.BUTTON_SECONDARY)
+        context.connect("pressed", self.on_right_click)
+        self.add_controller(context)
         drawer = Gtk.GestureDrag()
         drawer.connect("drag-begin", self.on_link_begin)
         drawer.connect("drag-update", self.on_link_update)
@@ -87,6 +96,8 @@ class MapView(Gtk.DrawingArea):
         self.graph = graph
         self.headers = list(headers)
         self.defaults = {e.target for e in graph.edges if e.kind == "default"}
+        if self.selected_edge and not any((e.source, e.target) == self.selected_edge for e in graph.edges):
+            self.selected_edge = None
         self.hover = None
         ids = {n.id for n in graph.nodes}
         if any(i not in ids for i in self.selected):
@@ -183,6 +194,56 @@ class MapView(Gtk.DrawingArea):
 
     # --- hover ---------------------------------------------------------------------------
 
+    # --- lines ----------------------------------------------------------------------------------
+
+    def edge_points(self, edge):
+        """(x1, y1, x2, y2) of a line between two boxes, from the box sides that face each other."""
+        sx, sy, sw, sh = self.boxes[edge.source]
+        tx, ty, tw, th = self.boxes[edge.target]
+        if sx < tx:
+            return sx + sw, sy + sh / 2, tx, ty + th / 2
+        return sx, sy + sh / 2, tx + tw, ty + th / 2
+
+    def movable_edge(self, edge) -> bool:
+        """An agent's line to a local LLM: one that can be moved to another."""
+        return edge.kind in ("uses", "available") and self.kind_of(edge.source) == "agent" \
+            and self.kind_of(edge.target) == "runtime"
+
+    def edge_distance(self, edge, x, y) -> float:
+        """How far (x, y) is from the line, sampled along its curve."""
+        x1, y1, x2, y2 = self.edge_points(edge)
+        bend = (x2 - x1) * 0.5
+        best = math.inf
+        for step in range(25):
+            t = step / 24
+            # Cubic Bézier with control points (x1 + bend, y1) and (x2 - bend, y2).
+            px = (1 - t) ** 3 * x1 + 3 * (1 - t) ** 2 * t * (x1 + bend) + 3 * (1 - t) * t ** 2 * (x2 - bend) + t ** 3 * x2
+            py = (1 - t) ** 3 * y1 + 3 * (1 - t) ** 2 * t * y1 + 3 * (1 - t) * t ** 2 * y2 + t ** 3 * y2
+            best = min(best, math.hypot(px - x, py - y))
+        return best
+
+    def edge_at(self, x, y, reach: float = 6):
+        best, best_dist = None, reach
+        for edge in self.graph.edges if self.graph else []:
+            if not self.movable_edge(edge) or edge.source not in self.boxes or edge.target not in self.boxes:
+                continue
+            dist = self.edge_distance(edge, x, y)
+            if dist < best_dist:
+                best, best_dist = (edge.source, edge.target), dist
+        return best
+
+    def near_selected_edge(self, x, y, reach: float = 10) -> bool:
+        """On the selected line (its handle included), even where other lines end at the same box."""
+        edge = next((e for e in self.graph.edges if (e.source, e.target) == self.selected_edge), None) \
+            if self.graph and self.selected_edge else None
+        return edge is not None and edge.source in self.boxes and edge.target in self.boxes \
+            and self.edge_distance(edge, x, y) <= reach
+
+    def on_right_click(self, _gesture, _count, x, y):
+        node_id = self.node_at(x, y)
+        if node_id is not None and self.on_context is not None:
+            self.on_context(node_id, self.boxes[node_id])
+
     # --- drawing a connection ---------------------------------------------------------------
 
     def kind_of(self, node_id):
@@ -191,6 +252,12 @@ class MapView(Gtk.DrawingArea):
 
     def link_target_ok(self, source: str, target: str) -> bool:
         """Agent ↔ installed local runtime, in either direction."""
+        if self.link and self.link.get("relink"):
+            # Moving a line: to another installed local LLM.
+            if self.kind_of(target) != "runtime" or target == self.link["relink"]:
+                return False
+            node = next(n for n in self.graph.nodes if n.id == target)
+            return node.status != "missing"
         kinds = {self.kind_of(source), self.kind_of(target)}
         if kinds != {"agent", "runtime"}:
             return False
@@ -199,6 +266,11 @@ class MapView(Gtk.DrawingArea):
         return node.status != "missing"
 
     def on_link_begin(self, gesture, x, y):
+        if self.near_selected_edge(x, y):
+            agent, runtime = self.selected_edge
+            self.link = {"from": agent, "relink": runtime, "start": (x, y), "x": x, "y": y, "target": None,
+                         "drawing": False}
+            return
         node_id = self.node_at(x, y)
         if node_id is None or self.kind_of(node_id) not in ("agent", "runtime"):
             gesture.set_state(Gtk.EventSequenceState.DENIED)
@@ -225,6 +297,13 @@ class MapView(Gtk.DrawingArea):
         link, self.link = self.link, None
         self.set_cursor_from_name(None)
         self.queue_draw()
+        if link and link.get("relink") and link["drawing"] and self.on_relink is not None:
+            # Let go on another local LLM: move the line. Anywhere else: remove it.
+            if link["target"]:
+                self.on_relink(link["from"], link["relink"], link["target"])
+            elif self.node_at(link["x"], link["y"]) is None:
+                self.on_relink(link["from"], link["relink"], None)
+            return
         if link and link["drawing"] and link["target"] and self.on_link is not None:
             a, b = link["from"], link["target"]
             agent, runtime = (a, b) if self.kind_of(a) == "agent" else (b, a)
@@ -331,6 +410,12 @@ class MapView(Gtk.DrawingArea):
                 self.on_header(column, (hx, hy, hw, hh))
                 return
         node_id = self.node_at(x, y)
+        edge = self.edge_at(x, y) if node_id is None else None
+        if edge is not None or self.selected_edge is not None:
+            self.selected_edge = None if edge == self.selected_edge else edge
+            self.queue_draw()
+            if edge is not None:
+                return
         if node_id is None:
             return
         adding = bool(gesture.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK)
@@ -404,26 +489,33 @@ class MapView(Gtk.DrawingArea):
         for index, edge in enumerate(self.graph.edges):
             if edge.kind == "default" or edge.source not in self.boxes or edge.target not in self.boxes:
                 continue
-            sx, sy, sw, sh = self.boxes[edge.source]
-            tx, ty, tw, th = self.boxes[edge.target]
-            if sx < tx:
-                x1, y1, x2, y2 = sx + sw, sy + sh / 2, tx, ty + th / 2
-            else:
-                x1, y1, x2, y2 = sx, sy + sh / 2, tx + tw, ty + th / 2
+            x1, y1, x2, y2 = self.edge_points(edge)
             bend = (x2 - x1) * 0.5
+            picked = (edge.source, edge.target) == self.selected_edge
             alpha = 0.55
-            if only_lit and index not in lit_edges:
+            if only_lit and index not in lit_edges and not picked:
                 continue
             if lit_edges is not None:
                 alpha = 0.95 if index in lit_edges else 0.08
+            if picked:
+                moving = self.link is not None and self.link.get("relink") and self.link["drawing"]
+                alpha = 0.3 if moving else 1.0
             cr.set_source_rgba(*self.color(EDGE_COLORS.get(edge.kind, "muted"), alpha))
-            cr.set_line_width(2.0 if lit_edges is not None and index in lit_edges else 1.4)
+            cr.set_line_width(3.2 if picked else 2.0 if lit_edges is not None and index in lit_edges else 1.4)
             # Dashed: set up but not in use (an agent's second provider).
             cr.set_dash([5, 4] if edge.kind == "available" else [])
             cr.move_to(x1, y1)
             cr.curve_to(x1 + bend, y1, x2 - bend, y2, x2, y2)
             cr.stroke()
             cr.set_dash([])
+            if picked:
+                # The handle: drag it to another local LLM.
+                cr.arc(x2, y2, 7, 0, 2 * math.pi)
+                cr.set_source_rgba(*self.color("bg"))
+                cr.fill_preserve()
+                cr.set_source_rgba(*self.color("accent", alpha))
+                cr.set_line_width(2.5)
+                cr.stroke()
 
         for node in self.graph.nodes:
             if node.id not in self.boxes:
