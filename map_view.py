@@ -237,6 +237,13 @@ class MapView(Gtk.DrawingArea):
             self.selected = [] if self.selected == [node_id] else [node_id]
         self.selection_changed()
 
+    def set_selected(self, ids):
+        """Selection from outside (the other map, the cards): no callback."""
+        ids = list(ids)
+        if ids != self.selected:
+            self.selected = ids
+            self.relayout()
+
     def clear_selection(self) -> bool:
         if not self.selected:
             return False

@@ -63,6 +63,8 @@ LIST_HEIGHT = 590
 SCREEN_MARGIN = 120    # space kept free above and below the card
 CURSOR_SLACK = 24      # px the pointer may move after opening before the keyboard is released
 AGENT_SPACING = 8
+SPLIT_WIDTH = 1000        # from this card width the overview shows the map beside the cards
+LIST_PANE_WIDTH = 440
 DETAIL_LABEL_WIDTH = 90   # the dim labels in an opened agent card
 
 
@@ -140,10 +142,13 @@ class AiManager(Gtk.Application):
         self.agent_list = []
         self.inventory = inventory.Inventory()
         self.size_before_map = None   # the card's size before the Map maximized it
+        self.selection = []        # node ids selected in the maps and (wide overview) the cards
+        self.card_widgets = {}     # card key -> (card box, check mark label)
+        self.split = False         # wide overview: cards left, map right
 
     def do_shutdown(self):
         cleanup_pid()
-        super().do_shutdown()
+        Gtk.Application.do_shutdown(self)
 
     def do_activate(self):
         if self.window is None:
@@ -331,9 +336,26 @@ class AiManager(Gtk.Application):
     def build_main_page(self) -> Gtk.Widget:
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         page.append(self.view_heading(_("AI setup")))
+        body = Gtk.Box(spacing=16)
         self.agents_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=AGENT_SPACING)
         self.agents_box.add_css_class("am-agents")
-        page.append(self.page_scroller(self.agents_box))
+        self.list_pane = self.page_scroller(self.agents_box)
+        self.list_pane.set_hexpand(True)
+        body.append(self.list_pane)
+        # Wide: the map beside the cards; a click on a card selects it there.
+        side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, hexpand=True)
+        self.side_filter = Gtk.Label(xalign=0)
+        self.side_filter.add_css_class("am-agent-detail")
+        self.side_filter.set_ellipsize(Pango.EllipsizeMode.END)
+        self.side_filter.set_max_width_chars(1)
+        side.append(self.side_filter)
+        self.side_map = MapView()
+        self.side_map.on_selection = self.on_map_selection
+        side.append(self.page_scroller(self.side_map))
+        side.set_visible(False)
+        self.side_pane = side
+        body.append(side)
+        page.append(body)
         return page
 
     def collect(self):
@@ -347,6 +369,7 @@ class AiManager(Gtk.Application):
         while (child := box.get_first_child()) is not None:
             box.remove(child)
         self.detail_boxes = {}
+        self.card_widgets = {}
         installed = [a for a in self.agent_list if a.installed]
         missing = [a for a in self.agent_list if not a.installed]
         inv = self.inventory
@@ -445,12 +468,19 @@ class AiManager(Gtk.Application):
         line.append(detail)
         text.append(line)
         top.append(text)
+        check = Gtk.Label(label="✓")
+        check.add_css_class("am-card-check")
+        check.set_valign(Gtk.Align.CENTER)
+        check.set_visible(key in self.selection)
+        top.append(check)
+        if key in self.selection:
+            card.add_css_class("am-agent-selected")
+        self.card_widgets[key] = (card, check)
         expanded = key in self.expanded
         chevron = Gtk.Image.new_from_icon_name("pan-up-symbolic" if expanded else "pan-down-symbolic")
         chevron.add_css_class("am-agent-chevron")
         chevron.set_valign(Gtk.Align.CENTER)
         top.append(chevron)
-        top.set_tooltip_text(_("Click for details"))
         card.append(top)
 
         revealer = Gtk.Revealer()
@@ -466,9 +496,48 @@ class AiManager(Gtk.Application):
             revealer.set_reveal_child(True)
 
         click = Gtk.GestureClick()
-        click.connect("released", lambda *_: self.toggle_card(key, revealer, chevron))
+        click.connect("released", lambda g, *_: self.on_card_click(g, key, revealer, chevron))
         top.add_controller(click)
         return card
+
+    def on_card_click(self, gesture, key: str, revealer, chevron):
+        """Narrow: open or close the details. Wide (map beside the cards): a
+        click selects the card in the map and opens it; Shift+click adds or
+        removes it; clicking the only selected card again lets it go."""
+        selectable = self.split and key in self.map_node_ids()
+        if not selectable:
+            self.toggle_card(key, revealer, chevron)
+            return
+        if gesture.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK:
+            self.set_selection([k for k in self.selection if k != key] if key in self.selection
+                               else self.selection + [key])
+            return
+        if self.selection == [key]:
+            self.set_selection([])
+            if key in self.expanded:
+                self.toggle_card(key, revealer, chevron)
+            return
+        self.set_selection([key])
+        if key not in self.expanded:
+            self.toggle_card(key, revealer, chevron)
+
+    def map_node_ids(self) -> set:
+        graph_now = self.map_view.graph
+        return {n.id for n in graph_now.nodes} if graph_now is not None else set()
+
+    def set_selection(self, ids):
+        """One selection for both maps and the cards."""
+        self.selection = list(dict.fromkeys(ids))
+        for view in (self.map_view, self.side_map):
+            view.set_selected(self.selection)
+        for key, (card, check) in self.card_widgets.items():
+            on = key in self.selection
+            check.set_visible(on)
+            if on:
+                card.add_css_class("am-agent-selected")
+            else:
+                card.remove_css_class("am-agent-selected")
+        self.update_selection_labels()
 
     def toggle_card(self, key: str, revealer, chevron):
         if key in self.expanded:
@@ -697,14 +766,13 @@ class AiManager(Gtk.Application):
         self.map_show_all.add_css_class("flat")
         self.map_show_all.add_css_class("am-small-btn")
         self.map_show_all.set_tooltip_text(_("Clear the selection (Esc)"))
-        self.map_show_all.connect("clicked", lambda *_: self.map_view.clear_selection())
+        self.map_show_all.connect("clicked", lambda *_: self.set_selection([]))
         bar.append(self.map_show_all)
         page.append(bar)
         self.map_view = MapView()
         self.map_view.set_layers(ai_core.map_layers())
         self.update_layer_toggles()
         self.map_view.on_selection = self.on_map_selection
-        self.on_map_selection([])
         page.append(self.page_scroller(self.map_view))
         return page
 
@@ -749,10 +817,24 @@ class AiManager(Gtk.Application):
             self.update_layer_toggles()   # keep at least one category on
             return
         self.map_view.set_layers(layers)
+        self.side_map.set_layers(layers)
+        self.set_selection([i for i in self.selection if i in set(self.map_view.selected)])
         self.update_layer_toggles()
         self.save_setting(map_layers=[l for l in graph.LAYERS if l in layers])
 
     def on_map_selection(self, nodes):
+        """A click in either map."""
+        self.set_selection([n.id for n in nodes])
+
+    def update_selection_labels(self):
+        by_id = {n.id: n for n in self.map_view.graph.nodes} if self.map_view.graph else {}
+        nodes = [by_id[i] for i in self.selection if i in by_id]
+        if nodes:
+            self.side_filter.set_label(_("Selected: {0} · hold Shift and click to add or remove one")
+                                       .format(", ".join(n.label for n in nodes)))
+        else:
+            self.side_filter.set_label(_("Click a card or a box to see only its connections; "
+                                         "Shift+click selects more than one."))
         if nodes:
             self.map_filter.set_label(_("Selected: {0} · hold Shift and click to add or remove one")
                                       .format(", ".join(n.label for n in nodes)))
@@ -765,8 +847,13 @@ class AiManager(Gtk.Application):
         details = {a.command: agent_details.details_for(a.command) for a in self.agent_list if a.installed}
         labels = {"skills": lambda n: ngettext("1 skill", "{0} skills", n).format(n),
                   "more": lambda n: _("+{0} more").format(n)}
-        self.map_view.set_graph(graph.build(self.agent_list, details, self.inventory, labels),
-                                [_("MCP servers · skills"), _("Agents"), _("LLM providers"), _("Models")])
+        built = graph.build(self.agent_list, details, self.inventory, labels)
+        headers = [_("MCP servers · skills"), _("Agents"), _("LLM providers"), _("Models")]
+        for view in (self.map_view, self.side_map):
+            view.set_graph(built, headers)
+            view.set_layers(self.map_view.layers)
+        ids = {n.id for n in built.nodes}
+        self.set_selection([i for i in self.selection if i in ids])
 
     @staticmethod
     def view_heading(text: str) -> Gtk.Widget:
@@ -949,6 +1036,11 @@ class AiManager(Gtk.Application):
         self.card_w = max(CARD_WIDTH, min(int(width), max_w))
         self.list_h = max(ai_core.MIN_WINDOW_SIZE[1], min(int(height), max_h))
         self.card.set_size_request(self.card_w, -1)
+        if getattr(self, "side_pane", None) is not None:
+            self.split = self.card_w >= SPLIT_WIDTH
+            self.side_pane.set_visible(self.split)
+            self.list_pane.set_hexpand(not self.split)
+            self.list_pane.set_size_request(LIST_PANE_WIDTH if self.split else -1, -1)
         for scroller in self.scrollers:
             # Raise the maximum first: GTK refuses a minimum above the maximum.
             scroller.set_max_content_height(100000)
@@ -1186,6 +1278,8 @@ class AiManager(Gtk.Application):
         .am-agent {{ background: alpha({fg_hex}, 0.05); border: 1px solid alpha({fg_hex}, 0.10);
             border-radius: {radius}px; padding: 10px 12px; }}
         .am-agent-missing {{ opacity: 0.5; }}
+        .am-agent.am-agent-selected {{ background: alpha({accent_hex}, 0.18); border: 2px solid {accent_hex}; }}
+        .am-card-check {{ color: {accent_hex}; font-weight: 700; }}
         .am-agent.am-agent-default {{ border-color: alpha({accent_hex}, 0.7); }}
         .am-agent-icon {{ font-family: "JetBrainsMono Nerd Font", "Symbols Nerd Font", monospace;
             font-size: 22px; color: {accent_hex}; min-width: 28px; }}
@@ -1218,9 +1312,10 @@ class AiManager(Gtk.Application):
         .am-card button.am-chip:disabled {{ opacity: 0.4; }}
         .am-canvas {{ border: 1px dashed alpha({fg_hex}, 0.25); border-radius: {radius}px; padding: 12px; }}
         """
-        if getattr(self, "map_view", None) is not None:
-            self.map_view.set_palette({"bg": bg_hex, "fg": fg_hex, "dim": dim_hex, "muted": muted_hex,
-                                       "accent": accent_hex, "green": green_hex, "yellow": yellow_hex}, radius)
+        for view in (getattr(self, "map_view", None), getattr(self, "side_map", None)):
+            if view is not None:
+                view.set_palette({"bg": bg_hex, "fg": fg_hex, "dim": dim_hex, "muted": muted_hex,
+                                  "accent": accent_hex, "green": green_hex, "yellow": yellow_hex}, radius)
         provider = Gtk.CssProvider()
         provider.load_from_string(css)
         Gtk.StyleContext.add_provider_for_display(display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
@@ -1241,8 +1336,8 @@ class AiManager(Gtk.Application):
         if keyval == Gdk.KEY_Escape:
             if page == "settings":
                 self.close_settings()
-            elif page == "map" and self.map_view.clear_selection():
-                pass   # the first Esc shows the whole map again
+            elif page in ("map", "main") and self.selection:
+                self.set_selection([])   # the first Esc clears the selection
             else:
                 self.close()
             return True

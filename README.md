@@ -19,6 +19,10 @@ skills each agent has. For people new to it as much as for checking your own set
     use it.
   - **Skills**: each skill folder with its skills and the agents that load it (linked skills count
     where they really live, so a shared `~/.agents/skills` shows up once).
+- **Wide Overview**: from about 1000 px wide (resize it, or double-click the header) the map
+  appears beside the cards. A click on a card selects it there (✓) and opens its details, Shift+click
+  adds or removes more, a click on the only selected card lets it go; clicking boxes in the map
+  selects the matching cards.
 - **Map** (Ctrl+2): the same as a picture, drawn at the largest size: MCP servers and skills ←
   agents → LLM providers → models. Hover a box to light up everything it is joined to. A click
   selects a box (an agent, a provider such as llama.cpp, an MCP server, …), Shift+click adds or
