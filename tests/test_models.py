@@ -141,3 +141,50 @@ class LmStudioContextTest(unittest.TestCase):
             self.assertEqual(c.lmstudio_model_file(entry), Path(root, "models/pub/repo/m.gguf").resolve())
             outside = dict(entry, entryPoint={"absPath": "/etc/hostname.gguf", "rootAbsolutePath": f"{root}/models"})
             self.assertIsNone(c.lmstudio_model_file(outside))
+
+
+class LmStudioAutoContextTest(unittest.TestCase):
+    def setUp(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        self.dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.dir.name)
+        (self.root / ".internal").mkdir()
+        (self.root / "models/pub/repo").mkdir(parents=True)
+        self.model = self.root / "models/pub/repo/m.gguf"
+        self.model.write_bytes(b"GGUF")
+        (self.root / ".internal/model-index-cache.json").write_text(json.dumps({"models": [{
+            "defaultIdentifier": "m", "domain": "llm", "indexedModelIdentifier": "pub/repo/m.gguf",
+            "entryPoint": {"absPath": str(self.model), "rootAbsolutePath": str(self.root / "models")}}]}))
+        self.defaults = self.root / "defaults"
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def test_sets_best_when_nothing_set(self):
+        import context_ctl as c
+        old_fit = c.fit
+        c.fit = lambda *_a, **_k: c.Fit(native=131072, best=65536, per_token=1, model_size=1)
+        try:
+            ctx, path, old, new = c.lmstudio_auto_context("m", 24 * 2**30, self.root, self.defaults)
+        finally:
+            c.fit = old_fit
+        self.assertEqual(ctx, 65536)
+        self.assertEqual(path, self.defaults / "pub/repo/m.gguf.json")
+        self.assertEqual(old, "")
+        self.assertIn('"value": 65536', new)
+
+    def test_keeps_users_context(self):
+        import context_ctl as c
+        path = self.defaults / "pub/repo/m.gguf.json"
+        path.parent.mkdir(parents=True)
+        path.write_text(c.lmstudio_context_text("", 16384))
+        ctx, got, old, new = c.lmstudio_auto_context("m", 24 * 2**30, self.root, self.defaults)
+        self.assertEqual((ctx, got), (16384, path))
+        self.assertEqual(old, new)                       # nothing to change
+
+    def test_unknown_model_or_no_gpu(self):
+        import context_ctl as c
+        self.assertEqual(c.lmstudio_auto_context("other", 24 * 2**30, self.root, self.defaults), (0, None, "", ""))
+        self.assertEqual(c.lmstudio_auto_context("m", 0, self.root, self.defaults), (0, None, "", ""))

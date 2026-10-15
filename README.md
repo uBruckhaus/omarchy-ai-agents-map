@@ -195,7 +195,10 @@ LM Studio `llm.load.contextLength` in the model's own defaults file
 `~/.lmstudio/.internal/user-concrete-model-default-config/<model>.json` (what LM Studio writes when
 you change it in its model settings; backup and Undo; used the next time LM Studio loads the model).
 LM Studio's models are listed by the names its server answers to (`gemma-4-12b-it-qat`), read from
-its model index, so agents connected to it ask for a model LM Studio knows.
+its model index, so agents connected to it ask for a model LM Studio knows. LM Studio loads a model
+with 8192 tokens unless told otherwise, too few for an agent's prompt: connecting an agent to an LM
+Studio model whose context is not set yet sets the best one in the same step (it is in the preview,
+the backup and Undo), and the agent is told the same context. A context you set yourself is kept.
 
 ## Privacy and capabilities
 

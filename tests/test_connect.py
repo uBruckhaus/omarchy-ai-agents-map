@@ -123,3 +123,23 @@ class ActiveTest(ConnectTest):
         self.assertFalse(connect.is_active("hermes", "llamacpp"))
         connect.apply(connect.plan("hermes", self.rt, "Qwen", use_now=True), self.home / "b")
         self.assertTrue(connect.is_active("hermes", "llamacpp"))
+
+
+class UndoFoldersTest(unittest.TestCase):
+    def test_undo_removes_folders_it_made(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as root:
+            base = Path(root, "defaults")
+            base.mkdir()
+            keep = base / "pub/other.json"
+            keep.parent.mkdir()
+            keep.write_text("{}")
+            new = base / "pub/repo/deep/m.json"
+            backup = connect.apply(connect.Plan("x", "lmstudio", "", [connect.Change(new, "", "{}\n")]),
+                                   backup_root=Path(root, "bk"))
+            self.assertTrue(new.exists())
+            connect.undo(backup)
+            self.assertFalse(new.exists())
+            self.assertFalse((base / "pub/repo").exists())     # made by apply: gone
+            self.assertTrue(keep.exists())                     # was there before: kept

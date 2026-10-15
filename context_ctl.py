@@ -376,3 +376,33 @@ def lmstudio_context_text(old: str, ctx: int) -> str:
     fields = [f for f in _lms_fields(data) if not (isinstance(f, dict) and f.get("key") == LMS_CONTEXT_KEY)]
     data["load"]["fields"] = fields + [{"key": LMS_CONTEXT_KEY, "value": int(ctx)}]
     return json.dumps(data, indent=2) + "\n"
+
+
+def lmstudio_auto_context(name: str, vram: int, root: Path = LMSTUDIO,
+                          defaults: Path = LMS_DEFAULTS) -> tuple[int, Path | None, str, str]:
+    """For connecting an agent to an LM Studio model: (its context, defaults file,
+    old text, new text). LM Studio loads a model with 8192 tokens unless its
+    defaults say otherwise, too few for an agent's prompt. When nothing is set
+    yet, the best context for this card goes into the defaults (new != old);
+    a context the user set is kept. (0, None, "", "") when it cannot be worked out."""
+    entry = lmstudio_entry(name, root)
+    path = lmstudio_defaults_file(entry, defaults) if entry else None
+    if path is None:
+        return 0, None, "", ""
+    now, cache = lmstudio_settings(entry, defaults)
+    try:
+        old = path.read_text() if path.exists() else ""
+    except OSError:
+        return 0, None, "", ""
+    if now:
+        return now, path, old, old
+    model_file = lmstudio_model_file(entry)
+    if model_file is None or vram <= 0:
+        return 0, None, "", ""
+    try:
+        best = fit(model_file, vram, cache).best
+    except (OSError, ValueError, KeyError, struct.error):
+        return 0, None, "", ""
+    if best <= 0:
+        return 0, None, "", ""
+    return best, path, old, lmstudio_context_text(old, best)
