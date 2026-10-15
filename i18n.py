@@ -143,6 +143,10 @@ STRINGS = {
    "1 Skill",
    "{0} Skills"
   ],
+  "\u0004Asked on {1}: 1 tool": [
+   "Gefragt am {1}: 1 Werkzeug",
+   "Gefragt am {1}: {0} Werkzeuge"
+  ],
   "\u0004{0} gets a link to the skill in {1} in its own folder ({2}).": [
    "{0} bekommt einen Link auf den Skill in {1} in seinem eigenen Ordner ({2}).",
    "{0} bekommt Links auf die {3} Skills in {1} in seinem eigenen Ordner ({2})."
@@ -159,6 +163,10 @@ STRINGS = {
   "Agents with a provider pointing at this runtime.": "Agenten, deren Anbieter auf diese Laufzeit zeigt.",
   "All": "Alle",
   "Arguments": "Argumente",
+  "Ask again": "Erneut fragen",
+  "Ask the server": "Server fragen",
+  "Asked on {0}: {1}": "Gefragt am {0}: {1}",
+  "Asking the server…": "Frage den Server…",
   "Back": "Zurück",
   "Back (Backspace, Esc)": "Zurück (Rücktaste, Esc)",
   "Back (Esc)": "Zurück (Esc)",
@@ -233,6 +241,7 @@ STRINGS = {
   "No user service starts it, so it cannot be started from here.": "Kein Benutzerdienst startet es, daher lässt es sich von hier nicht starten.",
   "None": "Keine",
   "Not a chat model, or its file does not say how much memory its context needs.": "Kein Chatmodell, oder seine Datei sagt nicht, wie viel Speicher sein Kontext braucht.",
+  "Not asked yet. Asking starts the server once (like an agent does) and stops it again.": "Noch nicht gefragt. Beim Fragen startet der Server einmal (wie bei einem Agenten) und wird danach wieder beendet.",
   "Not changed: {0}": "Nicht geändert: {0}",
   "Not done: {0}": "Nicht erledigt: {0}",
   "Not downloaded: {0}": "Nicht heruntergeladen: {0}",
@@ -253,6 +262,7 @@ STRINGS = {
   "Overview (Ctrl+1)": "Übersicht (Strg+1)",
   "Plan": "Tarif",
   "Program folder": "Programmordner",
+  "Prompts": "Prompts",
   "Provider": "Anbieter",
   "Query parameters are not shown: they may hold a token.": "Abfrageparameter werden nicht gezeigt: Sie können ein Token enthalten.",
   "ROCm: AMD, needs ROCm installed (/opt/rocm).": "ROCm: AMD, braucht installiertes ROCm (/opt/rocm).",
@@ -423,6 +433,10 @@ STRINGS = {
    "1 skill",
    "{0} skills"
   ],
+  "\u0004Asked on {1}: 1 tool": [
+   "Preguntado el {1}: 1 herramienta",
+   "Preguntado el {1}: {0} herramientas"
+  ],
   "\u0004{0} gets a link to the skill in {1} in its own folder ({2}).": [
    "{0} recibe un enlace a la skill de {1} en su propia carpeta ({2}).",
    "{0} recibe enlaces a las {3} skills de {1} en su propia carpeta ({2})."
@@ -439,6 +453,10 @@ STRINGS = {
   "Agents with a provider pointing at this runtime.": "Agentes con un proveedor que apunta a este motor.",
   "All": "Todos",
   "Arguments": "Argumentos",
+  "Ask again": "Preguntar de nuevo",
+  "Ask the server": "Preguntar al servidor",
+  "Asked on {0}: {1}": "Preguntado el {0}: {1}",
+  "Asking the server…": "Preguntando al servidor…",
   "Back": "Atrás",
   "Back (Backspace, Esc)": "Atrás (Retroceso, Esc)",
   "Back (Esc)": "Atrás (Esc)",
@@ -513,6 +531,7 @@ STRINGS = {
   "No user service starts it, so it cannot be started from here.": "Ningún servicio de usuario lo inicia, así que no se puede iniciar desde aquí.",
   "None": "Ninguno",
   "Not a chat model, or its file does not say how much memory its context needs.": "No es un modelo de chat, o su archivo no indica cuánta memoria necesita su contexto.",
+  "Not asked yet. Asking starts the server once (like an agent does) and stops it again.": "Aún no preguntado. Preguntar inicia el servidor una vez (como un agente) y lo detiene después.",
   "Not changed: {0}": "Sin cambios: {0}",
   "Not done: {0}": "No hecho: {0}",
   "Not downloaded: {0}": "No descargado: {0}",
@@ -533,6 +552,7 @@ STRINGS = {
   "Overview (Ctrl+1)": "Resumen (Ctrl+1)",
   "Plan": "Plan",
   "Program folder": "Carpeta del programa",
+  "Prompts": "Prompts",
   "Provider": "Proveedor",
   "Query parameters are not shown: they may hold a token.": "Los parámetros de consulta no se muestran: pueden contener un token.",
   "ROCm: AMD, needs ROCm installed (/opt/rocm).": "ROCm: AMD, necesita ROCm instalado (/opt/rocm).",
@@ -703,6 +723,10 @@ STRINGS = {
    "{0} skill",
    "{0} skills"
   ],
+  "\u0004Asked on {1}: 1 tool": [
+   "Demandé le {1} : 1 outil",
+   "Demandé le {1} : {0} outils"
+  ],
   "\u0004{0} gets a link to the skill in {1} in its own folder ({2}).": [
    "{0} reçoit un lien vers le skill de {1} dans son propre dossier ({2}).",
    "{0} reçoit des liens vers les {3} skills de {1} dans son propre dossier ({2})."
@@ -719,6 +743,10 @@ STRINGS = {
   "Agents with a provider pointing at this runtime.": "Agents dont un fournisseur pointe vers ce moteur.",
   "All": "Tous",
   "Arguments": "Arguments",
+  "Ask again": "Redemander",
+  "Ask the server": "Demander au serveur",
+  "Asked on {0}: {1}": "Demandé le {0} : {1}",
+  "Asking the server…": "Interrogation du serveur…",
   "Back": "Retour",
   "Back (Backspace, Esc)": "Retour (Retour arrière, Échap)",
   "Back (Esc)": "Retour (Échap)",
@@ -793,6 +821,7 @@ STRINGS = {
   "No user service starts it, so it cannot be started from here.": "Aucun service utilisateur ne le démarre, il ne peut donc pas être démarré d'ici.",
   "None": "Aucun",
   "Not a chat model, or its file does not say how much memory its context needs.": "Pas un modèle de chat, ou son fichier n'indique pas la mémoire nécessaire à son contexte.",
+  "Not asked yet. Asking starts the server once (like an agent does) and stops it again.": "Pas encore demandé. Demander lance le serveur une fois (comme un agent) puis l'arrête.",
   "Not changed: {0}": "Rien n'a changé : {0}",
   "Not done: {0}": "Non fait : {0}",
   "Not downloaded: {0}": "Non téléchargé : {0}",
@@ -813,6 +842,7 @@ STRINGS = {
   "Overview (Ctrl+1)": "Vue d'ensemble (Ctrl+1)",
   "Plan": "Forfait",
   "Program folder": "Dossier du programme",
+  "Prompts": "Prompts",
   "Provider": "Fournisseur",
   "Query parameters are not shown: they may hold a token.": "Les paramètres de requête ne sont pas affichés : ils peuvent contenir un jeton.",
   "ROCm: AMD, needs ROCm installed (/opt/rocm).": "ROCm : AMD, nécessite ROCm installé (/opt/rocm).",
@@ -983,6 +1013,10 @@ STRINGS = {
    "1 skill",
    "{0} skill"
   ],
+  "\u0004Asked on {1}: 1 tool": [
+   "Chiesto il {1}: 1 strumento",
+   "Chiesto il {1}: {0} strumenti"
+  ],
   "\u0004{0} gets a link to the skill in {1} in its own folder ({2}).": [
    "{0} riceve un collegamento alla skill di {1} nella propria cartella ({2}).",
    "{0} riceve collegamenti alle {3} skill di {1} nella propria cartella ({2})."
@@ -999,6 +1033,10 @@ STRINGS = {
   "Agents with a provider pointing at this runtime.": "Agenti con un provider che punta a questo motore.",
   "All": "Tutti",
   "Arguments": "Argomenti",
+  "Ask again": "Chiedi di nuovo",
+  "Ask the server": "Chiedi al server",
+  "Asked on {0}: {1}": "Chiesto il {0}: {1}",
+  "Asking the server…": "Interrogo il server…",
   "Back": "Indietro",
   "Back (Backspace, Esc)": "Indietro (Backspace, Esc)",
   "Back (Esc)": "Indietro (Esc)",
@@ -1073,6 +1111,7 @@ STRINGS = {
   "No user service starts it, so it cannot be started from here.": "Nessun servizio utente lo avvia, quindi non si può avviare da qui.",
   "None": "Nessuno",
   "Not a chat model, or its file does not say how much memory its context needs.": "Non è un modello di chat, o il suo file non dice quanta memoria serve al contesto.",
+  "Not asked yet. Asking starts the server once (like an agent does) and stops it again.": "Non ancora chiesto. Chiedere avvia il server una volta (come un agente) e poi lo ferma.",
   "Not changed: {0}": "Non modificato: {0}",
   "Not done: {0}": "Non fatto: {0}",
   "Not downloaded: {0}": "Non scaricato: {0}",
@@ -1093,6 +1132,7 @@ STRINGS = {
   "Overview (Ctrl+1)": "Panoramica (Ctrl+1)",
   "Plan": "Piano",
   "Program folder": "Cartella del programma",
+  "Prompts": "Prompt",
   "Provider": "Provider",
   "Query parameters are not shown: they may hold a token.": "I parametri della query non sono mostrati: possono contenere un token.",
   "ROCm: AMD, needs ROCm installed (/opt/rocm).": "ROCm: AMD, richiede ROCm installato (/opt/rocm).",
@@ -1263,6 +1303,10 @@ STRINGS = {
    "1 skill",
    "{0} skills"
   ],
+  "\u0004Asked on {1}: 1 tool": [
+   "Gevraagd op {1}: 1 tool",
+   "Gevraagd op {1}: {0} tools"
+  ],
   "\u0004{0} gets a link to the skill in {1} in its own folder ({2}).": [
    "{0} krijgt een link naar de skill in {1} in zijn eigen map ({2}).",
    "{0} krijgt links naar de {3} skills in {1} in zijn eigen map ({2})."
@@ -1279,6 +1323,10 @@ STRINGS = {
   "Agents with a provider pointing at this runtime.": "Agents met een provider die naar deze runtime wijst.",
   "All": "Alle",
   "Arguments": "Argumenten",
+  "Ask again": "Opnieuw vragen",
+  "Ask the server": "Server vragen",
+  "Asked on {0}: {1}": "Gevraagd op {0}: {1}",
+  "Asking the server…": "Server wordt gevraagd…",
   "Back": "Terug",
   "Back (Backspace, Esc)": "Terug (Backspace, Esc)",
   "Back (Esc)": "Terug (Esc)",
@@ -1353,6 +1401,7 @@ STRINGS = {
   "No user service starts it, so it cannot be started from here.": "Geen gebruikersdienst start het, dus het kan hier niet gestart worden.",
   "None": "Geen",
   "Not a chat model, or its file does not say how much memory its context needs.": "Geen chatmodel, of het bestand zegt niet hoeveel geheugen de context nodig heeft.",
+  "Not asked yet. Asking starts the server once (like an agent does) and stops it again.": "Nog niet gevraagd. Vragen start de server één keer (zoals een agent) en stopt hem daarna.",
   "Not changed: {0}": "Niet gewijzigd: {0}",
   "Not done: {0}": "Niet gedaan: {0}",
   "Not downloaded: {0}": "Niet gedownload: {0}",
@@ -1373,6 +1422,7 @@ STRINGS = {
   "Overview (Ctrl+1)": "Overzicht (Ctrl+1)",
   "Plan": "Abonnement",
   "Program folder": "Programmamap",
+  "Prompts": "Prompts",
   "Provider": "Provider",
   "Query parameters are not shown: they may hold a token.": "Queryparameters worden niet getoond: ze kunnen een token bevatten.",
   "ROCm: AMD, needs ROCm installed (/opt/rocm).": "ROCm: AMD, vereist geïnstalleerde ROCm (/opt/rocm).",
@@ -1549,6 +1599,11 @@ STRINGS = {
    "{0} skille",
    "{0} skilli"
   ],
+  "\u0004Asked on {1}: 1 tool": [
+   "Zapytano {1}: 1 narzędzie",
+   "Zapytano {1}: {0} narzędzia",
+   "Zapytano {1}: {0} narzędzi"
+  ],
   "\u0004{0} gets a link to the skill in {1} in its own folder ({2}).": [
    "{0} dostaje link do skilla z {1} we własnym folderze ({2}).",
    "{0} dostaje linki do {3} skilli z {1} we własnym folderze ({2}).",
@@ -1566,6 +1621,10 @@ STRINGS = {
   "Agents with a provider pointing at this runtime.": "Agenci, których dostawca wskazuje na to środowisko.",
   "All": "Wszystkie",
   "Arguments": "Argumenty",
+  "Ask again": "Zapytaj ponownie",
+  "Ask the server": "Zapytaj serwer",
+  "Asked on {0}: {1}": "Zapytano {0}: {1}",
+  "Asking the server…": "Pytam serwer…",
   "Back": "Wstecz",
   "Back (Backspace, Esc)": "Wstecz (Backspace, Esc)",
   "Back (Esc)": "Wstecz (Esc)",
@@ -1640,6 +1699,7 @@ STRINGS = {
   "No user service starts it, so it cannot be started from here.": "Żadna usługa użytkownika go nie uruchamia, więc nie można go stąd uruchomić.",
   "None": "Żadne",
   "Not a chat model, or its file does not say how much memory its context needs.": "To nie model czatu albo jego plik nie podaje, ile pamięci potrzebuje kontekst.",
+  "Not asked yet. Asking starts the server once (like an agent does) and stops it again.": "Jeszcze nie zapytano. Zapytanie uruchamia serwer raz (jak agent) i potem go zatrzymuje.",
   "Not changed: {0}": "Nie zmieniono: {0}",
   "Not done: {0}": "Nie wykonano: {0}",
   "Not downloaded: {0}": "Nie pobrano: {0}",
@@ -1660,6 +1720,7 @@ STRINGS = {
   "Overview (Ctrl+1)": "Przegląd (Ctrl+1)",
   "Plan": "Plan",
   "Program folder": "Folder programu",
+  "Prompts": "Prompty",
   "Provider": "Dostawca",
   "Query parameters are not shown: they may hold a token.": "Parametry zapytania nie są pokazywane: mogą zawierać token.",
   "ROCm: AMD, needs ROCm installed (/opt/rocm).": "ROCm: AMD, wymaga zainstalowanego ROCm (/opt/rocm).",
@@ -1830,6 +1891,10 @@ STRINGS = {
    "{0} skill",
    "{0} skills"
   ],
+  "\u0004Asked on {1}: 1 tool": [
+   "Perguntado em {1}: 1 ferramenta",
+   "Perguntado em {1}: {0} ferramentas"
+  ],
   "\u0004{0} gets a link to the skill in {1} in its own folder ({2}).": [
    "{0} recebe uma ligação para a skill de {1} na sua própria pasta ({2}).",
    "{0} recebe ligações para as {3} skills de {1} na sua própria pasta ({2})."
@@ -1846,6 +1911,10 @@ STRINGS = {
   "Agents with a provider pointing at this runtime.": "Agentes com um fornecedor que aponta para este motor.",
   "All": "Todos",
   "Arguments": "Argumentos",
+  "Ask again": "Perguntar de novo",
+  "Ask the server": "Perguntar ao servidor",
+  "Asked on {0}: {1}": "Perguntado em {0}: {1}",
+  "Asking the server…": "A perguntar ao servidor…",
   "Back": "Voltar",
   "Back (Backspace, Esc)": "Voltar (Backspace, Esc)",
   "Back (Esc)": "Voltar (Esc)",
@@ -1920,6 +1989,7 @@ STRINGS = {
   "No user service starts it, so it cannot be started from here.": "Nenhum serviço de utilizador o inicia, por isso não pode ser iniciado daqui.",
   "None": "Nenhum",
   "Not a chat model, or its file does not say how much memory its context needs.": "Não é um modelo de chat, ou o ficheiro não diz quanta memória o contexto precisa.",
+  "Not asked yet. Asking starts the server once (like an agent does) and stops it again.": "Ainda não perguntado. Perguntar inicia o servidor uma vez (como um agente) e para-o depois.",
   "Not changed: {0}": "Não alterado: {0}",
   "Not done: {0}": "Não feito: {0}",
   "Not downloaded: {0}": "Não descarregado: {0}",
@@ -1940,6 +2010,7 @@ STRINGS = {
   "Overview (Ctrl+1)": "Visão geral (Ctrl+1)",
   "Plan": "Plano",
   "Program folder": "Pasta do programa",
+  "Prompts": "Prompts",
   "Provider": "Fornecedor",
   "Query parameters are not shown: they may hold a token.": "Os parâmetros da consulta não são mostrados: podem conter um token.",
   "ROCm: AMD, needs ROCm installed (/opt/rocm).": "ROCm: AMD, precisa do ROCm instalado (/opt/rocm).",

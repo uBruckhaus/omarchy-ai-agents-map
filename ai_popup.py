@@ -49,6 +49,7 @@ import agents
 import ai_core
 import connect
 import mcp_ctl
+import mcp_tools
 import skills_ctl
 import runtime_ctl
 import install_ctl
@@ -166,6 +167,7 @@ class AgentsMap(Gtk.Application):
         self.expanded = set()      # commands of the agent cards shown with their details
         self.refreshing = set()    # commands whose usage Omarchy is collecting right now
         self.researching = set()   # new agents being looked up on the web (agent_profiles)
+        self.asking_tools = set()  # MCP servers being asked for their tools (mcp_tools)
         self.detail_boxes = {}     # card key -> (details box, fill function)
         self.agent_list = []
         self.inventory = inventory.Inventory()
@@ -855,7 +857,8 @@ class AgentsMap(Gtk.Application):
         server = next((m for m in self.inventory.mcp if m.name == name), None)
         if server is None:
             return
-        self.mcp_from = self.view if self.stack.get_visible_child_name() in ai_core.VIEWS else "main"
+        if self.stack.get_visible_child_name() != "mcp":
+            self.mcp_from = self.view if self.stack.get_visible_child_name() in ai_core.VIEWS else "main"
         self.mcp_title.set_label(_("MCP server {0}").format(name).upper())
         body = self.mcp_body
         while (child := body.get_first_child()) is not None:
@@ -872,6 +875,8 @@ class AgentsMap(Gtk.Application):
             self.settings_heading(body, _("Not set up"))
             self.note(body, ", ".join(missing) + " · "
                       + _("draw a line from the agent to this box on the map to add it."))
+        self.mcp_tools_section(body, server)
+        self.mcp_showing = name
         self.stack.set_visible_child_name("mcp")
         self.update_header()
 
@@ -907,8 +912,10 @@ class AgentsMap(Gtk.Application):
         skill_set = next((s for s in self.inventory.skill_sets if s.path == path), None)
         if skill_set is None:
             return
-        self.mcp_from = self.view if self.stack.get_visible_child_name() in ai_core.VIEWS else "main"
+        if self.stack.get_visible_child_name() != "mcp":
+            self.mcp_from = self.view if self.stack.get_visible_child_name() in ai_core.VIEWS else "main"
         self.mcp_title.set_label(_("Skills in {0}").format(path).upper())
+        self.mcp_showing = None
         body = self.mcp_body
         while (child := body.get_first_child()) is not None:
             body.remove(child)
@@ -938,6 +945,66 @@ class AgentsMap(Gtk.Application):
                                 for name in skill_set.skills])
         self.stack.set_visible_child_name("mcp")
         self.update_header()
+
+    def mcp_tools_section(self, body, server):
+        """The tools (and prompts) the server offers: asked on request, kept with the date."""
+        self.settings_heading(body, _("Tools"))
+        name = server.name
+        known = mcp_tools.cached(name)
+        line = Gtk.Box(spacing=10)
+        if name in self.asking_tools:
+            text = _("Asking the server…")
+        elif known is None:
+            text = _("Not asked yet. Asking starts the server once (like an agent does) and stops it again.")
+        elif known.get("status") != "ok":
+            text = _("Asked on {0}: {1}").format(known.get("checked", "")[:16].replace("T", " "),
+                                                 known.get("error", ""))
+        else:
+            count = len(known.get("tools", []))
+            text = ngettext("Asked on {1}: 1 tool", "Asked on {1}: {0} tools", count).format(
+                count, known.get("checked", "")[:16].replace("T", " "))
+            if known.get("server"):
+                text += f" · {known['server']}"
+        label = Gtk.Label(label=text, xalign=0, wrap=True, max_width_chars=1, hexpand=True)
+        label.add_css_class("am-agent-detail")
+        line.append(label)
+        button = Gtk.Button(label=_("Ask again") if known else _("Ask the server"), valign=Gtk.Align.CENTER)
+        button.add_css_class("am-small-btn")
+        button.set_sensitive(name not in self.asking_tools)
+        button.connect("clicked", lambda *_: self.ask_mcp_tools(server))
+        line.append(button)
+        body.append(line)
+        if known and known.get("status") == "ok":
+            self.detail_grid(body, [(t["name"], t["description"] or "—", "") for t in known.get("tools", [])])
+            if known.get("prompts"):
+                self.settings_heading(body, _("Prompts"))
+                self.detail_grid(body, [(t["name"], t["description"] or "—", "") for t in known["prompts"]])
+
+    def ask_mcp_tools(self, server):
+        name = server.name
+        entry = None
+        for command in server.agents:
+            entry = mcp_ctl.normal(mcp_ctl.raw_entries(command).get(name))
+            if entry is not None:
+                break
+        if entry is None or name in self.asking_tools:
+            return
+        self.asking_tools.add(name)
+        self.open_mcp_details(name)
+
+        def work():
+            result = mcp_tools.ask_and_keep(name, entry)
+            GLib.idle_add(done, result)
+
+        def done(result):
+            self.asking_tools.discard(name)
+            if self.stack.get_visible_child_name() == "mcp" and getattr(self, "mcp_showing", None) == name:
+                self.open_mcp_details(name)
+            elif result.get("status") != "ok":
+                self.show_note(_("{0}: {1}").format(name, result.get("error", "")))
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
 
     def close_mcp_details(self):
         self.show_view(getattr(self, "mcp_from", self.view), save=False)
