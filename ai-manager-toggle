@@ -1,0 +1,154 @@
+#!/usr/bin/env bash
+# AI Manager - Toggle script
+#
+# Singleton toggle for the AI Manager popup. The popup is a long-lived
+# GTK4 Wayland layer-shell window that is hidden and re-shown, so it stays
+# one process. If it exits, its PID file is stale and the next toggle starts
+# a fresh one.
+set -euo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+USER_ID="${UID:-$(id -u)}"
+
+# Resolve canonical interpreter and script path. These are the only paths a
+# process is ever compared against; nothing read from the PID file is trusted.
+PYTHON_BIN="/usr/bin/python3"
+[[ -x "$PYTHON_BIN" ]] || PYTHON_BIN="$(command -v python3)"
+CANONICAL_PYTHON="$(readlink -f "$PYTHON_BIN" 2>/dev/null || true)"
+CANONICAL_SCRIPT="$(readlink -f "${DIR}/ai_popup.py" 2>/dev/null || true)"
+
+# A directory counts as private when it is a real directory (not a symlink),
+# owned by this user, and closed to group and others.
+is_private_dir() {
+    local dir="$1"
+    [[ -d "$dir" && ! -L "$dir" && -O "$dir" ]] || return 1
+    local mode
+    mode="$(stat -c %a "$dir" 2>/dev/null || true)"
+    [[ -n "$mode" ]] && (( (8#$mode & 8#077) == 0 ))
+}
+
+# Never use a shared world-writable location for the PID file: prefer
+# XDG_RUNTIME_DIR, else a per-user 0700 directory under /tmp. If neither is
+# private, run without a PID file and rely on the process scan below.
+resolve_pid_file() {
+    local dir=""
+    if [[ -n "${XDG_RUNTIME_DIR:-}" ]] && is_private_dir "$XDG_RUNTIME_DIR"; then
+        dir="$XDG_RUNTIME_DIR"
+    else
+        dir="/tmp/ai-manager-${USER_ID}"
+        mkdir -m 700 "$dir" 2>/dev/null || true
+        is_private_dir "$dir" || dir=""
+    fi
+    [[ -n "$dir" ]] && echo "${dir}/ai-manager.pid"
+    return 0
+}
+
+# Extract process start time (kernel clock ticks since boot, field 22 in /proc/$pid/stat)
+# Uniquely distinguishes recycled PIDs across process lifetimes.
+get_proc_starttime() {
+    local pid="$1"
+    local stat_content after_comm
+    stat_content="$(cat "/proc/$pid/stat" 2>/dev/null || true)"
+    after_comm="${stat_content##*)}"
+    if [[ -n "$after_comm" ]]; then
+        local -a fields
+        read -r -a fields <<< "$after_comm"
+        # In /proc/$pid/stat, field 1 is pid, field 2 is comm.
+        # After ')', field 3 (state) is index 0. Field 22 (starttime) is index 19.
+        echo "${fields[19]:-}"
+    fi
+}
+
+# Verify process identity strictly before signaling:
+# 1. PID is numeric and responds to kill -0
+# 2. Process UID matches current user
+# 3. Kernel start time matches the recorded start time, if one is given (prevents PID reuse race)
+# 4. Canonical /proc/$pid/exe matches this script's Python interpreter
+# 5. Canonical script argument from /proc/$pid/cmdline matches this plugin's ai_popup.py
+is_ai_manager_process() {
+    local pid="$1"
+    local expected_starttime="${2:-}"
+
+    [[ -n "$pid" && "$pid" =~ ^[0-9]+$ ]] || return 1
+    kill -0 "$pid" 2>/dev/null || return 1
+
+    local proc_uid
+    proc_uid="$(stat -c %u "/proc/$pid" 2>/dev/null || true)"
+    [[ "$proc_uid" == "$USER_ID" ]] || return 1
+
+    local current_starttime
+    current_starttime="$(get_proc_starttime "$pid")"
+    [[ -n "$current_starttime" ]] || return 1
+    if [[ -n "$expected_starttime" && "$current_starttime" != "$expected_starttime" ]]; then
+        return 1
+    fi
+
+    local target_exe
+    target_exe="$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)"
+    [[ -n "$target_exe" && -n "$CANONICAL_PYTHON" && "$target_exe" == "$CANONICAL_PYTHON" ]] || return 1
+
+    [[ -r "/proc/$pid/cmdline" ]] || return 1
+    local -a args
+    mapfile -d "" args < "/proc/$pid/cmdline" 2>/dev/null || return 1
+
+    local script_arg=""
+    local i
+    for ((i = 1; i < ${#args[@]}; i++)); do
+        local arg="${args[$i]}"
+        if [[ "$arg" == "--" ]]; then
+            script_arg="${args[$((i + 1))]:-}"
+            break
+        elif [[ "$arg" != -* ]]; then
+            script_arg="$arg"
+            break
+        fi
+    done
+
+    [[ -n "$script_arg" ]] || return 1
+    local target_script
+    target_script="$(readlink -f "$script_arg" 2>/dev/null || true)"
+    [[ -n "$target_script" && -n "$CANONICAL_SCRIPT" && "$target_script" == "$CANONICAL_SCRIPT" ]] || return 1
+
+    return 0
+}
+
+main() {
+    local pid_file
+    pid_file="$(resolve_pid_file)"
+
+    # Check recorded PID (only from a regular file this user owns)
+    if [[ -n "$pid_file" && -f "$pid_file" && ! -L "$pid_file" && -O "$pid_file" ]]; then
+        local rec_pid rec_st
+        IFS=":" read -r rec_pid rec_st _ < "$pid_file" || true
+        if is_ai_manager_process "$rec_pid" "$rec_st"; then
+            kill -USR1 "$rec_pid" 2>/dev/null || true
+            exit 0
+        fi
+        # Stale PID file or PID was reused by another program; remove safely
+        rm -f "$pid_file" 2>/dev/null || true
+    fi
+
+    # Fallback: scan for any running instance matching exact script and current user
+    local p st
+    while IFS= read -r p; do
+        [[ -n "$p" && "$p" != "$$" ]] || continue
+        if is_ai_manager_process "$p"; then
+            kill -USR1 "$p" 2>/dev/null || true
+            st="$(get_proc_starttime "$p")"
+            [[ -n "$pid_file" ]] && echo "${p}:${st}" > "$pid_file"
+            exit 0
+        fi
+    done < <(pgrep -u "$USER_ID" -f "${CANONICAL_SCRIPT}" 2>/dev/null || true)
+
+    # Not running: start the popup in the background
+    "$PYTHON_BIN" "${CANONICAL_SCRIPT}" >/dev/null 2>&1 &
+    local child_pid=$!
+    st="$(get_proc_starttime "$child_pid")"
+    [[ -n "$pid_file" ]] && echo "${child_pid}:${st}" > "$pid_file"
+    exit 0
+}
+
+# Sourcing the script (as the tests do) only defines the functions.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

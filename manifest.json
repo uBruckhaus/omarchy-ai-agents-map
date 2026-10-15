@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "ubruckhaus.ai-manager",
+  "name": "AI Manager",
+  "version": "0.1.0",
+  "author": "Uwe Bruckhaus",
+  "license": "MIT",
+  "description": "Your AI tools in one popup: an AI Manager view and a Builder view, movable and resizable, in 8 languages.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "keepLoaded": false,
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "AI Manager",
+    "description": "Toggle AI Manager",
+    "category": "Utilities",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
