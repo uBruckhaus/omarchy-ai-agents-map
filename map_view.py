@@ -29,7 +29,7 @@ NODE_W_MIN = 120
 # Categories: selecting in one hides that category's other boxes.
 CATEGORY = {"agent": "agent", "cloud": "provider", "runtime": "provider", "model": "model", "more": "model",
             "mcp": "tool", "skills": "tool"}
-EDGE_COLORS = {"uses": "accent", "serves": "muted", "mcp": "yellow", "skills": "green"}
+EDGE_COLORS = {"uses": "accent", "available": "accent", "serves": "muted", "mcp": "yellow", "skills": "green"}
 
 
 def rgba(hex_code: str, alpha: float = 1.0):
@@ -303,16 +303,19 @@ class MapView(Gtk.DrawingArea):
                 alpha = 0.95 if index in lit_edges else 0.08
             cr.set_source_rgba(*self.color(EDGE_COLORS.get(edge.kind, "muted"), alpha))
             cr.set_line_width(2.0 if lit_edges is not None and index in lit_edges else 1.4)
+            # Dashed: set up but not in use (an agent's second provider).
+            cr.set_dash([5, 4] if edge.kind == "available" else [])
             cr.move_to(x1, y1)
             cr.curve_to(x1 + bend, y1, x2 - bend, y2, x2, y2)
             cr.stroke()
+            cr.set_dash([])
 
         for node in self.graph.nodes:
             if node.id not in self.boxes:
                 continue
             x, y, w, h = self.boxes[node.id]
             faded = lit_nodes is not None and node.id not in lit_nodes
-            alpha = 0.25 if faded else (0.55 if node.dim else 1.0)
+            alpha = 0.25 if faded else (0.55 if node.dim or node.status == "missing" else 1.0)
             self.rounded(cr, x, y, w, h, self.radius)
             cr.set_source_rgba(*self.color("bg", 1.0))
             cr.fill_preserve()
@@ -338,6 +341,13 @@ class MapView(Gtk.DrawingArea):
                 PangoCairo.show_layout(cr, layout)
 
             text_x = x + 10
+            if node.status:
+                # Status dot: green running, yellow installed but stopped, grey not installed.
+                name = {"running": "green", "stopped": "yellow"}.get(node.status, "muted")
+                cr.set_source_rgba(*self.color(name, 0.35 if faded else 1.0))
+                cr.arc(text_x + 4, y + h / 2, 4, 0, 2 * math.pi)
+                cr.fill()
+                text_x += 16
             if node.icon:
                 family = "omarchy" if node.icon_font == "omarchy" else "JetBrainsMono Nerd Font"
                 layout.set_font_description(Pango.FontDescription.from_string(f"{family} 13"))

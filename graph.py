@@ -60,14 +60,15 @@ class Node:
     kind: str = ""           # agent, cloud, runtime, model, mcp, skills
     icon: str = ""
     icon_font: str = ""
-    dim: bool = False        # e.g. a runtime that is not running
+    dim: bool = False        # drawn faded
+    status: str = ""         # local runtimes: "running", "stopped" (installed) or "missing"
 
 
 @dataclass
 class Edge:
     source: str
     target: str
-    kind: str                # uses (agent→provider), serves (provider→model), mcp, skills
+    kind: str                # uses / available (agent→provider), serves (provider→model), mcp, skills, default
 
 
 @dataclass
@@ -88,6 +89,10 @@ class Graph:
 
     def column(self, index: int) -> list:
         return [n for n in self.nodes if n.column == index]
+
+
+def runtime_status(rt) -> str:
+    return "running" if rt.running else "stopped" if rt.installed else "missing"
 
 
 def provider_name(raw: str) -> str:
@@ -124,13 +129,14 @@ def build(agent_list, details: dict, inventory, labels: dict | None = None) -> G
 
         # Local runtimes the agent's providers point at.
         local_names = {}
-        for provider in (info.providers if info else []):
+        # Active providers first, so an agent's line to a runtime is solid when any is in use.
+        for provider in sorted(info.providers if info else [], key=lambda p: not p.active):
             if provider.local and provider.runtime in runtimes:
                 local_names[provider.name] = provider.runtime
                 rt = runtimes[provider.runtime]
                 rid = f"runtime:{rt.key}"
-                graph.add(Node(rid, 2, rt.name, rt.address, "runtime", dim=not rt.running))
-                graph.link(aid, rid, "uses")
+                graph.add(Node(rid, 2, rt.name, rt.address, "runtime", status=runtime_status(rt)))
+                graph.link(aid, rid, "uses" if provider.active else "available")
 
         # The cloud service: the configured provider when it is not local, else the agent's own.
         cloud = ""
@@ -165,17 +171,15 @@ def build(agent_list, details: dict, inventory, labels: dict | None = None) -> G
             graph.add(Node(sid, 0, path, labels["skills"](count), "skills"))
             graph.link(aid, sid, "skills")
 
-    # Models of every local runtime in the map (and of running ones nobody uses yet).
+    # Every local runtime, installed or not (something to connect agents to),
+    # with the models of the installed ones.
     for rt in inventory.runtimes:
         rid = f"runtime:{rt.key}"
-        if rt.running and not any(n.id == rid for n in graph.nodes):
-            graph.add(Node(rid, 2, rt.name, rt.address, "runtime"))
-        if not any(n.id == rid for n in graph.nodes):
-            continue
-        shown = rt.models[:MAX_MODELS_PER_PROVIDER]
+        graph.add(Node(rid, 2, rt.name, rt.address if rt.installed else "", "runtime", status=runtime_status(rt)))
+        shown = rt.models[:MAX_MODELS_PER_PROVIDER] if rt.installed else []
         for model in shown:
             mid = f"model:{rid}:{model.lower()}"
-            graph.add(Node(mid, 3, model, "", "model", dim=not rt.running))
+            graph.add(Node(mid, 3, model, "", "model"))
             graph.link(rid, mid, "serves")
         if len(rt.models) > len(shown):
             mid = f"more:{rid}"

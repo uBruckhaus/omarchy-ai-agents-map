@@ -60,6 +60,7 @@ class Provider:
     local: bool = False
     runtime: str = ""        # llama.cpp, Ollama, … for local ones
     models: int = 0
+    active: bool = True      # the agent uses it now; False: set up, ready to switch to
 
 
 @dataclass
@@ -160,7 +161,7 @@ def _expand(path: str) -> Path:
 
 # --- providers --------------------------------------------------------------
 
-def provider_for_url(name: str, url, models: int = 0) -> Provider:
+def provider_for_url(name: str, url, models: int = 0, active: bool = True) -> Provider:
     """A provider entry; local when its address is this machine."""
     try:
         parsed = urlparse(url) if isinstance(url, str) else None
@@ -169,7 +170,7 @@ def provider_for_url(name: str, url, models: int = 0) -> Provider:
         host, port = None, None
     local = host in LOCAL_HOSTS
     runtime = LOCAL_PORTS.get(port, "") if local else ""
-    return Provider(name=_text(name, 40), local=local, runtime=runtime, models=models)
+    return Provider(name=_text(name, 40), local=local, runtime=runtime, models=models, active=active)
 
 
 def _model_count(value) -> int:
@@ -188,7 +189,8 @@ def pi_like(config_dir: Path, details: Details):
         for name, entry in list(providers.items())[:50]:
             if isinstance(entry, dict):
                 details.providers.append(provider_for_url(name, entry.get("baseUrl"),
-                                                          _model_count(entry.get("models"))))
+                                                          _model_count(entry.get("models")),
+                                                          active=not provider or name == provider))
 
 
 def opencode(details: Details):
@@ -200,8 +202,9 @@ def opencode(details: Details):
         for name, entry in list(providers.items())[:50]:
             if isinstance(entry, dict):
                 options = entry.get("options") if isinstance(entry.get("options"), dict) else {}
-                details.providers.append(provider_for_url(name, options.get("baseURL"),
-                                                          _model_count(entry.get("models"))))
+                details.providers.append(provider_for_url(
+                    name, options.get("baseURL"), _model_count(entry.get("models")),
+                    active=not details.model or details.model.startswith(name + "/")))
 
 
 def claude(details: Details):
@@ -222,7 +225,7 @@ def codex(details: Details):
         for name, entry in list(providers.items())[:50]:
             if isinstance(entry, dict):
                 details.providers.append(provider_for_url(_text(entry.get("name"), 40) or name,
-                                                          entry.get("base_url")))
+                                                          entry.get("base_url"), active=name == chosen))
     if chosen and details.model:
         details.model = f"{details.model} ({chosen})"
 
@@ -251,6 +254,20 @@ def hermes(details: Details):
     details.model = f"{model} ({provider})" if model and provider else model
     if values.get("base_url", "").strip():
         details.providers.append(provider_for_url(provider or "custom", values["base_url"].strip()))
+    # Its own providers (`providers:` → name: {api: URL, models: {id: …}}): the
+    # active one is the model block's provider.
+    block = re.search(r"^providers:[ \t]*\n((?:[ \t]+.*\n?|\n)+)", text, re.MULTILINE)
+    entries = re.split(r"^  (?=[A-Za-z0-9_.-]+:)", block.group(1), flags=re.MULTILINE) if block else []
+    for entry in entries[:50]:
+        name = re.match(r"([A-Za-z0-9_.-]{1,64}):", entry)
+        api = re.search(r"^    (?:api|base_url):[ \t]*['\"]?([^'\"\s#]+)", entry, re.MULTILINE)
+        if not name or not api:
+            continue
+        models = re.search(r"^    models:[ \t]*\n((?:      .*\n?)+)", entry, re.MULTILINE)
+        count = len(re.findall(r"^      [^ \s][^:]*:", models.group(1), re.MULTILINE)) if models else 0
+        if not any(p.name == name.group(1) for p in details.providers):
+            details.providers.append(provider_for_url(name.group(1), api.group(1), count,
+                                                      active=name.group(1) == provider))
 
 
 READERS = {

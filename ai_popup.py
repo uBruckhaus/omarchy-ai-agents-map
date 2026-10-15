@@ -338,15 +338,17 @@ class AiManager(Gtk.Application):
         for agent in installed:
             box.append(self.agent_card(agent))
 
-        runtimes = [rt for rt in inv.runtimes if rt.installed]
-        self.section(_("Local LLMs ({0})").format(len(runtimes)))
-        if not runtimes:
-            self.section_hint(_("No local LLM runtime installed (llama.cpp, Ollama, LM Studio, vLLM)."))
-        for rt in runtimes:
-            state = _("running") if rt.running else _("stopped")
-            sub = " · ".join([state, ngettext("1 model", "{0} models", len(rt.models)).format(len(rt.models))])
+        installed = [rt for rt in inv.runtimes if rt.installed]
+        self.section(_("Local LLMs ({0})").format(len(installed)))
+        # Installed ones first; the others too, grey, as something to install and connect.
+        for rt in sorted(inv.runtimes, key=lambda r: not r.installed):
+            status = graph.runtime_status(rt)
+            state = {"running": _("running"), "stopped": _("installed, not running")}.get(status, _("not installed"))
+            sub = state if not rt.installed else \
+                " · ".join([state, ngettext("1 model", "{0} models", len(rt.models)).format(len(rt.models))])
             box.append(self.expandable_card(f"runtime:{rt.key}", "\U000F061A", "", rt.name, sub,
-                                 lambda b, rt=rt: self.fill_runtime(b, rt, names), dim=not rt.running))
+                                            lambda b, rt=rt: self.fill_runtime(b, rt, names),
+                                            dim=not rt.installed, status=status))
 
         self.section(_("MCP servers ({0})").format(len(inv.mcp)))
         if not inv.mcp:
@@ -386,7 +388,8 @@ class AiManager(Gtk.Application):
         self.agents_box.append(hint)
 
     def expandable_card(self, key: str, icon: str, icon_font: str, title: str, subtitle: str, fill,
-             dim: bool = False, badge: str = "", badge_tip: str = "", highlight: bool = False) -> Gtk.Widget:
+             dim: bool = False, badge: str = "", badge_tip: str = "", highlight: bool = False,
+             status: str = "") -> Gtk.Widget:
         """A card with an icon, a title and a dim line; a click shows or hides
         what fill(box) puts into it."""
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -399,6 +402,8 @@ class AiManager(Gtk.Application):
         top.set_cursor_from_name("pointer")
         glyph = Gtk.Label(label=icon)
         glyph.add_css_class("am-agent-icon")
+        if status:
+            glyph.add_css_class(f"am-status-{status}")   # green / yellow / grey, from the theme
         if icon_font == "omarchy":
             glyph.add_css_class("am-agent-icon-omarchy")
         glyph.set_valign(Gtk.Align.CENTER)
@@ -457,6 +462,10 @@ class AiManager(Gtk.Application):
         click = Gtk.GestureClick()
         click.connect("released", lambda g, *_: self.on_card_click(g, key, revealer, chevron))
         top.add_controller(click)
+        # Wide view: a click inside the opened details selects the card too.
+        body_click = Gtk.GestureClick()
+        body_click.connect("released", lambda g, *_: self.on_card_body_click(g, key))
+        details.add_controller(body_click)
         return card
 
     def on_card_click(self, gesture, key: str, revealer, chevron):
@@ -479,6 +488,16 @@ class AiManager(Gtk.Application):
         self.set_selection([key])
         if key not in self.expanded:
             self.toggle_card(key, revealer, chevron)
+
+    def on_card_body_click(self, gesture, key: str):
+        """Inside the details: select (Shift: add or remove), never close them."""
+        if not self.split or key not in self.map_node_ids():
+            return
+        if gesture.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK:
+            self.set_selection([k for k in self.selection if k != key] if key in self.selection
+                               else self.selection + [key])
+        elif self.selection != [key]:
+            self.set_selection([key])
 
     def map_node_ids(self) -> set:
         graph_now = self.map_view.graph
@@ -653,7 +672,8 @@ class AiManager(Gtk.Application):
 
     def fill_runtime(self, box, rt, names):
         self.detail_grid(box, [
-            (_("Status"), _("running") if rt.running else _("stopped"), ""),
+            (_("Status"), {"running": _("running"), "stopped": _("installed, not running")}
+             .get(graph.runtime_status(rt), _("not installed")), ""),
             (_("Address"), rt.address, ""),
             (_("Service"), rt.service, _("The user service that starts it (systemctl --user).")),
             (_("Models folder"), rt.models_dir, ""),
@@ -1094,6 +1114,9 @@ class AiManager(Gtk.Application):
             border-radius: {radius}px; padding: 10px 12px; }}
         .am-agent-missing {{ opacity: 0.5; }}
         .am-agent.am-agent-selected {{ background: alpha({accent_hex}, 0.18); border: 2px solid {accent_hex}; }}
+        .am-agent-icon.am-status-running {{ color: {green_hex}; }}
+        .am-agent-icon.am-status-stopped {{ color: {yellow_hex}; }}
+        .am-agent-icon.am-status-missing {{ color: {muted_hex}; }}
         .am-card-check {{ color: {accent_hex}; font-weight: 700; }}
         .am-agent.am-agent-default {{ border-color: alpha({accent_hex}, 0.7); }}
         .am-agent-icon {{ font-family: "JetBrainsMono Nerd Font", "Symbols Nerd Font", monospace;
