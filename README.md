@@ -100,7 +100,10 @@ again. This works with the window closed and after a reboot.
   not count as the agent being open, and their idle connections do not keep an LLM running.
 - If `lms server start` had to start LM Studio itself (a hidden `lm-studio --run-as-service`), that
   one is ended too, with its children and its engines (`~/.lmstudio/extensions/backends/…`, which
-  hold the loaded model and outlive the app otherwise); an LM Studio window you opened is left alone.
+  hold the loaded model and outlive the app otherwise): the engines with SIGTERM, then the app's
+  processes all at once with SIGKILL and the AppImage process last, because LM Studio runs from the
+  AppImage's mount and ending it piece by piece makes the rest crash. An LM Studio window you opened
+  is left alone.
 - What it still has to stop is kept in `~/.local/state/ai-agents-map/provider-watch.json`, so a
   restart (reboot, plugin update) or removing an LLM's last connection never leaves it running.
 

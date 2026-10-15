@@ -239,6 +239,19 @@ class LmStudioProcessesTest(unittest.TestCase):
             self.assertEqual(pw.lmstudio_pids(root), [10, 11, 12, 13])
             self.assertTrue(pw.lmstudio_up(root))
 
+    def test_roles(self):
+        with tempfile.TemporaryDirectory() as root:
+            cases = {20: (["/opt/lm-studio/lm-studio.AppImage", "--run-as-service"], "runtime"),
+                     21: (["/tmp/.mount_lm-stuX/lm-studio", "--run-as-service"], "main"),
+                     22: (["/tmp/.mount_lm-stuX/lm-studio", "--type=zygote"], "helper"),
+                     23: (["/tmp/.mount_lm-stuX/chrome_crashpad_handler", "--database=/x"], "outlives"),
+                     24: (["/home/u/.lmstudio/.internal/utils/node", "-e", "x"], "outlives"),
+                     25: (["/home/u/.lmstudio/extensions/backends/llama.cpp-v/llama-server", "--model", "m"], "engine")}
+            for pid, (argv, _role) in cases.items():
+                self.make(root, pid, 1, argv)
+            for pid, (_argv, role) in cases.items():
+                self.assertEqual(pw._lms_role(pid, root), role, pid)
+
     def test_window_open_touches_nothing(self):
         with tempfile.TemporaryDirectory() as root:
             self.make(root, 10, 1, ["/opt/lm-studio/lm-studio"])                # a window the user opened

@@ -321,10 +321,65 @@ def lmstudio_pids(proc: str = "/proc") -> list[int]:
     return sorted(picked)
 
 
+def _lms_role(pid: int, proc: str = "/proc") -> str:
+    """"runtime": the AppImage's own process (lm-studio.AppImage), which serves the
+    /tmp/.mount_lm-stu… mount every LM Studio program runs from; "engine": a model
+    engine (~/.lmstudio/extensions/backends/…); "main": the lm-studio program itself;
+    "outlives": helpers that keep running when the program ends (crash handler, node
+    helper); "helper": its zygotes, GPU and utility processes, which end with it."""
+    argv = _read(f"{proc}/{pid}/cmdline", 4096).split(b"\0")
+    exe = argv[0] if argv else b""
+    name = os.path.basename(exe).lower()
+    if name.endswith(b".appimage"):
+        return "runtime"
+    if b"/.lmstudio/extensions/backends/" in exe:
+        return "engine"
+    if name == b"chrome_crashpad_handler" or (b"/.lmstudio/" in exe and b"lm-studio" not in name):
+        return "outlives"      # not ended with the program: the crash handler, LM Studio's node helper
+    if b"lm-studio" in name and not any(a.startswith(b"--type=") for a in argv):
+        return "main"
+    return "helper"
+
+
+def _wait_gone(fds: list, seconds: float) -> list:
+    """Wait until these processes have exited (or the time is up); the ones still running."""
+    deadline = time.monotonic() + seconds
+    while True:
+        fds = [fd for fd in fds if not _exited(fd)]
+        if not fds or time.monotonic() >= deadline:
+            return fds
+        time.sleep(0.2)
+
+
+def _signal(fds: list, sig):
+    for fd in fds:
+        try:
+            signal.pidfd_send_signal(fd, sig)
+        except OSError:
+            pass
+
+
+def _end(fds: list, grace: float = 5.0):
+    """SIGTERM, SIGKILL after `grace` seconds (LM Studio's main process ignores
+    SIGTERM; SIGKILL never leaves a crash report), then wait until they are gone."""
+    _signal(fds, signal.SIGTERM)
+    fds = _wait_gone(fds, grace)
+    if fds:
+        _signal(fds, signal.SIGKILL)
+        _wait_gone(fds, 3.0)
+
+
 def stop_lmstudio_service(argv0: str):
     """After `lms server stop`: the background LM Studio we started goes too. Each
     process is held by a pidfd from the moment it is found, so a signal can never
-    reach another process that got the same PID meanwhile."""
+    reach another process that got the same PID meanwhile.
+
+    Order matters: LM Studio is an AppImage. Its programs run from a FUSE mount
+    that the AppImage's own process serves; once that process is gone, any program
+    still reading from the mount dies of SIGBUS (a crash report), and the program
+    aborts (SIGTRAP) when a helper dies under it. So: engines first (SIGTERM),
+    then the program and all its helpers at once with SIGKILL, the AppImage
+    process last (it exits by itself and unmounts once its program is gone)."""
     run([argv0, "daemon", "down"])
     opened = {}
     for pid in lmstudio_pids():
@@ -335,30 +390,28 @@ def stop_lmstudio_service(argv0: str):
     # Look again with the pidfds held (they pin their process): only what is still
     # LM Studio's is signalled, so a PID reused before pidfd_open is never hit.
     still = set(lmstudio_pids())
-    handles = []
+    for pid in [pid for pid in opened if pid not in still]:
+        os.close(opened.pop(pid))
+    roles = {}
     for pid, fd in opened.items():
-        if pid in still:
-            handles.append(fd)
-        else:
-            os.close(fd)
+        roles.setdefault(_lms_role(pid), []).append(fd)
     try:
-        for fd in handles:
-            try:
-                signal.pidfd_send_signal(fd, signal.SIGTERM)
-            except OSError:
-                pass
-        # It ignores SIGTERM: its server is stopped already, so it may be ended.
-        deadline = time.monotonic() + 5
-        while handles and time.monotonic() < deadline:
-            time.sleep(0.5)
-            handles = [fd for fd in handles if not _exited(fd) or os.close(fd)]
-        for fd in handles:
-            try:
-                signal.pidfd_send_signal(fd, signal.SIGKILL)
-            except OSError:
-                pass
+        # The engines hold the model and stop cleanly: SIGTERM first.
+        _end(roles.get("engine", []))
+        # The rest is LM Studio's program, its helpers and the AppImage process that
+        # serves the mount they all run from. Ending them one by one crashes the
+        # ones left (SIGBUS once the mount goes, SIGTRAP when a helper dies under
+        # the program: crash reports). So all of them get SIGKILL at once, the
+        # AppImage process last: every program already has its SIGKILL pending
+        # when the mount goes, and SIGKILL never leaves a crash report. Its server
+        # was stopped with `lms server stop` before, and this is the hidden LM
+        # Studio the watcher started itself.
+        program = roles.get("main", []) + roles.get("helper", []) + roles.get("outlives", [])
+        _signal(program, signal.SIGKILL)
+        _wait_gone(program, 3.0)
+        _end(_wait_gone(roles.get("runtime", []), 2.0))
     finally:
-        for fd in handles:
+        for fd in opened.values():
             try:
                 os.close(fd)
             except OSError:
