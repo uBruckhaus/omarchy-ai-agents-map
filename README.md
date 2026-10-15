@@ -49,6 +49,17 @@ this way: **Update…** (new version folder, the previous one is kept as a fallb
 Installs made by hand are shown but never changed. Ollama can be installed so far; llama.cpp,
 LM Studio and vLLM follow.
 
+## Downloading models
+
+Right-click an installed local LLM → **Models…**: the installed models on the left; on the right
+search Hugging Face for GGUF models, pick one and a size (the one that fits your graphics card with
+room for context is marked and preselected) and **Download** it into the model folder, with
+progress (Stop download stops it). LM Studio gets the folder layout it expects; a llama.cpp
+model folder that only holds links (a router folder) gets the file next to the originals and a link.
+For Ollama there is also a field for library names (qwen3:8b); a Hugging Face model is pulled as
+hf.co/<repo>:<size>, and Ollama is started for it if it is not running. Before anything is sent to
+Ollama on 127.0.0.1, AI Agents Map checks that the listening port belongs to you.
+
 ## Connecting by drawing
 
 On the map, press on an agent and drag to a local LLM (or the other way round): the boxes you can

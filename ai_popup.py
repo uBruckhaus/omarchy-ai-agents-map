@@ -49,6 +49,8 @@ import ai_core
 import connect
 import runtime_ctl
 import install_ctl
+import models_ctl
+import time
 import subprocess
 from pathlib import Path
 import graph
@@ -240,6 +242,7 @@ class AgentsMap(Gtk.Application):
         stack.add_named(self.build_settings_page(), "settings")
         stack.add_named(self.build_connect_page(), "connect")
         stack.add_named(self.build_install_page(), "install")
+        stack.add_named(self.build_models_page(), "models")
         stack.connect("notify::visible-child-name", lambda *_: self.update_header())
         card.append(stack)
         self.stack = stack
@@ -955,7 +958,7 @@ class AgentsMap(Gtk.Application):
 
     def update_header(self):
         page = self.stack.get_visible_child_name()
-        on_settings = page in ("settings", "connect", "install")
+        on_settings = page in ("settings", "connect", "install", "models")
         # Faded out rather than hidden: the header keeps its height, so the
         # card does not jump when the settings page opens.
         for widget in (self.settings_button, self.view_switch):
@@ -1158,6 +1161,324 @@ class AgentsMap(Gtk.Application):
         info = getattr(self, "connecting", None)
         self.connecting = None
         self.show_view(info["from"] if info else self.view, save=False)
+
+    # --- models of a local LLM (right-click → Models…) ---------------------------------------------
+
+    def build_models_page(self) -> Gtk.Widget:
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        header = Gtk.Box(spacing=8)
+        back = Gtk.Button()
+        back.add_css_class("flat")
+        back.add_css_class("am-header-btn")
+        back.add_css_class("am-back-bordered")
+        back_box = Gtk.Box(spacing=6)
+        back_box.append(Gtk.Image.new_from_icon_name("go-previous-symbolic"))
+        back_box.append(Gtk.Label(label=_("Back")))
+        back_box.append(Gtk.Label(label="· Esc"))
+        back.set_child(back_box)
+        back.set_tooltip_text(_("Back (Esc)"))
+        back.connect("clicked", lambda *_: self.close_models())
+        header.append(back)
+        self.models_title = Gtk.Label(xalign=0, hexpand=True)
+        self.models_title.add_css_class("am-section-title")
+        header.append(self.models_title)
+        page.append(header)
+        rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        rule.add_css_class("am-settings-rule")
+        page.append(rule)
+        self.models_intro = Gtk.Label(xalign=0, wrap=True, max_width_chars=1)
+        self.models_intro.add_css_class("am-detail-value")
+        page.append(self.models_intro)
+
+        body = Gtk.Box(spacing=24, vexpand=True)
+        # Left: what is there.
+        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        left.set_size_request(LIST_PANE_WIDTH, -1)
+        self.models_have_heading = Gtk.Label(xalign=0)
+        self.models_have_heading.add_css_class("am-group-heading")
+        left.append(self.models_have_heading)
+        self.models_have = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        have_scroller = Gtk.ScrolledWindow(vexpand=True)
+        have_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        have_scroller.set_child(self.models_have)
+        left.append(have_scroller)
+        body.append(left)
+        # Right: get more.
+        right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, hexpand=True)
+        heading = Gtk.Label(label=_("Download").upper(), xalign=0)
+        heading.add_css_class("am-group-heading")
+        right.append(heading)
+        self.models_pull_row = Gtk.Box(spacing=8)
+        self.models_pull_entry = Gtk.Entry(hexpand=True, max_length=200,
+                                           placeholder_text=_("Ollama library name, e.g. qwen3:8b or gemma3:12b"))
+        self.models_pull_entry.add_css_class("am-path")
+        self.models_pull_entry.connect("activate", lambda *_: self.start_model_download(pull=True))
+        self.models_pull_row.append(self.models_pull_entry)
+        pull = Gtk.Button(label=_("Download"))
+        pull.add_css_class("am-small-btn")
+        pull.connect("clicked", lambda *_: self.start_model_download(pull=True))
+        self.models_pull_row.append(pull)
+        right.append(self.models_pull_row)
+        search_row = Gtk.Box(spacing=8)
+        self.models_search = Gtk.Entry(hexpand=True, max_length=100,
+                                       placeholder_text=_("Search Hugging Face (GGUF), e.g. qwen3 coder"))
+        self.models_search.add_css_class("am-path")
+        self.models_search.connect("activate", lambda *_: self.search_models())
+        search_row.append(self.models_search)
+        find = Gtk.Button(label=_("Search"))
+        find.add_css_class("am-small-btn")
+        find.connect("clicked", lambda *_: self.search_models())
+        search_row.append(find)
+        right.append(search_row)
+        lists = Gtk.Box(spacing=12, vexpand=True)
+        self.models_repos = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
+        self.models_repos.add_css_class("am-list")
+        self.models_repos.connect("row-selected", lambda _l, row: row is not None and self.show_model_files(row.repo))
+        repo_scroller = Gtk.ScrolledWindow(hexpand=True, vexpand=True)
+        repo_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        repo_scroller.set_child(self.models_repos)
+        lists.append(repo_scroller)
+        self.models_files = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
+        self.models_files.add_css_class("am-list")
+        self.models_files.connect("row-selected", lambda *_: self.update_model_buttons())
+        file_scroller = Gtk.ScrolledWindow(hexpand=True, vexpand=True)
+        file_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        file_scroller.set_child(self.models_files)
+        lists.append(file_scroller)
+        right.append(lists)
+        self.models_bar = Gtk.ProgressBar()
+        self.models_bar.add_css_class("am-progress")
+        right.append(self.models_bar)
+        self.models_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1)
+        self.models_status.add_css_class("am-agent-detail")
+        right.append(self.models_status)
+        buttons = Gtk.Box(spacing=8, halign=Gtk.Align.END)
+        self.models_cancel = Gtk.Button(label=_("Cancel"))
+        self.models_cancel.add_css_class("am-small-btn")
+        self.models_cancel.connect("clicked", lambda *_: self.cancel_model_download())
+        buttons.append(self.models_cancel)
+        self.models_get = Gtk.Button(label=_("Download"))
+        self.models_get.add_css_class("am-small-btn")
+        self.models_get.add_css_class("am-primary")
+        self.models_get.connect("clicked", lambda *_: self.start_model_download(pull=False))
+        buttons.append(self.models_get)
+        right.append(buttons)
+        body.append(right)
+        page.append(body)
+        self.models_state = None
+        return page
+
+    def open_models(self, rt):
+        self.models_state = {"rt": rt, "busy": False, "cancel": False, "from": self.view, "repo": None,
+                             "vram": install_ctl.detect_gpu().vram}
+        self.models_title.set_label(_("Models of {0}").format(rt.name).upper())
+        folder = rt.models_dir or "—"
+        self.models_intro.set_label(
+            _("Model folder: {0}. Pick a model on Hugging Face, then a size: the one marked fits your graphics "
+              "card with room for context.").format(folder) +
+            (" " + _("Ollama is started for a download if it is not running.") if rt.key == "ollama" else ""))
+        self.models_pull_row.set_visible(rt.key == "ollama")
+        self.models_status.set_label("")
+        self.models_bar.set_fraction(0)
+        self.fill_model_list(rt)
+        for listbox in (self.models_repos, self.models_files):
+            while (row := listbox.get_first_child()) is not None:
+                listbox.remove(row)
+        self.update_model_buttons()
+        self.stack.set_visible_child_name("models")
+        self.models_search.grab_focus()
+
+    def fill_model_list(self, rt):
+        box = self.models_have
+        while (child := box.get_first_child()) is not None:
+            box.remove(child)
+        self.models_have_heading.set_label(
+            ngettext("1 model installed", "{0} models installed", len(rt.models)).format(len(rt.models)).upper())
+        for name in rt.models:
+            label = Gtk.Label(label=name, xalign=0, selectable=True)
+            label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+            label.set_max_width_chars(1)
+            label.add_css_class("am-detail-value")
+            box.append(label)
+
+    def list_row(self, title: str, detail: str, mark: str = "") -> Gtk.ListBoxRow:
+        row = Gtk.ListBoxRow()
+        line = Gtk.Box(spacing=8, margin_start=6, margin_end=6, margin_top=3, margin_bottom=3)
+        name = Gtk.Label(label=title, xalign=0, hexpand=True)
+        name.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+        name.set_max_width_chars(1)
+        name.add_css_class("am-detail-value")
+        line.append(name)
+        if mark:
+            badge = Gtk.Label(label=mark)
+            badge.add_css_class("am-agent-badge")
+            line.append(badge)
+        info = Gtk.Label(label=detail, xalign=1)
+        info.add_css_class("am-agent-detail")
+        line.append(info)
+        row.set_child(line)
+        return row
+
+    def search_models(self):
+        state = self.models_state
+        query = self.models_search.get_text().strip()
+        if state is None or not query:
+            return
+        self.models_status.set_label(_("Searching…"))
+
+        def work():
+            try:
+                result, error = models_ctl.search(query), None
+            except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as problem:
+                result, error = [], str(problem)
+            GLib.idle_add(done, result, error)
+
+        def done(repos, error):
+            if self.models_state is not state:
+                return False
+            for listbox in (self.models_repos, self.models_files):
+                while (row := listbox.get_first_child()) is not None:
+                    listbox.remove(row)
+            for repo in repos:
+                row = self.list_row(repo.id, _("{0} downloads").format(short_number(repo.downloads)))
+                row.repo = repo.id
+                self.models_repos.append(row)
+            self.models_status.set_label(error or ("" if repos else _("Nothing found.")))
+            self.update_model_buttons()
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def show_model_files(self, repo: str):
+        state = self.models_state
+        state["repo"] = repo
+        self.models_status.set_label(_("Reading the files of {0}…").format(repo))
+
+        def work():
+            try:
+                result, error = models_ctl.files(repo, state["vram"]), None
+            except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as problem:
+                result, error = [], str(problem)
+            GLib.idle_add(done, result, error)
+
+        def done(entries, error):
+            if self.models_state is not state or state["repo"] != repo:
+                return False
+            listbox = self.models_files
+            while (row := listbox.get_first_child()) is not None:
+                listbox.remove(row)
+            pick = None
+            for entry in entries:
+                mark = _("recommended") if entry.recommended else ""
+                detail = size_text(entry.size) + ("" if entry.fits else "  · " + _("too big for the card"))
+                row = self.list_row(entry.quant or entry.name, detail, mark)
+                row.entry = entry
+                row.set_tooltip_text(", ".join(entry.paths))
+                listbox.append(row)
+                if entry.recommended:
+                    pick = row
+            if pick is not None:
+                listbox.select_row(pick)
+            self.models_status.set_label(error or ("" if entries else _("No GGUF files in {0}.").format(repo)))
+            self.update_model_buttons()
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def update_model_buttons(self):
+        state = self.models_state
+        busy = bool(state and state["busy"])
+        row = self.models_files.get_selected_row()
+        self.models_get.set_sensitive(not busy and row is not None and state is not None
+                                      and state["rt"].key in ("ollama", "llamacpp", "lmstudio"))
+        self.models_cancel.set_label(_("Stop download") if busy else _("Back"))
+
+    def start_model_download(self, pull: bool):
+        state = self.models_state
+        if state is None or state["busy"]:
+            return
+        rt = state["rt"]
+        entry = None
+        if pull:
+            name = self.models_pull_entry.get_text().strip()
+            if not name:
+                return
+        else:
+            row = self.models_files.get_selected_row()
+            if row is None:
+                return
+            entry = row.entry
+            name = models_ctl.ollama_name_for(state["repo"], entry) if rt.key == "ollama" else ""
+        if rt.key != "ollama" and not rt.models_dir:
+            self.models_status.set_label(_("{0} has no model folder yet.").format(rt.name))
+            return
+        state["busy"], state["cancel"] = True, False
+        self.update_model_buttons()
+
+        def progress(fraction, text):
+            GLib.idle_add(show, fraction, text)
+
+        def show(fraction, text):
+            self.models_bar.set_fraction(max(0.0, min(1.0, fraction)))
+            if text:
+                self.models_status.set_label(text)
+            elif entry is not None:
+                self.models_status.set_label(_("{0}: {1} of {2}").format(
+                    entry.name, size_text(int(fraction * entry.size)), size_text(entry.size)))
+            return False
+
+        def work():
+            try:
+                if rt.key == "ollama":
+                    if not rt.running:
+                        progress(0.0, _("Starting Ollama…"))
+                        runtime_ctl.start(rt)
+                        for _attempt in range(40):
+                            if models_ctl.loopback_listeners(int(rt.address.rsplit(":", 1)[-1])):
+                                break
+                            time.sleep(0.5)
+                    models_ctl.ollama_pull(name, rt.address, progress, lambda: state["cancel"])
+                else:
+                    models_ctl.download_gguf(rt.key, Path(os.path.expanduser(rt.models_dir)), state["repo"],
+                                             entry, progress, lambda: state["cancel"])
+                error = None
+            except install_ctl.Cancelled:
+                error = _("stopped")
+            except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as problem:
+                error = str(problem)
+            GLib.idle_add(finished, error)
+
+        def finished(error):
+            state["busy"] = False
+            self.update_model_buttons()
+            if error:
+                self.models_status.set_label(_("Not downloaded: {0}").format(error))
+                return False
+            self.models_bar.set_fraction(1.0)
+            self.models_status.set_label(_("Downloaded: {0}").format(entry.name if entry else name))
+            self.collect()
+            fresh = next((r for r in self.inventory.runtimes if r.key == rt.key), rt)
+            state["rt"] = fresh
+            self.fill_model_list(fresh)
+            self.refresh_overview()
+            self.refresh_map()
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def cancel_model_download(self):
+        state = self.models_state
+        if state is not None and state["busy"]:
+            state["cancel"] = True
+            return
+        self.close_models()
+
+    def close_models(self):
+        state = self.models_state
+        if state is not None and state["busy"]:
+            return                     # downloading: "Stop download" first
+        self.models_state = None
+        self.show_view(state["from"] if state else self.view, save=False)
 
     # --- installing local LLMs (right-click → Install… / Update… / Model folder… / Uninstall…) --------
 
@@ -1458,13 +1779,16 @@ class AgentsMap(Gtk.Application):
             actions.append((_("Install…"), "install"))
         elif ours:
             actions += [(_("Update…"), "update"), (_("Model folder…"), "models"), (_("Uninstall…"), "uninstall")]
+        if rt.installed and rt.key in ("ollama", "llamacpp", "lmstudio"):
+            actions.insert(0, (_("Models…"), "download"))
         if actions:
             column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
             for label, mode in actions:
                 button = Gtk.Button(label=label, halign=Gtk.Align.START)
                 button.add_css_class("flat")
                 button.add_css_class("am-menu-item")
-                button.connect("clicked", lambda _b, m=mode: (popover.popdown(), self.open_install(rt, m)))
+                button.connect("clicked", lambda _b, m=mode: (popover.popdown(), self.open_models(rt) if m == "download"
+                                                               else self.open_install(rt, m)))
                 column.append(button)
             box.append(column)
         elif rt.installed and inst is not None:
@@ -1833,6 +2157,8 @@ class AgentsMap(Gtk.Application):
         progressbar.am-progress trough {{ min-height: 6px; background: alpha({fg_hex}, 0.10); border-radius: 3px; }}
         progressbar.am-progress progress {{ min-height: 6px; background: {accent_hex}; border-radius: 3px; }}
         .am-card button.am-menu-item {{ padding: 3px 8px; font-size: 12px; }}
+        .am-card list.am-list {{ background: alpha({fg_hex}, 0.03); border-radius: {radius}px; }}
+        .am-card list.am-list row:selected {{ background: alpha({accent_hex}, 0.22); }}
         .am-card-check {{ color: {accent_hex}; font-weight: 700; }}
         .am-agent.am-agent-default {{ border-color: alpha({accent_hex}, 0.7); }}
         .am-agent-icon {{ font-family: "JetBrainsMono Nerd Font", "Symbols Nerd Font", monospace;
@@ -1894,13 +2220,17 @@ class AgentsMap(Gtk.Application):
                 self.close_connect()
             elif page == "install":
                 self.cancel_install()
+            elif page == "models":
+                self.close_models()
             elif page in ("map", "main") and self.selection:
                 self.set_selection([])   # the first Esc clears the selection
             else:
                 self.close()
             return True
-        if page == "install" and keyval == Gdk.KEY_BackSpace and isinstance(self.window.get_focus(), Gtk.Text):
+        if page in ("install", "models") and keyval == Gdk.KEY_BackSpace and isinstance(self.window.get_focus(), Gtk.Text):
             return False          # Backspace edits the folder fields
+        if page == "models":
+            return False          # typing in the search fields
         if page in ("settings", "connect", "install"):
             if keyval == Gdk.KEY_BackSpace:
                 {"settings": self.close_settings, "connect": self.close_connect,
