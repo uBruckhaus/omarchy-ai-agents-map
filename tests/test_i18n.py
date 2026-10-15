@@ -6,7 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import i18n  # noqa: E402
 
-SOURCES = ["mcp_ctl.py", "mcp_tools.py", "skills_ctl.py", "agent_profiles.py", "ai_popup.py", "ai_core.py", "agents.py", "agent_details.py", "inventory.py", "graph.py", "map_view.py"]
+SOURCES = ["mcp_ctl.py", "mcp_library.py", "mcp_tools.py", "mcp_scan.py", "mcp_registry.py", "skills_scan.py", "skills_web.py", "skills_ctl.py", "agent_profiles.py", "ai_popup.py", "ai_core.py", "agents.py", "agent_details.py", "inventory.py", "graph.py", "map_view.py"]
 
 
 class I18nTest(unittest.TestCase):

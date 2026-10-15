@@ -486,6 +486,23 @@ def collect(agent_list) -> Inventory:
         server = servers.setdefault(name, McpServer(name, kind, target))
         if "lmstudio" not in server.agents:
             server.agents.append("lmstudio")
+    # The servers AI Agents Map knows: remember what is in use, list the rest too (no agents).
+    import mcp_library
+    used = {}
+    for name, server in servers.items():
+        _source, entry = mcp_ctl.entry_from(server.agents, name)
+        used[name] = entry
+    try:
+        mcp_library.remember(used)
+    except OSError:
+        pass
+    for name, entry in mcp_library.load().items():
+        if name not in servers:
+            if entry["transport"] == "stdio":
+                kind, target = server_target({"command": entry["command"], "args": entry["args"]})
+            else:
+                kind, target = server_target({"url": entry["url"]})
+            servers[name] = McpServer(name, kind, target)
     inv.mcp = sorted(servers.values(), key=lambda s: s.name.lower())
     inv.skill_sets = sorted(sets.values(), key=lambda s: (-len(s.agents), s.path))
     for skill_set in inv.skill_sets:

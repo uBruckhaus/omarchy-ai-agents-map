@@ -16,6 +16,8 @@ set it up. Clicking an agent's line to a local LLM or MCP server selects
 it (a handle at the far end); dragging it to another LLM calls
 on_relink(agent, old, new), onto empty space on_relink(agent, old, None).
 Right-click on a box calls on_context(node id, box rectangle).
+Zoom (set_zoom, Ctrl+scroll): the drawing is scaled; boxes, lines and
+clicks stay in map units (x / zoom), rectangles handed out are in pixels.
 Each agent's active path (agent → provider in use → its model) is drawn
 bold in the accent colour: every agent's without a selection, else only
 the selected or hovered agent's.
@@ -29,7 +31,7 @@ import graph as graph_model
 import gi
 
 gi.require_version("PangoCairo", "1.0")
-from gi.repository import Gdk, Gtk, Pango, PangoCairo  # noqa: E402
+from gi.repository import Gdk, GLib, Gtk, Pango, PangoCairo  # noqa: E402
 
 NODE_H = 38
 NODE_GAP = 8
@@ -37,6 +39,7 @@ GROUP_GAP = 22           # column 0: between the MCP servers and the skill sets
 GROUP_LABEL_H = 16       # the small heading above each group
 HEADER_H = 30
 PAD = 12
+ZOOM_STEPS = (0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5)
 COLUMN_GAP_MIN = 56
 COLUMN_GAP_MAX = 300
 NODE_W_MAX = 260
@@ -79,8 +82,11 @@ class MapView(Gtk.DrawingArea):
         self.layers = set(graph_model.LAYERS)   # categories switched on
         self.hidden_providers = set()  # provider node ids unticked in the column's list
         self.on_header = None    # callback(column, (x, y, w, h)) for a click on a column heading
+        self.on_add = None       # callback(kind): the dashed "+ MCP server" box clicked
         self.header_rects = {}   # column -> heading rectangle, for clicks
         self.column_x = {}       # column -> x of its boxes, for the headings
+        self.zoom = 1.0          # drawing scale (ZOOM_STEPS)
+        self.on_zoom = None      # callback(zoom) after Ctrl+scroll
         self.set_draw_func(self.on_draw)
         self.set_hexpand(True)
         self.set_vexpand(True)
@@ -99,6 +105,9 @@ class MapView(Gtk.DrawingArea):
         drawer.connect("drag-update", self.on_link_update)
         drawer.connect("drag-end", self.on_link_end)
         self.add_controller(drawer)
+        scroll = Gtk.EventControllerScroll(flags=Gtk.EventControllerScrollFlags.VERTICAL)
+        scroll.connect("scroll", self.on_scroll)
+        self.add_controller(scroll)
 
     def set_palette(self, colors: dict, radius: int):
         self.colors = dict(colors)
@@ -117,7 +126,7 @@ class MapView(Gtk.DrawingArea):
         if any(i not in ids for i in self.selected):
             self.selected = [i for i in self.selected if i in ids]
             self.selection_changed()
-        self.set_content_height(self.needed_height())
+        self.set_content_height(int(self.needed_height() * self.zoom))
         self.queue_draw()
 
     def groups(self, column: int) -> list:
@@ -125,7 +134,8 @@ class MapView(Gtk.DrawingArea):
         nodes = self.shown(column)
         if column != 0:
             return [nodes] if nodes else []
-        return [g for g in ([n for n in nodes if n.kind == "mcp"], [n for n in nodes if n.kind != "mcp"]) if g]
+        mcp = ("mcp", "add-mcp")
+        return [g for g in ([n for n in nodes if n.kind in mcp], [n for n in nodes if n.kind not in mcp]) if g]
 
     def column_height(self, column: int) -> int:
         groups = self.groups(column)
@@ -171,7 +181,8 @@ class MapView(Gtk.DrawingArea):
                 if column == 0:
                     if number:
                         y += GROUP_GAP - NODE_GAP
-                    self.group_labels.append((x, y, self.group_titles.get(nodes[0].kind, "")))
+                    kind = {"add-mcp": "mcp", "add-skills": "skills"}.get(nodes[0].kind, nodes[0].kind)
+                    self.group_labels.append((x, y, self.group_titles.get(kind, "")))
                     y += GROUP_LABEL_H
                 for node in nodes:
                     self.boxes[node.id] = (x, y, node_w, NODE_H)
@@ -221,9 +232,38 @@ class MapView(Gtk.DrawingArea):
             if self.selected:
                 self.relayout()
 
+    def viewport_width(self) -> int:
+        parent = self.get_parent()
+        return parent.get_width() if parent is not None and parent.get_width() > 0 else self.get_width()
+
     def relayout(self):
-        self.set_content_height(self.needed_height())
+        self.set_content_height(int(self.needed_height() * self.zoom))
+        # Zoomed in: wider than the view, so it scrolls sideways too.
+        self.set_content_width(int(self.viewport_width() * self.zoom) if self.zoom > 1 else 0)
         self.queue_draw()
+
+    def set_zoom(self, zoom: float):
+        zoom = min(ZOOM_STEPS, key=lambda z: abs(z - zoom))
+        if zoom != self.zoom:
+            self.zoom = zoom
+            self.relayout()
+
+    def zoom_step(self, direction: int) -> float:
+        """The next zoom step in or out (direction +1 / -1)."""
+        index = ZOOM_STEPS.index(min(ZOOM_STEPS, key=lambda z: abs(z - self.zoom)))
+        return ZOOM_STEPS[max(0, min(len(ZOOM_STEPS) - 1, index + direction))]
+
+    def on_scroll(self, controller, _dx, dy):
+        """Ctrl+scroll zooms; plain scrolling scrolls."""
+        if not controller.get_current_event_state() & Gdk.ModifierType.CONTROL_MASK or dy == 0:
+            return False
+        self.set_zoom(self.zoom_step(-1 if dy > 0 else 1))
+        if self.on_zoom is not None:
+            self.on_zoom(self.zoom)
+        return True
+
+    def to_pixels(self, rect):
+        return tuple(v * self.zoom for v in rect)
 
     # --- hover ---------------------------------------------------------------------------
 
@@ -275,9 +315,10 @@ class MapView(Gtk.DrawingArea):
             and self.edge_distance(edge, x, y) <= reach
 
     def on_right_click(self, _gesture, _count, x, y):
+        x, y = x / self.zoom, y / self.zoom
         node_id = self.node_at(x, y)
         if node_id is not None and self.on_context is not None:
-            self.on_context(node_id, self.boxes[node_id])
+            self.on_context(node_id, self.to_pixels(self.boxes[node_id]))
 
     # --- drawing a connection ---------------------------------------------------------------
 
@@ -304,6 +345,7 @@ class MapView(Gtk.DrawingArea):
         return node.status != "missing"
 
     def on_link_begin(self, gesture, x, y):
+        x, y = x / self.zoom, y / self.zoom
         if self.near_selected_edge(x, y):
             agent, runtime = self.selected_edge
             self.link = {"from": agent, "relink": runtime, "start": (x, y), "x": x, "y": y, "target": None,
@@ -319,6 +361,7 @@ class MapView(Gtk.DrawingArea):
     def on_link_update(self, gesture, dx, dy):
         if self.link is None:
             return
+        dx, dy = dx / self.zoom, dy / self.zoom
         if not self.link["drawing"]:
             if abs(dx) + abs(dy) < 8:
                 return
@@ -377,6 +420,7 @@ class MapView(Gtk.DrawingArea):
         cr.fill()
 
     def on_motion(self, controller, x, y):
+        x, y = x / self.zoom, y / self.zoom
         self.set_shift(bool(controller.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK))
         found = self.node_at(x, y)
         on_heading = any(hx <= x <= hx + hw and hy <= y <= hy + hh for hx, hy, hw, hh in self.header_rects.values())
@@ -443,9 +487,10 @@ class MapView(Gtk.DrawingArea):
 
     def on_click(self, gesture, _count, x, y):
         """Click: select this box only (again: none). Shift+click: add or remove it."""
+        x, y = x / self.zoom, y / self.zoom
         for column, (hx, hy, hw, hh) in self.header_rects.items():
             if hx <= x <= hx + hw and hy <= y <= hy + hh and self.on_header is not None:
-                self.on_header(column, (hx, hy, hw, hh))
+                self.on_header(column, self.to_pixels((hx, hy, hw, hh)))
                 return
         node_id = self.node_at(x, y)
         edge = self.edge_at(x, y) if node_id is None else None
@@ -455,6 +500,10 @@ class MapView(Gtk.DrawingArea):
             if edge is not None:
                 return
         if node_id is None:
+            return
+        if self.kind_of(node_id) in ("add-mcp", "add-skills"):
+            if self.on_add is not None:
+                self.on_add(self.kind_of(node_id)[4:])
             return
         pick = self.model_pick(node_id)
         if pick is not None and self.on_pick_model is not None:
@@ -545,6 +594,11 @@ class MapView(Gtk.DrawingArea):
     def on_draw(self, _area, cr, width, height):
         if self.graph is None:
             return
+        zoom = self.zoom
+        if zoom > 1 and abs(int(self.viewport_width() * zoom) - self.get_content_width()) > 2:
+            GLib.idle_add(self.relayout)          # the view was resized: follow it
+        cr.scale(zoom, zoom)
+        width, height = width / zoom, height / zoom
         node_w, _gap = self.layout(width, height)
         lit_nodes, lit_edges = self.highlighted()
         # Hover only fades the rest; a selection draws nothing but its own connections.
@@ -629,6 +683,23 @@ class MapView(Gtk.DrawingArea):
             x, y, w, h = self.boxes[node.id]
             faded = lit_nodes is not None and node.id not in lit_nodes
             alpha = 0.25 if faded else (0.55 if node.dim or node.status == "missing" else 1.0)
+            if node.kind in ("add-mcp", "add-skills"):
+                # Dashed, empty: a place to add something, not a thing.
+                self.rounded(cr, x, y, w, h, self.radius)
+                cr.set_dash([5, 4])
+                cr.set_source_rgba(*self.color("accent" if node.id == self.hover else "fg",
+                                               0.9 if node.id == self.hover else 0.35 * (0.4 if faded else 1)))
+                cr.set_line_width(1.2)
+                cr.stroke()
+                cr.set_dash([])
+                layout.set_font_description(Pango.FontDescription.from_string("Sans 9"))
+                layout.set_width(int((w - 20) * Pango.SCALE))
+                layout.set_ellipsize(Pango.EllipsizeMode.END)
+                layout.set_text(node.label, -1)
+                cr.set_source_rgba(*self.color("accent" if node.id == self.hover else "dim"))
+                cr.move_to(x + 10, y + (h - layout.get_pixel_size()[1]) / 2)
+                PangoCairo.show_layout(cr, layout)
+                continue
             self.rounded(cr, x, y, w, h, self.radius)
             cr.set_source_rgba(*self.color("bg", 1.0))
             cr.fill_preserve()

@@ -58,6 +58,7 @@ class Plan:
     links_add: list = field(default_factory=list)      # (link, target): symlinks to make (skills)
     links_remove: list = field(default_factory=list)   # (link, target): symlinks to delete
     notes: list = field(default_factory=list)          # what stays as it is (skills: folders read anyway)
+    files_add: list = field(default_factory=list)      # (path, bytes, executable): new files (a fetched skill)
 
     def diff(self) -> str:
         parts = []
@@ -69,6 +70,8 @@ class Plan:
             parts.append(f"+ {tilde(link)} → {tilde(target)}")
         for link, target in self.links_remove:
             parts.append(f"- {tilde(link)} → {tilde(target)}")
+        for path, data, _x in self.files_add:
+            parts.append(f"+ {tilde(path)} ({len(data):,} B)")
         for argv in self.commands:
             parts.append("$ " + " ".join(shlex.quote(a) for a in [Path(argv[0]).name, *argv[1:]]))
         text = "\n".join(parts)
@@ -77,7 +80,8 @@ class Plan:
         return text
 
     def empty(self) -> bool:
-        return not self.changes and not self.commands and not self.links_add and not self.links_remove
+        return not self.changes and not self.commands and not self.links_add and not self.links_remove \
+            and not self.files_add
 
 
 def chat_models(models) -> list:
@@ -313,6 +317,9 @@ def apply(result: Plan, backup_root: Path = BACKUP_ROOT) -> Path:
     for link, target in result.links_remove:
         if not link.is_symlink() or Path(os.readlink(link)) != Path(target):
             raise RuntimeError(f"{link} changed in the meantime")
+    for path, _data, _x in result.files_add:
+        if path.exists() or path.is_symlink():
+            raise RuntimeError(f"{path} exists already")
     for argv in result.commands:
         _run(argv)
     folder = backup_root / dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
@@ -327,8 +334,16 @@ def apply(result: Plan, backup_root: Path = BACKUP_ROOT) -> Path:
                          "written": change.new})
     links = {"added": [[str(l), str(t)] for l, t in result.links_add],
              "removed": [[str(l), str(t)] for l, t in result.links_remove]}
+    import hashlib
+    created_dirs = []
+    for path, _data, _x in result.files_add:
+        for parent in reversed(path.parents):
+            if not parent.exists() and str(parent) not in created_dirs:
+                created_dirs.append(str(parent))
+    files = {"added": [[str(p), hashlib.sha256(d).hexdigest()] for p, d, _x in result.files_add],
+             "dirs": created_dirs}
     (folder / "manifest.json").write_text(json.dumps({"files": manifest, "undo_commands": result.undo_commands,
-                                                      "links": links}), encoding="utf-8")
+                                                      "links": links, "created": files}), encoding="utf-8")
     os.chmod(folder / "manifest.json", 0o600)
     for change in result.changes:
         _write(change.path, change.new)
@@ -337,6 +352,11 @@ def apply(result: Plan, backup_root: Path = BACKUP_ROOT) -> Path:
     for link, target in result.links_add:
         link.parent.mkdir(parents=True, exist_ok=True)
         os.symlink(target, link)
+    for path, data, executable in result.files_add:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o755 if executable else 0o644)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
     return folder
 
 
@@ -358,6 +378,21 @@ def undo(folder: Path) -> list[Path]:
             if not link.exists() and not link.is_symlink():
                 os.symlink(target, link)
                 restored.append(link)
+        import hashlib
+        created = manifest.get("created", {})
+        for path, digest in created.get("added", []):
+            path = Path(path)
+            try:
+                if not path.is_symlink() and hashlib.sha256(path.read_bytes()).hexdigest() == digest:
+                    path.unlink()
+                    restored.append(path)
+            except OSError:
+                continue
+        for folder_path in sorted(created.get("dirs", []), key=len, reverse=True):
+            try:
+                Path(folder_path).rmdir()          # only when empty
+            except OSError:
+                pass
         manifest = manifest.get("files", [])
     for item in manifest:
         path = Path(item["path"])
@@ -385,3 +420,23 @@ def _run(argv: list):
 def tilde(path) -> str:
     text, home = str(path), str(HOME)
     return "~" + text[len(home):] if text == home or text.startswith(home + "/") else text
+
+
+def merge(plans: list) -> Plan:
+    """Several plans as one (a new MCP server for several agents): one preview,
+    one backup, one Undo."""
+    if not plans:
+        raise ValueError("nothing to do")
+    result = Plan(",".join(p.agent for p in plans), "", plans[0].provider)
+    for item in plans:
+        for change in item.changes:
+            if any(c.path == change.path for c in result.changes):
+                raise ValueError(f"{change.path} twice")
+            result.changes.append(change)
+        result.commands += item.commands
+        result.undo_commands = item.undo_commands + result.undo_commands
+        result.secrets += item.secrets
+        result.links_add += item.links_add
+        result.links_remove += item.links_remove
+        result.files_add += item.files_add
+    return result

@@ -13,6 +13,7 @@ import graph  # noqa: E402
 import connect  # noqa: E402
 import inventory as invmod  # noqa: E402
 import mcp_ctl  # noqa: E402
+import mcp_library  # noqa: E402
 import skills_ctl  # noqa: E402
 
 
@@ -22,7 +23,7 @@ class InventoryTest(unittest.TestCase):
         self.home = Path(self.tmp.name)
         expand = lambda p: str(p).replace("~", str(self.home), 1)  # noqa: E731
         for target, value in ((invmod, "HOME"), (ad, "HOME"), (connect, "HOME"), (mcp_ctl, "HOME"),
-                              (skills_ctl, "HOME")):
+                              (skills_ctl, "HOME"), (mcp_library, "HOME")):
             patcher = mock.patch.object(target, value, self.home)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -115,7 +116,7 @@ class GraphTest(unittest.TestCase):
         self.assertEqual([n.label for n in g.column(1)], ["Pi", "Claude Code"])
         self.assertEqual({n.label for n in g.column(2)}, {"llama.cpp", "Anthropic"})
         self.assertEqual({n.label for n in g.column(3)}, {"opus", "qwen", "gemma"})
-        self.assertEqual({n.label for n in g.column(0)}, {"photo", "~/.agents/skills"})
+        self.assertEqual({n.label for n in g.column(0)}, {"photo", "~/.agents/skills", "+ MCP server", "+ Skills"})
         links = {(e.source, e.target, e.kind) for e in g.edges}
         self.assertIn(("agent:pi", "runtime:llamacpp", "uses"), links)
         self.assertIn(("agent:pi", "model:runtime:llamacpp:qwen", "default"), links)

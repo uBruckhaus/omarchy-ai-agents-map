@@ -27,7 +27,7 @@ MAX_MODELS_PER_PROVIDER = 10
 # Categories the map can show or hide, in toolbar order, and what each needs.
 LAYERS = ("agents", "online", "local", "models", "mcp", "skills")
 LAYER_OF = {"agent": "agents", "cloud": "online", "runtime": "local", "model": "models", "more": "models",
-            "mcp": "mcp", "skills": "skills"}
+            "mcp": "mcp", "add-mcp": "mcp", "skills": "skills", "add-skills": "skills"}
 REQUIRES = {"models": ("online", "local"), "mcp": ("agents",), "skills": ("agents",)}   # any one of them
 
 
@@ -116,7 +116,9 @@ def split_model(model: str) -> tuple[str, str]:
 def build(agent_list, details: dict, inventory, labels: dict | None = None) -> Graph:
     """agent_list: agents.Agent (installed ones are drawn); details: command ->
     agent_details.Details; labels: functions n -> translated text ("skills", "more")."""
-    labels = {"skills": "{0} skills".format, "more": "+{0} more".format, **(labels or {})}
+    labels = {"skills": "{0} skills".format, "more": "+{0} more".format, "add_mcp": "+ MCP server",
+              "add_skills": "+ Skills",
+              **(labels or {})}
     graph = Graph()
     runtimes = {rt.name: rt for rt in inventory.runtimes}
 
@@ -187,6 +189,15 @@ def build(agent_list, details: dict, inventory, labels: dict | None = None) -> G
             graph.add(Node(mid, 3, labels["more"](len(rt.models) - len(shown)), "", "more", dim=True))
             graph.link(rid, mid, "serves")
 
+    # MCP servers no agent uses (any more): still listed, to connect again.
+    for server in inventory.mcp:
+        if not server.agents:
+            graph.add(Node(f"mcp:{server.name}", 0, server.name, labels.get("unused", "not used"), "mcp", dim=True))
+
+    # A box to add a new MCP server (on the map: opens the add page).
+    graph.add(Node("add:mcp", 0, labels["add_mcp"], "", "add-mcp", dim=True))
+    graph.add(Node("add:skills", 0, labels["add_skills"], "", "add-skills", dim=True))
+
     # A default model that points at a model the runtime does not list: drop the link.
     ids = {n.id for n in graph.nodes}
     graph.edges = [e for e in graph.edges if e.source in ids and e.target in ids]
@@ -210,7 +221,7 @@ def order_columns(graph: Graph):
 
     place(0, 1)
     # MCP servers above skill sets: two groups (the map leaves a gap between them).
-    left = sorted(graph.column(0), key=lambda n: n.kind != "mcp")
+    left = sorted(graph.column(0), key=lambda n: {"mcp": 0, "add-mcp": 1, "add-skills": 3}.get(n.kind, 2))
     graph.nodes = [n for n in graph.nodes if n.column != 0] + left
     place(2, 1)
     place(3, 2)

@@ -336,22 +336,59 @@ def openclaw_text(text: str, name: str, item: dict | None) -> str:
     return connect._dump(data)
 
 
+def check_entry(entry: dict) -> dict:
+    """A new server's entry (from the form, the scan or the registry), checked."""
+    transport = entry.get("transport")
+    if transport == "stdio":
+        command = entry.get("command")
+        if not isinstance(command, str) or not command.strip() or "\n" in command:
+            raise ValueError("no command")
+    elif transport in ("http", "sse"):
+        from urllib.parse import urlsplit
+        url = entry.get("url") or ""
+        if urlsplit(url).scheme not in ("http", "https") or not urlsplit(url).netloc:
+            raise ValueError("not an http(s) address")
+    else:
+        raise ValueError("unknown type")
+    clean = {"transport": transport, "command": entry.get("command", "") if transport == "stdio" else "",
+             "args": [str(a) for a in entry.get("args", [])] if transport == "stdio" else [],
+             "env": {}, "url": entry.get("url", "") if transport != "stdio" else "", "headers": {}}
+    for field in ("env", "headers"):
+        for key, value in (entry.get(field) or {}).items():
+            if not re.match(r"^[A-Za-z_][A-Za-z0-9_-]{0,127}$", str(key)) or "\n" in str(value):
+                raise ValueError(f"bad name {key!r}")
+            clean[field][str(key)] = str(value)
+    if transport != "stdio":
+        clean["env"] = {}
+    else:
+        clean["headers"] = {}
+    return clean
+
+
 def _secrets(entry: dict) -> list:
     return [v for v in list(entry["env"].values()) + list(entry["headers"].values()) if len(v) >= 4]
 
 
-def plan(agent: str, name: str, sources=(), remove: bool = False) -> connect.Plan:
-    """Add server `name` (copied from the first of `sources` that has it) to
-    `agent`, or remove it. Raises ValueError when that cannot be done."""
+def plan(agent: str, name: str, sources=(), remove: bool = False, entry: dict | None = None) -> connect.Plan:
+    """Add server `name` to `agent` — copied from the first of `sources` that
+    has it, or `entry` (a normal() entry: a new server) — or remove it.
+    Raises ValueError when that cannot be done."""
     if not supported(agent) or not NAME_RE.match(name):
         raise ValueError(agent)
     result = connect.Plan(agent, "", name, connected=is_connected(agent, name))
-    entry = None
     if remove:
+        entry = None
         own = normal(raw_entries(agent).get(name))
         result.secrets = _secrets(own) if own else []
+    elif entry is not None:
+        entry = check_entry(entry)
+        result.secrets = _secrets(entry)
     else:
         _source, entry = entry_from([s for s in sources if s != agent], name)
+        if entry is None:
+            import mcp_library
+            entry = mcp_library.load().get(name)          # no agent has it any more
+            _source = "library" if entry is not None else _source
         if entry is None:
             raise ValueError(f"no agent has {name} set up")
         result.secrets = _secrets(entry)

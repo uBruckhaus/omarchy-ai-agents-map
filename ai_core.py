@@ -19,7 +19,7 @@ import i18n
 
 SETTINGS_MAX_BYTES = 256 * 1024
 MIN_WINDOW_SIZE = (420, 320)   # the card's width and its page height, logical px
-VIEWS = ("main", "map")    # the two main views; "settings" is a sub-page
+VIEWS = ("main",)    # one view since the Map view went (its map is beside the cards); the rest are sub-pages
 
 
 def settings_file() -> Path:
@@ -73,10 +73,8 @@ def update_settings(path: Path | None = None, **values) -> None:
 
 
 def start_view(path: Path | None = None) -> str:
-    """The view the popup opens on: "main", "map" or "last"."""
-    value = load_settings(path).get("start_view")
-    value = "map" if value == "builder" else value   # the Map replaced the Builder placeholder
-    return value if value in (*VIEWS, "last") else "main"
+    """The view the popup opens on: always "main" now (an old "map" or "builder" too)."""
+    return "main"
 
 
 def last_view(path: Path | None = None) -> str:
@@ -173,17 +171,22 @@ def cursor_position():
         return None
 
 
-def hyprland_rounding() -> int:
-    """Follow Hyprland's window rounding like the Omarchy shell does."""
+def hyprland_rounding():
+    """Hyprland's window rounding (theme or looknfeel.lua), or None if unknown."""
     raw = _hyprland_query(b"j/getoption decoration:rounding")
     if raw is None:
         raw, _ok = read_bounded_output(["hyprctl", "getoption", "decoration:rounding", "-j"],
                                        max_bytes=4096, timeout=2.0)
     # {"option": "decoration:rounding", "int": 0, "set": true}
-    try:
-        return max(0, min(64, int(json.loads(raw).get("int", 0))))
-    except (ValueError, AttributeError, TypeError):
-        return 0
+    import corners
+    return corners.parse_rounding(raw or "")
+
+
+def saved_corners(path: Path | None = None) -> str:
+    """"windows" (follow Hyprland's window rounding; the default), "rounded" or "square"
+    — the same setting as App Manager and Theme Manager."""
+    import corners
+    return corners.choice(load_settings(path).get("corners"))
 
 
 MAP_LAYERS = ("agents", "online", "local", "models", "mcp", "skills")
