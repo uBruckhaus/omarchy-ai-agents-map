@@ -1,8 +1,9 @@
 """The Map: graph.Graph drawn as four columns of boxes joined by curves.
 
 Hovering a box lights it and everything it is joined to; the rest fades.
-Clicking boxes (agents, providers, anything) selects them, several at once:
-the map then shows only the selected boxes and what they are joined to.
+A click selects a box (agent, provider, anything), Shift+click adds or
+removes more: every box stays on the map, but only the connections of the
+selected ones are drawn and everything else fades.
 Colours come from the Omarchy theme (set_palette).
 """
 
@@ -73,9 +74,7 @@ class MapView(Gtk.DrawingArea):
     def needed_height(self) -> int:
         if self.graph is None:
             return 0
-        visible = self.visible()
-        rows = max((len([n for n in self.graph.column(c) if visible is None or n.id in visible])
-                    for c in range(4)), default=0)
+        rows = max((len(self.graph.column(c)) for c in range(4)), default=0)
         return HEADER_H + PAD * 2 + rows * (NODE_H + NODE_GAP)
 
     # --- layout -----------------------------------------------------------------------
@@ -87,9 +86,8 @@ class MapView(Gtk.DrawingArea):
         node_w = max(NODE_W_MIN, min(NODE_W_MAX, (width - 2 * PAD - 3 * COLUMN_GAP_MIN) // 4))
         gap = max(COLUMN_GAP_MIN, (width - 2 * PAD - 4 * node_w) // 3)
         body = max(0, height - HEADER_H - PAD)
-        visible = self.visible()
         for column in range(4):
-            nodes = [n for n in self.graph.column(column) if visible is None or n.id in visible]
+            nodes = self.graph.column(column)
             total = len(nodes) * NODE_H + max(0, len(nodes) - 1) * NODE_GAP
             y = HEADER_H + max(0, (body - total) // 2)
             x = PAD + column * (node_w + gap)
@@ -143,14 +141,19 @@ class MapView(Gtk.DrawingArea):
 
     # --- selection ------------------------------------------------------------------------
 
-    def visible(self):
-        """Node ids shown while boxes are selected (None: all)."""
+    def highlighted(self):
+        """(node ids, edge indexes) to light: the hovered box's, else the
+        selected boxes' together; (None, None) when nothing is picked."""
+        if self.hover is not None:
+            return self.lit()
         if not self.selected or self.graph is None:
-            return None
-        shown = set()
+            return None, None
+        nodes, edges = set(), set()
         for node_id in self.selected:
-            shown |= self.related(node_id)[0]
-        return shown
+            more_nodes, more_edges = self.related(node_id)
+            nodes |= more_nodes
+            edges |= more_edges
+        return nodes, edges
 
     def node_at(self, x, y):
         for node_id, (bx, by, bw, bh) in self.boxes.items():
@@ -158,14 +161,19 @@ class MapView(Gtk.DrawingArea):
                 return node_id
         return None
 
-    def on_click(self, _gesture, _count, x, y):
+    def on_click(self, gesture, _count, x, y):
+        """Click: select this box only (again: none). Shift+click: add or remove it."""
         node_id = self.node_at(x, y)
         if node_id is None:
             return
-        if node_id in self.selected:
-            self.selected.remove(node_id)
+        adding = bool(gesture.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK)
+        if adding:
+            if node_id in self.selected:
+                self.selected.remove(node_id)
+            else:
+                self.selected.append(node_id)
         else:
-            self.selected.append(node_id)
+            self.selected = [] if self.selected == [node_id] else [node_id]
         self.selection_changed()
 
     def clear_selection(self) -> bool:
@@ -176,8 +184,6 @@ class MapView(Gtk.DrawingArea):
         return True
 
     def selection_changed(self):
-        self.hover = None
-        self.set_content_height(self.needed_height())
         self.queue_draw()
         if self.on_selection is not None and self.graph is not None:
             by_id = {n.id: n for n in self.graph.nodes}
@@ -192,7 +198,9 @@ class MapView(Gtk.DrawingArea):
         if self.graph is None:
             return
         node_w, _gap = self.layout(width, height)
-        lit_nodes, lit_edges = self.lit()
+        lit_nodes, lit_edges = self.highlighted()
+        # Hover only fades the rest; a selection draws nothing but its own connections.
+        only_lit = self.hover is None and lit_edges is not None
         layout = PangoCairo.create_layout(cr)
 
         # Column headings.
@@ -219,6 +227,8 @@ class MapView(Gtk.DrawingArea):
                 x1, y1, x2, y2 = sx, sy + sh / 2, tx + tw, ty + th / 2
             bend = (x2 - x1) * 0.5
             alpha = 0.55
+            if only_lit and index not in lit_edges:
+                continue
             if lit_edges is not None:
                 alpha = 0.95 if index in lit_edges else 0.08
             cr.set_source_rgba(*self.color(EDGE_COLORS.get(edge.kind, "muted"), alpha))
@@ -240,13 +250,22 @@ class MapView(Gtk.DrawingArea):
             cr.set_source_rgba(*self.color("fg", fill * (0.4 if faded else 1.0)))
             cr.fill_preserve()
             if node.id in self.selected:
-                cr.set_source_rgba(*self.color("accent", 0.22))
+                cr.set_source_rgba(*self.color("accent", 0.40))
                 cr.fill_preserve()
             border = "accent" if node.id == self.hover or node.id in self.defaults or node.kind == "agent" \
                 or node.id in self.selected else "fg"
             cr.set_source_rgba(*self.color(border, (0.9 if border == "accent" else 0.18) * (0.3 if faded else 1)))
-            cr.set_line_width(2 if node.id in self.selected else 1)
+            cr.set_line_width(2.5 if node.id in self.selected else 1)
             cr.stroke()
+            if node.id in self.selected:
+                # A check mark in the corner: selected, not just highlighted.
+                layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 10"))
+                layout.set_width(-1)
+                layout.set_text("✓", -1)
+                cr.set_source_rgba(*self.color("accent"))
+                text_w, text_h = layout.get_pixel_size()
+                cr.move_to(x + w - text_w - 8, y + (h - text_h) / 2)
+                PangoCairo.show_layout(cr, layout)
 
             text_x = x + 10
             if node.icon:
@@ -258,7 +277,7 @@ class MapView(Gtk.DrawingArea):
                 cr.move_to(text_x, y + (h - layout.get_pixel_size()[1]) / 2)
                 PangoCairo.show_layout(cr, layout)
                 text_x += 24
-            layout.set_width(int((x + w - 8 - text_x) * Pango.SCALE))
+            layout.set_width(int((x + w - (26 if node.id in self.selected else 8) - text_x) * Pango.SCALE))
             layout.set_ellipsize(Pango.EllipsizeMode.END)
             if node.detail:
                 layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 9"))

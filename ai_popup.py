@@ -691,10 +691,10 @@ class AiManager(Gtk.Application):
         self.map_filter.set_ellipsize(Pango.EllipsizeMode.END)
         self.map_filter.set_max_width_chars(1)
         bar.append(self.map_filter)
-        self.map_show_all = Gtk.Button(label=_("Show all"))
+        self.map_show_all = Gtk.Button(label=_("Clear selection"))
         self.map_show_all.add_css_class("flat")
         self.map_show_all.add_css_class("am-small-btn")
-        self.map_show_all.set_tooltip_text(_("Show the whole map again (Esc)"))
+        self.map_show_all.set_tooltip_text(_("Clear the selection (Esc)"))
         self.map_show_all.connect("clicked", lambda *_: self.map_view.clear_selection())
         bar.append(self.map_show_all)
         page.append(bar)
@@ -706,11 +706,10 @@ class AiManager(Gtk.Application):
 
     def on_map_selection(self, nodes):
         if nodes:
-            self.map_filter.set_label(_("Showing: {0} · click a box again to drop it")
+            self.map_filter.set_label(_("Selected: {0} · Shift+click adds or removes one")
                                       .format(", ".join(n.label for n in nodes)))
         else:
-            self.map_filter.set_label(_("Click agents, providers or anything else to filter the map; "
-                                        "several at once show them together."))
+            self.map_filter.set_label(_("Click a box to see only its connections; Shift+click selects more than one."))
         self.map_filter.set_tooltip_text(self.map_filter.get_label())
         self.map_show_all.set_visible(bool(nodes))
 
