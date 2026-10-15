@@ -20,10 +20,11 @@ skills each agent has. For people new to it as much as for checking your own set
   - **Skills**: each skill folder with its skills and the agents that load it (linked skills count
     where they really live, so a shared `~/.agents/skills` shows up once).
 - **Map** (Ctrl+2): the same as a picture, drawn at the largest size: MCP servers and skills ←
-  agents → LLM providers → models. Hover a box to light up everything it is joined to. Click boxes
-  (agents, providers such as llama.cpp, MCP servers, …) to filter the map down to them and what they
-  are joined to; several at once are shown together, a second click drops one, Esc or **Show all**
-  shows everything again. Leaving the Map gives the card its size back.
+  agents → LLM providers → models. Hover a box to light up everything it is joined to. A click
+  selects a box (an agent, a provider such as llama.cpp, an MCP server, …), Shift+click adds or
+  removes more: every box stays, but only the connections of the selected ones are drawn and the
+  rest fades. Selected boxes are filled and carry a ✓; Esc or **Clear selection** clears it.
+  Leaving the Map gives the card its size back.
 
 ## What is read
 
