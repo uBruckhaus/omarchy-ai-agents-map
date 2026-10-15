@@ -684,9 +684,35 @@ class AiManager(Gtk.Application):
         card as large as the screen allows; leaving it restores the size."""
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         page.append(self.view_heading(_("Map")))
+        # The filter line: a hint, or what is selected and a way back to everything.
+        bar = Gtk.Box(spacing=8)
+        self.map_filter = Gtk.Label(xalign=0, hexpand=True)
+        self.map_filter.add_css_class("am-agent-detail")
+        self.map_filter.set_ellipsize(Pango.EllipsizeMode.END)
+        self.map_filter.set_max_width_chars(1)
+        bar.append(self.map_filter)
+        self.map_show_all = Gtk.Button(label=_("Show all"))
+        self.map_show_all.add_css_class("flat")
+        self.map_show_all.add_css_class("am-small-btn")
+        self.map_show_all.set_tooltip_text(_("Show the whole map again (Esc)"))
+        self.map_show_all.connect("clicked", lambda *_: self.map_view.clear_selection())
+        bar.append(self.map_show_all)
+        page.append(bar)
         self.map_view = MapView()
+        self.map_view.on_selection = self.on_map_selection
+        self.on_map_selection([])
         page.append(self.page_scroller(self.map_view))
         return page
+
+    def on_map_selection(self, nodes):
+        if nodes:
+            self.map_filter.set_label(_("Showing: {0} · click a box again to drop it")
+                                      .format(", ".join(n.label for n in nodes)))
+        else:
+            self.map_filter.set_label(_("Click agents, providers or anything else to filter the map; "
+                                        "several at once show them together."))
+        self.map_filter.set_tooltip_text(self.map_filter.get_label())
+        self.map_show_all.set_visible(bool(nodes))
 
     def refresh_map(self):
         details = {a.command: agent_details.details_for(a.command) for a in self.agent_list if a.installed}
@@ -1136,6 +1162,8 @@ class AiManager(Gtk.Application):
         levelbar.am-limit block.am-hot {{ background: {orange_hex}; }}
         levelbar.am-limit block.am-full {{ background: {red_hex}; }}
         levelbar.am-limit block.empty {{ background: transparent; }}
+        .am-card button.am-small-btn {{ font-size: 11px; min-height: 0; padding: 1px 10px;
+            border: 1px solid alpha({fg_hex}, 0.35); border-radius: {radius}px; }}
         .am-canvas {{ border: 1px dashed alpha({fg_hex}, 0.25); border-radius: {radius}px; padding: 12px; }}
         """
         if getattr(self, "map_view", None) is not None:
@@ -1154,6 +1182,8 @@ class AiManager(Gtk.Application):
         if keyval == Gdk.KEY_Escape:
             if page == "settings":
                 self.close_settings()
+            elif page == "map" and self.map_view.clear_selection():
+                pass   # the first Esc shows the whole map again
             else:
                 self.close()
             return True

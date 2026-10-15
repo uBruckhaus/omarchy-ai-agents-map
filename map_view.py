@@ -1,6 +1,8 @@
 """The Map: graph.Graph drawn as four columns of boxes joined by curves.
 
 Hovering a box lights it and everything it is joined to; the rest fades.
+Clicking boxes (agents, providers, anything) selects them, several at once:
+the map then shows only the selected boxes and what they are joined to.
 Colours come from the Omarchy theme (set_palette).
 """
 
@@ -38,6 +40,8 @@ class MapView(Gtk.DrawingArea):
         self.boxes = {}          # node id -> (x, y, w, h)
         self.hover = None
         self.defaults = set()    # model ids some agent uses by default
+        self.selected = []       # node ids picked by clicking, in click order
+        self.on_selection = None # callback(list of selected nodes)
         self.set_draw_func(self.on_draw)
         self.set_hexpand(True)
         self.set_vexpand(True)
@@ -45,6 +49,9 @@ class MapView(Gtk.DrawingArea):
         motion.connect("motion", self.on_motion)
         motion.connect("leave", lambda *_: self.set_hover(None))
         self.add_controller(motion)
+        click = Gtk.GestureClick()
+        click.connect("released", self.on_click)
+        self.add_controller(click)
 
     def set_palette(self, colors: dict, radius: int):
         self.colors = dict(colors)
@@ -56,13 +63,19 @@ class MapView(Gtk.DrawingArea):
         self.headers = list(headers)
         self.defaults = {e.target for e in graph.edges if e.kind == "default"}
         self.hover = None
+        ids = {n.id for n in graph.nodes}
+        if any(i not in ids for i in self.selected):
+            self.selected = [i for i in self.selected if i in ids]
+            self.selection_changed()
         self.set_content_height(self.needed_height())
         self.queue_draw()
 
     def needed_height(self) -> int:
         if self.graph is None:
             return 0
-        rows = max((len(self.graph.column(c)) for c in range(4)), default=0)
+        visible = self.visible()
+        rows = max((len([n for n in self.graph.column(c) if visible is None or n.id in visible])
+                    for c in range(4)), default=0)
         return HEADER_H + PAD * 2 + rows * (NODE_H + NODE_GAP)
 
     # --- layout -----------------------------------------------------------------------
@@ -74,8 +87,9 @@ class MapView(Gtk.DrawingArea):
         node_w = max(NODE_W_MIN, min(NODE_W_MAX, (width - 2 * PAD - 3 * COLUMN_GAP_MIN) // 4))
         gap = max(COLUMN_GAP_MIN, (width - 2 * PAD - 4 * node_w) // 3)
         body = max(0, height - HEADER_H - PAD)
+        visible = self.visible()
         for column in range(4):
-            nodes = self.graph.column(column)
+            nodes = [n for n in self.graph.column(column) if visible is None or n.id in visible]
             total = len(nodes) * NODE_H + max(0, len(nodes) - 1) * NODE_GAP
             y = HEADER_H + max(0, (body - total) // 2)
             x = PAD + column * (node_w + gap)
@@ -87,11 +101,8 @@ class MapView(Gtk.DrawingArea):
     # --- hover ---------------------------------------------------------------------------
 
     def on_motion(self, _controller, x, y):
-        found = None
-        for node_id, (bx, by, bw, bh) in self.boxes.items():
-            if bx <= x <= bx + bw and by <= y <= by + bh:
-                found = node_id
-                break
+        found = self.node_at(x, y)
+        self.set_cursor_from_name("pointer" if found else None)
         self.set_hover(found)
 
     def set_hover(self, node_id):
@@ -103,11 +114,15 @@ class MapView(Gtk.DrawingArea):
         self.queue_draw()
 
     def lit(self):
-        """Nodes and edges joined to the hovered node (agents: also their providers' models)."""
+        """Nodes and edges joined to the hovered node."""
         if self.hover is None or self.graph is None:
             return None, None
-        nodes, edges = {self.hover}, set()
-        frontier = [self.hover]
+        return self.related(self.hover)
+
+    def related(self, start: str):
+        """The node, what it is joined to, and for an agent also its providers' models."""
+        nodes, edges = {start}, set()
+        frontier = [start]
         for depth in range(2):
             following = []
             for node_id in frontier:
@@ -123,8 +138,50 @@ class MapView(Gtk.DrawingArea):
                         if other not in nodes:
                             nodes.add(other)
                             following.append(other)
-            frontier = following if self.hover.startswith("agent:") else []
+            frontier = following if start.startswith("agent:") else []
         return nodes, edges
+
+    # --- selection ------------------------------------------------------------------------
+
+    def visible(self):
+        """Node ids shown while boxes are selected (None: all)."""
+        if not self.selected or self.graph is None:
+            return None
+        shown = set()
+        for node_id in self.selected:
+            shown |= self.related(node_id)[0]
+        return shown
+
+    def node_at(self, x, y):
+        for node_id, (bx, by, bw, bh) in self.boxes.items():
+            if bx <= x <= bx + bw and by <= y <= by + bh:
+                return node_id
+        return None
+
+    def on_click(self, _gesture, _count, x, y):
+        node_id = self.node_at(x, y)
+        if node_id is None:
+            return
+        if node_id in self.selected:
+            self.selected.remove(node_id)
+        else:
+            self.selected.append(node_id)
+        self.selection_changed()
+
+    def clear_selection(self) -> bool:
+        if not self.selected:
+            return False
+        self.selected = []
+        self.selection_changed()
+        return True
+
+    def selection_changed(self):
+        self.hover = None
+        self.set_content_height(self.needed_height())
+        self.queue_draw()
+        if self.on_selection is not None and self.graph is not None:
+            by_id = {n.id: n for n in self.graph.nodes}
+            self.on_selection([by_id[i] for i in self.selected if i in by_id])
 
     # --- drawing ------------------------------------------------------------------------------
 
@@ -140,7 +197,7 @@ class MapView(Gtk.DrawingArea):
 
         # Column headings.
         for column, title in enumerate(self.headers):
-            nodes = self.graph.column(column)
+            nodes = [n for n in self.graph.column(column) if n.id in self.boxes]
             x = PAD + column * (node_w + _gap)
             layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 8"))
             layout.set_text(title.upper() if nodes else "", -1)
@@ -182,9 +239,13 @@ class MapView(Gtk.DrawingArea):
             fill = 0.10 if node.kind == "agent" else 0.05
             cr.set_source_rgba(*self.color("fg", fill * (0.4 if faded else 1.0)))
             cr.fill_preserve()
-            border = "accent" if node.id == self.hover or node.id in self.defaults or node.kind == "agent" else "fg"
+            if node.id in self.selected:
+                cr.set_source_rgba(*self.color("accent", 0.22))
+                cr.fill_preserve()
+            border = "accent" if node.id == self.hover or node.id in self.defaults or node.kind == "agent" \
+                or node.id in self.selected else "fg"
             cr.set_source_rgba(*self.color(border, (0.9 if border == "accent" else 0.18) * (0.3 if faded else 1)))
-            cr.set_line_width(1)
+            cr.set_line_width(2 if node.id in self.selected else 1)
             cr.stroke()
 
             text_x = x + 10
