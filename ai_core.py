@@ -195,3 +195,9 @@ def map_layers(path: Path | None = None) -> list:
     if isinstance(value, list):
         return [v for v in MAP_LAYERS if v in value]
     return list(MAP_LAYERS)
+
+
+def hidden_providers(path: Path | None = None) -> list:
+    """Provider node ids unticked in the map's provider list ("cloud:anthropic", "runtime:vllm", …)."""
+    value = load_settings(path).get("hidden_providers")
+    return [v for v in value if isinstance(v, str) and len(v) < 200][:100] if isinstance(value, list) else []

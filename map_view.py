@@ -58,6 +58,9 @@ class MapView(Gtk.DrawingArea):
         self.link = None         # while drawing: {"from": id, "x": .., "y": .., "target": id or None}
         self.shift = False       # Shift held: hidden boxes come back to be added
         self.layers = set(graph_model.LAYERS)   # categories switched on
+        self.hidden_providers = set()  # provider node ids unticked in the column's list
+        self.on_header = None    # callback(column, (x, y, w, h)) for a click on a column heading
+        self.header_rects = {}   # column -> heading rectangle, for clicks
         self.column_x = {}       # column -> x of its boxes, for the headings
         self.set_draw_func(self.on_draw)
         self.set_hexpand(True)
@@ -106,6 +109,10 @@ class MapView(Gtk.DrawingArea):
             return 0, 0
         # Only columns with something to show take room; they share the width.
         active = [c for c in range(4) if self.shown(c)]
+        # The providers column keeps its heading (and its list) when every provider is unticked.
+        if 2 not in active and self.hidden_providers and \
+                ({"online", "local"} & graph_model.effective_layers(self.layers)):
+            active = sorted(active + [2])
         count = max(1, len(active))
         node_w = max(NODE_W_MIN, min(NODE_W_MAX, (width - 2 * PAD - (count - 1) * COLUMN_GAP_MIN) // count))
         gap = max(COLUMN_GAP_MIN, (width - 2 * PAD - count * node_w) // max(1, count - 1))
@@ -132,7 +139,7 @@ class MapView(Gtk.DrawingArea):
         category that has a selection (those come back while Shift is held)."""
         if self.graph is None:
             return set()
-        off = graph_model.hidden_by_layers(self.graph, self.layers)
+        off = graph_model.hidden_by_layers(self.graph, self.layers, self.hidden_providers)
         if not self.selected or self.shift:
             return off
         return off | self.selection_hidden()
@@ -142,6 +149,14 @@ class MapView(Gtk.DrawingArea):
         picked = {CATEGORY.get(by_id[i].kind) for i in self.selected if i in by_id}
         return {n.id for n in self.graph.nodes
                 if CATEGORY.get(n.kind) in picked and n.id not in self.selected}
+
+    def set_hidden_providers(self, ids):
+        self.hidden_providers = set(ids)
+        off = self.hidden()
+        if any(i in off for i in self.selected):
+            self.selected = [i for i in self.selected if i not in off]
+            self.selection_changed()
+        self.relayout()
 
     def set_layers(self, layers):
         self.layers = set(layers)
@@ -247,7 +262,8 @@ class MapView(Gtk.DrawingArea):
     def on_motion(self, controller, x, y):
         self.set_shift(bool(controller.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK))
         found = self.node_at(x, y)
-        self.set_cursor_from_name("pointer" if found else None)
+        on_heading = any(hx <= x <= hx + hw and hy <= y <= hy + hh for hx, hy, hw, hh in self.header_rects.values())
+        self.set_cursor_from_name("pointer" if found or on_heading else None)
         self.set_hover(found)
 
     def set_hover(self, node_id):
@@ -310,6 +326,10 @@ class MapView(Gtk.DrawingArea):
 
     def on_click(self, gesture, _count, x, y):
         """Click: select this box only (again: none). Shift+click: add or remove it."""
+        for column, (hx, hy, hw, hh) in self.header_rects.items():
+            if hx <= x <= hx + hw and hy <= y <= hy + hh and self.on_header is not None:
+                self.on_header(column, (hx, hy, hw, hh))
+                return
         node_id = self.node_at(x, y)
         if node_id is None:
             return
@@ -358,18 +378,27 @@ class MapView(Gtk.DrawingArea):
         layout = PangoCairo.create_layout(cr)
 
         # Column headings.
+        self.header_rects = {}
         for column, title in enumerate(self.headers):
-            nodes = [n for n in self.graph.column(column) if n.id in self.boxes]
-            if not nodes:
+            if column not in self.column_x:
                 continue
             x = self.column_x[column]
+            text = title.upper()
+            if column == 2:
+                # A list to choose the providers shown (online and local).
+                total = len(self.graph.column(2))
+                shown = total - len([n for n in self.graph.column(2) if n.id in self.hidden_providers])
+                text += f" ({shown}/{total}) ▾" if shown < total else " ▾"
             layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 8"))
-            layout.set_text(title.upper() if nodes else "", -1)
+            layout.set_text(text, -1)
             layout.set_width(node_w * Pango.SCALE)
             layout.set_ellipsize(Pango.EllipsizeMode.END)
-            cr.set_source_rgba(*self.color("dim"))
+            cr.set_source_rgba(*self.color("accent" if column == 2 else "dim"))
             cr.move_to(x, 6)
             PangoCairo.show_layout(cr, layout)
+            if column == 2:
+                text_w, text_h = layout.get_pixel_size()
+                self.header_rects[2] = (x - 4, 2, text_w + 8, text_h + 8)
 
         # Edges first, under the boxes.
         for index, edge in enumerate(self.graph.edges):

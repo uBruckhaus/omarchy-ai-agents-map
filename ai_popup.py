@@ -314,6 +314,7 @@ class AgentsMap(Gtk.Application):
         self.side_map = MapView()
         self.side_map.on_selection = self.on_map_selection
         self.side_map.on_link = self.on_map_link
+        self.side_map.on_header = lambda column, rect: self.show_provider_list(self.side_map, rect)
         side.append(self.page_scroller(self.side_map))
         side.set_visible(False)
         self.side_pane = side
@@ -757,6 +758,7 @@ class AgentsMap(Gtk.Application):
         self.update_layer_toggles()
         self.map_view.on_selection = self.on_map_selection
         self.map_view.on_link = self.on_map_link
+        self.map_view.on_header = lambda column, rect: self.show_provider_list(self.map_view, rect)
         page.append(self.page_scroller(self.map_view))
         return page
 
@@ -806,6 +808,56 @@ class AgentsMap(Gtk.Application):
         self.update_layer_toggles()
         self.save_setting(map_layers=[l for l in graph.LAYERS if l in layers])
 
+    def show_provider_list(self, view, rect):
+        """The providers column's list: tick the online and local providers to show."""
+        graph_now = view.graph
+        if graph_now is None:
+            return
+        popover = Gtk.Popover()
+        popover.set_parent(view)
+        area = Gdk.Rectangle()
+        area.x, area.y, area.width, area.height = (int(v) for v in rect)
+        popover.set_pointing_to(area)
+        popover.set_position(Gtk.PositionType.BOTTOM)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        box.add_css_class("am-provider-list")
+        hidden = set(view.hidden_providers)
+        groups = ((_("Online"), [n for n in graph_now.column(2) if n.kind == "cloud"]),
+                  (_("Local"), [n for n in graph_now.column(2) if n.kind == "runtime"]))
+        checks = {}
+        for title, nodes in groups:
+            if not nodes:
+                continue
+            heading = Gtk.Label(label=title.upper(), xalign=0)
+            heading.add_css_class("am-group-heading")
+            box.append(heading)
+            for node in sorted(nodes, key=lambda n: n.label.lower()):
+                state = {"running": _("running"), "stopped": _("installed, not running"),
+                         "missing": _("not installed")}.get(node.status, "")
+                check = Gtk.CheckButton(label=f"{node.label}  ·  {state}" if state else node.label)
+                check.set_active(node.id not in hidden)
+                check.connect("toggled", lambda b, i=node.id: self.set_provider_shown(i, b.get_active()))
+                box.append(check)
+                checks[node.id] = check
+        row = Gtk.Box(spacing=6, halign=Gtk.Align.END, margin_top=6)
+        for label, value in ((_("All"), True), (_("None"), False)):
+            button = Gtk.Button(label=label)
+            button.add_css_class("am-small-btn")
+            button.connect("clicked", lambda _b, v=value: [c.set_active(v) for c in checks.values()])
+            row.append(button)
+        box.append(row)
+        popover.set_child(box)
+        popover.connect("closed", lambda p: GLib.idle_add(p.unparent))
+        popover.popup()
+
+    def set_provider_shown(self, node_id: str, shown: bool):
+        hidden = set(self.map_view.hidden_providers)
+        hidden.discard(node_id) if shown else hidden.add(node_id)
+        for view in (self.map_view, self.side_map):
+            view.set_hidden_providers(hidden)
+        self.set_selection([i for i in self.selection if i not in self.map_view.hidden()])
+        self.save_setting(hidden_providers=sorted(hidden))
+
     def on_map_selection(self, nodes):
         """A click in either map."""
         self.set_selection([n.id for n in nodes])
@@ -833,9 +885,11 @@ class AgentsMap(Gtk.Application):
                   "more": lambda n: _("+{0} more").format(n)}
         built = graph.build(self.agent_list, details, self.inventory, labels)
         headers = [_("MCP servers · skills"), _("Agents"), _("LLM providers"), _("Models")]
+        hidden = set(ai_core.hidden_providers())
         for view in (self.map_view, self.side_map):
             view.set_graph(built, headers)
             view.set_layers(self.map_view.layers)
+            view.set_hidden_providers(hidden)
         ids = {n.id for n in built.nodes}
         self.set_selection([i for i in self.selection if i in ids])
 
@@ -1327,6 +1381,11 @@ class AgentsMap(Gtk.Application):
         .am-card button.am-danger {{ color: {red_hex}; border-color: alpha({red_hex}, 0.6); }}
         .am-undo {{ background: {bg_hex}; border: 1px solid {accent_hex}; border-radius: {radius}px;
             padding: 8px 14px; }}
+        popover.am-provider-popover > contents, .am-provider-list {{ padding: 6px; }}
+        .am-provider-list checkbutton label {{ font-size: 12px; }}
+        .am-provider-list checkbutton check {{ border: 1px solid alpha({fg_hex}, 0.4); background: transparent; }}
+        .am-provider-list checkbutton check:checked {{ background: {accent_hex}; border-color: {accent_hex};
+            color: {bg_hex}; }}
         .am-card-check {{ color: {accent_hex}; font-weight: 700; }}
         .am-agent.am-agent-default {{ border-color: alpha({accent_hex}, 0.7); }}
         .am-agent-icon {{ font-family: "JetBrainsMono Nerd Font", "Symbols Nerd Font", monospace;

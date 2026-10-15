@@ -34,6 +34,10 @@ skills each agent has. For people new to it as much as for checking your own set
   servers and skills need Agents; empty columns make room for the others. The choice is remembered.
   
 
+The **LLM PROVIDERS ▾** heading opens a list of the online and local providers (with each local
+one's state): untick one to leave it and its models out of the map. The heading shows how many are
+shown (e.g. 6/9); the choice is remembered.
+
 ## Connecting by drawing
 
 On the map, press on an agent and drag to a local LLM (or the other way round): the boxes you can

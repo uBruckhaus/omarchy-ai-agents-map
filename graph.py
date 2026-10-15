@@ -38,11 +38,12 @@ def effective_layers(enabled) -> set:
             if not REQUIRES.get(layer) or any(need in enabled for need in REQUIRES[layer])}
 
 
-def hidden_by_layers(graph, enabled) -> set:
-    """Node ids the switched-off categories hide. A model also goes when none
-    of the providers serving it is shown."""
+def hidden_by_layers(graph, enabled, hidden_ids=()) -> set:
+    """Node ids the switched-off categories hide, plus hidden_ids (providers
+    unticked in the column's list). A model also goes when none of the
+    providers serving it is shown."""
     shown = effective_layers(enabled)
-    hidden = {n.id for n in graph.nodes if LAYER_OF.get(n.kind) not in shown}
+    hidden = {n.id for n in graph.nodes if LAYER_OF.get(n.kind) not in shown or n.id in hidden_ids}
     for node in graph.nodes:
         if LAYER_OF.get(node.kind) == "models" and node.id not in hidden:
             providers = [e.source for e in graph.edges if e.target == node.id and e.kind == "serves"]
