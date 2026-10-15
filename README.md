@@ -55,4 +55,4 @@ The gear (Ctrl+,) opens the settings: **Language** (system or one of English, De
 Español, Italiano, Português, Nederlands, Polski) and **Open on** (Overview, Map or the last used
 view). Backspace or Esc goes back.
 
-Settings live in `~/.config/omarchy/ai-manager/settings.json`.
+Settings live in `~/.config/omarchy/ai-agents-map/settings.json`.

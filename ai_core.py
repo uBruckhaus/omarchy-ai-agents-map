@@ -1,6 +1,6 @@
 """AI Agents Map - settings and small helpers shared by the popup.
 
-Settings live in ~/.config/omarchy/ai-manager/settings.json (private, written
+Settings live in ~/.config/omarchy/ai-agents-map/settings.json (private, written
 atomically, read with a size cap). Nothing here starts a network request.
 """
 
@@ -23,7 +23,7 @@ VIEWS = ("main", "map")    # the two main views; "settings" is a sub-page
 
 
 def settings_file() -> Path:
-    return Path.home() / ".config/omarchy/ai-manager/settings.json"
+    return Path.home() / ".config/omarchy/ai-agents-map/settings.json"
 
 
 i18n.SETTINGS_FILE = settings_file()

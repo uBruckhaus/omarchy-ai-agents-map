@@ -35,11 +35,11 @@ resolve_pid_file() {
     if [[ -n "${XDG_RUNTIME_DIR:-}" ]] && is_private_dir "$XDG_RUNTIME_DIR"; then
         dir="$XDG_RUNTIME_DIR"
     else
-        dir="/tmp/ai-manager-${USER_ID}"
+        dir="/tmp/ai-agents-map-${USER_ID}"
         mkdir -m 700 "$dir" 2>/dev/null || true
         is_private_dir "$dir" || dir=""
     fi
-    [[ -n "$dir" ]] && echo "${dir}/ai-manager.pid"
+    [[ -n "$dir" ]] && echo "${dir}/ai-agents-map.pid"
     return 0
 }
 
@@ -65,7 +65,7 @@ get_proc_starttime() {
 # 3. Kernel start time matches the recorded start time, if one is given (prevents PID reuse race)
 # 4. Canonical /proc/$pid/exe matches this script's Python interpreter
 # 5. Canonical script argument from /proc/$pid/cmdline matches this plugin's ai_popup.py
-is_ai_manager_process() {
+is_agents_map_process() {
     local pid="$1"
     local expected_starttime="${2:-}"
 
@@ -120,7 +120,7 @@ main() {
     if [[ -n "$pid_file" && -f "$pid_file" && ! -L "$pid_file" && -O "$pid_file" ]]; then
         local rec_pid rec_st
         IFS=":" read -r rec_pid rec_st _ < "$pid_file" || true
-        if is_ai_manager_process "$rec_pid" "$rec_st"; then
+        if is_agents_map_process "$rec_pid" "$rec_st"; then
             kill -USR1 "$rec_pid" 2>/dev/null || true
             exit 0
         fi
@@ -132,7 +132,7 @@ main() {
     local p st
     while IFS= read -r p; do
         [[ -n "$p" && "$p" != "$$" ]] || continue
-        if is_ai_manager_process "$p"; then
+        if is_agents_map_process "$p"; then
             kill -USR1 "$p" 2>/dev/null || true
             st="$(get_proc_starttime "$p")"
             [[ -n "$pid_file" ]] && echo "${p}:${st}" > "$pid_file"

@@ -4,7 +4,7 @@ this computer: agents, local LLMs and their models, MCP servers and skills.
 Two views (the overview as cards, and a Map drawn at full size) and a
 settings page.
 
-A singleton process woken by SIGUSR1 from ai-manager-toggle (as Theme
+A singleton process woken by SIGUSR1 from ai-agents-map-toggle (as Theme
 Manager and App Manager). The card always fills the screen: cards on the
 left, the map beside them; it is neither moved nor resized.
 """
@@ -119,14 +119,14 @@ def monitor_height() -> int:
     return min(heights) if heights else 1080
 
 
-class AiManager(Gtk.Application):
+class AgentsMap(Gtk.Application):
     def __init__(self):
-        super().__init__(application_id="org.omarchy.aimanager")
+        super().__init__(application_id="org.omarchy.aiagentsmap")
         self.window = None
         self.theme = ThemePalette()
         self.style_provider = None
         # Omarchy's menus (Super + Space, …) open underneath this popup: close for them.
-        self.layer_watch = LayerWatch("ai-manager", self.on_menu_opened)
+        self.layer_watch = LayerWatch("ai-agents-map", self.on_menu_opened)
         self.card_w, self.list_h = CARD_WIDTH, LIST_HEIGHT   # fit() makes it fill the screen
         self.scrollers = []        # every page's scroller follows the page height
         self.view = ai_core.last_view() if ai_core.start_view() == "last" else ai_core.start_view()
@@ -165,9 +165,9 @@ class AiManager(Gtk.Application):
         window = Gtk.ApplicationWindow(application=self)
         window.set_decorated(False)
         window.set_title("AI Agents Map")
-        window.set_name("aimanager-window")
+        window.set_name("aiagentsmap-window")
         Gtk4LayerShell.init_for_window(window)
-        Gtk4LayerShell.set_namespace(window, "ai-manager")
+        Gtk4LayerShell.set_namespace(window, "ai-agents-map")
         Gtk4LayerShell.set_layer(window, Gtk4LayerShell.Layer.OVERLAY)
         Gtk4LayerShell.set_keyboard_mode(window, Gtk4LayerShell.KeyboardMode.ON_DEMAND)
         # Full screen and transparent like App Manager: a click beside the card
@@ -973,8 +973,8 @@ class AiManager(Gtk.Application):
             i18n.save_language(code)
         except OSError:
             return
-        os.environ["AI_MANAGER_PAGE"] = "settings"
-        os.environ["AI_MANAGER_VIEW"] = self.view
+        os.environ["AI_AGENTS_MAP_PAGE"] = "settings"
+        os.environ["AI_AGENTS_MAP_VIEW"] = self.view
         sys.stdout.flush()
         sys.stderr.flush()
         os.execv(sys.executable, [sys.executable, *sys.argv])
@@ -1079,7 +1079,7 @@ class AiManager(Gtk.Application):
         except (ValueError, IndexError):
             dim_hex = muted_hex
         css = f"""
-        window#aimanager-window {{ background: transparent; }}
+        window#aiagentsmap-window {{ background: transparent; }}
         .am-card {{ background: {bg_hex}; color: {fg_hex}; border: 1px solid {accent_hex};
             border-radius: {radius}px; padding: 17px; }}
         .am-title {{ font-size: 15px; font-weight: 600; }}
@@ -1211,10 +1211,10 @@ class AiManager(Gtk.Application):
         self.window.present()
         self.layer_watch.start()
         # Restarted after a language change: back on the settings page.
-        view = os.environ.pop("AI_MANAGER_VIEW", "")
+        view = os.environ.pop("AI_AGENTS_MAP_VIEW", "")
         if view in ai_core.VIEWS:
             self.show_view(view, save=False)
-        if os.environ.pop("AI_MANAGER_PAGE", "") == "settings":
+        if os.environ.pop("AI_AGENTS_MAP_PAGE", "") == "settings":
             GLib.idle_add(self.open_settings)
 
     def on_menu_opened(self, _name):
@@ -1231,7 +1231,7 @@ class AiManager(Gtk.Application):
 
 
 def main():
-    app = AiManager()
+    app = AgentsMap()
     atexit.register(cleanup_pid)
     return app.run()
 

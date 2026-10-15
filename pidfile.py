@@ -8,7 +8,7 @@ import os
 import stat
 from pathlib import Path
 
-PID_NAME = "ai-manager.pid"
+PID_NAME = "ai-agents-map.pid"
 
 
 def is_private_dir(path):
@@ -25,7 +25,7 @@ def private_dir():
     runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
     if runtime_dir and is_private_dir(runtime_dir):
         return Path(runtime_dir)
-    fallback = Path("/tmp") / f"ai-manager-{os.getuid()}"
+    fallback = Path("/tmp") / f"ai-agents-map-{os.getuid()}"
     try:
         fallback.mkdir(mode=0o700)
     except FileExistsError:

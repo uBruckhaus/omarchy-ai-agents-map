@@ -19,7 +19,7 @@ from gi.repository import Gio, GLib
 MENU_LAYERS = frozenset({
     "omarchy-menu", "omarchy-keyboard-panel", "omarchy-emojis", "omarchy-clipboard",
     "omarchy-image-selector", "omarchy-network-qr", "walker",
-    "theme-manager", "simple-launcher-for-fools", "ai-manager",
+    "theme-manager", "simple-launcher-for-fools", "ai-agents-map",
 })
 MAX_PENDING = 64 * 1024   # a line longer than this is not a Hyprland event
 

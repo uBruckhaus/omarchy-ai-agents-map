@@ -8,10 +8,10 @@ import "I18n.js" as I18n
 BarWidget {
   id: root
 
-  moduleName: "ubruckhaus.ai-manager"
+  moduleName: "ubruckhaus.ai-agents-map"
 
-  readonly property string togglePath: Qt.resolvedUrl("ai-manager-toggle").toString().replace(/^file:\/\//, "")
-  readonly property string settingsPath: Quickshell.env("HOME") + "/.config/omarchy/ai-manager/settings.json"
+  readonly property string togglePath: Qt.resolvedUrl("ai-agents-map-toggle").toString().replace(/^file:\/\//, "")
+  readonly property string settingsPath: Quickshell.env("HOME") + "/.config/omarchy/ai-agents-map/settings.json"
 
   // Interface language: the one picked in AI Agents Map's settings, else the system's.
   property string languageSetting: "auto"
