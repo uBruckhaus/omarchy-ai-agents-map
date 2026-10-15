@@ -72,34 +72,6 @@ def update_settings(path: Path | None = None, **values) -> None:
     atomic_write(path, json.dumps(data, indent=2) + "\n")
 
 
-def _int_pair(value, low: int, high: int):
-    if isinstance(value, list) and len(value) == 2 and \
-            all(isinstance(v, int) and not isinstance(v, bool) and low <= v < high for v in value):
-        return value[0], value[1]
-    return None
-
-
-def window_size(path: Path | None = None):
-    """Card width and page height last resized to, or None for the default."""
-    size = _int_pair(load_settings(path).get("size"), 0, 20000)
-    if size and size[0] >= MIN_WINDOW_SIZE[0] and size[1] >= MIN_WINDOW_SIZE[1]:
-        return size
-    return None
-
-
-def window_position(path: Path | None = None):
-    """Top-left of the card last moved to (monitor-relative), or None for centred."""
-    return _int_pair(load_settings(path).get("position"), 0, 100000)
-
-
-def save_window_size(size, path: Path | None = None) -> None:
-    update_settings(path, size=None if size is None else [int(size[0]), int(size[1])])
-
-
-def save_window_position(position, path: Path | None = None) -> None:
-    update_settings(path, position=None if position is None else [int(position[0]), int(position[1])])
-
-
 def start_view(path: Path | None = None) -> str:
     """The view the popup opens on: "main", "map" or "last"."""
     value = load_settings(path).get("start_view")

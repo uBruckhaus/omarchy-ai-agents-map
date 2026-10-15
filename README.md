@@ -19,8 +19,8 @@ skills each agent has. For people new to it as much as for checking your own set
     use it.
   - **Skills**: each skill folder with its skills and the agents that load it (linked skills count
     where they really live, so a shared `~/.agents/skills` shows up once).
-- **Wide Overview**: from about 1000 px wide (resize it, or double-click the header) the map
-  appears beside the cards. A click on a card selects it there (✓) and opens its details, Shift+click
+- **Map beside the cards**: the popup fills the screen, the cards on the left and the map on the
+  right (on a screen narrower than about 1000 px only the cards). A click on a card selects it there (✓) and opens its details, Shift+click
   adds or removes more, a click on the only selected card lets it go; clicking boxes in the map
   selects the matching cards.
 - **Map** (Ctrl+2): the same as a picture, drawn at the largest size: MCP servers and skills ←
@@ -32,7 +32,7 @@ skills each agent has. For people new to it as much as for checking your own set
   The **Show** toggles above it shorten the map to the categories you are working on (Agents,
   Online providers, Local LLMs, Models, MCP servers, Skills): models need a provider category, MCP
   servers and skills need Agents; empty columns make room for the others. The choice is remembered.
-  Leaving the Map gives the card its size back.
+  
 
 ## What is read
 
@@ -47,12 +47,7 @@ ten minutes.
 ## Using the popup
 
 - Click the robot icon in the bar to open or close it. Esc, a click beside the card or switching to
-  another window closes it.
-- Drag the header to move the card, drag the grip in the bottom-right corner to resize it.
-  Position and size are remembered.
-- Double-click the header: at the default size it maximizes, at the largest size it goes back to
-  the default; in between a left double-click restores the default size and a right double-click
-  maximizes. Double-click the grip for the default size.
+  another window closes it. It always fills the screen; it is not moved or resized.
 
 ## Languages and settings
 

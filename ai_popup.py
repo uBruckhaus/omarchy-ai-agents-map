@@ -4,10 +4,9 @@ this computer: agents, local LLMs and their models, MCP servers and skills.
 Two views (the overview as cards, and a Map drawn at full size) and a
 settings page.
 
-Same house layout as Theme Manager: a singleton process woken by SIGUSR1
-from ai-manager-toggle, a themed card that can be moved by its header and
-resized by the corner grip (position and size are remembered), and a
-size-dependent header double-click.
+A singleton process woken by SIGUSR1 from ai-manager-toggle (as Theme
+Manager and App Manager). The card always fills the screen: cards on the
+left, the map beside them; it is neither moved nor resized.
 """
 
 import colorsys
@@ -16,7 +15,6 @@ import datetime as dt
 import signal
 import sys
 import threading
-import time
 
 # GTK4 layer shell must load before GTK's Wayland client library. The Python
 # bindings load GTK first, so preload the layer-shell library on re-exec.
@@ -56,6 +54,7 @@ from layer_watch import LayerWatch
 from map_view import MapView
 from palette import ThemePalette
 
+# Smallest card (a small monitor); normally the card fills the screen.
 # Default outer size as in the other popups: a 420 px card around a 590 px
 # page, the same on every page so switching never resizes the popup.
 CARD_WIDTH = 420
@@ -128,11 +127,7 @@ class AiManager(Gtk.Application):
         self.style_provider = None
         # Omarchy's menus (Super + Space, …) open underneath this popup: close for them.
         self.layer_watch = LayerWatch("ai-manager", self.on_menu_opened)
-        self.position = ai_core.window_position()   # None: centred
-        self.card_w, self.list_h = ai_core.window_size() or (CARD_WIDTH, LIST_HEIGHT)
-        self.drag_mode = None       # "move" or "resize" while the header or grip is dragged
-        self.drag_start = None
-        self.resized_at = 0.0
+        self.card_w, self.list_h = CARD_WIDTH, LIST_HEIGHT   # fit() makes it fill the screen
         self.scrollers = []        # every page's scroller follows the page height
         self.view = ai_core.last_view() if ai_core.start_view() == "last" else ai_core.start_view()
         self.settings_ready = False
@@ -141,7 +136,6 @@ class AiManager(Gtk.Application):
         self.detail_boxes = {}     # card key -> (details box, fill function)
         self.agent_list = []
         self.inventory = inventory.Inventory()
-        self.size_before_map = None   # the card's size before the Map maximized it
         self.selection = []        # node ids selected in the maps and (wide overview) the cards
         self.card_widgets = {}     # card key -> (card box, check mark label)
         self.split = False         # wide overview: cards left, map right
@@ -194,32 +188,17 @@ class AiManager(Gtk.Application):
         click = Gtk.GestureClick()
         click.connect("released", self.on_overlay_click)  # on release, so the bar never sees half a click
         overlay.add_controller(click)
-        # Moving (header) and resizing (grip) are tracked on the overlay, which
-        # never moves, so the pointer's way is exact.
-        dragger = Gtk.GestureDrag()
-        dragger.connect("drag-begin", self.on_drag_begin)
-        dragger.connect("drag-update", self.on_drag_update)
-        dragger.connect("drag-end", self.on_drag_end)
-        overlay.add_controller(dragger)
         window.connect("notify::is-active", self.on_active_changed)
 
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         card.add_css_class("am-card")
         frame = Gtk.Overlay()
         frame.set_child(card)
+        frame.set_halign(Gtk.Align.CENTER)
+        frame.set_valign(Gtk.Align.CENTER)
         overlay.add_overlay(frame)
         self.card = card
         self.card_frame = frame
-        # Resize grip in the bottom-right corner (a layer surface has no frame).
-        grip = Gtk.Image.new_from_icon_name("pan-down-symbolic")
-        grip.add_css_class("am-grip")
-        grip.set_pixel_size(14)
-        grip.set_halign(Gtk.Align.END)
-        grip.set_valign(Gtk.Align.END)
-        grip.set_cursor_from_name("se-resize")
-        grip.set_tooltip_text(_("Drag to resize · double-click for the default size"))
-        frame.add_overlay(grip)
-        self.grip = grip
         self.list_h = max(ai_core.MIN_WINDOW_SIZE[1], min(self.list_h, monitor_height() - 2 * SCREEN_MARGIN))
 
         card.append(self.build_header())
@@ -244,7 +223,7 @@ class AiManager(Gtk.Application):
         keys.connect("key-released", self.on_key_released)
         window.add_controller(keys)
 
-        self.resize_to(self.card_w, self.list_h)
+        self.fit()
         self.apply_theme_css()
         start, self.view = self.view, "main"
         self.show_view(start, save=False)
@@ -256,29 +235,9 @@ class AiManager(Gtk.Application):
         title.add_css_class("am-title")
         title.set_ellipsize(Pango.EllipsizeMode.END)
         title.set_max_width_chars(30)
-        title.set_tooltip_text(_("Drag to move"))
+        title.set_hexpand(True)
         header.append(title)
         self.title_label = title
-        # Centred between the title and the buttons: what a header double-click
-        # does at this size. max_width_chars(1): no natural width of its own.
-        mouse_hint = Gtk.Label(xalign=0.5)
-        mouse_hint.add_css_class("am-header-hint")
-        mouse_hint.set_ellipsize(Pango.EllipsizeMode.END)
-        mouse_hint.set_max_width_chars(1)
-        mouse_hint.set_hexpand(True)
-        mouse_hint.set_margin_start(6)
-        mouse_hint.set_margin_end(6)
-        header.append(mouse_hint)
-        self.mouse_hint = mouse_hint
-
-        # Drag the header to move the card (Hyprland keeps Super + drag for itself).
-        header.set_cursor_from_name("grab")
-        right_clicks = Gtk.GestureClick(button=Gdk.BUTTON_SECONDARY)
-        right_clicks.connect("pressed", lambda _g, count, _x, _y: count == 2
-                             and self.on_header_double_click(Gdk.BUTTON_SECONDARY))
-        header.add_controller(right_clicks)
-        # Left drag / double-click: on_drag_begin (the overlay sees them).
-
         # The two views, as a pair of flat toggle buttons.
         self.view_buttons = {}
         views = Gtk.Box(spacing=0)
@@ -877,16 +836,6 @@ class AiManager(Gtk.Application):
 
     def show_view(self, name: str, save: bool = True):
         name = name if name in ai_core.VIEWS else "main"
-        if name == "map" and self.view != "map":
-            if self.size_state() != "max":
-                self.size_before_map = (self.card_w, self.list_h, self.position)
-                self.resize_to(*self.size_limits())
-                self.move_to(None)
-        elif name != "map" and self.view == "map" and self.size_before_map is not None:
-            width, height, position = self.size_before_map
-            self.size_before_map = None
-            self.resize_to(width, height)
-            self.move_to(position)
         self.view = name
         self.stack.set_visible_child_name(name)
         self.update_header()
@@ -906,9 +855,6 @@ class AiManager(Gtk.Application):
             widget.set_can_target(not on_settings)
             widget.set_can_focus(not on_settings)
             widget.set_sensitive(not on_settings)
-        self.mouse_hint.set_visible(not on_settings)
-        # A sub-page hides the hint: the title takes the room again.
-        self.title_label.set_hexpand(on_settings)
         self.updating_buttons = True
         for name, button in self.view_buttons.items():
             button.set_active(name == page)
@@ -1030,13 +976,12 @@ class AiManager(Gtk.Application):
         return (max(CARD_WIDTH, width - 80),
                 max(ai_core.MIN_WINDOW_SIZE[1], monitor_height() - 2 * SCREEN_MARGIN))
 
-    def resize_to(self, width: int, height: int, save: bool = False):
-        """Card width and page height, kept within the monitor."""
-        max_w, max_h = self.size_limits()
-        self.card_w = max(CARD_WIDTH, min(int(width), max_w))
-        self.list_h = max(ai_core.MIN_WINDOW_SIZE[1], min(int(height), max_h))
+    def fit(self):
+        """As large as the screen allows (checked on every open: another monitor)."""
+        self.card_w, self.list_h = self.size_limits()
         self.card.set_size_request(self.card_w, -1)
         if getattr(self, "side_pane", None) is not None:
+            # A very small screen keeps the cards alone.
             self.split = self.card_w >= SPLIT_WIDTH
             self.side_pane.set_visible(self.split)
             self.list_pane.set_hexpand(not self.split)
@@ -1047,45 +992,9 @@ class AiManager(Gtk.Application):
             scroller.set_min_content_height(self.list_h)
             scroller.set_max_content_height(self.list_h)
         if self.window is not None:
-            # A layer surface does not shrink by itself once content gets smaller.
             self.window.set_default_size(1, 1)
-        self.update_mouse_hint()
-        if save:
-            default = (self.card_w, self.list_h) == (CARD_WIDTH, LIST_HEIGHT)
-            try:
-                ai_core.save_window_size(None if default else (self.card_w, self.list_h))
-            except OSError:
-                pass
 
-    def size_state(self) -> str:
-        """"default", "max" or "between"."""
-        if (self.card_w, self.list_h) == (CARD_WIDTH, LIST_HEIGHT):
-            return "default"
-        if (self.card_w, self.list_h) == self.size_limits():
-            return "max"
-        return "between"
-
-    def on_header_double_click(self, button):
-        """At the default size either button maximizes, at the largest either
-        one goes back; in between left = default size, right = maximize."""
-        size = self.size_state()
-        if size == "max" or (size == "between" and button == Gdk.BUTTON_PRIMARY):
-            self.resize_to(CARD_WIDTH, LIST_HEIGHT, save=True)
-        else:
-            self.resize_to(*self.size_limits(), save=True)
-        self.move_to(None, save=True)
-        self.resized_at = time.monotonic()
-
-    def update_mouse_hint(self):
-        if getattr(self, "mouse_hint", None) is None:
-            return
-        size = self.size_state()
-        self.mouse_hint.set_label(_("Double-click: maximize") if size == "default" else
-                                  _("Double-click: default size") if size == "max" else
-                                  _("Double-click: default size · right double-click: maximize"))
-        self.mouse_hint.set_tooltip_text(self.mouse_hint.get_label())
-
-    # --- moving ------------------------------------------------------------------
+    # --- screen --------------------------------------------------------------------
 
     def monitor_geometry(self):
         display = Gdk.Display.get_default()
@@ -1095,103 +1004,11 @@ class AiManager(Gtk.Application):
             monitor = display.get_monitors().get_item(0)
         return monitor.get_geometry() if monitor is not None else None
 
-    def current_position(self) -> tuple[int, int]:
-        """Top-left of the card in the overlay."""
-        if self.position is not None:
-            return self.position
-        ok, bounds = self.card_frame.compute_bounds(self.overlay)
-        return (round(bounds.get_x()), round(bounds.get_y())) if ok else (0, 0)
-
-    def move_to(self, position, save: bool = False):
-        """Place the card's top-left at `position` (kept on screen), or centre it for None."""
-        frame = self.card_frame
-        if position is not None:
-            width, height = self.overlay.get_width(), self.overlay.get_height()
-            frame_w, frame_h = frame.get_width(), frame.get_height()
-            if width > 0 and height > 0:
-                position = (min(max(0, int(position[0])), max(0, width - frame_w)),
-                            min(max(0, int(position[1])), max(0, height - frame_h)))
-        self.position = position
-        if position is None:
-            frame.set_halign(Gtk.Align.CENTER)
-            frame.set_valign(Gtk.Align.CENTER)
-            frame.set_margin_start(0)
-            frame.set_margin_top(0)
-        else:
-            frame.set_halign(Gtk.Align.START)
-            frame.set_valign(Gtk.Align.START)
-            frame.set_margin_start(position[0])
-            frame.set_margin_top(position[1])
-        if save:
-            try:
-                ai_core.save_window_position(position)
-            except OSError:
-                pass
-
-    def inside(self, widget, ancestor) -> bool:
+    @staticmethod
+    def inside(widget, ancestor) -> bool:
         return widget is not None and (widget == ancestor or widget.is_ancestor(ancestor))
 
-    def on_drag_begin(self, gesture, x, y):
-        """A press on the grip resizes, on the header (not a button) moves the
-        card; anything else is not ours. A second press within 0.4 s is a
-        double-click."""
-        picked = self.overlay.pick(x, y, Gtk.PickFlags.DEFAULT)
-        if self.inside(picked, self.grip):
-            mode = "resize"
-        elif self.inside(picked, self.header) and not self.on_button(picked):
-            mode = "move"
-        else:
-            gesture.set_state(Gtk.EventSequenceState.DENIED)
-            self.drag_mode = None
-            return
-        now = time.monotonic()
-        last_mode, last_time = getattr(self, "last_press", (None, 0.0))
-        self.last_press = (mode, now)
-        if last_mode == mode and now - last_time < 0.4:
-            self.last_press = (None, 0.0)
-            self.drag_mode = None
-            if mode == "resize":
-                self.resize_to(CARD_WIDTH, LIST_HEIGHT, save=True)
-            else:
-                self.on_header_double_click(Gdk.BUTTON_PRIMARY)
-            self.resized_at = now
-            return
-        if mode == "resize" and self.position is None:
-            # Centred: pin the top-left corner, so the card grows right and down.
-            self.move_to(self.current_position())
-        self.drag_mode = mode
-        self.drag_start = (self.current_position(), (self.card_w, self.list_h))
-
-    def on_button(self, widget) -> bool:
-        while widget is not None and widget != self.header:
-            if isinstance(widget, Gtk.Button):
-                return True
-            widget = widget.get_parent()
-        return False
-
-    def on_drag_update(self, _gesture, dx, dy):
-        if self.drag_mode is None or self.drag_start is None:
-            return
-        (x, y), (width, height) = self.drag_start
-        if self.drag_mode == "move":
-            self.move_to((x + round(dx), y + round(dy)))
-        else:
-            self.resize_to(width + round(dx), height + round(dy))
-
-    def on_drag_end(self, _gesture, dx, dy):
-        mode, self.drag_mode = self.drag_mode, None
-        if mode is None:
-            return
-        if abs(dx) + abs(dy) > 2:
-            self.resized_at = time.monotonic()   # not a click beside the card
-        if mode == "resize":
-            self.resize_to(self.card_w, self.list_h, save=True)
-        if self.position is not None and abs(dx) + abs(dy) > 2:
-            self.move_to(self.position, save=True)
-
     def on_overlay_click(self, _gesture, _count, x, y):
-        if self.drag_mode is not None or time.monotonic() < self.resized_at + 0.3:
-            return   # the end of a move or resize, not a click beside the card
         picked = self.overlay.pick(x, y, Gtk.PickFlags.DEFAULT)
         if not self.inside(picked, self.card_frame):
             self.close()
@@ -1201,7 +1018,7 @@ class AiManager(Gtk.Application):
             GLib.timeout_add(100, self.close_if_inactive)
 
     def close_if_inactive(self):
-        if self.window.get_visible() and not self.window.is_active() and self.drag_mode is None:
+        if self.window.get_visible() and not self.window.is_active():
             self.close()
         return False
 
@@ -1269,8 +1086,6 @@ class AiManager(Gtk.Application):
         .am-line switch {{ min-height: 16px; min-width: 36px; }}
         .am-line switch slider {{ min-width: 14px; min-height: 14px; margin: 1px; }}
         .am-line switch:checked {{ background: {accent_hex}; }}
-        .am-grip {{ color: {muted_hex}; margin: 3px; opacity: 0.7; }}
-        .am-grip:hover {{ color: {accent_hex}; opacity: 1; }}
         .am-empty-icon {{ color: {muted_hex}; opacity: 0.6; }}
         .am-empty-title {{ font-size: 14px; font-weight: 600; }}
         .am-group-heading {{ font-size: 10px; font-weight: 700; letter-spacing: 1px; color: {dim_hex};
@@ -1366,12 +1181,10 @@ class AiManager(Gtk.Application):
             self.open()
 
     def open(self):
-        # Another monitor may allow less: clamp the saved size again.
-        self.resize_to(self.card_w, self.list_h)
+        self.fit()
         self.collect()
         self.refresh_overview()
         self.refresh_map()
-        self.move_to(self.position)
         self.window.present()
         self.layer_watch.start()
         # Restarted after a language change: back on the settings page.
@@ -1388,7 +1201,6 @@ class AiManager(Gtk.Application):
 
     def close(self):
         self.layer_watch.stop()
-        self.drag_mode = None
         self.map_view.set_shift(False)   # Shift may have been let go elsewhere
         if self.stack.get_visible_child_name() == "settings":
             self.close_settings()   # never reopen onto the settings page
