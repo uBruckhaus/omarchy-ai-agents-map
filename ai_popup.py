@@ -44,9 +44,12 @@ else:
 import atexit
 
 import agent_details
+import agent_profiles
 import agents
 import ai_core
 import connect
+import mcp_ctl
+import skills_ctl
 import runtime_ctl
 import install_ctl
 import models_ctl
@@ -162,6 +165,7 @@ class AgentsMap(Gtk.Application):
         self.settings_ready = False
         self.expanded = set()      # commands of the agent cards shown with their details
         self.refreshing = set()    # commands whose usage Omarchy is collecting right now
+        self.researching = set()   # new agents being looked up on the web (agent_profiles)
         self.detail_boxes = {}     # card key -> (details box, fill function)
         self.agent_list = []
         self.inventory = inventory.Inventory()
@@ -246,6 +250,7 @@ class AgentsMap(Gtk.Application):
         stack.add_named(self.build_connect_page(), "connect")
         stack.add_named(self.build_install_page(), "install")
         stack.add_named(self.build_models_page(), "models")
+        stack.add_named(self.build_mcp_page(), "mcp")
         stack.connect("notify::visible-child-name", lambda *_: self.update_header())
         card.append(stack)
         self.stack = stack
@@ -652,11 +657,71 @@ class AgentsMap(Gtk.Application):
 
         threading.Thread(target=work, daemon=True).start()
 
+    # --- new agents: look up on the web how to set them up ------------------------------------
+
+    @staticmethod
+    def is_new_agent(command: str) -> bool:
+        """An agent this plugin knows nothing about (not in skills_ctl / mcp_ctl)."""
+        return command not in skills_ctl.NATIVE and command not in mcp_ctl.SUPPORTED
+
+    def research_new_agents(self):
+        """Once per new installed agent (setting "look_up_new_agents", on by default)."""
+        if not ai_core.load_settings().get("look_up_new_agents", True):
+            return
+        for agent in self.agent_list:
+            if agent.installed and self.is_new_agent(agent.command) and agent_profiles.needs_research(agent.command):
+                self.start_research(agent)
+
+    def start_research(self, agent):
+        command = agent.command
+        if command in self.researching:
+            return
+        self.researching.add(command)
+        self.fill_card(f"agent:{command}")
+        installed = {a.command for a in self.agent_list if a.installed}
+
+        def work():
+            result = agent_profiles.research(agent, installed)
+            GLib.idle_add(done, result)
+
+        def done(result):
+            self.researching.discard(command)
+            self.collect()
+            self.refresh_overview()
+            self.refresh_map()
+            self.show_note(_("{0}: found out how to set up MCP servers and skills").format(agent.name)
+                           if result.get("status") == "ok" else
+                           _("{0}: could not find out how to set it up ({1})").format(agent.name,
+                                                                                    result.get("error", "")))
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def research_row(self, agent):
+        """(label, value, tip) for the card of a new agent."""
+        if agent.command in self.researching:
+            return (_("Setup"), _("Looking up on the web where it keeps MCP servers and skills…"), "")
+        profile = agent_profiles.load(agent.command)
+        if profile is None:
+            return (_("Setup"), _("Not looked up yet"), "")
+        if profile["status"] != "ok":
+            return (_("Setup"), _("Look-up failed: {0}").format(profile.get("error", "")),
+                    _("Right-click the agent on the map to try again."))
+        researcher = next((a.name for a in self.agent_list if a.command == profile.get("researcher")),
+                          profile.get("researcher", ""))
+        found = [_("MCP servers") if profile.get("mcp") else "", _("Skills") if profile.get("skills") else ""]
+        value = _("Looked up on the web on {0} by {1}: {2}").format(profile.get("checked", "")[:10], researcher,
+                                                                    ", ".join(f for f in found if f))
+        tip = "\n".join([profile.get("notes", "")] + profile.get("sources", [])).strip()
+        return (_("Setup"), value, tip)
+
     def fill_agent(self, box, agent):
         command = agent.command
         info = agent_details.details_for(command)
         inv = self.inventory
         rows = []
+        if agent.installed and self.is_new_agent(command):
+            rows.append(self.research_row(agent))
         if not agent.installed:
             rows.append((_("Status"), _("Not installed"),
                          _("Install it from Omarchy's menu: Setup → Defaults → Agent.")))
@@ -743,6 +808,139 @@ class AgentsMap(Gtk.Application):
             (_("Type"), kind, ""),
             (_("Used by"), ", ".join(names.get(a, a) for a in server.agents), ""),
         ])
+        box.append(self.details_button(lambda *_: self.open_mcp_details(server.name)))
+
+    def details_button(self, on_click) -> Gtk.Widget:
+        """The (i) button that opens a card's full details page."""
+        button = Gtk.Button(halign=Gtk.Align.START)
+        content = Gtk.Box(spacing=6)
+        content.append(Gtk.Image.new_from_icon_name("dialog-information-symbolic"))
+        content.append(Gtk.Label(label=_("Details")))
+        button.set_child(content)
+        button.add_css_class("flat")
+        button.add_css_class("am-small-btn")
+        button.connect("clicked", on_click)
+        return button
+
+    # --- MCP server details (the (i) on its card) ---------------------------------------------------
+
+    def build_mcp_page(self) -> Gtk.Widget:
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        header = Gtk.Box(spacing=8)
+        back = Gtk.Button()
+        back.add_css_class("flat")
+        back.add_css_class("am-header-btn")
+        back.add_css_class("am-back-bordered")
+        back_box = Gtk.Box(spacing=6)
+        back_box.append(Gtk.Image.new_from_icon_name("go-previous-symbolic"))
+        back_box.append(Gtk.Label(label=_("Back")))
+        back_box.append(Gtk.Label(label="· ⌫"))
+        back.set_child(back_box)
+        back.set_tooltip_text(_("Back (Backspace, Esc)"))
+        back.connect("clicked", lambda *_: self.close_mcp_details())
+        header.append(back)
+        self.mcp_title = Gtk.Label(xalign=0, hexpand=True)
+        self.mcp_title.add_css_class("am-section-title")
+        header.append(self.mcp_title)
+        page.append(header)
+        rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        rule.add_css_class("am-settings-rule")
+        page.append(rule)
+        self.mcp_body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.mcp_body.add_css_class("am-settings")
+        page.append(self.page_scroller(self.mcp_body))
+        return page
+
+    def open_mcp_details(self, name: str):
+        server = next((m for m in self.inventory.mcp if m.name == name), None)
+        if server is None:
+            return
+        self.mcp_from = self.view if self.stack.get_visible_child_name() in ai_core.VIEWS else "main"
+        self.mcp_title.set_label(_("MCP server {0}").format(name).upper())
+        body = self.mcp_body
+        while (child := body.get_first_child()) is not None:
+            body.remove(child)
+        names = {a.command: a.name for a in self.agent_list}
+        names["lmstudio"] = "LM Studio"
+        for command in server.agents:
+            self.settings_heading(body, names.get(command, command))
+            entry = mcp_ctl.normal(mcp_ctl.raw_entries(command).get(name))
+            self.detail_grid(body, self.mcp_rows(command, entry))
+        missing = [a.name for a in self.agent_list
+                   if a.installed and a.command not in server.agents and mcp_ctl.supported(a.command)]
+        if missing:
+            self.settings_heading(body, _("Not set up"))
+            self.note(body, ", ".join(missing) + " · "
+                      + _("draw a line from the agent to this box on the map to add it."))
+        self.stack.set_visible_child_name("mcp")
+        self.update_header()
+
+    @staticmethod
+    def mcp_rows(command: str, entry) -> list:
+        """(label, value, tip) of one agent's entry. Values of env and headers stay hidden."""
+        files = mcp_ctl.paths_for(command)
+        file = "~/.claude.json" if command == "claude" else (skills_ctl.tilde(files[0]) if files else "")
+        rows = [(_("Settings file"), file, _("Where this agent keeps the server."))]
+        if entry is None:
+            return rows + [(_("Type"), _("cannot be read"), "")]
+        if entry["transport"] == "stdio":
+            import shlex
+            rows += [(_("Type"), _("runs a program (stdio)"), ""),
+                     (_("Command"), entry["command"], ""),
+                     (_("Arguments"), " ".join(shlex.quote(a) for a in entry["args"]), "")]
+            hidden = entry["env"]
+            rows.append((_("Environment"), ", ".join(f"{k} = •••" for k in hidden),
+                         _("Values are not shown: they may be keys or tokens.")))
+        else:
+            from urllib.parse import urlsplit
+            parts = urlsplit(entry["url"])
+            address = f"{parts.scheme}://{parts.netloc}{parts.path}" + (" ?…" if parts.query else "")
+            rows += [(_("Type"), _("remote server (HTTP)") if entry["transport"] == "http"
+                      else _("remote server (SSE)"), ""),
+                     (_("Address"), address, _("Query parameters are not shown: they may hold a token.")),
+                     (_("Headers"), ", ".join(f"{k}: •••" for k in entry["headers"]),
+                      _("Values are not shown: they may be keys or tokens."))]
+        return rows
+
+    def open_skills_details(self, path: str):
+        """A skill set's page: which agents get it and how, every skill with its description."""
+        skill_set = next((s for s in self.inventory.skill_sets if s.path == path), None)
+        if skill_set is None:
+            return
+        self.mcp_from = self.view if self.stack.get_visible_child_name() in ai_core.VIEWS else "main"
+        self.mcp_title.set_label(_("Skills in {0}").format(path).upper())
+        body = self.mcp_body
+        while (child := body.get_first_child()) is not None:
+            body.remove(child)
+        names = {a.command: a.name for a in self.agent_list}
+        ways = {"native": _("reads the folder by itself"), "listed": _("the folder is in its settings"),
+                "links": _("links in its own folder ({0})")}
+        rows = []
+        for command in skill_set.agents:
+            way = skills_ctl.how(command, path)
+            text = ways.get(way, _("through a folder it reads"))
+            if way == "links":
+                text = text.format(skills_ctl.own_dir(command) or "")
+            rows.append((names.get(command, command), text, ""))
+        self.settings_heading(body, _("Used by"))
+        self.detail_grid(body, rows)
+        missing = [a.name for a in self.agent_list
+                   if a.installed and a.command not in skill_set.agents and skills_ctl.own_dir(a.command)]
+        if missing:
+            self.settings_heading(body, _("Not set up"))
+            self.note(body, ", ".join(missing) + " · "
+                      + _("draw a line from the agent to this box on the map to add it."))
+        self.settings_heading(body, ngettext("1 skill", "{0} skills", len(skill_set.skills))
+                              .format(len(skill_set.skills)))
+        folder = skills_ctl.expand(path)
+        located = {p.name: p for p in skills_ctl.skills_of(folder)}
+        self.detail_grid(body, [(name, (skills_ctl.description(located[name]) if name in located else "") or "—", "")
+                                for name in skill_set.skills])
+        self.stack.set_visible_child_name("mcp")
+        self.update_header()
+
+    def close_mcp_details(self):
+        self.show_view(getattr(self, "mcp_from", self.view), save=False)
 
     def fill_skills(self, box, skill_set, names):
         self.detail_grid(box, [
@@ -750,6 +948,7 @@ class AgentsMap(Gtk.Application):
             (_("Used by"), ", ".join(names.get(a, a) for a in skill_set.agents), ""),
         ])
         self.note(box, ", ".join(skill_set.skills))
+        box.append(self.details_button(lambda *_: self.open_skills_details(skill_set.path)))
 
     def limit_row(self, limit) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
@@ -937,6 +1136,7 @@ class AgentsMap(Gtk.Application):
         headers = [_("MCP servers · skills"), _("Agents"), _("LLM providers"), _("Models")]
         hidden = set(ai_core.hidden_providers())
         for view in (self.map_view, self.side_map):
+            view.group_titles = {"mcp": _("MCP servers"), "skills": _("Skills")}
             view.set_graph(built, headers)
             view.set_layers(self.map_view.layers)
             view.set_hidden_providers(hidden)
@@ -976,7 +1176,7 @@ class AgentsMap(Gtk.Application):
 
     def update_header(self):
         page = self.stack.get_visible_child_name()
-        on_settings = page in ("settings", "connect", "install", "models")
+        on_settings = page in ("settings", "connect", "install", "models", "mcp")
         # Faded out rather than hidden: the header keeps its height, so the
         # card does not jump when the settings page opens.
         for widget in (self.settings_button, self.view_switch):
@@ -1092,6 +1292,12 @@ class AgentsMap(Gtk.Application):
     def on_map_link(self, agent_id: str, runtime_id: str, replaces_id: str | None = None,
                     remove_only: bool = False):
         """A line drawn from an agent to a local LLM: ask how, show what changes."""
+        if runtime_id.startswith("mcp:"):
+            self.open_mcp_connect(agent_id, runtime_id[4:], remove_only)
+            return
+        if runtime_id.startswith("skills:"):
+            self.open_skills_connect(agent_id, runtime_id[7:], remove_only)
+            return
         agent = next((a for a in self.agent_list if f"agent:{a.command}" == agent_id), None)
         runtime = next((r for r in self.inventory.runtimes if f"runtime:{r.key}" == runtime_id), None)
         replaces = next((r for r in self.inventory.runtimes if f"runtime:{r.key}" == replaces_id), None)
@@ -1162,8 +1368,102 @@ class AgentsMap(Gtk.Application):
             self.update_connect_preview()
         self.stack.set_visible_child_name("connect")
 
+    def open_mcp_connect(self, agent_id: str, name: str, remove_only: bool = False):
+        """A line drawn from an agent to an MCP server: copy the server's settings
+        from an agent that has it; or (line dragged off) remove it."""
+        agent = next((a for a in self.agent_list if f"agent:{a.command}" == agent_id), None)
+        server = next((m for m in self.inventory.mcp if m.name == name), None)
+        if agent is None or server is None:
+            return
+        already = mcp_ctl.is_connected(agent.command, name)
+        self.connecting = {"agent": agent, "mcp": name, "sources": list(server.agents), "from": self.view,
+                           "remove_only": remove_only}
+        self.connect_title.set_label((_("Remove {0} from {1}") if remove_only else _("Connect {0} to {1}"))
+                                     .format(name, agent.name).upper())
+        form = self.connect_form
+        while (child := form.get_first_child()) is not None:
+            form.remove(child)
+        supported = mcp_ctl.supported(agent.command)
+        self.connect_preview_heading.set_visible(supported)
+        self.connect_preview_scroller.set_visible(supported)
+        self.connect_status.set_label("")
+        self.connect_remove.set_visible(supported and already and not remove_only)
+        self.connect_ok.set_visible(supported and (remove_only or not already))
+        self.connect_ok.set_label(_("Remove") if remove_only else _("Connect"))
+        if not supported:
+            self.connect_intro.set_label(_("MCP servers cannot be set up for {0} from here yet.").format(agent.name))
+        elif remove_only:
+            self.connect_intro.set_label(_("The MCP server {0} is removed from {1}'s settings. The other agents keep it.")
+                                         .format(name, agent.name))
+        elif already:
+            self.connect_intro.set_label(_("{0} has the MCP server {1} already.").format(agent.name, name))
+        else:
+            source, entry = mcp_ctl.entry_from([a for a in server.agents if a != agent.command], name)
+            source_name = next((a.name for a in self.agent_list if a.command == source), source or "?")
+            self.connect_intro.set_label(
+                _("{0} gets the MCP server {1} ({2}), with the settings {3} uses for it. "
+                  "Nothing else in its settings changes.").format(agent.name, name, mcp_ctl.describe(entry),
+                                                                   source_name))
+        if supported:
+            self.update_connect_preview()
+        self.stack.set_visible_child_name("connect")
+
+    def open_skills_connect(self, agent_id: str, folder: str, remove_only: bool = False):
+        """A line drawn from an agent to a skill set: the agent gets the folder
+        (settings list or one link per skill); or (line dragged off) loses it."""
+        agent = next((a for a in self.agent_list if f"agent:{a.command}" == agent_id), None)
+        if agent is None:
+            return
+        self.connecting = {"agent": agent, "skills": folder, "from": self.view, "remove_only": remove_only}
+        self.connect_title.set_label((_("Remove {0} from {1}") if remove_only else _("Connect {0} to {1}"))
+                                     .format(folder, agent.name).upper())
+        form = self.connect_form
+        while (child := form.get_first_child()) is not None:
+            form.remove(child)
+        self.connect_status.set_label("")
+        try:
+            plan_now = skills_ctl.plan(agent.command, folder, remove=True)
+            already = plan_now.connected
+            how = skills_ctl.plan(agent.command, folder) if not already else None
+        except (OSError, ValueError):
+            plan_now, already, how = None, False, None
+        supported = plan_now is not None
+        removable = supported and not plan_now.empty()
+        stays = ", ".join(plan_now.notes) if supported else ""
+        self.connect_preview_heading.set_visible(supported)
+        self.connect_preview_scroller.set_visible(supported)
+        self.connect_remove.set_visible(already and removable and not remove_only)
+        self.connect_ok.set_visible(supported and ((remove_only and removable) or not already))
+        self.connect_ok.set_label(_("Remove") if remove_only else _("Connect"))
+        if not supported:
+            text = _("Skills cannot be set up for {0} from here yet.").format(agent.name)
+        elif remove_only or already:
+            text = (_("{0} no longer gets the skills in {1}.") if removable and not stays else
+                    _("{0} has the skills in {1}.") if not remove_only else "").format(agent.name, folder)
+            if stays:
+                text = (text + " " if text else "") + _(
+                    "{0} reads {1} by itself, so these skills stay.").format(
+                        agent.name, stays)
+        elif agent.command in skills_ctl.SETTINGS_LIST:
+            text = _("{0} gets the folder {1} in its settings: all its skills, also ones added later.").format(
+                agent.name, folder)
+        else:
+            text = ngettext("{0} gets a link to the skill in {1} in its own folder ({2}).",
+                            "{0} gets links to the {3} skills in {1} in its own folder ({2}).",
+                            len(how.links_add) if how else 0).format(
+                agent.name, folder, skills_ctl.own_dir(agent.command) or "", len(how.links_add) if how else 0)
+        self.connect_intro.set_label(text)
+        if supported:
+            self.update_connect_preview()
+        self.stack.set_visible_child_name("connect")
+
     def current_connect_plan(self, remove: bool = False):
         info = self.connecting
+        if "skills" in info:
+            return skills_ctl.plan(info["agent"].command, info["skills"], remove=remove or info["remove_only"])
+        if "mcp" in info:
+            return mcp_ctl.plan(info["agent"].command, info["mcp"], info["sources"],
+                                remove=remove or info["remove_only"])
         models = self.connect_models
         model = models[self.connect_model.get_selected()] if models else ""
         return connect.plan(info["agent"].command, info["runtime"], model, self.connect_use_now.get_active(),
@@ -1174,7 +1474,7 @@ class AgentsMap(Gtk.Application):
         try:
             plan_now = self.current_connect_plan(remove=bool(self.connecting.get("remove_only")))
             text = plan_now.diff() or _("Nothing changes: it is set up like this already.")
-            self.connect_ok.set_sensitive(bool(plan_now.changes))
+            self.connect_ok.set_sensitive(not plan_now.empty())
         except (OSError, ValueError) as error:
             text = _("Cannot read the agent's settings: {0}").format(error)
             self.connect_ok.set_sensitive(False)
@@ -1184,15 +1484,17 @@ class AgentsMap(Gtk.Application):
         info = self.connecting
         try:
             plan_now = self.current_connect_plan(remove=remove)
-            if not plan_now.changes:
+            if plan_now.empty():
                 self.close_connect()
                 return
             backup = connect.apply(plan_now)
         except (OSError, ValueError, RuntimeError) as error:
             self.connect_status.set_label(_("Not changed: {0}").format(error))
             return
+        remove = remove or bool(info.get("remove_only"))
+        target = info.get("mcp") or info.get("skills") or info["runtime"].name
         message = (_("{0}: {1} removed") if remove else _("{0} connected to {1}")).format(
-            info["agent"].name, info["runtime"].name)
+            info["agent"].name, target)
         if info.get("replaces") and not remove:
             message = _("{0} moved from {1} to {2}").format(info["agent"].name, info["replaces"].name,
                                                             info["runtime"].name)
@@ -1950,9 +2252,12 @@ class AgentsMap(Gtk.Application):
     # --- right-click on a box ---------------------------------------------------------------
 
     def show_context(self, view, node_id: str, rect):
-        """Local LLM: start, stop, start at login."""
+        """Local LLM: start, stop, start at login. A new agent: look up its setup again."""
         rt = next((r for r in self.inventory.runtimes if f"runtime:{r.key}" == node_id), None)
         if rt is None:
+            agent = next((a for a in self.agent_list if f"agent:{a.command}" == node_id), None)
+            if agent is not None and self.is_new_agent(agent.command):
+                self.show_agent_context(view, agent, rect)
             return
         popover = Gtk.Popover()
         popover.set_parent(view)
@@ -2101,6 +2406,32 @@ class AgentsMap(Gtk.Application):
 
     # --- settings ----------------------------------------------------------------
 
+    def show_agent_context(self, view, agent, rect):
+        popover = Gtk.Popover()
+        popover.set_parent(view)
+        area = Gdk.Rectangle()
+        area.x, area.y, area.width, area.height = (int(v) for v in rect)
+        popover.set_pointing_to(area)
+        popover.set_position(Gtk.PositionType.BOTTOM)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.add_css_class("am-provider-list")
+        title = Gtk.Label(label=agent.name, xalign=0)
+        title.add_css_class("am-agent-name")
+        box.append(title)
+        label, value, _tip = self.research_row(agent)
+        note = Gtk.Label(label=value, xalign=0, wrap=True, max_width_chars=36)
+        note.add_css_class("am-agent-detail")
+        box.append(note)
+        button = Gtk.Button(label=_("Look up again on the web"), halign=Gtk.Align.START)
+        button.add_css_class("flat")
+        button.add_css_class("am-menu-item")
+        button.set_sensitive(agent.command not in self.researching)
+        button.connect("clicked", lambda *_: (popover.popdown(), self.start_research(agent)))
+        box.append(button)
+        popover.set_child(box)
+        popover.connect("closed", lambda p: GLib.idle_add(p.unparent))
+        popover.popup()
+
     def build_settings_page(self) -> Gtk.Widget:
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         header = Gtk.Box(spacing=8)
@@ -2177,6 +2508,13 @@ class AgentsMap(Gtk.Application):
                                         starts.index(ai_core.start_view()),
                                         lambda i: self.save_setting(start_view=starts[i],
                                                                     last_view=self.view)))
+        look_up = Gtk.Switch(active=ai_core.load_settings().get("look_up_new_agents", True),
+                             valign=Gtk.Align.CENTER)
+        look_up.connect("notify::active", lambda w, *_: self.settings_ready
+                        and self.save_setting(look_up_new_agents=w.get_active()))
+        self.setting_line(box, _("Look up new agents"),
+                          _("When a new agent is installed, Claude Code or Codex finds out on the web where it keeps "
+                            "MCP servers and skills (once, a few minutes in the background)."), look_up)
         self.settings_ready = True
 
     def save_setting(self, **values):
@@ -2428,6 +2766,8 @@ class AgentsMap(Gtk.Application):
                 self.cancel_install()
             elif page == "models":
                 self.close_models()
+            elif page == "mcp":
+                self.close_mcp_details()
             elif page in ("map", "main") and self.selection:
                 self.set_selection([])   # the first Esc clears the selection
             else:
@@ -2437,10 +2777,10 @@ class AgentsMap(Gtk.Application):
             return False          # Backspace edits the folder fields
         if page == "models":
             return False          # typing in the search fields
-        if page in ("settings", "connect", "install"):
+        if page in ("settings", "connect", "install", "mcp"):
             if keyval == Gdk.KEY_BackSpace:
                 {"settings": self.close_settings, "connect": self.close_connect,
-                 "install": self.close_install}[page]()
+                 "install": self.close_install, "mcp": self.close_mcp_details}[page]()
                 return True
             return False          # Tab and arrows move between the controls
         if ctrl and keyval in (Gdk.KEY_1, Gdk.KEY_KP_1):
@@ -2472,6 +2812,7 @@ class AgentsMap(Gtk.Application):
         self.refresh_overview()
         self.refresh_map()
         self.window.present()
+        self.research_new_agents()
         self.layer_watch.start()
         # Restarted after a language change: back on the settings page.
         view = os.environ.pop("AI_AGENTS_MAP_VIEW", "")

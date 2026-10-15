@@ -1,0 +1,109 @@
+import json
+import sys
+import tempfile
+import tomllib
+import unittest
+from pathlib import Path
+from unittest import mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import connect  # noqa: E402
+import mcp_ctl  # noqa: E402
+
+PI = {"mcpServers": {
+    "photocraft": {"command": "/home/u/.local/bin/photocraft-cli", "args": ["mcp", "--root", "/home/u/Pictures"]},
+    "search": {"url": "https://mcp.example.com/mcp", "headers": {"Authorization": "Bearer s3cret-token"}},
+    "tools": {"command": "npx", "args": ["-y", "tools-mcp"], "env": {"API_KEY": "abcd-1234"}},
+}}
+HERMES = "model:\n  default: x\nagent:\n  y: 1\n"
+
+
+class McpTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.home = Path(self.tmp.name)
+        for module in (connect, mcp_ctl):
+            patcher = mock.patch.object(module, "HOME", self.home)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        (self.home / ".pi/agent").mkdir(parents=True)
+        (self.home / ".pi/agent/mcp.json").write_text(json.dumps(PI))
+        (self.home / ".hermes").mkdir()
+        (self.home / ".hermes/config.yaml").write_text(HERMES)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def add(self, agent, name):
+        result = mcp_ctl.plan(agent, name, ["pi"])
+        connect.apply(result, self.home / "backups")
+        return result
+
+    def test_every_format_round_trips(self):
+        for agent in ("hermes", "codex", "opencode", "gemini", "copilot", "cursor-agent", "crush", "grok", "omp",
+                      "muse", "openclaw"):
+            for name in ("photocraft", "search", "tools"):
+                self.add(agent, name)
+                self.assertEqual(mcp_ctl.normal(mcp_ctl.raw_entries(agent)[name]),
+                                 mcp_ctl.normal(PI["mcpServers"][name]), (agent, name))
+
+    def test_files_stay_valid_and_other_settings_stay(self):
+        for name in ("photocraft", "tools"):
+            self.add("hermes", name)
+            self.add("codex", name)
+        import yaml
+        data = yaml.safe_load((self.home / ".hermes/config.yaml").read_text())
+        self.assertEqual(data["model"], {"default": "x"})
+        self.assertEqual(set(data["mcp_servers"]), {"photocraft", "tools"})
+        codex = tomllib.loads((self.home / ".codex/config.toml").read_text())
+        self.assertEqual(codex["mcp_servers"]["tools"]["env"], {"API_KEY": "abcd-1234"})
+
+    def test_remove_and_undo(self):
+        self.add("hermes", "photocraft")
+        self.add("hermes", "tools")
+        removed = mcp_ctl.plan("hermes", "photocraft", remove=True)
+        backup = connect.apply(removed, self.home / "backups")
+        self.assertEqual(set(mcp_ctl.raw_entries("hermes")), {"tools"})
+        connect.undo(backup)
+        self.assertEqual(set(mcp_ctl.raw_entries("hermes")), {"photocraft", "tools"})
+        connect.apply(mcp_ctl.plan("hermes", "photocraft", remove=True), self.home / "backups")
+        connect.apply(mcp_ctl.plan("hermes", "tools", remove=True), self.home / "backups")
+        self.assertNotIn("mcp_servers", (self.home / ".hermes/config.yaml").read_text())
+        self.assertEqual((self.home / ".hermes/config.yaml").read_text(), HERMES)
+
+    def test_secrets_not_in_preview(self):
+        for agent in ("hermes", "codex", "claude"):
+            text = mcp_ctl.plan(agent, "search", ["pi"]).diff() + mcp_ctl.plan(agent, "tools", ["pi"]).diff()
+            self.assertNotIn("s3cret-token", text)
+            self.assertNotIn("abcd-1234", text)
+
+    def test_claude_through_its_cli(self):
+        result = mcp_ctl.plan("claude", "photocraft", ["pi"])
+        self.assertEqual(result.changes, [])
+        self.assertEqual(result.commands[-1][1:6], ["mcp", "add-json", "--scope", "user", "photocraft"])
+        self.assertEqual(json.loads(result.commands[-1][6])["type"], "stdio")
+        self.assertEqual(result.undo_commands[0][1:], ["mcp", "remove", "--scope", "user", "photocraft"])
+        with mock.patch.object(connect, "_run") as run:
+            backup = connect.apply(result, self.home / "backups")
+            connect.undo(backup)
+        self.assertEqual([c.args[0] for c in run.call_args_list], result.commands + result.undo_commands)
+
+    def test_muse_gets_schema_version_and_openclaw_json5_refused(self):
+        self.add("muse", "tools")
+        data = json.loads((self.home / ".config/muse/settings.json").read_text())
+        self.assertEqual(data["schema_version"], 1)
+        self.assertEqual(data["mcp_servers"]["tools"]["transport"], "stdio")
+        (self.home / ".openclaw").mkdir()
+        (self.home / ".openclaw/openclaw.json").write_text("{ // json5\n gateway: {} }")
+        with self.assertRaises(ValueError):
+            mcp_ctl.plan("openclaw", "tools", ["pi"])
+
+    def test_unknown_server_or_agent(self):
+        with self.assertRaises(ValueError):
+            mcp_ctl.plan("hermes", "nothere", ["pi"])
+        with self.assertRaises(ValueError):
+            mcp_ctl.plan("someagent", "photocraft", ["pi"])
+
+
+if __name__ == "__main__":
+    unittest.main()

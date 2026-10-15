@@ -10,7 +10,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import agent_details as ad  # noqa: E402
 import agents  # noqa: E402
 import graph  # noqa: E402
+import connect  # noqa: E402
 import inventory as invmod  # noqa: E402
+import mcp_ctl  # noqa: E402
+import skills_ctl  # noqa: E402
 
 
 class InventoryTest(unittest.TestCase):
@@ -18,7 +21,8 @@ class InventoryTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.home = Path(self.tmp.name)
         expand = lambda p: str(p).replace("~", str(self.home), 1)  # noqa: E731
-        for target, value in ((invmod, "HOME"), (ad, "HOME")):
+        for target, value in ((invmod, "HOME"), (ad, "HOME"), (connect, "HOME"), (mcp_ctl, "HOME"),
+                              (skills_ctl, "HOME")):
             patcher = mock.patch.object(target, value, self.home)
             patcher.start()
             self.addCleanup(patcher.stop)

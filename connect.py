@@ -22,6 +22,8 @@ import difflib
 import json
 import os
 import re
+import shlex
+import subprocess
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -48,7 +50,14 @@ class Plan:
     runtime: str             # runtime key (llamacpp, …)
     provider: str            # provider key written into the agent's settings
     changes: list = field(default_factory=list)
-    connected: bool = False  # the agent already had this provider
+    connected: bool = False  # the agent already had this provider (or MCP server)
+    commands: list = field(default_factory=list)       # argv lists run after the files are written
+    undo_commands: list = field(default_factory=list)  # run by undo()
+    secrets: list = field(default_factory=list)        # values never shown in the preview
+    source: str = ""                                    # MCP: the agent the server was copied from
+    links_add: list = field(default_factory=list)      # (link, target): symlinks to make (skills)
+    links_remove: list = field(default_factory=list)   # (link, target): symlinks to delete
+    notes: list = field(default_factory=list)          # what stays as it is (skills: folders read anyway)
 
     def diff(self) -> str:
         parts = []
@@ -56,7 +65,19 @@ class Plan:
             name = str(change.path).replace(str(HOME), "~", 1)
             parts.extend(difflib.unified_diff(change.old.splitlines(), change.new.splitlines(),
                                               name, name, n=2, lineterm=""))
-        return "\n".join(parts)
+        for link, target in self.links_add:
+            parts.append(f"+ {tilde(link)} → {tilde(target)}")
+        for link, target in self.links_remove:
+            parts.append(f"- {tilde(link)} → {tilde(target)}")
+        for argv in self.commands:
+            parts.append("$ " + " ".join(shlex.quote(a) for a in [Path(argv[0]).name, *argv[1:]]))
+        text = "\n".join(parts)
+        for secret in sorted(self.secrets, key=len, reverse=True):
+            text = text.replace(secret, "•••")
+        return text
+
+    def empty(self) -> bool:
+        return not self.changes and not self.commands and not self.links_add and not self.links_remove
 
 
 def chat_models(models) -> list:
@@ -286,6 +307,14 @@ def apply(result: Plan, backup_root: Path = BACKUP_ROOT) -> Path:
     for change in result.changes:
         if _read(change.path) != change.old:
             raise RuntimeError(f"{change.path} changed in the meantime")
+    for link, target in result.links_add:
+        if link.exists() or link.is_symlink():
+            raise RuntimeError(f"{link} exists already")
+    for link, target in result.links_remove:
+        if not link.is_symlink() or Path(os.readlink(link)) != Path(target):
+            raise RuntimeError(f"{link} changed in the meantime")
+    for argv in result.commands:
+        _run(argv)
     folder = backup_root / dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     folder.mkdir(parents=True, mode=0o700)
     manifest = []
@@ -296,10 +325,18 @@ def apply(result: Plan, backup_root: Path = BACKUP_ROOT) -> Path:
             os.chmod(copy, 0o600)
         manifest.append({"path": str(change.path), "copy": copy.name if change.path.exists() else None,
                          "written": change.new})
-    (folder / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    links = {"added": [[str(l), str(t)] for l, t in result.links_add],
+             "removed": [[str(l), str(t)] for l, t in result.links_remove]}
+    (folder / "manifest.json").write_text(json.dumps({"files": manifest, "undo_commands": result.undo_commands,
+                                                      "links": links}), encoding="utf-8")
     os.chmod(folder / "manifest.json", 0o600)
     for change in result.changes:
         _write(change.path, change.new)
+    for link, target in result.links_remove:
+        link.unlink()
+    for link, target in result.links_add:
+        link.parent.mkdir(parents=True, exist_ok=True)
+        os.symlink(target, link)
     return folder
 
 
@@ -307,6 +344,21 @@ def undo(folder: Path) -> list[Path]:
     """Put back what apply() replaced, unless the file was changed again since."""
     restored = []
     manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
+    if isinstance(manifest, dict):       # since MCP: files and commands
+        for argv in manifest.get("undo_commands", []):
+            _run(argv)
+        links = manifest.get("links", {})
+        for link, target in links.get("added", []):
+            link = Path(link)
+            if link.is_symlink() and os.readlink(link) == target:
+                link.unlink()
+                restored.append(link)
+        for link, target in links.get("removed", []):
+            link = Path(link)
+            if not link.exists() and not link.is_symlink():
+                os.symlink(target, link)
+                restored.append(link)
+        manifest = manifest.get("files", [])
     for item in manifest:
         path = Path(item["path"])
         if _read(path) != item["written"]:
@@ -317,3 +369,19 @@ def undo(folder: Path) -> list[Path]:
             path.unlink(missing_ok=True)
         restored.append(path)
     return restored
+
+
+def _run(argv: list):
+    """A settings command (claude mcp …): no shell, short timeout, its error as the message."""
+    try:
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise RuntimeError(f"{Path(argv[0]).name}: {error}") from error
+    if done.returncode != 0:
+        message = (done.stderr or done.stdout).strip().splitlines()
+        raise RuntimeError(f"{Path(argv[0]).name}: {message[-1] if message else done.returncode}")
+
+
+def tilde(path) -> str:
+    text, home = str(path), str(HOME)
+    return "~" + text[len(home):] if text == home or text.startswith(home + "/") else text

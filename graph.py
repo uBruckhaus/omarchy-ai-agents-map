@@ -209,5 +209,8 @@ def order_columns(graph: Graph):
         graph.nodes = others + ordered
 
     place(0, 1)
+    # MCP servers above skill sets: two groups (the map leaves a gap between them).
+    left = sorted(graph.column(0), key=lambda n: n.kind != "mcp")
+    graph.nodes = [n for n in graph.nodes if n.column != 0] + left
     place(2, 1)
     place(3, 2)

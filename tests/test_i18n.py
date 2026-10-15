@@ -6,7 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import i18n  # noqa: E402
 
-SOURCES = ["ai_popup.py", "ai_core.py", "agents.py", "agent_details.py", "inventory.py", "graph.py", "map_view.py"]
+SOURCES = ["mcp_ctl.py", "skills_ctl.py", "agent_profiles.py", "ai_popup.py", "ai_core.py", "agents.py", "agent_details.py", "inventory.py", "graph.py", "map_view.py"]
 
 
 class I18nTest(unittest.TestCase):
@@ -27,9 +27,11 @@ class I18nTest(unittest.TestCase):
     def test_placeholders_match(self):
         for code, table in i18n.STRINGS.items():
             for key, value in table.items():
-                if isinstance(value, list):   # plural forms: any of them may drop the count ("1 model")
+                if isinstance(value, list):   # plural forms: the singular's placeholders and the count
+                    allowed = set(re.findall(r"\{\d+\}", key)) | {"{0}"}
                     for form in value:
-                        self.assertLessEqual(set(re.findall(r"\{\d+\}", form)), {"{0}"}, (code, key))
+                        extra = set(re.findall(r"\{\d+\}", form)) - allowed
+                        self.assertLessEqual(len(extra), 1, (code, key))
                     continue
                 self.assertEqual(sorted(re.findall(r"\{\d+\}", key)), sorted(re.findall(r"\{\d+\}", value)),
                                  (code, key))

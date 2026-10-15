@@ -10,11 +10,15 @@ selected boxes stay; the other columns keep every box, but only the
 connections of the selection are drawn and the rest fades. Holding Shift
 brings the hidden boxes back (faded) so more can be added.
 
-Dragging from an agent to a local LLM (or back) draws a line; letting go
-over a fitting box calls on_link(agent id, runtime id) to set it up.
-Clicking an agent's line to a local LLM selects it (a handle at the LLM
-end); dragging it to another LLM calls on_relink(agent, old, new).
+Dragging from an agent to a local LLM, an MCP server or a skill set (or back) draws a
+line; letting go over a fitting box calls on_link(agent id, target id) to
+set it up. Clicking an agent's line to a local LLM or MCP server selects
+it (a handle at the far end); dragging it to another LLM calls
+on_relink(agent, old, new), onto empty space on_relink(agent, old, None).
 Right-click on a box calls on_context(node id, box rectangle).
+Each agent's active path (agent → provider in use → its model) is drawn
+bold in the accent colour: every agent's without a selection, else only
+the selected or hovered agent's.
 Colours come from the Omarchy theme (set_palette).
 """
 
@@ -29,6 +33,8 @@ from gi.repository import Gdk, Gtk, Pango, PangoCairo  # noqa: E402
 
 NODE_H = 38
 NODE_GAP = 8
+GROUP_GAP = 22           # column 0: between the MCP servers and the skill sets
+GROUP_LABEL_H = 16       # the small heading above each group
 HEADER_H = 30
 PAD = 12
 COLUMN_GAP_MIN = 56
@@ -58,6 +64,9 @@ class MapView(Gtk.DrawingArea):
         self.boxes = {}          # node id -> (x, y, w, h)
         self.hover = None
         self.defaults = set()    # model ids some agent uses by default
+        self.group_titles = {}   # node kind -> heading of its group in column 0 (mcp, skills)
+        self.group_labels = []   # (x, y, text) drawn above the groups
+        self.active = {}         # agent id -> edge indexes of its active path (provider in use, its model)
         self.selected = []       # node ids picked by clicking, in click order
         self.on_selection = None # callback(list of selected nodes)
         self.on_link = None      # callback(agent node id, runtime node id) after a drawn line
@@ -100,6 +109,7 @@ class MapView(Gtk.DrawingArea):
         self.graph = graph
         self.headers = list(headers)
         self.defaults = {e.target for e in graph.edges if e.kind == "default"}
+        self.active = self.active_paths(graph)
         if self.selected_edge and not any((e.source, e.target) == self.selected_edge for e in graph.edges):
             self.selected_edge = None
         self.hover = None
@@ -110,11 +120,25 @@ class MapView(Gtk.DrawingArea):
         self.set_content_height(self.needed_height())
         self.queue_draw()
 
+    def groups(self, column: int) -> list:
+        """The shown boxes of a column in groups: column 0 has MCP servers and skill sets."""
+        nodes = self.shown(column)
+        if column != 0:
+            return [nodes] if nodes else []
+        return [g for g in ([n for n in nodes if n.kind == "mcp"], [n for n in nodes if n.kind != "mcp"]) if g]
+
+    def column_height(self, column: int) -> int:
+        groups = self.groups(column)
+        rows = sum(len(g) for g in groups)
+        height = rows * NODE_H + max(0, rows - 1) * NODE_GAP
+        if column == 0 and groups:
+            height += len(groups) * GROUP_LABEL_H + (len(groups) - 1) * GROUP_GAP
+        return height
+
     def needed_height(self) -> int:
         if self.graph is None:
             return 0
-        rows = max((len(self.shown(c)) for c in range(4)), default=0)
-        return HEADER_H + PAD * 2 + rows * (NODE_H + NODE_GAP)
+        return HEADER_H + PAD * 2 + max((self.column_height(c) for c in range(4)), default=0)
 
     # --- layout -----------------------------------------------------------------------
 
@@ -138,15 +162,20 @@ class MapView(Gtk.DrawingArea):
         left = PAD + max(0, (width - 2 * PAD - used) // 2)
         body = max(0, height - HEADER_H - PAD)
         self.column_x = {}
+        self.group_labels = []
         for slot, column in enumerate(active):
-            nodes = self.shown(column)
-            total = len(nodes) * NODE_H + max(0, len(nodes) - 1) * NODE_GAP
-            y = HEADER_H + max(0, (body - total) // 2)
+            y = HEADER_H + max(0, (body - self.column_height(column)) // 2)
             x = left + slot * (node_w + gap)
             self.column_x[column] = x
-            for node in nodes:
-                self.boxes[node.id] = (x, y, node_w, NODE_H)
-                y += NODE_H + NODE_GAP
+            for number, nodes in enumerate(self.groups(column)):
+                if column == 0:
+                    if number:
+                        y += GROUP_GAP - NODE_GAP
+                    self.group_labels.append((x, y, self.group_titles.get(nodes[0].kind, "")))
+                    y += GROUP_LABEL_H
+                for node in nodes:
+                    self.boxes[node.id] = (x, y, node_w, NODE_H)
+                    y += NODE_H + NODE_GAP
         return node_w, gap
 
     def hidden(self) -> set:
@@ -209,9 +238,11 @@ class MapView(Gtk.DrawingArea):
         return sx, sy + sh / 2, tx + tw, ty + th / 2
 
     def movable_edge(self, edge) -> bool:
-        """An agent's line to a local LLM: one that can be moved to another."""
-        return edge.kind in ("uses", "available") and self.kind_of(edge.source) == "agent" \
-            and self.kind_of(edge.target) == "runtime"
+        """An agent's line to a local LLM (can be moved to another) or to an MCP server (can be removed)."""
+        if self.kind_of(edge.source) != "agent":
+            return False
+        return (edge.kind in ("uses", "available") and self.kind_of(edge.target) == "runtime") \
+            or (edge.kind in ("mcp", "skills") and self.kind_of(edge.target) in ("mcp", "skills"))
 
     def edge_distance(self, edge, x, y) -> float:
         """How far (x, y) is from the line, sampled along its curve."""
@@ -255,14 +286,17 @@ class MapView(Gtk.DrawingArea):
         return node.kind if node else None
 
     def link_target_ok(self, source: str, target: str) -> bool:
-        """Agent ↔ installed local runtime, in either direction."""
+        """Agent ↔ installed local runtime or MCP server, in either direction."""
         if self.link and self.link.get("relink"):
-            # Moving a line: to another installed local LLM.
-            if self.kind_of(target) != "runtime" or target == self.link["relink"]:
+            # Moving a line: to another installed local LLM (an MCP line can only be removed).
+            if self.kind_of(target) != "runtime" or target == self.link["relink"] \
+                    or self.kind_of(self.link["relink"]) != "runtime":
                 return False
             node = next(n for n in self.graph.nodes if n.id == target)
             return node.status != "missing"
         kinds = {self.kind_of(source), self.kind_of(target)}
+        if kinds in ({"agent", "mcp"}, {"agent", "skills"}):
+            return True
         if kinds != {"agent", "runtime"}:
             return False
         runtime = source if self.kind_of(source) == "runtime" else target
@@ -276,7 +310,7 @@ class MapView(Gtk.DrawingArea):
                          "drawing": False}
             return
         node_id = self.node_at(x, y)
-        if node_id is None or self.kind_of(node_id) not in ("agent", "runtime"):
+        if node_id is None or self.kind_of(node_id) not in ("agent", "runtime", "mcp", "skills"):
             gesture.set_state(Gtk.EventSequenceState.DENIED)
             self.link = None
             return
@@ -454,6 +488,35 @@ class MapView(Gtk.DrawingArea):
                 return agent, edge.source, node.label
         return None
 
+    @staticmethod
+    def active_paths(graph) -> dict:
+        """agent id -> {edge index}: agent → provider it uses → the model it uses."""
+        index = {(e.source, e.target): i for i, e in enumerate(graph.edges)}
+        paths = {}
+        for edge in graph.edges:
+            if edge.kind != "default":
+                continue
+            agent, model = edge.source, edge.target
+            for (source, target), i in index.items():
+                if source == agent and graph.edges[i].kind == "uses" and (target, model) in index:
+                    paths.setdefault(agent, set()).update({i, index[(target, model)]})
+        return paths
+
+    def active_now(self, lit_edges):
+        """(edge indexes, model ids) of the active paths to draw bold: the hovered
+        agent's, else the selected agents', else every agent's; never outside the lit lines."""
+        if self.hover is not None and self.hover.startswith("agent:"):
+            agents = [self.hover]
+        else:
+            agents = [i for i in self.selected if i.startswith("agent:")] or list(self.active)
+        edges = set().union(*(self.active.get(a, set()) for a in agents)) if agents else set()
+        if lit_edges is not None:
+            edges &= lit_edges
+        models = {e.target for i, e in enumerate(self.graph.edges)
+                  if e.kind == "default" and e.source in agents
+                  and any(self.graph.edges[j].target == e.target for j in edges)}
+        return edges, models
+
     def set_selected(self, ids):
         """Selection from outside (the other map, the cards): no callback."""
         ids = list(ids)
@@ -511,8 +574,21 @@ class MapView(Gtk.DrawingArea):
                 text_w, text_h = layout.get_pixel_size()
                 self.header_rects[2] = (x - 4, 2, text_w + 8, text_h + 8)
 
-        # Edges first, under the boxes.
-        for index, edge in enumerate(self.graph.edges):
+        # Small headings above the groups of column 0.
+        layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 7"))
+        layout.set_width(node_w * Pango.SCALE)
+        layout.set_ellipsize(Pango.EllipsizeMode.END)
+        for gx, gy, text in self.group_labels:
+            layout.set_text(text.upper(), -1)
+            cr.set_source_rgba(*self.color("dim"))
+            cr.move_to(gx + 2, gy)
+            PangoCairo.show_layout(cr, layout)
+
+        # Edges first, under the boxes; the active paths last, on top.
+        active_edges, active_models = self.active_now(lit_edges)
+        order = [i for i in range(len(self.graph.edges)) if i not in active_edges] + sorted(active_edges)
+        for index in order:
+            edge = self.graph.edges[index]
             if edge.kind == "default" or edge.source not in self.boxes or edge.target not in self.boxes:
                 continue
             x1, y1, x2, y2 = self.edge_points(edge)
@@ -526,8 +602,12 @@ class MapView(Gtk.DrawingArea):
             if picked:
                 moving = self.link is not None and self.link.get("relink") and self.link["drawing"]
                 alpha = 0.3 if moving else 1.0
-            cr.set_source_rgba(*self.color(EDGE_COLORS.get(edge.kind, "muted"), alpha))
-            cr.set_line_width(3.2 if picked else 2.0 if lit_edges is not None and index in lit_edges else 1.4)
+            active = index in active_edges
+            if active and not picked:
+                alpha = 1.0
+            cr.set_source_rgba(*self.color("accent" if active else EDGE_COLORS.get(edge.kind, "muted"), alpha))
+            cr.set_line_width(3.2 if picked else 2.8 if active else
+                              2.0 if lit_edges is not None and index in lit_edges else 1.4)
             # Dashed: set up but not in use (an agent's second provider).
             cr.set_dash([5, 4] if edge.kind == "available" else [])
             cr.move_to(x1, y1)
@@ -561,7 +641,7 @@ class MapView(Gtk.DrawingArea):
             border = "accent" if node.id == self.hover or node.id in self.defaults or node.kind == "agent" \
                 or node.id in self.selected else "fg"
             cr.set_source_rgba(*self.color(border, (0.9 if border == "accent" else 0.18) * (0.3 if faded else 1)))
-            cr.set_line_width(2.5 if node.id in self.selected else 1)
+            cr.set_line_width(2.5 if node.id in self.selected else 2 if node.id in active_models else 1)
             cr.stroke()
             if node.id in self.selected:
                 # A check mark in the corner: selected, not just highlighted.

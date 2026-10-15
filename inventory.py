@@ -16,6 +16,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import agent_details as ad
+import mcp_ctl
+import skills_ctl
 
 HOME = Path.home()
 MAX_ITEMS = 500          # models, skills or servers listed per source
@@ -378,31 +380,14 @@ def servers_in(mapping) -> list[tuple[str, str, str]]:
 
 
 def mcp_for(command: str) -> list[tuple[str, str, str]]:
-    j = ad.read_json
-    x = lambda p: Path(os.path.expanduser(p))   # noqa: E731
-    if command == "claude":
-        return servers_in(read_big_json(HOME / ".claude.json").get("mcpServers"))
-    if command == "codex":
-        return servers_in(ad.read_toml(x("~/.codex/config.toml")).get("mcp_servers"))
-    if command in ("pi", "omp"):
-        return servers_in(j(x(f"~/.{'pi' if command == 'pi' else 'omp'}/agent/mcp.json")).get("mcpServers"))
-    if command == "copilot":
-        return servers_in(j(x("~/.copilot/mcp-config.json")).get("mcpServers"))
-    if command == "cursor-agent":
-        return servers_in(j(x("~/.cursor/mcp.json")).get("mcpServers"))
-    if command == "gemini":
-        return servers_in(j(x("~/.gemini/settings.json")).get("mcpServers"))
-    if command == "opencode":
-        root = x("~/.config/opencode")
-        return servers_in((j(root / "opencode.json") or j(root / "opencode.jsonc")).get("mcp"))
-    if command == "crush":
-        return servers_in(j(x("~/.config/crush/crush.json")).get("mcp"))
-    if command == "hermes":
-        text = ad._read(x("~/.hermes/config.yaml")) or ""
+    found = servers_in(mcp_ctl.raw_entries(command))
+    if command == "hermes" and not found:
+        # Without PyYAML: at least the names.
+        text = ad._read(Path(os.path.expanduser("~/.hermes/config.yaml"))) or ""
         block = re.search(r"^mcp_servers:[ \t]*\n((?:[ \t]+.*\n?|\n)+)", text, re.MULTILINE)
         names = re.findall(r"^  ([A-Za-z0-9_.-]{1,64}):", block.group(1), re.MULTILINE) if block else []
         return [(n, "", "") for n in names[:100]]
-    return []
+    return found
 
 
 def read_big_json(path: Path) -> dict:
@@ -419,22 +404,9 @@ def read_big_json(path: Path) -> dict:
 
 # --- skills -----------------------------------------------------------------------------
 
-SKILL_DIRS = {
-    "claude": ["~/.claude/skills"], "codex": ["~/.codex/skills"], "copilot": ["~/.copilot/skills"],
-    "cursor-agent": ["~/.cursor/skills"], "opencode": ["~/.config/opencode/skills"], "pi": ["~/.pi/agent/skills"],
-    "omp": ["~/.omp/agent/skills"], "hermes": ["~/.hermes/skills"], "gemini": ["~/.gemini/skills"],
-    "crush": ["~/.config/crush/skills"],
-}
-
-
 def skill_dirs(command: str) -> list[Path]:
-    dirs = [Path(os.path.expanduser(p)) for p in SKILL_DIRS.get(command, [])]
-    if command in ("pi", "omp"):
-        settings = ad.read_json(Path(os.path.expanduser(f"~/.{command}/agent/settings.json")))
-        extra = settings.get("skills")
-        if isinstance(extra, list):
-            dirs += [Path(os.path.expanduser(p)) for p in extra[:20] if isinstance(p, str) and p]
-    return dirs
+    """The folders the agent reads skills from (skills_ctl knows them per agent)."""
+    return skills_ctl.skill_dirs(command)
 
 
 def skills_in(folder: Path, depth: int = 0) -> list[tuple[Path, Path]]:

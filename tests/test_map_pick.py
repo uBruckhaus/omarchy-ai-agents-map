@@ -50,5 +50,23 @@ class ModelPickTest(unittest.TestCase):
         self.assertIsNone(self.view.model_pick("model:runtime:llamacpp:qwen3-coder"))
 
 
+class ActivePathTest(unittest.TestCase):
+    def test_agent_provider_model(self):
+        g = sample()
+        g.add(graph.Node("cloud:nous", 2, "Nous", kind="cloud"))
+        g.add(graph.Node("model:cloud:nous:hermes-4", 3, "Hermes-4", kind="model"))
+        g.link("agent:hermes", "cloud:nous", "uses")
+        g.link("cloud:nous", "model:cloud:nous:hermes-4", "serves")
+        g.link("agent:hermes", "model:cloud:nous:hermes-4", "default")
+        g.link("agent:pi", "runtime:ollama", "uses")
+        g.link("agent:pi", "model:runtime:ollama:gemma3", "default")
+        paths = map_view.MapView.active_paths(g)
+        named = {a: {(g.edges[i].source, g.edges[i].target) for i in edges} for a, edges in paths.items()}
+        self.assertEqual(named, {
+            "agent:hermes": {("agent:hermes", "cloud:nous"), ("cloud:nous", "model:cloud:nous:hermes-4")},
+            "agent:pi": {("agent:pi", "runtime:ollama"), ("runtime:ollama", "model:runtime:ollama:gemma3")},
+        })
+
+
 if __name__ == "__main__":
     unittest.main()
