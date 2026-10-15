@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "ubruckhaus.ai-agents-map",
   "name": "AI Agents Map",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "author": "Uwe Bruckhaus",
   "license": "MIT",
   "description": "The AI setup on this computer as cards and a map: coding agents with plan, limits and usage, local LLMs (llama.cpp, Ollama, LM Studio, vLLM) and their models, MCP servers and skills. Connect agents to LLMs, MCP servers and skills by drawing a line, with a preview and Undo; install local LLMs and models, which start and stop with their agents (GPU memory freed); add MCP servers and skills found on this PC or on the web. 8 languages.",

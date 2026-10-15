@@ -266,28 +266,8 @@ def lms_binary() -> str | None:
     return str(candidate) if candidate.is_file() else None
 
 
-def lmstudio_up(proc: str = "/proc") -> bool:
-    """LM Studio (its app or daemon) runs already: we did not start it, so we leave it running."""
-    uid = os.getuid()
-    try:
-        pids = [p for p in os.listdir(proc) if p.isdigit()]
-    except OSError:
-        return False
-    for pid in pids:
-        try:
-            if os.stat(f"{proc}/{pid}").st_uid != uid:
-                continue
-        except OSError:
-            continue
-        exe = _read(f"{proc}/{pid}/cmdline", 4096).split(b"\0")[0]
-        if b"/.lmstudio/" in exe or b"lm-studio" in exe.lower() or b"/.mount_lm-stu" in exe:
-            return True
-    return False
-
-
-def lmstudio_service_pids(proc: str = "/proc") -> list[int]:
-    """LM Studio started headless by `lms server start` (lm-studio --run-as-service),
-    never an LM Studio window."""
+def _own_processes(proc: str = "/proc") -> list[tuple[int, int, list[bytes]]]:
+    """(pid, parent pid, argv) of this user's processes."""
     found, uid = [], os.getuid()
     try:
         pids = [p for p in os.listdir(proc) if p.isdigit()]
@@ -299,10 +279,46 @@ def lmstudio_service_pids(proc: str = "/proc") -> list[int]:
                 continue
         except OSError:
             continue
-        argv = _read(f"{proc}/{pid}/cmdline", 4096).split(b"\0")
-        if argv and b"lm-studio" in os.path.basename(argv[0]).lower() and b"--run-as-service" in argv:
-            found.append(int(pid))
+        fields = _read(f"{proc}/{pid}/stat", 1024).rpartition(b")")[2].split()
+        parent = int(fields[1]) if len(fields) > 1 and fields[1].isdigit() else 0
+        found.append((int(pid), parent, _read(f"{proc}/{pid}/cmdline", 4096).split(b"\0")))
     return found
+
+
+def _is_lmstudio(argv: list[bytes]) -> bool:
+    """LM Studio's app (AppImage, its mount), its engines (~/.lmstudio/extensions/backends/
+    …/llama-server) and helpers (~/.lmstudio/.internal/utils/node)."""
+    exe = argv[0] if argv else b""
+    return b"/.lmstudio/" in exe or b"lm-studio" in os.path.basename(exe).lower() or b"/.mount_lm-stu" in exe
+
+
+def lmstudio_up(proc: str = "/proc") -> bool:
+    """LM Studio (its app, daemon or an engine) runs already: we did not start it, so we leave it running."""
+    return any(_is_lmstudio(argv) for _pid, _parent, argv in _own_processes(proc))
+
+
+def lmstudio_pids(proc: str = "/proc") -> list[int]:
+    """Everything of the LM Studio we started: the hidden `lm-studio --run-as-service`,
+    its children, and its engines even once they lost their parent (an engine holds
+    the loaded model, so it must go for the GPU memory to be free). Nothing when an
+    LM Studio window is open (an lm-studio main process without --run-as-service):
+    then the user is using it."""
+    processes = _own_processes(proc)
+    for _pid, _parent, argv in processes:
+        exe = os.path.basename(argv[0]).lower() if argv else b""
+        if b"lm-studio" in exe and b"--run-as-service" not in argv and not any(a.startswith(b"--type=") for a in argv):
+            return []
+    picked = {pid for pid, _parent, argv in processes if _is_lmstudio(argv)}
+    children = {}
+    for pid, parent, _argv in processes:
+        children.setdefault(parent, []).append(pid)
+    todo = list(picked)
+    while todo:
+        for child in children.get(todo.pop(), []):
+            if child not in picked:
+                picked.add(child)
+                todo.append(child)
+    return sorted(picked)
 
 
 def stop_lmstudio_service(argv0: str):
@@ -310,12 +326,21 @@ def stop_lmstudio_service(argv0: str):
     process is held by a pidfd from the moment it is found, so a signal can never
     reach another process that got the same PID meanwhile."""
     run([argv0, "daemon", "down"])
-    handles = []
-    for pid in lmstudio_service_pids():
+    opened = {}
+    for pid in lmstudio_pids():
         try:
-            handles.append(os.pidfd_open(pid))
+            opened[pid] = os.pidfd_open(pid)
         except OSError:
             continue           # gone already
+    # Look again with the pidfds held (they pin their process): only what is still
+    # LM Studio's is signalled, so a PID reused before pidfd_open is never hit.
+    still = set(lmstudio_pids())
+    handles = []
+    for pid, fd in opened.items():
+        if pid in still:
+            handles.append(fd)
+        else:
+            os.close(fd)
     try:
         for fd in handles:
             try:

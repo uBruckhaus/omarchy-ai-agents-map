@@ -194,3 +194,21 @@ class VllmServiceTest(unittest.TestCase):
         self.assertTrue(rt.installed)
         self.assertFalse(rt.running)
         self.assertEqual(rt.models, ["Qwen/Qwen3-8B"])
+
+
+class LmStudioIdsTest(unittest.TestCase):
+    def test_ids_from_model_index(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        import inventory
+        with tempfile.TemporaryDirectory() as root:
+            index = Path(root, ".internal")
+            index.mkdir()
+            (index / "model-index-cache.json").write_text(json.dumps({"models": [
+                {"domain": "llm", "defaultIdentifier": "gemma-4-12b-it-qat", "containingDirSubpath": "x/gemma-4-12B-it-QAT-GGUF"},
+                {"domain": "embedding", "defaultIdentifier": "text-embedding-nomic"},
+                {"domain": "llm", "defaultIdentifier": "<b>bad</b>\n"},
+                {"domain": "llm"}]}))
+            self.assertEqual(inventory.lmstudio_identifiers(Path(root)), ["gemma-4-12b-it-qat"])
+            self.assertEqual(inventory.lmstudio_identifiers(Path(root, "missing")), [])

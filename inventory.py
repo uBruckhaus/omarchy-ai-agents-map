@@ -211,6 +211,9 @@ def llamacpp(processes) -> Runtime:
     rt = Runtime("llamacpp", "llama.cpp", installed=bool(shutil.which("llama-server")))
     rt.service, env = unit_for("llama-server")
     models, folder = [], ""
+    # LM Studio's engines are called llama-server too (~/.lmstudio/extensions/backends/…).
+    processes = [(pid, comm, argv) for pid, comm, argv in processes
+                 if comm != "llama-server" or not argv or "/.lmstudio/" not in argv[0]]
     servers = {pid for pid, comm, _argv in processes if comm == "llama-server"}
     for pid, comm, argv in processes:
         if comm != "llama-server":
@@ -331,8 +334,24 @@ def lmstudio(processes) -> Runtime:
         pass
     if names:
         rt.models_dir = tilde(path)
-    rt.models = dedupe_models(names)
+    # The names its API answers to ("gemma-4-12b-it-qat"), not the folder names
+    # ("gemma-4-12B-it-QAT-GGUF", which LM Studio does not know).
+    rt.models = dedupe_models(lmstudio_identifiers(root) or names)
     return rt
+
+
+def lmstudio_identifiers(root: Path) -> list[str]:
+    """LM Studio's own model ids (defaultIdentifier) for its language models, from
+    its model index (read only, size-capped). [] when there is none."""
+    data = read_big_json(root / ".internal/model-index-cache.json")    # ~40 KB per model
+    models = data.get("models") if isinstance(data, dict) else None
+    found = []
+    for entry in (models if isinstance(models, list) else [])[:MAX_ITEMS]:
+        if isinstance(entry, dict) and entry.get("domain") == "llm" and isinstance(entry.get("defaultIdentifier"), str):
+            name = clean(entry["defaultIdentifier"])
+            if NAME_RE.fullmatch(name):
+                found.append(name)
+    return found
 
 
 def vllm(processes) -> Runtime:

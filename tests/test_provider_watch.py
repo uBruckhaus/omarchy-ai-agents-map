@@ -221,6 +221,31 @@ class LmStudioTest(unittest.TestCase):
                 self.assertEqual(["daemon", "down"] in calls, expect)
 
 
+class LmStudioProcessesTest(unittest.TestCase):
+    def make(self, root, pid, parent, argv):
+        folder = Path(root, str(pid))
+        folder.mkdir()
+        (folder / "stat").write_text(f"{pid} (x) S {parent} 0 0\n")
+        (folder / "cmdline").write_bytes(b"\0".join(a.encode() for a in argv) + b"\0")
+
+    def test_tree_and_orphaned_engine(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.make(root, 10, 1, ["/tmp/.mount_lm-stuX/lm-studio", "--run-as-service"])
+            self.make(root, 11, 10, ["/tmp/.mount_lm-stuX/lm-studio", "--type=zygote"])
+            self.make(root, 12, 11, ["/usr/bin/some-helper"])                  # child without the name
+            self.make(root, 13, 1, ["/home/u/.lmstudio/extensions/backends/llama.cpp-x/llama-server", "--model", "m"])
+            self.make(root, 14, 1, ["/mnt/ai/llama.cpp-rocm/current/llama-server"])   # the user's own llama.cpp
+            self.make(root, 15, 1, ["bash"])
+            self.assertEqual(pw.lmstudio_pids(root), [10, 11, 12, 13])
+            self.assertTrue(pw.lmstudio_up(root))
+
+    def test_window_open_touches_nothing(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.make(root, 10, 1, ["/opt/lm-studio/lm-studio"])                # a window the user opened
+            self.make(root, 13, 10, ["/home/u/.lmstudio/extensions/backends/b/llama-server"])
+            self.assertEqual(pw.lmstudio_pids(root), [])
+
+
 class ProcessTest(unittest.TestCase):
     def test_running_agents(self):
         with tempfile.TemporaryDirectory() as root:

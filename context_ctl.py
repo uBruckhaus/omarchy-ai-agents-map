@@ -17,6 +17,10 @@ rounded down to a multiple of 4096 and capped at what the model was trained for.
 Setting it:
 - llama.cpp: `ctx-size` in the model's section of ~/.config/llama.cpp/models.ini
 - Ollama: `num_ctx`, through its API (/api/create from the model itself)
+- LM Studio: `llm.load.contextLength` in the model's own defaults,
+  ~/.lmstudio/.internal/user-concrete-model-default-config/<model id>.json (what
+  LM Studio writes when the context is changed in its model settings; used when
+  it loads the model, also just in time for a request)
 """
 
 import json
@@ -282,3 +286,93 @@ def ollama_set_context(name: str, ctx: int, address: str):
         raise RuntimeError(f"Ollama: {error}") from error
     if isinstance(answer, dict) and answer.get("error"):
         raise RuntimeError(str(answer["error"])[:300])
+
+
+# --- LM Studio ---------------------------------------------------------------------------------
+
+LMSTUDIO = Path.home() / ".lmstudio"
+LMS_DEFAULTS = LMSTUDIO / ".internal/user-concrete-model-default-config"
+LMS_CONTEXT_KEY = "llm.load.contextLength"
+LMS_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+@-]*(/[A-Za-z0-9][A-Za-z0-9._+@-]*){0,4}$")
+MAX_LMS_INDEX = 8 * 1024 * 1024
+
+
+def lmstudio_entry(name: str, root: Path = LMSTUDIO) -> dict:
+    """The model index entry LM Studio calls `name` (its defaultIdentifier), or {}."""
+    path = root / ".internal/model-index-cache.json"
+    try:
+        if path.stat().st_size > MAX_LMS_INDEX:
+            return {}
+        data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, ValueError):
+        return {}
+    for entry in (data.get("models") if isinstance(data, dict) and isinstance(data.get("models"), list) else [])[:500]:
+        if isinstance(entry, dict) and entry.get("defaultIdentifier") == name:
+            return entry
+    return {}
+
+
+def lmstudio_defaults_file(entry: dict, defaults: Path = LMS_DEFAULTS) -> Path | None:
+    """<defaults>/<publisher>/<repo>/<file>.json for an index entry; None for an id
+    that is not a plain relative path (it becomes a file name)."""
+    ident = entry.get("indexedModelIdentifier")
+    if not isinstance(ident, str) or ".." in ident or not LMS_ID_RE.fullmatch(ident):
+        return None
+    return defaults / f"{ident}.json"
+
+
+def lmstudio_model_file(entry: dict) -> Path | None:
+    """The model's GGUF file, if it lies inside the models folder LM Studio names for it."""
+    point = entry.get("entryPoint") if isinstance(entry.get("entryPoint"), dict) else {}
+    path, root = point.get("absPath"), point.get("rootAbsolutePath")
+    if not isinstance(path, str) or not isinstance(root, str) or not path.endswith(".gguf"):
+        return None
+    try:
+        file, base = Path(path).resolve(), Path(root).resolve()
+    except OSError:
+        return None
+    return file if file.is_relative_to(base) and file.is_file() else None
+
+
+def _lms_fields(data: dict) -> list:
+    load = data.get("load") if isinstance(data.get("load"), dict) else {}
+    return load.get("fields") if isinstance(load.get("fields"), list) else []
+
+
+def lmstudio_settings(entry: dict, defaults: Path = LMS_DEFAULTS) -> tuple[int, str]:
+    """(context set for the model — 0: LM Studio's own default —, KV cache type)."""
+    path = lmstudio_defaults_file(entry, defaults)
+    try:
+        data = json.loads(path.read_text()) if path else {}
+    except (OSError, ValueError):
+        data = {}
+    ctx, cache = 0, "f16"
+    for field in _lms_fields(data if isinstance(data, dict) else {}):
+        if not isinstance(field, dict):
+            continue
+        if field.get("key") == LMS_CONTEXT_KEY and isinstance(field.get("value"), int):
+            ctx = field["value"]
+        if field.get("key") == "llm.load.llama.kCacheQuantizationType":
+            value = field.get("value")
+            value = value.get("value") if isinstance(value, dict) else value
+            if isinstance(value, str) and value in CACHE_BYTES:
+                cache = value
+    return ctx, cache
+
+
+def lmstudio_context_text(old: str, ctx: int) -> str:
+    """The defaults file with its context set to ctx; every other field is kept."""
+    try:
+        data = json.loads(old) if old.strip() else {}
+    except ValueError:
+        raise ValueError("LM Studio's settings file for this model is not valid JSON")
+    if not isinstance(data, dict):
+        data = {}
+    data.setdefault("preset", "")
+    if not isinstance(data.get("operation"), dict):
+        data["operation"] = {"fields": []}
+    if not isinstance(data.get("load"), dict):
+        data["load"] = {}
+    fields = [f for f in _lms_fields(data) if not (isinstance(f, dict) and f.get("key") == LMS_CONTEXT_KEY)]
+    data["load"]["fields"] = fields + [{"key": LMS_CONTEXT_KEY, "value": int(ctx)}]
+    return json.dumps(data, indent=2) + "\n"

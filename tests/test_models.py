@@ -100,3 +100,44 @@ class SlidingWindowTest(unittest.TestCase):
     def test_unknown_model(self):
         import context_ctl as cc
         self.assertEqual(cc.kv_layout({"general.architecture": "tts"}), (0, 0))
+
+
+class LmStudioContextTest(unittest.TestCase):
+    def test_defaults_file_and_text(self):
+        import json
+        import context_ctl as c
+        from pathlib import Path
+        base = Path("/d")
+        ok = {"indexedModelIdentifier": "pub/repo/m-Q4_0.gguf"}
+        self.assertEqual(c.lmstudio_defaults_file(ok, base), Path("/d/pub/repo/m-Q4_0.gguf.json"))
+        for bad in ("../x/m.gguf", "/etc/passwd", "pub/../../x", "a/b c", "a\nb", "", None, 5):
+            self.assertIsNone(c.lmstudio_defaults_file({"indexedModelIdentifier": bad}, base), bad)
+        text = c.lmstudio_context_text(json.dumps({"preset": "p", "load": {"fields": [
+            {"key": "llm.load.contextLength", "value": 4096}, {"key": "llm.load.gpuOffload", "value": 1}]}}), 65536)
+        data = json.loads(text)
+        self.assertEqual(data["preset"], "p")
+        self.assertEqual(data["load"]["fields"], [{"key": "llm.load.gpuOffload", "value": 1},
+                                                  {"key": "llm.load.contextLength", "value": 65536}])
+        with self.assertRaises(ValueError):
+            c.lmstudio_context_text("{not json", 4096)
+
+    def test_settings_and_model_file(self):
+        import json
+        import tempfile
+        import context_ctl as c
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as root:
+            entry = {"indexedModelIdentifier": "pub/repo/m.gguf",
+                     "entryPoint": {"absPath": f"{root}/models/pub/repo/m.gguf", "rootAbsolutePath": f"{root}/models"}}
+            defaults = Path(root, "defaults")
+            self.assertEqual(c.lmstudio_settings(entry, defaults), (0, "f16"))
+            file = defaults / "pub/repo/m.gguf.json"
+            file.parent.mkdir(parents=True)
+            file.write_text(c.lmstudio_context_text("", 32768))
+            self.assertEqual(c.lmstudio_settings(entry, defaults), (32768, "f16"))
+            self.assertIsNone(c.lmstudio_model_file(entry))                 # no such file
+            Path(root, "models/pub/repo").mkdir(parents=True)
+            Path(root, "models/pub/repo/m.gguf").write_bytes(b"GGUF")
+            self.assertEqual(c.lmstudio_model_file(entry), Path(root, "models/pub/repo/m.gguf").resolve())
+            outside = dict(entry, entryPoint={"absPath": "/etc/hostname.gguf", "rootAbsolutePath": f"{root}/models"})
+            self.assertIsNone(c.lmstudio_model_file(outside))

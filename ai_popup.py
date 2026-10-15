@@ -3106,7 +3106,7 @@ class AgentsMap(Gtk.Application):
                                                                context_ctl.short_context(best) if best else _("too big")))
                 info.set_tooltip_text(_("Trained for {0} tokens; each token of context takes {1} of video memory.")
                                       .format(fit_info.native or "?", size_text(fit_info.per_token)))
-                if best and best != now and rt.key in ("llamacpp", "ollama"):
+                if best and best != now and rt.key in ("llamacpp", "ollama", "lmstudio"):
                     button.set_visible(True)
                     button.set_tooltip_text(_("Set the context of {0} to {1} tokens.").format(name, best))
                     button.connect("clicked", lambda _b, n=name, c=best: self.set_model_context(rt, n, c))
@@ -3128,8 +3128,12 @@ class AgentsMap(Gtk.Application):
             default = int(env.get("OLLAMA_CONTEXT_LENGTH", "0") or 0)
             now = context_ctl.ollama_context(folder, name, default)
             model_file = context_ctl.ollama_model_file(folder, name)
+        elif rt.key == "lmstudio":
+            entry = context_ctl.lmstudio_entry(name)
+            now, cache = context_ctl.lmstudio_settings(entry)
+            model_file = context_ctl.lmstudio_model_file(entry)
         else:
-            return None, None, _("set the context in LM Studio itself")
+            return None, None, _("set the context in vLLM itself")
         if model_file is None:
             return now, None, "model file not found"
         return now, context_ctl.fit(model_file, vram, cache), None
@@ -3147,6 +3151,14 @@ class AgentsMap(Gtk.Application):
                     before = connect._read(ini)
                     change = connect.Change(ini, before, context_ctl.llama_context_text(before, name, ctx))
                     backup = connect.apply(connect.Plan("llama.cpp", "llamacpp", "", [change]))
+                elif rt.key == "lmstudio":
+                    # LM Studio's own per-model defaults file, the same way (backup, Undo).
+                    path = context_ctl.lmstudio_defaults_file(context_ctl.lmstudio_entry(name))
+                    if path is None:
+                        raise ValueError(_("LM Studio does not list this model"))
+                    before = connect._read(path)
+                    change = connect.Change(path, before, context_ctl.lmstudio_context_text(before, ctx))
+                    backup = connect.apply(connect.Plan("LM Studio", "lmstudio", "", [change]))
                 else:
                     context_ctl.ollama_set_context(name, ctx, rt.address)
                 error = None
@@ -3162,7 +3174,8 @@ class AgentsMap(Gtk.Application):
             if error:
                 self.models_status.set_label(_("Not changed: {0}").format(error))
                 return False
-            note = _(" Restart llama.cpp for it to take effect.") if rt.key == "llamacpp" and rt.running else ""
+            note = _(" Restart llama.cpp for it to take effect.") if rt.key == "llamacpp" and rt.running else \
+                _(" It takes effect the next time LM Studio loads the model.") if rt.key == "lmstudio" else ""
             self.models_status.set_label(_("{0}: context set to {1}").format(name, ctx) + "." + note)
             self.fill_model_list(state["rt"])
             return False

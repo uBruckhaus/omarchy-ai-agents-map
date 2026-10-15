@@ -99,7 +99,8 @@ again. This works with the window closed and after a reboot.
 - Background servers of agents (OpenCode's `opencode serve --service`, which runs all the time) do
   not count as the agent being open, and their idle connections do not keep an LLM running.
 - If `lms server start` had to start LM Studio itself (a hidden `lm-studio --run-as-service`), that
-  one is ended too; an LM Studio window you opened is left alone.
+  one is ended too, with its children and its engines (`~/.lmstudio/extensions/backends/…`, which
+  hold the loaded model and outlive the app otherwise); an LM Studio window you opened is left alone.
 - What it still has to stop is kept in `~/.local/state/ai-agents-map/provider-watch.json`, so a
   restart (reboot, plugin update) or removing an LLM's last connection never leaves it running.
 
@@ -186,8 +187,12 @@ best 92k"), calculated from the model file's header: its size, and how much vide
 of context takes (KV heads × key and value size × the cache type: f16, q8_0, q4_0). Sliding-window
 layers (Gemma) only keep their window and recurrent layers nothing, so those models get much more.
 **Set** writes it: for llama.cpp `ctx-size` in the model's section of `~/.config/llama.cpp/models.ini`
-(backup and Undo, restart llama.cpp for it to take effect), for Ollama the model's `num_ctx`. LM
-Studio keeps its context in its own settings; set it there.
+(backup and Undo, restart llama.cpp for it to take effect), for Ollama the model's `num_ctx`, for
+LM Studio `llm.load.contextLength` in the model's own defaults file
+`~/.lmstudio/.internal/user-concrete-model-default-config/<model>.json` (what LM Studio writes when
+you change it in its model settings; backup and Undo; used the next time LM Studio loads the model).
+LM Studio's models are listed by the names its server answers to (`gemma-4-12b-it-qat`), read from
+its model index, so agents connected to it ask for a model LM Studio knows.
 
 ## Privacy and capabilities
 
@@ -196,7 +201,8 @@ Studio keeps its context in its own settings; set it there.
   one overall deadline.
 - **Reads** (to draw the setup): the agents' settings files, mise's install folders, the pacman
   database, user services (`~/.config/systemd/user`), model folders and this user's own processes
-  (`/proc`, own UID only, including their GPU memory from DRM fdinfo), the GPU's sysfs values
+  (`/proc`, own UID only, including their GPU memory from DRM fdinfo), LM Studio's model index
+  (`~/.lmstudio/.internal/model-index-cache.json`), the GPU's sysfs values
   (memory, load, temperature, power) and `/proc/net/tcp` (who listens on or is connected to a local
   LLM's port). From settings it takes names, model ids, folders and addresses; it never
   opens credential files (`auth.json`, `.credentials.json`). MCP server entries are read whole so
@@ -230,7 +236,7 @@ Studio keeps its context in its own settings; set it there.
   agents' skills folders, fetched skill files, programs you install into a folder you choose (one
   folder per version, a `current` link, the command in `~/.local/bin`), user services in
   `~/.config/systemd/user`, their settings in `~/.config/<runtime>/`, an LM Studio desktop entry,
-  `~/.config/llama.cpp/models.ini` (context sizes). Generated service files refuse paths with `%`,
+  `~/.config/llama.cpp/models.ini` and LM Studio's per-model defaults (context sizes). Generated service files refuse paths with `%`,
   quotes, `$`, backslashes or control characters. Own state: `~/.config/omarchy/ai-agents-map/`
   (settings, the MCP list, looked-up agents, `providers-with-agents.json` for the watcher; private
   files), the watcher's unit `~/.config/systemd/user/ai-agents-map-providers.service` and its state
