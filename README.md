@@ -25,6 +25,9 @@ skills each agent has. For people new to it as much as for checking your own set
   removes more. The category you select in (agents, providers, models, MCP servers and skills) then
   shows only the selected boxes; the other columns keep every box, but only the connections of the
   selection are drawn and the rest fades. Hold Shift to bring the hidden boxes back and add one. Selected boxes are filled and carry a ✓; Esc or **Clear selection** clears it.
+  The **Show** toggles above it shorten the map to the categories you are working on (Agents,
+  Online providers, Local LLMs, Models, MCP servers, Skills): models need a provider category, MCP
+  servers and skills need Agents; empty columns make room for the others. The choice is remembered.
   Leaving the Map gives the card its size back.
 
 ## What is read
