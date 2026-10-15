@@ -46,8 +46,16 @@ into a program folder you choose (one folder per version, a `current` link, the 
 folder (the one your other local LLMs use is suggested) and whether it starts at login. Installed
 this way: **Update…** (new version folder, the previous one is kept as a fallback), **Model folder…**
 (change it later) and **Uninstall…** (program, command, service and settings; never the models).
-Installs made by hand are shown but never changed. Ollama can be installed so far; llama.cpp,
-LM Studio and vLLM follow.
+Installs made by hand are shown but never changed.
+
+- **Ollama**: the official release (with ROCm for AMD cards), user service `ollama`.
+- **llama.cpp**: the official build of your choice (Vulkan, preselected for AMD unless ROCm is
+  installed; ROCm; CUDA; CPU), run as a model router (`llama-server` service: every GGUF in the model
+  folder, one loaded at a time, per-model settings in `~/.config/llama.cpp/models.ini`).
+- **LM Studio**: its AppImage, unpacked (no FUSE needed), with a desktop entry; its download folder
+  is set to the model folder. Its server runs with `lms server`.
+- **vLLM**: for NVIDIA cards, in its own Python environment (uv); on AMD cards vLLM needs ROCm
+  containers, so it is not offered there.
 
 ## Downloading models
 

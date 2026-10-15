@@ -97,3 +97,40 @@ class InstallTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LlamaInstallTest(InstallTest):
+    def test_llamacpp_flatten_env_unit_and_preset(self):
+        inst = ic.LlamaCpp()
+        inst.env_file = self.home / ".config/llama.cpp/server.env"
+        src = self.home / "src2/llama-b1"
+        src.mkdir(parents=True)
+        (src / "llama-server").write_text("#!/bin/sh\n")
+        archive = self.home / "llama.tgz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(src, arcname="llama-b1")
+        release = ic.Release("b1-vulkan", [("llama.tgz", "https://example.invalid/l", archive.stat().st_size)])
+
+        def fake_download(url, target, size, progress, cancelled, done_before=0, total=0):
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(archive.read_bytes())
+
+        with mock.patch.object(ic, "download", fake_download), \
+                mock.patch.object(ic, "HOME", self.home):
+            inst.install(self.home / "llama", self.home / "Models", False, False, ic.Gpu("amd", index=0, count=2),
+                         release, lambda *a: None, lambda: False)
+        self.assertTrue((self.home / "llama/b1-vulkan/llama-server").exists())
+        self.assertEqual(inst.installed_folder(), self.home / "llama")
+        self.assertEqual(ic.read_env(inst.env_file)["LLAMA_ARG_MODELS_DIR"], str(self.home / "Models"))
+        unit = (self.home / ".config/systemd/user/llama-server.service").read_text()
+        self.assertIn("--models-preset", unit)
+
+    def test_default_builds(self):
+        llama = ic.LlamaCpp()
+        self.assertEqual(llama.default_build(ic.Gpu("nvidia")), "cuda")
+        self.assertEqual(llama.default_build(ic.Gpu("cpu")), "cpu")
+        self.assertIn(llama.default_build(ic.Gpu("amd")), ("vulkan", "rocm"))
+
+    def test_vllm_refuses_amd(self):
+        with self.assertRaises(RuntimeError):
+            ic.Vllm().latest(ic.Gpu("amd"))

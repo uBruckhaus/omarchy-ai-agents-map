@@ -1663,7 +1663,8 @@ class AgentsMap(Gtk.Application):
             self.show_note(_("{0} cannot be installed from here yet.").format(rt.name))
             return
         self.installing = {"rt": rt, "inst": inst, "mode": mode, "release": None, "gpu": None,
-                           "cancel": False, "busy": False, "from": self.view}
+                           "cancel": False, "busy": False, "from": self.view, "build": ""}
+        self.install_build = None
         titles = {"install": _("Install {0}"), "update": _("Update {0}"), "models": _("Model folder of {0}"),
                   "uninstall": _("Uninstall {0}")}
         self.install_title.set_label(titles[mode].format(rt.name).upper())
@@ -1689,16 +1690,19 @@ class AgentsMap(Gtk.Application):
             self.install_models = self.folder_field(
                 form, _("Model folder"), _("Where the models go. You can change it later (right-click → Model folder…)."),
                 str(models[0]), models)
-            self.install_login = Gtk.Switch(active=False)
-            self.setting_line(form, _("Start at login"), _("Start it with every login (its user service)."),
-                              self.install_login)
-            self.install_start = Gtk.Switch(active=True)
-            self.setting_line(form, _("Start now"), _("Start it as soon as it is installed."), self.install_start)
+            self.add_build_choice(form, inst)
+            if inst.has_service:
+                self.install_login = Gtk.Switch(active=False)
+                self.setting_line(form, _("Start at login"), _("Start it with every login (its user service)."),
+                                  self.install_login)
+                self.install_start = Gtk.Switch(active=True)
+                self.setting_line(form, _("Start now"), _("Start it as soon as it is installed."), self.install_start)
             self.install_ok.set_label(_("Install"))
             self.install_ok.set_sensitive(False)
             self.fetch_release()
         elif mode == "update":
             self.install_intro.set_label(_("Looking for the latest version…"))
+            self.add_build_choice(form, inst)
             self.install_ok.set_label(_("Update"))
             self.install_ok.set_sensitive(False)
             self.fetch_release()
@@ -1719,13 +1723,42 @@ class AgentsMap(Gtk.Application):
         self.stack.set_visible_child_name("install")
         self.update_install_check()
 
+    def add_build_choice(self, form, inst):
+        """llama.cpp comes in builds per graphics interface; the one for this card is preselected."""
+        self.install_build = None
+        if not inst.builds:
+            return
+        gpu = install_ctl.detect_gpu()
+        keys = [key for key, _label in inst.builds]
+        current = self.installing.get("build") or inst.default_build(gpu)
+        current = current if current in keys else keys[0]
+        self.installing["build"] = current
+        notes = {"vulkan": _("Vulkan: any AMD or NVIDIA card, nothing else needed."),
+                 "rocm": _("ROCm: AMD, needs ROCm installed (/opt/rocm)."),
+                 "cuda": _("CUDA: NVIDIA."), "cpu": _("CPU only: slow, for a test.")}
+        self.settings_ready = False
+        drop = self.dropdown([label for _key, label in inst.builds], keys.index(current),
+                             lambda i: self.choose_build(keys[i]))
+        self.setting_line(form, _("Build"), " ".join(notes[k] for k in keys), drop)
+        self.settings_ready = True
+        self.install_build = drop
+
+    def choose_build(self, build: str):
+        info = self.installing
+        if info is None or info["busy"] or info.get("build") == build:
+            return
+        info["build"], info["release"] = build, None
+        self.install_intro.set_label(_("Looking for the latest version…"))
+        self.install_ok.set_sensitive(False)
+        self.fetch_release()
+
     def fetch_release(self):
         info = self.installing
 
         def work():
             try:
                 gpu = install_ctl.detect_gpu()
-                release = info["inst"].latest(gpu)
+                release = info["inst"].latest(gpu, info.get("build", ""))
                 error = None
             except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as problem:
                 gpu = release = None
@@ -1738,18 +1771,30 @@ class AgentsMap(Gtk.Application):
             if error:
                 self.install_intro.set_label(_("Could not find a version to download: {0}").format(error))
                 return False
+            if info.get("build") and release is not None and not release.version.endswith(info["build"]):
+                return False               # an answer for a build chosen before
             info["gpu"], info["release"] = gpu, release
-            card = {"amd": _("{0} (ROCm)"), "nvidia": _("{0} (CUDA)")}.get(gpu.vendor, "{0}").format(
-                short_gpu(gpu.name, gpu.vram)) if gpu.vendor != "cpu" else _("no graphics card found: the processor")
+            if gpu.vendor == "cpu":
+                card = _("no graphics card found: the processor")
+            elif info["inst"].builds:
+                # The chosen build names the interface (Vulkan, ROCm, CUDA, CPU).
+                label = dict(info["inst"].builds).get(info.get("build"), "")
+                card = f"{short_gpu(gpu.name, gpu.vram)} ({label})" if label else short_gpu(gpu.name, gpu.vram)
+            elif info["rt"].key == "ollama":
+                card = {"amd": _("{0} (ROCm)"), "nvidia": _("{0} (CUDA)")}.get(gpu.vendor, "{0}").format(
+                    short_gpu(gpu.name, gpu.vram))
+            else:
+                card = short_gpu(gpu.name, gpu.vram)
             current = info["inst"].current_version()
             if info["mode"] == "update" and current == release.version:
                 self.install_intro.set_label(_("{0} is up to date ({1}).").format(info["rt"].name, current))
                 self.install_ok.set_visible(False)
                 return False
+            download = size_text(release.size) if release.size else _("several GB, through pip")
             self.install_intro.set_label(
                 (_("Version {0} ({1} download) for {2}. Installed in your own folder: no password needed.")
                  if info["mode"] == "install" else _("{3} → {0} ({1} download) for {2}. The settings and models stay."))
-                .format(release.version, size_text(release.size), card, current))
+                .format(release.version, download, card, current))
             self.update_install_check()
             return False
 
@@ -1773,7 +1818,7 @@ class AgentsMap(Gtk.Application):
         release = info.get("release")
         if release is not None and self.install_folder is not None and not problems:
             free = install_ctl.free_bytes(install_ctl.check_folder(self.install_folder.get_text()))
-            needed = release.size * 3          # the archives and what they unpack to
+            needed = release.size * 3 if release.size else 15 * 10**9   # archives and what they unpack to; vLLM: pip
             if free < needed:
                 problems.append(_("not enough space: {0} free, about {1} needed").format(size_text(free),
                                                                                          size_text(needed)))
@@ -1789,7 +1834,8 @@ class AgentsMap(Gtk.Application):
         info["busy"] = True
         info["cancel"] = False
         self.install_ok.set_sensitive(False)
-        for widget in (self.install_folder, self.install_models, self.install_login, self.install_start):
+        for widget in (self.install_folder, self.install_models, self.install_login, self.install_start,
+                       getattr(self, "install_build", None)):
             if widget is not None:
                 widget.set_sensitive(False)
         folder = install_ctl.check_folder(self.install_folder.get_text()) if self.install_folder else None
