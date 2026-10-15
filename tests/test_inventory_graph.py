@@ -115,7 +115,7 @@ class GraphTest(unittest.TestCase):
         g = graph.build([pi, claude, missing], details, inv)
         self.assertEqual([n.label for n in g.column(1)], ["Pi", "Claude Code"])
         self.assertEqual({n.label for n in g.column(2)}, {"llama.cpp", "Anthropic"})
-        self.assertEqual({n.label for n in g.column(3)}, {"opus", "qwen", "gemma"})
+        self.assertEqual({n.label for n in g.column(3)}, {"opus", "qwen", "gemma", "+ Model"})
         self.assertEqual({n.label for n in g.column(0)}, {"photo", "~/.agents/skills", "+ MCP server", "+ Skills"})
         links = {(e.source, e.target, e.kind) for e in g.edges}
         self.assertIn(("agent:pi", "runtime:llamacpp", "uses"), links)
@@ -124,6 +124,16 @@ class GraphTest(unittest.TestCase):
         self.assertNotIn("agent:grok", {n.id for n in g.nodes})
         ids = {n.id for n in g.nodes}
         self.assertTrue(all(e.source in ids and e.target in ids for e in g.edges))
+        # Models know their folder (the list groups them by it); online ones have none.
+        inv.runtimes[0].models_dir = "~/Models"
+        g = graph.build([pi, claude, missing], details, inv)
+        groups = {n.label: n.group for n in g.column(3)}
+        self.assertEqual(groups, {"opus": "", "qwen": "~/Models", "gemma": "~/Models", "+ Model": "~/Models"})
+        add = next(n for n in g.column(3) if n.kind == "add-model")
+        self.assertEqual(add.owners, ("runtime:llamacpp",))
+        # The folder's "+ Model" box goes with its last local LLM.
+        self.assertIn(add.id, graph.hidden_by_layers(g, set(graph.LAYERS), {"runtime:llamacpp"}))
+        self.assertNotIn("+ MCP server", [n.label for n in graph.listable(g, 0)])
 
     def test_split_model(self):
         self.assertEqual(graph.split_model("qwen (llama-local)"), ("qwen", "llama-local"))
@@ -153,3 +163,11 @@ class LayerTest(unittest.TestCase):
     def test_models_follow_their_providers(self):
         hidden = graph.hidden_by_layers(self.g, {"agents", "local", "models"})
         self.assertEqual(hidden, {"cloud:x", "model:x:m", "mcp:s"})
+
+    def test_unticked_boxes_take_what_hangs_on_them(self):
+        self.g.add(graph.Node("mcp:unused", 0, "u", kind="mcp"))
+        self.g.link("agent:a", "mcp:s", "mcp")
+        hidden = graph.hidden_by_layers(self.g, set(graph.LAYERS), {"agent:a", "runtime:r"})
+        # The agent's MCP server and the runtime's model go with them; an unused server stays.
+        self.assertEqual(hidden, {"agent:a", "mcp:s", "runtime:r", "model:r:n"})
+        self.assertEqual(graph.hidden_by_layers(self.g, set(graph.LAYERS), {"model:x:m"}), {"model:x:m"})

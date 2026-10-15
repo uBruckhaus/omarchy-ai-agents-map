@@ -217,10 +217,12 @@ def map_layers(path: Path | None = None) -> list:
     return list(MAP_LAYERS)
 
 
-def hidden_providers(path: Path | None = None) -> list:
-    """Provider node ids unticked in the map's provider list ("cloud:anthropic", "runtime:vllm", …)."""
-    value = load_settings(path).get("hidden_providers")
-    return [v for v in value if isinstance(v, str) and len(v) < 200][:100] if isinstance(value, list) else []
+def hidden_nodes(path: Path | None = None) -> list:
+    """Map box ids unticked in the column headings' lists ("agent:pi", "cloud:anthropic",
+    "model:runtime:ollama:qwen3", "mcp:photocraft", …). Older settings kept only providers."""
+    settings = load_settings(path)
+    value = settings.get("hidden_nodes", settings.get("hidden_providers"))
+    return [v for v in value if isinstance(v, str) and len(v) < 300][:500] if isinstance(value, list) else []
 
 
 # --- clipboard ---------------------------------------------------------------------------------

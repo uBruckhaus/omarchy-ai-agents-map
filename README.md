@@ -51,8 +51,13 @@ width; every open shows them again.
   you are working on (models need a provider category, MCP servers and skills need Agents); the
   choice is remembered. **− 100 % +** (Ctrl+scroll, Ctrl+plus/minus/0) zooms the map.
 
-The **LLM PROVIDERS ▾** heading opens a list of the online and local providers: untick one to leave
-it and its models out of the map.
+Every column heading (**MCP SERVERS · SKILLS ▾**, **AGENTS ▾**, **LLM PROVIDERS ▾**, **MODELS ▾**)
+opens a list of its boxes in groups (MCP servers and skills; online and local providers; models by
+the folder they live in): untick a box, or a whole group at once, to leave it out of the map. What
+hangs only on it goes too (a provider's models, an agent's own MCP servers and skill sets). The
+heading shows how many are shown, e.g. (5/8). The models column is grouped by folder as well, and
+each folder ends in a dashed **+ Model** box that opens the download page below for that folder
+(when several local LLMs share it, you pick which one downloads).
 
 ## Connecting by drawing
 
@@ -139,7 +144,7 @@ Installs made by hand are shown but never changed.
 
 ## Downloading models
 
-Right-click an installed local LLM → **Models…**: the installed models on the left; on the right
+Right-click an installed local LLM → **Models…** (or click a folder's **+ Model** box): the installed models on the left; on the right
 search Hugging Face for GGUF models, pick one and a size (the one that fits your graphics card with
 room for context is marked and preselected) and **Download** it into the model folder, with
 progress (Stop download stops it). LM Studio gets the folder layout it expects; a llama.cpp

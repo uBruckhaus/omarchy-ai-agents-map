@@ -44,6 +44,8 @@ COLUMN_GAP_MIN = 56
 COLUMN_GAP_MAX = 300
 NODE_W_MAX = 260
 NODE_W_MIN = 120
+# The categories whose boxes each column holds (a column with none of them on is gone).
+COLUMN_LAYERS = {0: {"mcp", "skills"}, 1: {"agents"}, 2: {"online", "local"}, 3: {"models"}}
 # Categories: selecting in one hides that category's other boxes.
 CATEGORY = {"agent": "agent", "cloud": "provider", "runtime": "provider", "model": "model", "more": "model",
             "mcp": "tool", "skills": "tool"}
@@ -68,7 +70,7 @@ class MapView(Gtk.DrawingArea):
         self.hover = None
         self.defaults = set()    # model ids some agent uses by default
         self.group_titles = {}   # node kind -> heading of its group in column 0 (mcp, skills)
-        self.group_labels = []   # (x, y, text) drawn above the groups
+        self.group_labels = []   # (x, y, text, column) drawn above the groups
         self.active = {}         # agent id -> edge indexes of its active path (provider in use, its model)
         self.selected = []       # node ids picked by clicking, in click order
         self.on_selection = None # callback(list of selected nodes)
@@ -80,9 +82,9 @@ class MapView(Gtk.DrawingArea):
         self.selected_edge = None  # (agent id, runtime id) of the clicked line
         self.shift = False       # Shift held: hidden boxes come back to be added
         self.layers = set(graph_model.LAYERS)   # categories switched on
-        self.hidden_providers = set()  # provider node ids unticked in the column's list
+        self.hidden_ids = set()  # node ids unticked in the column headings' lists
         self.on_header = None    # callback(column, (x, y, w, h)) for a click on a column heading
-        self.on_add = None       # callback(kind): the dashed "+ MCP server" box clicked
+        self.on_add = None       # callback(kind, node, (x, y, w, h)): a dashed "+" box clicked (mcp, skills, model)
         self.header_rects = {}   # column -> heading rectangle, for clicks
         self.column_x = {}       # column -> x of its boxes, for the headings
         self.zoom = 1.0          # drawing scale (ZOOM_STEPS)
@@ -130,18 +132,35 @@ class MapView(Gtk.DrawingArea):
         self.queue_draw()
 
     def groups(self, column: int) -> list:
-        """The shown boxes of a column in groups: column 0 has MCP servers and skill sets."""
+        """The shown boxes of a column in groups: column 0 has MCP servers and
+        skill sets, column 3 one group per model folder ("+ Model" box last)."""
         nodes = self.shown(column)
-        if column != 0:
-            return [nodes] if nodes else []
-        mcp = ("mcp", "add-mcp")
-        return [g for g in ([n for n in nodes if n.kind in mcp], [n for n in nodes if n.kind not in mcp]) if g]
+        if column == 0:
+            mcp = ("mcp", "add-mcp")
+            return [g for g in ([n for n in nodes if n.kind in mcp], [n for n in nodes if n.kind not in mcp]) if g]
+        if column == 3:
+            folders = {}
+            for node in nodes:
+                folders.setdefault(node.group, []).append(node)
+            return [sorted(g, key=lambda n: n.kind == "add-model") for g in folders.values()]
+        return [nodes] if nodes else []
+
+    def titled(self, column: int) -> bool:
+        """Groups get a heading and a gap: always in column 0, for models only with more than one folder."""
+        return column == 0 or (column == 3 and len(self.groups(3)) > 1)
+
+    def group_title(self, nodes) -> str:
+        first = nodes[0]
+        if first.column == 3:
+            return first.group or self.group_titles.get("online", "").upper()
+        kind = {"add-mcp": "mcp", "add-skills": "skills"}.get(first.kind, first.kind)
+        return self.group_titles.get(kind, "")
 
     def column_height(self, column: int) -> int:
         groups = self.groups(column)
         rows = sum(len(g) for g in groups)
         height = rows * NODE_H + max(0, rows - 1) * NODE_GAP
-        if column == 0 and groups:
+        if self.titled(column) and groups:
             height += len(groups) * GROUP_LABEL_H + (len(groups) - 1) * GROUP_GAP
         return height
 
@@ -158,10 +177,12 @@ class MapView(Gtk.DrawingArea):
             return 0, 0
         # Only columns with something to show take room; they share the width.
         active = [c for c in range(4) if self.shown(c)]
-        # The providers column keeps its heading (and its list) when every provider is unticked.
-        if 2 not in active and self.hidden_providers and \
-                ({"online", "local"} & graph_model.effective_layers(self.layers)):
-            active = sorted(active + [2])
+        # A column keeps its heading (and its list) when every box in it is unticked.
+        layers = graph_model.effective_layers(self.layers)
+        for column, needs in COLUMN_LAYERS.items():
+            if column not in active and needs & layers and \
+                    any(n.id in self.hidden_ids for n in self.graph.column(column)):
+                active = sorted(active + [column])
         count = max(1, len(active))
         node_w = max(NODE_W_MIN, min(NODE_W_MAX, (width - 2 * PAD - (count - 1) * COLUMN_GAP_MIN) // count))
         gap = max(COLUMN_GAP_MIN, (width - 2 * PAD - count * node_w) // max(1, count - 1))
@@ -177,12 +198,12 @@ class MapView(Gtk.DrawingArea):
             y = HEADER_H + max(0, (body - self.column_height(column)) // 2)
             x = left + slot * (node_w + gap)
             self.column_x[column] = x
+            titled = self.titled(column)
             for number, nodes in enumerate(self.groups(column)):
-                if column == 0:
+                if titled:
                     if number:
                         y += GROUP_GAP - NODE_GAP
-                    kind = {"add-mcp": "mcp", "add-skills": "skills"}.get(nodes[0].kind, nodes[0].kind)
-                    self.group_labels.append((x, y, self.group_titles.get(kind, "")))
+                    self.group_labels.append((x, y, self.group_title(nodes), column))
                     y += GROUP_LABEL_H
                 for node in nodes:
                     self.boxes[node.id] = (x, y, node_w, NODE_H)
@@ -194,7 +215,7 @@ class MapView(Gtk.DrawingArea):
         category that has a selection (those come back while Shift is held)."""
         if self.graph is None:
             return set()
-        off = graph_model.hidden_by_layers(self.graph, self.layers, self.hidden_providers)
+        off = graph_model.hidden_by_layers(self.graph, self.layers, self.hidden_ids)
         if not self.selected or self.shift:
             return off
         return off | self.selection_hidden()
@@ -205,8 +226,8 @@ class MapView(Gtk.DrawingArea):
         return {n.id for n in self.graph.nodes
                 if CATEGORY.get(n.kind) in picked and n.id not in self.selected}
 
-    def set_hidden_providers(self, ids):
-        self.hidden_providers = set(ids)
+    def set_hidden_ids(self, ids):
+        self.hidden_ids = set(ids)
         off = self.hidden()
         if any(i in off for i in self.selected):
             self.selected = [i for i in self.selected if i not in off]
@@ -501,9 +522,10 @@ class MapView(Gtk.DrawingArea):
                 return
         if node_id is None:
             return
-        if self.kind_of(node_id) in ("add-mcp", "add-skills"):
+        if (self.kind_of(node_id) or "").startswith("add-"):
             if self.on_add is not None:
-                self.on_add(self.kind_of(node_id)[4:])
+                node = next(n for n in self.graph.nodes if n.id == node_id)
+                self.on_add(node.kind[4:], node, self.to_pixels(self.boxes[node_id]))
             return
         pick = self.model_pick(node_id)
         if pick is not None and self.on_pick_model is not None:
@@ -612,28 +634,26 @@ class MapView(Gtk.DrawingArea):
                 continue
             x = self.column_x[column]
             text = title.upper()
-            if column == 2:
-                # A list to choose the providers shown (online and local).
-                total = len(self.graph.column(2))
-                shown = total - len([n for n in self.graph.column(2) if n.id in self.hidden_providers])
-                text += f" ({shown}/{total}) ▾" if shown < total else " ▾"
+            # A list to choose the boxes shown in this column.
+            boxes = graph_model.listable(self.graph, column)
+            shown = len([n for n in boxes if n.id not in self.hidden_ids])
+            text += f" ({shown}/{len(boxes)}) ▾" if shown < len(boxes) else " ▾"
             layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 8"))
             layout.set_text(text, -1)
             layout.set_width(node_w * Pango.SCALE)
             layout.set_ellipsize(Pango.EllipsizeMode.END)
-            cr.set_source_rgba(*self.color("accent" if column == 2 else "dim"))
+            cr.set_source_rgba(*self.color("accent"))
             cr.move_to(x, 6)
             PangoCairo.show_layout(cr, layout)
-            if column == 2:
-                text_w, text_h = layout.get_pixel_size()
-                self.header_rects[2] = (x - 4, 2, text_w + 8, text_h + 8)
+            text_w, text_h = layout.get_pixel_size()
+            self.header_rects[column] = (x - 4, 2, text_w + 8, text_h + 8)
 
         # Small headings above the groups of column 0.
         layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 7"))
         layout.set_width(node_w * Pango.SCALE)
         layout.set_ellipsize(Pango.EllipsizeMode.END)
-        for gx, gy, text in self.group_labels:
-            layout.set_text(text.upper(), -1)
+        for gx, gy, text, column in self.group_labels:
+            layout.set_text(text if column == 3 else text.upper(), -1)   # folder paths keep their case
             cr.set_source_rgba(*self.color("dim"))
             cr.move_to(gx + 2, gy)
             PangoCairo.show_layout(cr, layout)
@@ -683,7 +703,7 @@ class MapView(Gtk.DrawingArea):
             x, y, w, h = self.boxes[node.id]
             faded = lit_nodes is not None and node.id not in lit_nodes
             alpha = 0.25 if faded else (0.55 if node.dim or node.status == "missing" else 1.0)
-            if node.kind in ("add-mcp", "add-skills"):
+            if node.kind.startswith("add-"):
                 # Dashed, empty: a place to add something, not a thing.
                 self.rounded(cr, x, y, w, h, self.radius)
                 cr.set_dash([5, 4])

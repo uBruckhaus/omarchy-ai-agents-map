@@ -461,9 +461,9 @@ class AgentsMap(Gtk.Application):
         self.side_map.on_link = self.on_map_link
         self.side_map.on_relink = self.on_map_relink
         self.side_map.on_pick_model = self.on_map_pick_model
-        self.side_map.on_add = lambda kind: self.open_add_mcp() if kind == "mcp" else self.open_add_skills()
+        self.side_map.on_add = self.on_map_add
         self.side_map.on_context = lambda node_id, rect, v=self.side_map: self.show_context(v, node_id, rect)
-        self.side_map.on_header = lambda column, rect: self.show_provider_list(self.side_map, rect)
+        self.side_map.on_header = lambda column, rect: self.show_column_list(self.side_map, column, rect)
         map_scroller = self.page_scroller(self.side_map)
         map_scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)   # zoomed in: sideways too
         side.append(map_scroller)
@@ -2173,8 +2173,78 @@ class AgentsMap(Gtk.Application):
         self.update_layer_toggles()
         self.save_setting(map_layers=[l for l in graph.LAYERS if l in layers])
 
-    def show_provider_list(self, view, rect):
-        """The providers column's list: tick the online and local providers to show."""
+    def on_map_add(self, kind: str, node, rect):
+        """A dashed "+" box on the map: add an MCP server, skills, or a model into that folder."""
+        if kind == "mcp":
+            self.open_add_mcp()
+        elif kind == "skills":
+            self.open_add_skills()
+        elif kind == "model":
+            runtimes = {f"runtime:{rt.key}": rt for rt in self.inventory.runtimes if rt.installed}
+            owners = [runtimes[o] for o in node.owners if o in runtimes]
+            if len(owners) == 1:
+                self.open_models(owners[0])
+            elif owners:
+                self.pick_model_runtime(owners, rect)
+
+    def pick_model_runtime(self, owners, rect):
+        """Several local LLMs share the folder: which one downloads the model."""
+        popover = Gtk.Popover()
+        popover.set_parent(self.side_map)
+        area = Gdk.Rectangle()
+        area.x, area.y, area.width, area.height = (int(v) for v in rect)
+        popover.set_pointing_to(area)
+        popover.set_position(Gtk.PositionType.BOTTOM)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        box.add_css_class("am-provider-list")
+        heading = Gtk.Label(label=_("Download with"), xalign=0)
+        heading.add_css_class("am-group-heading")
+        box.append(heading)
+        for rt in owners:
+            button = Gtk.Button(label=rt.name)
+            button.add_css_class("am-small-btn")
+            button.connect("clicked", lambda _b, r=rt: (popover.popdown(), self.open_models(r)))
+            box.append(button)
+        popover.set_child(box)
+        popover.connect("closed", lambda p: GLib.idle_add(p.unparent))
+        popover.popup()
+
+    def column_list_groups(self, graph_now, column: int) -> list:
+        """(heading, [(node, label)]) for a column's list: MCP servers and skill
+        sets, agents, online and local providers, models by the folder they live in."""
+        boxes = graph.listable(graph_now, column)
+        by_name = lambda items: sorted(items, key=lambda item: item[1].lower())
+        if column == 0:
+            return [(_("MCP servers"), by_name((n, n.label) for n in boxes if n.kind == "mcp")),
+                    (_("Skills"), by_name((n, n.label) for n in boxes if n.kind == "skills"))]
+        if column == 1:
+            return [(_("Agents"), by_name((n, n.label) for n in boxes))]
+        if column == 2:
+            def state(node):
+                text = {"running": _("running"), "stopped": _("installed, not running"),
+                        "missing": _("not installed")}.get(node.status, "")
+                return f"{node.label}  ·  {text}" if text else node.label
+            return [(_("Online"), by_name((n, state(n)) for n in boxes if n.kind == "cloud")),
+                    (_("Local"), by_name((n, state(n)) for n in boxes if n.kind == "runtime"))]
+        # Models: one group per folder (several local LLMs can share one), online ones together.
+        by_id = {n.id: n for n in graph_now.nodes}
+        provider = {e.target: by_id[e.source] for e in graph_now.edges if e.kind == "serves" and e.source in by_id}
+        folders = {}
+        for node in boxes:
+            folders.setdefault(node.group, []).append(node)
+        groups = []
+        for folder in sorted(folders, key=lambda f: (not f, f.lower())):
+            nodes = folders[folder]
+            names = sorted({provider[n.id].label for n in nodes if n.id in provider}, key=str.lower)
+            heading = " · ".join([folder] + names) if folder else _("Online")
+            several = len(names) > 1 or not folder
+            groups.append((heading, sorted(
+                ((n, f"{n.label}  ·  {provider[n.id].label}" if several and n.id in provider else n.label)
+                 for n in nodes), key=lambda item: (item[0].kind == "more", item[1].lower()))))
+        return groups
+
+    def show_column_list(self, view, column: int, rect):
+        """A column heading's list: tick the boxes the map shows, a group at a time or one by one."""
         graph_now = view.graph
         if graph_now is None:
             return
@@ -2186,42 +2256,86 @@ class AgentsMap(Gtk.Application):
         popover.set_position(Gtk.PositionType.BOTTOM)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         box.add_css_class("am-provider-list")
-        hidden = set(view.hidden_providers)
-        groups = ((_("Online"), [n for n in graph_now.column(2) if n.kind == "cloud"]),
-                  (_("Local"), [n for n in graph_now.column(2) if n.kind == "runtime"]))
+        hidden = set(view.hidden_ids)
         checks = {}
-        for title, nodes in groups:
-            if not nodes:
+        headings = []          # (heading check, member ids)
+        syncing = [False]
+
+        def sync_heading(heading, members):
+            on = [checks[i].get_active() for i in members]
+            syncing[0] = True
+            heading.set_inconsistent(any(on) and not all(on))
+            heading.set_active(all(on))
+            syncing[0] = False
+
+        def on_heading(heading, members):
+            if syncing[0]:
+                return
+            shown = heading.get_active()
+            syncing[0] = True
+            heading.set_inconsistent(False)
+            for i in members:
+                checks[i].set_active(shown)
+            syncing[0] = False
+            self.set_nodes_shown(members, shown)
+
+        def on_check(node_id, shown, heading, members):
+            if syncing[0]:
+                return
+            self.set_nodes_shown([node_id], shown)
+            sync_heading(heading, members)
+
+        for title, items in self.column_list_groups(graph_now, column):
+            if not items:
                 continue
-            heading = Gtk.Label(label=title.upper(), xalign=0)
-            heading.add_css_class("am-group-heading")
+            members = [node.id for node, _label in items]
+            heading = Gtk.CheckButton(label=title)
+            heading.add_css_class("am-list-group")
             box.append(heading)
-            for node in sorted(nodes, key=lambda n: n.label.lower()):
-                state = {"running": _("running"), "stopped": _("installed, not running"),
-                         "missing": _("not installed")}.get(node.status, "")
-                check = Gtk.CheckButton(label=f"{node.label}  ·  {state}" if state else node.label)
+            for node, label in items:
+                check = Gtk.CheckButton(label=label, margin_start=18)
                 check.set_active(node.id not in hidden)
-                check.connect("toggled", lambda b, i=node.id: self.set_provider_shown(i, b.get_active()))
+                check.connect("toggled", lambda b, i=node.id, h=heading, m=members: on_check(i, b.get_active(), h, m))
                 box.append(check)
                 checks[node.id] = check
+            sync_heading(heading, members)
+            heading.connect("toggled", lambda h, m=members: on_heading(h, m))
+            headings.append((heading, members))
+
+        def set_all(shown):
+            syncing[0] = True
+            for check in checks.values():
+                check.set_active(shown)
+            syncing[0] = False
+            for heading, members in headings:
+                sync_heading(heading, members)
+            self.set_nodes_shown(list(checks), shown)
+
         row = Gtk.Box(spacing=6, halign=Gtk.Align.END, margin_top=6)
         for label, value in ((_("All"), True), (_("None"), False)):
             button = Gtk.Button(label=label)
             button.add_css_class("am-small-btn")
-            button.connect("clicked", lambda _b, v=value: [c.set_active(v) for c in checks.values()])
+            button.connect("clicked", lambda _b, v=value: set_all(v))
             row.append(button)
-        box.append(row)
-        popover.set_child(box)
+        scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, propagate_natural_height=True,
+                                      propagate_natural_width=True, max_content_height=520)
+        scroller.set_child(box)
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        outer.append(scroller)
+        outer.append(row)
+        popover.set_child(outer)
         popover.connect("closed", lambda p: GLib.idle_add(p.unparent))
         popover.popup()
 
-    def set_provider_shown(self, node_id: str, shown: bool):
-        hidden = set(self.map_view.hidden_providers)
-        hidden.discard(node_id) if shown else hidden.add(node_id)
+    def set_nodes_shown(self, node_ids, shown: bool):
+        hidden = set(self.map_view.hidden_ids)
+        hidden.difference_update(node_ids) if shown else hidden.update(node_ids)
         for view in (self.side_map,):
-            view.set_hidden_providers(hidden)
+            view.set_hidden_ids(hidden)
         self.set_selection([i for i in self.selection if i not in self.map_view.hidden()])
-        self.save_setting(hidden_providers=sorted(hidden))
+        # Only ids still on the map are kept (a removed model does not linger in the settings).
+        ids = {n.id for n in self.map_view.graph.nodes} if self.map_view.graph else set()
+        self.save_setting(hidden_nodes=sorted(i for i in hidden if i in ids), hidden_providers=None)
 
     def on_map_selection(self, nodes):
         """A click in either map."""
@@ -2250,14 +2364,15 @@ class AgentsMap(Gtk.Application):
         labels["unused"] = _("not used by any agent")
         labels["add_mcp"] = _("+ MCP server") + (" · " + _("{0} new").format(len(new_mcp)) if new_mcp else "")
         labels["add_skills"] = _("+ Skills") + (" · " + _("{0} new").format(len(new_skills)) if new_skills else "")
+        labels["add_model"] = _("+ Model")
         built = graph.build(self.agent_list, details, self.inventory, labels)
         headers = [_("MCP servers · skills"), _("Agents"), _("LLM providers"), _("Models")]
-        hidden = set(ai_core.hidden_providers())
+        hidden = set(ai_core.hidden_nodes())
         for view in (self.side_map,):
-            view.group_titles = {"mcp": _("MCP servers"), "skills": _("Skills")}
+            view.group_titles = {"mcp": _("MCP servers"), "skills": _("Skills"), "online": _("Online")}
             view.set_graph(built, headers)
             view.set_layers(self.map_view.layers)
-            view.set_hidden_providers(hidden)
+            view.set_hidden_ids(hidden)
         ids = {n.id for n in built.nodes}
         self.set_selection([i for i in self.selection if i in ids])
 
@@ -3879,6 +3994,10 @@ class AgentsMap(Gtk.Application):
         .am-provider-list checkbutton check {{ border: 1px solid alpha({fg_hex}, 0.4); background: transparent; }}
         .am-provider-list checkbutton check:checked {{ background: {accent_hex}; border-color: {accent_hex};
             color: {bg_hex}; }}
+        .am-provider-list checkbutton check:indeterminate {{ background: alpha({accent_hex}, 0.45);
+            border-color: {accent_hex}; color: {bg_hex}; }}
+        .am-provider-list checkbutton.am-list-group {{ margin-top: 6px; }}
+        .am-provider-list checkbutton.am-list-group label {{ font-size: 11px; font-weight: 700; color: {dim_hex}; }}
         .am-card entry.am-path {{ font-family: monospace; font-size: 12px; min-height: 0; padding: 3px 8px; }}
         .am-card entry.am-path.error {{ border-color: {red_hex}; }}
         progressbar.am-progress trough {{ min-height: 6px; background: alpha({fg_hex}, 0.10); border-radius: 3px; }}
