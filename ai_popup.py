@@ -40,6 +40,7 @@ else:
 
 import atexit
 
+import agents
 import ai_core
 import i18n
 import pidfile
@@ -53,6 +54,8 @@ CARD_WIDTH = 420
 LIST_HEIGHT = 590
 SCREEN_MARGIN = 120    # space kept free above and below the card
 CURSOR_SLACK = 24      # px the pointer may move after opening before the keyboard is released
+AGENT_TILE_WIDTH = 180   # minimum width of one agent card
+AGENT_SPACING = 8
 VIEW_TITLES = {"main": "AI Manager", "builder": "Builder"}   # names, not translated
 
 
@@ -270,12 +273,92 @@ class AiManager(Gtk.Application):
 
     def build_main_page(self) -> Gtk.Widget:
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        page.append(self.view_heading(_("Overview")))
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        content.append(self.empty_state("view-list-symbolic", _("Nothing here yet"),
-                                        _("Your AI tools will be listed here.")))
-        page.append(self.page_scroller(content))
+        page.append(self.view_heading(_("Agents")))
+        self.agents_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.agents_box.add_css_class("am-agents")
+        self.agent_grids = []
+        page.append(self.page_scroller(self.agents_box))
         return page
+
+    def grid_columns(self) -> int:
+        """Agent cards per row: as many as fit the card's inside (17 px padding each side)."""
+        return max(1, (self.card_w - 34 + AGENT_SPACING) // (AGENT_TILE_WIDTH + AGENT_SPACING))
+
+    def refresh_agents(self):
+        """Rebuild the agent cards (file system only, nothing is started)."""
+        box = self.agents_box
+        while (child := box.get_first_child()) is not None:
+            box.remove(child)
+        self.agent_grids = []
+        found = agents.list_agents()
+        installed = [a for a in found if a.installed]
+        missing = [a for a in found if not a.installed]
+        for title, group in ((_("Installed ({0})").format(len(installed)), installed),
+                             (_("Not installed ({0})").format(len(missing)), missing)):
+            if not group:
+                continue
+            heading = Gtk.Label(label=title.upper(), xalign=0)
+            heading.add_css_class("am-group-heading")
+            box.append(heading)
+            grid = Gtk.FlowBox()
+            grid.set_selection_mode(Gtk.SelectionMode.NONE)
+            grid.set_homogeneous(True)
+            grid.set_row_spacing(AGENT_SPACING)
+            grid.set_column_spacing(AGENT_SPACING)
+            grid.set_valign(Gtk.Align.START)
+            grid.set_min_children_per_line(self.grid_columns())
+            grid.set_max_children_per_line(self.grid_columns())
+            for agent in group:
+                grid.append(self.build_agent_card(agent))
+            box.append(grid)
+            self.agent_grids.append(grid)
+
+    def build_agent_card(self, agent) -> Gtk.Widget:
+        card = Gtk.Box(spacing=10)
+        card.add_css_class("am-agent")
+        if not agent.installed:
+            card.add_css_class("am-agent-missing")
+        icon = Gtk.Label(label=agent.icon)
+        icon.add_css_class("am-agent-icon")
+        if agent.icon_font == "omarchy":
+            icon.add_css_class("am-agent-icon-omarchy")
+        icon.set_valign(Gtk.Align.CENTER)
+        card.append(icon)
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        text.set_hexpand(True)
+        text.set_valign(Gtk.Align.CENTER)
+        name = Gtk.Label(label=agent.name, xalign=0)
+        name.add_css_class("am-agent-name")
+        name.set_ellipsize(Pango.EllipsizeMode.END)
+        name.set_max_width_chars(1)
+        name.set_hexpand(True)
+        text.append(name)
+        status = agent.version if agent.installed else _("Not installed")
+        line = Gtk.Box(spacing=6)
+        if agent.default:
+            # In the version line, so the name keeps the card's full width.
+            card.add_css_class("am-agent-default")
+            badge = Gtk.Label(label=_("Default"))
+            badge.add_css_class("am-agent-badge")
+            badge.set_tooltip_text(_("Omarchy's default agent"))
+            line.append(badge)
+        detail = Gtk.Label(label=status or _("Installed"), xalign=0)
+        detail.add_css_class("am-agent-detail")
+        detail.set_ellipsize(Pango.EllipsizeMode.END)
+        detail.set_max_width_chars(1)
+        detail.set_hexpand(True)
+        line.append(detail)
+        text.append(line)
+        card.append(text)
+        source = {"mise": _("installed with mise"), "package": _("installed as a package"),
+                  "own": _("your own install")}.get(agent.source, "")
+        tip = _("Command: {0}").format(agent.command)
+        if agent.version:
+            tip += " · " + agent.version
+        if source:
+            tip += " · " + source
+        card.set_tooltip_text(tip)
+        return card
 
     def build_builder_page(self) -> Gtk.Widget:
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -462,6 +545,9 @@ class AiManager(Gtk.Application):
             scroller.set_max_content_height(100000)
             scroller.set_min_content_height(self.list_h)
             scroller.set_max_content_height(self.list_h)
+        for grid in getattr(self, "agent_grids", []):
+            grid.set_min_children_per_line(self.grid_columns())
+            grid.set_max_children_per_line(self.grid_columns())
         if self.window is not None:
             # A layer surface does not shrink by itself once content gets smaller.
             self.window.set_default_size(1, 1)
@@ -667,6 +753,20 @@ class AiManager(Gtk.Application):
         .am-grip:hover {{ color: {accent_hex}; opacity: 1; }}
         .am-empty-icon {{ color: {muted_hex}; opacity: 0.6; }}
         .am-empty-title {{ font-size: 14px; font-weight: 600; }}
+        .am-group-heading {{ font-size: 10px; font-weight: 700; letter-spacing: 1px; color: {dim_hex};
+            margin-top: 4px; }}
+        .am-agent {{ background: alpha({fg_hex}, 0.05); border: 1px solid alpha({fg_hex}, 0.10);
+            border-radius: {radius}px; padding: 10px 12px; }}
+        .am-agent-missing {{ opacity: 0.5; }}
+        .am-agent.am-agent-default {{ border-color: alpha({accent_hex}, 0.7); }}
+        .am-agent-icon {{ font-family: "JetBrainsMono Nerd Font", "Symbols Nerd Font", monospace;
+            font-size: 22px; color: {accent_hex}; min-width: 28px; }}
+        .am-agent-icon.am-agent-icon-omarchy {{ font-family: "omarchy"; }}
+        .am-agent-missing .am-agent-icon {{ color: {fg_hex}; }}
+        .am-agent-name {{ font-size: 13px; font-weight: 600; }}
+        .am-agent-detail {{ font-size: 11px; color: {dim_hex}; }}
+        .am-agent-badge {{ font-size: 10px; font-weight: 600; color: {bg_hex}; background: {accent_hex};
+            border-radius: 4px; padding: 0 5px; }}
         .am-canvas {{ border: 1px dashed alpha({fg_hex}, 0.25); border-radius: {radius}px; padding: 12px; }}
         """
         provider = Gtk.CssProvider()
@@ -712,6 +812,7 @@ class AiManager(Gtk.Application):
     def open(self):
         # Another monitor may allow less: clamp the saved size again.
         self.resize_to(self.card_w, self.list_h)
+        self.refresh_agents()
         self.grab_keyboard()
         self.move_to(self.position)
         self.window.present()

@@ -6,7 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import i18n  # noqa: E402
 
-SOURCES = ["ai_popup.py", "ai_core.py"]
+SOURCES = ["ai_popup.py", "ai_core.py", "agents.py"]
 
 
 class I18nTest(unittest.TestCase):

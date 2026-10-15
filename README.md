@@ -2,10 +2,15 @@
 
 An Omarchy bar widget that opens a popup with two views:
 
-- **AI Manager** (Ctrl+1): the overview.
-- **Builder** (Ctrl+2): the builder canvas.
+- **AI Manager** (Ctrl+1): every AI coding agent Omarchy offers, each in a card. Installed agents
+  come first with their version, Omarchy's default agent leading (marked "Default"); the others
+  are shown dimmed. The list is Omarchy's own (its Setup → Defaults → Agent menu), so new agents
+  appear by themselves. Hover a card for its command and how it was installed.
+- **Builder** (Ctrl+2): the builder canvas (work in progress).
 
-Work in progress: this is the canvas (layout, views, settings), no content yet.
+Nothing is started to find out what is installed: AI Manager reads mise's install folders, the
+pacman database (OpenClaw, Hermes Desktop) and `~/.local/bin`. Omarchy keeps a small wrapper
+there for every agent it offers, so a wrapper alone does not count as installed.
 
 ## Using the popup
 
