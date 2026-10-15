@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-"""AI Manager popup: a Wayland layer-shell card with two views (AI Manager
-and Builder) and a settings page.
+"""AI Manager popup: a Wayland layer-shell card that shows the AI setup of
+this computer: agents, local LLMs and their models, MCP servers and skills.
+Two views (the overview as cards, and a Map drawn at full size) and a
+settings page.
 
 Same house layout as Theme Manager: a singleton process woken by SIGUSR1
 from ai-manager-toggle, a themed card that can be moved by its header and
@@ -45,10 +47,13 @@ import atexit
 import agent_details
 import agents
 import ai_core
+import graph
+import inventory
 import i18n
 import pidfile
 from i18n import _, ngettext
 from layer_watch import LayerWatch
+from map_view import MapView
 from palette import ThemePalette
 
 # Default outer size as in the other popups: a 420 px card around a 590 px
@@ -59,7 +64,6 @@ SCREEN_MARGIN = 120    # space kept free above and below the card
 CURSOR_SLACK = 24      # px the pointer may move after opening before the keyboard is released
 AGENT_SPACING = 8
 DETAIL_LABEL_WIDTH = 90   # the dim labels in an opened agent card
-VIEW_TITLES = {"main": "AI Manager", "builder": "Builder"}   # names, not translated
 
 
 def write_pid_file():
@@ -132,7 +136,10 @@ class AiManager(Gtk.Application):
         self.settings_ready = False
         self.expanded = set()      # commands of the agent cards shown with their details
         self.refreshing = set()    # commands whose usage Omarchy is collecting right now
-        self.detail_boxes = {}     # command -> details box of the card on screen
+        self.detail_boxes = {}     # card key -> (details box, fill function)
+        self.agent_list = []
+        self.inventory = inventory.Inventory()
+        self.size_before_map = None   # the card's size before the Map maximized it
 
     def do_shutdown(self):
         cleanup_pid()
@@ -219,7 +226,7 @@ class AiManager(Gtk.Application):
         stack.set_hhomogeneous(True)
         stack.set_vhomogeneous(True)
         stack.add_named(self.build_main_page(), "main")
-        stack.add_named(self.build_builder_page(), "builder")
+        stack.add_named(self.build_map_page(), "map")
         stack.add_named(self.build_settings_page(), "settings")
         stack.connect("notify::visible-child-name", lambda *_: self.update_header())
         card.append(stack)
@@ -233,7 +240,8 @@ class AiManager(Gtk.Application):
 
         self.resize_to(self.card_w, self.list_h)
         self.apply_theme_css()
-        self.show_view(self.view, save=False)
+        start, self.view = self.view, "main"
+        self.show_view(start, save=False)
 
     def build_header(self) -> Gtk.Widget:
         header = Gtk.Box(spacing=8)
@@ -269,8 +277,8 @@ class AiManager(Gtk.Application):
         self.view_buttons = {}
         views = Gtk.Box(spacing=0)
         views.add_css_class("am-view-switch")
-        for name, icon, tip in (("main", "view-list-symbolic", _("AI Manager view (Ctrl+1)")),
-                                ("builder", "applications-engineering-symbolic", _("Builder view (Ctrl+2)"))):
+        for name, icon, tip in (("main", "view-list-symbolic", _("Overview (Ctrl+1)")),
+                                ("map", "network-workgroup-symbolic", _("Map (Ctrl+2)"))):
             button = Gtk.ToggleButton(icon_name=icon)
             button.set_tooltip_text(tip)
             button.add_css_class("flat")
@@ -321,64 +329,114 @@ class AiManager(Gtk.Application):
 
     def build_main_page(self) -> Gtk.Widget:
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        page.append(self.view_heading(_("Agents")))
+        page.append(self.view_heading(_("AI setup")))
         self.agents_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=AGENT_SPACING)
         self.agents_box.add_css_class("am-agents")
         page.append(self.page_scroller(self.agents_box))
         return page
 
-    def refresh_agents(self):
-        """Rebuild the agent cards (file system only, nothing is started)."""
+    def collect(self):
+        """Everything both views show (file system and /proc only, ~0.1 s)."""
+        self.agent_list = agents.list_agents()
+        self.inventory = inventory.collect(self.agent_list)
+
+    def refresh_overview(self):
+        """Rebuild the main view: agents, local LLMs, MCP servers, skills."""
         box = self.agents_box
         while (child := box.get_first_child()) is not None:
             box.remove(child)
         self.detail_boxes = {}
-        found = agents.list_agents()
-        installed = [a for a in found if a.installed]
-        missing = [a for a in found if not a.installed]
-        for title, group in ((_("Installed ({0})").format(len(installed)), installed),
-                             (_("Not installed ({0})").format(len(missing)), missing)):
-            if not group:
-                continue
-            heading = Gtk.Label(label=title.upper(), xalign=0)
-            heading.add_css_class("am-group-heading")
-            box.append(heading)
-            for agent in group:
-                box.append(self.build_agent_card(agent))
+        installed = [a for a in self.agent_list if a.installed]
+        missing = [a for a in self.agent_list if not a.installed]
+        inv = self.inventory
+        names = self.agent_names()
 
-    def build_agent_card(self, agent) -> Gtk.Widget:
-        """One agent: icon, name, version; a click shows or hides its details."""
+        self.section(_("Agents ({0})").format(len(installed)))
+        for agent in installed:
+            box.append(self.agent_card(agent))
+
+        runtimes = [rt for rt in inv.runtimes if rt.installed]
+        self.section(_("Local LLMs ({0})").format(len(runtimes)))
+        if not runtimes:
+            self.section_hint(_("No local LLM runtime installed (llama.cpp, Ollama, LM Studio, vLLM)."))
+        for rt in runtimes:
+            state = _("running") if rt.running else _("stopped")
+            sub = " · ".join([state, ngettext("1 model", "{0} models", len(rt.models)).format(len(rt.models))])
+            box.append(self.expandable_card(f"runtime:{rt.key}", "\U000F061A", "", rt.name, sub,
+                                 lambda b, rt=rt: self.fill_runtime(b, rt, names), dim=not rt.running))
+
+        self.section(_("MCP servers ({0})").format(len(inv.mcp)))
+        if not inv.mcp:
+            self.section_hint(_("No agent has an MCP server set up."))
+        for server in inv.mcp:
+            users = ", ".join(names.get(a, a) for a in server.agents)
+            box.append(self.expandable_card(f"mcp:{server.name}", "\U000F0337", "", server.name, users,
+                                 lambda b, s=server: self.fill_mcp(b, s, names)))
+
+        self.section(_("Skills ({0})").format(sum(len(s.skills) for s in inv.skill_sets)))
+        if not inv.skill_sets:
+            self.section_hint(_("No skills found for the installed agents."))
+        for skill_set in inv.skill_sets:
+            sub = ngettext("1 skill", "{0} skills", len(skill_set.skills)).format(len(skill_set.skills)) \
+                + " · " + ", ".join(names.get(a, a) for a in skill_set.agents)
+            box.append(self.expandable_card(f"skills:{skill_set.path}", "\U000F0EB3", "", skill_set.path, sub,
+                                 lambda b, s=skill_set: self.fill_skills(b, s, names)))
+
+        if missing:
+            self.section(_("Not installed ({0})").format(len(missing)))
+            for agent in missing:
+                box.append(self.agent_card(agent))
+
+    def agent_names(self) -> dict:
+        names = {a.command: a.name for a in self.agent_list}
+        names["lmstudio"] = "LM Studio"
+        return names
+
+    def section(self, title: str):
+        heading = Gtk.Label(label=title.upper(), xalign=0)
+        heading.add_css_class("am-group-heading")
+        self.agents_box.append(heading)
+
+    def section_hint(self, text: str):
+        hint = Gtk.Label(label=text, xalign=0, wrap=True, max_width_chars=1)
+        hint.add_css_class("am-agent-detail")
+        self.agents_box.append(hint)
+
+    def expandable_card(self, key: str, icon: str, icon_font: str, title: str, subtitle: str, fill,
+             dim: bool = False, badge: str = "", badge_tip: str = "", highlight: bool = False) -> Gtk.Widget:
+        """A card with an icon, a title and a dim line; a click shows or hides
+        what fill(box) puts into it."""
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         card.add_css_class("am-agent")
-        if not agent.installed:
+        if dim:
             card.add_css_class("am-agent-missing")
+        if highlight:
+            card.add_css_class("am-agent-default")
         top = Gtk.Box(spacing=10)
         top.set_cursor_from_name("pointer")
-        icon = Gtk.Label(label=agent.icon)
-        icon.add_css_class("am-agent-icon")
-        if agent.icon_font == "omarchy":
-            icon.add_css_class("am-agent-icon-omarchy")
-        icon.set_valign(Gtk.Align.CENTER)
-        top.append(icon)
+        glyph = Gtk.Label(label=icon)
+        glyph.add_css_class("am-agent-icon")
+        if icon_font == "omarchy":
+            glyph.add_css_class("am-agent-icon-omarchy")
+        glyph.set_valign(Gtk.Align.CENTER)
+        top.append(glyph)
         text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         text.set_hexpand(True)
         text.set_valign(Gtk.Align.CENTER)
-        name = Gtk.Label(label=agent.name, xalign=0)
+        name = Gtk.Label(label=title, xalign=0)
         name.add_css_class("am-agent-name")
         name.set_ellipsize(Pango.EllipsizeMode.END)
         name.set_max_width_chars(1)
         name.set_hexpand(True)
         text.append(name)
-        status = agent.version if agent.installed else _("Not installed")
         line = Gtk.Box(spacing=6)
-        if agent.default:
-            # In the version line, so the name keeps the card's full width.
-            card.add_css_class("am-agent-default")
-            badge = Gtk.Label(label=_("Default"))
-            badge.add_css_class("am-agent-badge")
-            badge.set_tooltip_text(_("Omarchy's default agent"))
-            line.append(badge)
-        detail = Gtk.Label(label=status or _("Installed"), xalign=0)
+        if badge:
+            mark = Gtk.Label(label=badge)
+            mark.add_css_class("am-agent-badge")
+            if badge_tip:
+                mark.set_tooltip_text(badge_tip)
+            line.append(mark)
+        detail = Gtk.Label(label=subtitle, xalign=0)
         detail.add_css_class("am-agent-detail")
         detail.set_ellipsize(Pango.EllipsizeMode.END)
         detail.set_max_width_chars(1)
@@ -386,7 +444,7 @@ class AiManager(Gtk.Application):
         line.append(detail)
         text.append(line)
         top.append(text)
-        expanded = agent.command in self.expanded
+        expanded = key in self.expanded
         chevron = Gtk.Image.new_from_icon_name("pan-up-symbolic" if expanded else "pan-down-symbolic")
         chevron.add_css_class("am-agent-chevron")
         chevron.set_valign(Gtk.Align.CENTER)
@@ -401,37 +459,90 @@ class AiManager(Gtk.Application):
         details.add_css_class("am-agent-details")
         revealer.set_child(details)
         card.append(revealer)
-        self.detail_boxes[agent.command] = (details, agent)
+        self.detail_boxes[key] = (details, fill)
         if expanded:
-            self.fill_details(agent.command)
+            self.fill_card(key)
             revealer.set_reveal_child(True)
-            if agent.installed and agent_details.usage_is_stale(agent.command):
-                self.refresh_usage(agent.command)
 
         click = Gtk.GestureClick()
-        click.connect("released", lambda *_: self.toggle_card(agent, revealer, chevron))
+        click.connect("released", lambda *_: self.toggle_card(key, revealer, chevron))
         top.add_controller(click)
         return card
 
-    def toggle_card(self, agent, revealer, chevron):
-        if agent.command in self.expanded:
-            self.expanded.discard(agent.command)
+    def toggle_card(self, key: str, revealer, chevron):
+        if key in self.expanded:
+            self.expanded.discard(key)
             revealer.set_reveal_child(False)
             chevron.set_from_icon_name("pan-down-symbolic")
             return
-        self.expanded.add(agent.command)
-        self.fill_details(agent.command)
+        self.expanded.add(key)
+        self.fill_card(key)
         revealer.set_reveal_child(True)
         chevron.set_from_icon_name("pan-up-symbolic")
-        if agent.installed and agent_details.usage_is_stale(agent.command):
-            self.refresh_usage(agent.command)
+        self.toggle_card_hook(key)
 
-    def refresh_usage(self, command: str):
+    def fill_card(self, key: str):
+        entry = self.detail_boxes.get(key)
+        if entry is None:
+            return
+        box, fill = entry
+        while (child := box.get_first_child()) is not None:
+            box.remove(child)
+        fill(box)
+
+    def detail_grid(self, box, rows):
+        """rows: (label, value, tooltip); empty values are left out."""
+        grid = Gtk.Grid(column_spacing=10, row_spacing=4)
+        index = 0
+        for label, value, tip in rows:
+            if not value:
+                continue
+            name = Gtk.Label(label=label, xalign=0, yalign=0)
+            name.add_css_class("am-line-label")
+            name.set_size_request(DETAIL_LABEL_WIDTH, -1)
+            text = Gtk.Label(label=value, xalign=0, wrap=True, max_width_chars=1, hexpand=True)
+            text.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            text.add_css_class("am-detail-value")
+            if tip:
+                name.set_tooltip_text(tip)
+                text.set_tooltip_text(tip)
+            grid.attach(name, 0, index, 1, 1)
+            grid.attach(text, 1, index, 1, 1)
+            index += 1
+        box.append(grid)
+
+    def note(self, box, text: str):
+        label = Gtk.Label(label=text, xalign=0, wrap=True, max_width_chars=1)
+        label.add_css_class("am-agent-detail")
+        box.append(label)
+
+    # --- agent cards -------------------------------------------------------------------
+
+    def agent_card(self, agent) -> Gtk.Widget:
+        key = f"agent:{agent.command}"
+        subtitle = (agent.version or _("Installed")) if agent.installed else _("Not installed")
+        card = self.expandable_card(key, agent.icon, agent.icon_font, agent.name, subtitle,
+                         lambda b, a=agent: self.fill_agent(b, a), dim=not agent.installed,
+                         badge=_("Default") if agent.default else "", badge_tip=_("Omarchy's default agent"),
+                         highlight=agent.default)
+        if key in self.expanded and agent.installed and agent_details.usage_is_stale(agent.command):
+            self.refresh_usage(agent)
+        return card
+
+    def toggle_card_hook(self, key: str):
+        """Opening an agent card asks Omarchy for fresh usage when it is old."""
+        if key.startswith("agent:") and key in self.expanded:
+            agent = next((a for a in self.agent_list if f"agent:{a.command}" == key), None)
+            if agent is not None and agent.installed and agent_details.usage_is_stale(agent.command):
+                self.refresh_usage(agent)
+
+    def refresh_usage(self, agent):
         """Ask Omarchy for fresh usage on a thread; fill the card again after."""
+        command = agent.command
         if command in self.refreshing:
             return
         self.refreshing.add(command)
-        self.fill_details(command)
+        self.fill_card(f"agent:{command}")
 
         def work():
             agent_details.refresh_usage(command)
@@ -439,38 +550,37 @@ class AiManager(Gtk.Application):
 
         def done():
             self.refreshing.discard(command)
-            self.fill_details(command)
+            self.fill_card(f"agent:{command}")
             return False
 
         threading.Thread(target=work, daemon=True).start()
 
-    def fill_details(self, command: str):
-        entry = self.detail_boxes.get(command)
-        if entry is None:
-            return
-        box, agent = entry
-        while (child := box.get_first_child()) is not None:
-            box.remove(child)
+    def fill_agent(self, box, agent):
+        command = agent.command
         info = agent_details.details_for(command)
-        grid = Gtk.Grid(column_spacing=10, row_spacing=4)
+        inv = self.inventory
         rows = []
-
-        def row(label: str, value: str, tip: str = ""):
-            if value:
-                rows.append((label, value, tip))
-
         if not agent.installed:
-            row(_("Status"), _("Not installed"),
-                _("Install it from Omarchy's menu: Setup → Defaults → Agent."))
-        row(_("Plan"), info.plan, _("Your subscription, as Omarchy's usage data reports it."))
-        row(_("Model"), info.model, _("The model set in the agent's settings."))
+            rows.append((_("Status"), _("Not installed"),
+                         _("Install it from Omarchy's menu: Setup → Defaults → Agent.")))
+        rows.append((_("Plan"), info.plan, _("Your subscription, as Omarchy's usage data reports it.")))
+        rows.append((_("Model"), info.model, _("The model set in the agent's settings.")))
         for provider in info.providers:
             parts = [provider.name]
             if provider.local:
                 parts.append(_("local · {0}").format(provider.runtime) if provider.runtime else _("local"))
             if provider.models:
                 parts.append(ngettext("1 model", "{0} models", provider.models).format(provider.models))
-            row(_("Provider"), " · ".join(parts))
+            rows.append((_("Provider"), " · ".join(parts), ""))
+        servers = inv.agent_mcp.get(command, [])
+        rows.append((_("MCP servers"), ", ".join(servers), ""))
+        sets = [s for s in inv.skill_sets if s.path in inv.agent_skills.get(command, [])]
+        if sets:
+            count = sum(len(s.skills) for s in sets)
+            rows.append((_("Skills"), ngettext("1 skill", "{0} skills", count).format(count) + " · "
+                         + ", ".join(s.path for s in sets), ""))
+        rows.append((_("Tools"), ", ".join(inv.agent_tools.get(command, [])),
+                     _("The built-in tools the agent may use, as its settings list them.")))
         if info.today_prompts is not None or info.today_tokens is not None:
             today = []
             if info.today_prompts is not None:
@@ -479,34 +589,20 @@ class AiManager(Gtk.Application):
                 today.append(ngettext("1 session", "{0} sessions", info.today_sessions).format(info.today_sessions))
             if info.today_tokens:
                 today.append(_("{0} tokens").format(short_number(info.today_tokens)))
-            row(_("Today"), " · ".join(today))
+            rows.append((_("Today"), " · ".join(today), ""))
         if info.total_sessions:
             total = ngettext("1 session", "{0} sessions", info.total_sessions).format(info.total_sessions)
             if info.active_days:
                 total += " · " + ngettext("1 active day", "{0} active days", info.active_days).format(info.active_days)
-            row(_("In total"), total)
+            rows.append((_("In total"), total, ""))
         if agent.installed:
-            row(_("Last used"), when(info.last_used))
+            rows.append((_("Last used"), when(info.last_used), ""))
             source = {"mise": _("with mise"), "package": _("as a package"),
                       "own": _("your own install")}.get(agent.source, "")
-            row(_("Installed"), " · ".join(x for x in (source, agent.version) if x))
-        row(_("Command"), agent.command)
-        row(_("Settings"), info.config_dir)
-
-        for index, (label, value, tip) in enumerate(rows):
-            name = Gtk.Label(label=label, xalign=0, yalign=0)
-            name.add_css_class("am-line-label")
-            name.set_size_request(DETAIL_LABEL_WIDTH, -1)
-            text = Gtk.Label(label=value, xalign=0, wrap=True, max_width_chars=1, hexpand=True)
-            text.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            text.add_css_class("am-detail-value")
-            text.set_selectable(False)
-            if tip:
-                name.set_tooltip_text(tip)
-                text.set_tooltip_text(tip)
-            grid.attach(name, 0, index, 1, 1)
-            grid.attach(text, 1, index, 1, 1)
-        box.append(grid)
+            rows.append((_("Installed"), " · ".join(x for x in (source, agent.version) if x), ""))
+        rows.append((_("Command"), command, ""))
+        rows.append((_("Settings"), info.config_dir, ""))
+        self.detail_grid(box, rows)
 
         if info.limits:
             heading = Gtk.Label(label=_("Limits").upper(), xalign=0)
@@ -522,9 +618,40 @@ class AiManager(Gtk.Application):
         if info.usage_note and command not in self.refreshing:
             status = " · ".join(x for x in (status, info.usage_note) if x)
         if status:
-            note = Gtk.Label(label=status, xalign=0, wrap=True, max_width_chars=1)
-            note.add_css_class("am-agent-detail")
-            box.append(note)
+            self.note(box, status)
+
+    # --- runtime, MCP and skill cards ----------------------------------------------------
+
+    def fill_runtime(self, box, rt, names):
+        self.detail_grid(box, [
+            (_("Status"), _("running") if rt.running else _("stopped"), ""),
+            (_("Address"), rt.address, ""),
+            (_("Service"), rt.service, _("The user service that starts it (systemctl --user).")),
+            (_("Models folder"), rt.models_dir, ""),
+            (_("Used by"), ", ".join(names.get(a, a) for a in rt.agents),
+             _("Agents with a provider pointing at this runtime.")),
+        ])
+        if rt.models:
+            heading = Gtk.Label(label=ngettext("1 model", "{0} models", len(rt.models)).format(len(rt.models)).upper(),
+                                xalign=0)
+            heading.add_css_class("am-group-heading")
+            box.append(heading)
+            self.note(box, "\n".join(rt.models))
+
+    def fill_mcp(self, box, server, names):
+        kind = {"command": _("runs a program"), "url": _("remote server")}.get(server.kind, "")
+        self.detail_grid(box, [
+            (_("Runs"), server.target, ""),
+            (_("Type"), kind, ""),
+            (_("Used by"), ", ".join(names.get(a, a) for a in server.agents), ""),
+        ])
+
+    def fill_skills(self, box, skill_set, names):
+        self.detail_grid(box, [
+            (_("Folder"), skill_set.path, ""),
+            (_("Used by"), ", ".join(names.get(a, a) for a in skill_set.agents), ""),
+        ])
+        self.note(box, ", ".join(skill_set.skills))
 
     def limit_row(self, limit) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
@@ -552,16 +679,21 @@ class AiManager(Gtk.Application):
         box.append(bar)
         return box
 
-    def build_builder_page(self) -> Gtk.Widget:
+    def build_map_page(self) -> Gtk.Widget:
+        """Agents with what they use, drawn as a graph. Opening it makes the
+        card as large as the screen allows; leaving it restores the size."""
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        page.append(self.view_heading(_("Builder")))
-        canvas = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        canvas.add_css_class("am-canvas")
-        canvas.set_vexpand(True)
-        canvas.append(self.empty_state("applications-engineering-symbolic", _("Empty canvas"),
-                                       _("Build something here.")))
-        page.append(self.page_scroller(canvas))
+        page.append(self.view_heading(_("Map")))
+        self.map_view = MapView()
+        page.append(self.page_scroller(self.map_view))
         return page
+
+    def refresh_map(self):
+        details = {a.command: agent_details.details_for(a.command) for a in self.agent_list if a.installed}
+        labels = {"skills": lambda n: ngettext("1 skill", "{0} skills", n).format(n),
+                  "more": lambda n: _("+{0} more").format(n)}
+        self.map_view.set_graph(graph.build(self.agent_list, details, self.inventory, labels),
+                                [_("MCP servers · skills"), _("Agents"), _("LLM providers"), _("Models")])
 
     @staticmethod
     def view_heading(text: str) -> Gtk.Widget:
@@ -585,6 +717,16 @@ class AiManager(Gtk.Application):
 
     def show_view(self, name: str, save: bool = True):
         name = name if name in ai_core.VIEWS else "main"
+        if name == "map" and self.view != "map":
+            if self.size_state() != "max":
+                self.size_before_map = (self.card_w, self.list_h, self.position)
+                self.resize_to(*self.size_limits())
+                self.move_to(None)
+        elif name != "map" and self.view == "map" and self.size_before_map is not None:
+            width, height, position = self.size_before_map
+            self.size_before_map = None
+            self.resize_to(width, height)
+            self.move_to(position)
         self.view = name
         self.stack.set_visible_child_name(name)
         self.update_header()
@@ -684,9 +826,9 @@ class AiManager(Gtk.Application):
                                         + [name for _code, name in i18n.LANGUAGES],
                                         codes.index(setting) if setting in codes else 0,
                                         lambda i: self.set_language(codes[i])))
-        starts = ["main", "builder", "last"]
+        starts = ["main", "map", "last"]
         self.setting_line(box, _("Open on"), _("The view shown when AI Manager opens."),
-                          self.dropdown([_("AI Manager view"), _("Builder view"), _("Last used view")],
+                          self.dropdown([_("Overview"), _("Map"), _("Last used view")],
                                         starts.index(ai_core.start_view()),
                                         lambda i: self.save_setting(start_view=starts[i],
                                                                     last_view=self.view)))
@@ -996,6 +1138,9 @@ class AiManager(Gtk.Application):
         levelbar.am-limit block.empty {{ background: transparent; }}
         .am-canvas {{ border: 1px dashed alpha({fg_hex}, 0.25); border-radius: {radius}px; padding: 12px; }}
         """
+        if getattr(self, "map_view", None) is not None:
+            self.map_view.set_palette({"bg": bg_hex, "fg": fg_hex, "dim": dim_hex, "muted": muted_hex,
+                                       "accent": accent_hex, "green": green_hex, "yellow": yellow_hex}, radius)
         provider = Gtk.CssProvider()
         provider.load_from_string(css)
         Gtk.StyleContext.add_provider_for_display(display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
@@ -1021,7 +1166,7 @@ class AiManager(Gtk.Application):
             self.show_view("main")
             return True
         if ctrl and keyval in (Gdk.KEY_2, Gdk.KEY_KP_2):
-            self.show_view("builder")
+            self.show_view("map")
             return True
         if ctrl and keyval == Gdk.KEY_comma:
             self.open_settings()
@@ -1039,14 +1184,15 @@ class AiManager(Gtk.Application):
     def open(self):
         # Another monitor may allow less: clamp the saved size again.
         self.resize_to(self.card_w, self.list_h)
-        self.refresh_agents()
+        self.collect()
+        self.refresh_overview()
+        self.refresh_map()
         self.move_to(self.position)
         self.window.present()
         self.layer_watch.start()
         # Restarted after a language change: back on the settings page.
         view = os.environ.pop("AI_MANAGER_VIEW", "")
         if view in ai_core.VIEWS:
-            self.view = view
             self.show_view(view, save=False)
         if os.environ.pop("AI_MANAGER_PAGE", "") == "settings":
             GLib.idle_add(self.open_settings)

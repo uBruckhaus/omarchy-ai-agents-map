@@ -19,7 +19,7 @@ import i18n
 
 SETTINGS_MAX_BYTES = 256 * 1024
 MIN_WINDOW_SIZE = (420, 320)   # the card's width and its page height, logical px
-VIEWS = ("main", "builder")    # the two main views; "settings" is a sub-page
+VIEWS = ("main", "map")    # the two main views; "settings" is a sub-page
 
 
 def settings_file() -> Path:
@@ -101,13 +101,15 @@ def save_window_position(position, path: Path | None = None) -> None:
 
 
 def start_view(path: Path | None = None) -> str:
-    """The view the popup opens on: "main", "builder" or "last"."""
+    """The view the popup opens on: "main", "map" or "last"."""
     value = load_settings(path).get("start_view")
+    value = "map" if value == "builder" else value   # the Map replaced the Builder placeholder
     return value if value in (*VIEWS, "last") else "main"
 
 
 def last_view(path: Path | None = None) -> str:
     value = load_settings(path).get("last_view")
+    value = "map" if value == "builder" else value
     return value if value in VIEWS else "main"
 
 

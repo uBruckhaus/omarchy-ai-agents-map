@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "author": "Uwe Bruckhaus",
   "license": "MIT",
-  "description": "Your AI tools in one popup: an AI Manager view and a Builder view, movable and resizable, in 8 languages.",
+  "description": "An easy overview of the AI setup on this computer: coding agents with plan, limits and usage, local LLMs (llama.cpp, Ollama, LM Studio, vLLM) and the models they serve, MCP servers and skills, as cards or drawn as a map. Reads only, starts nothing. 8 languages.",
   "kinds": [
     "bar-widget"
   ],
