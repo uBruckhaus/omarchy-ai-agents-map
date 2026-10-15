@@ -10,8 +10,10 @@ size-dependent header double-click.
 
 import colorsys
 import os
+import datetime as dt
 import signal
 import sys
+import threading
 import time
 
 # GTK4 layer shell must load before GTK's Wayland client library. The Python
@@ -40,11 +42,12 @@ else:
 
 import atexit
 
+import agent_details
 import agents
 import ai_core
 import i18n
 import pidfile
-from i18n import _
+from i18n import _, ngettext
 from layer_watch import LayerWatch
 from palette import ThemePalette
 
@@ -54,8 +57,8 @@ CARD_WIDTH = 420
 LIST_HEIGHT = 590
 SCREEN_MARGIN = 120    # space kept free above and below the card
 CURSOR_SLACK = 24      # px the pointer may move after opening before the keyboard is released
-AGENT_TILE_WIDTH = 180   # minimum width of one agent card
 AGENT_SPACING = 8
+DETAIL_LABEL_WIDTH = 90   # the dim labels in an opened agent card
 VIEW_TITLES = {"main": "AI Manager", "builder": "Builder"}   # names, not translated
 
 
@@ -71,6 +74,33 @@ def cleanup_pid():
         pidfile.remove_if_own()
     except OSError:
         pass
+
+
+def short_number(n: int) -> str:
+    """36835328 -> "36.8M"."""
+    for size, suffix in ((1_000_000_000, "B"), (1_000_000, "M"), (1_000, "k")):
+        if n >= size:
+            return f"{n / size:.1f}".rstrip("0").rstrip(".") + suffix
+    return str(n)
+
+
+def when(moment, future: bool = False) -> str:
+    """A time in words: "today 14:18", "yesterday 09:02", "Mon 14:00", "2026-10-03"."""
+    if moment is None:
+        return ""
+    if moment.tzinfo is not None:
+        moment = moment.astimezone().replace(tzinfo=None)
+    days = (moment.date() - dt.date.today()).days
+    clock = moment.strftime("%H:%M")
+    if days == 0:
+        return _("today {0}").format(clock)
+    if days == -1:
+        return _("yesterday {0}").format(clock)
+    if days == 1:
+        return _("tomorrow {0}").format(clock)
+    if future and 1 < days < 7:
+        return moment.strftime("%a ") + clock
+    return moment.strftime("%Y-%m-%d")
 
 
 def monitor_height() -> int:
@@ -90,17 +120,19 @@ class AiManager(Gtk.Application):
         self.window = None
         self.theme = ThemePalette()
         self.style_provider = None
-        self.cursor_watch = 0
         # Omarchy's menus (Super + Space, …) open underneath this popup: close for them.
         self.layer_watch = LayerWatch("ai-manager", self.on_menu_opened)
         self.position = ai_core.window_position()   # None: centred
         self.card_w, self.list_h = ai_core.window_size() or (CARD_WIDTH, LIST_HEIGHT)
-        self.move_start = ((0, 0), None)
-        self.moving = False
-        self.resize_start = None
+        self.drag_mode = None       # "move" or "resize" while the header or grip is dragged
+        self.drag_start = None
+        self.resized_at = 0.0
         self.scrollers = []        # every page's scroller follows the page height
         self.view = ai_core.last_view() if ai_core.start_view() == "last" else ai_core.start_view()
         self.settings_ready = False
+        self.expanded = set()      # commands of the agent cards shown with their details
+        self.refreshing = set()    # commands whose usage Omarchy is collecting right now
+        self.detail_boxes = {}     # command -> details box of the card on screen
 
     def do_shutdown(self):
         cleanup_pid()
@@ -132,17 +164,40 @@ class AiManager(Gtk.Application):
         Gtk4LayerShell.set_namespace(window, "ai-manager")
         Gtk4LayerShell.set_layer(window, Gtk4LayerShell.Layer.OVERLAY)
         Gtk4LayerShell.set_keyboard_mode(window, Gtk4LayerShell.KeyboardMode.ON_DEMAND)
-        # No anchors: the surface is only the card, so the rest of the screen
-        # stays usable. -1: margins are measured from the monitor's corner.
-        Gtk4LayerShell.set_exclusive_zone(window, -1)
+        # Full screen and transparent like App Manager: a click beside the card
+        # closes it, and so does focus moving elsewhere. The card itself sits
+        # on top, centred or where it was moved to.
+        for edge in (Gtk4LayerShell.Edge.TOP, Gtk4LayerShell.Edge.BOTTOM,
+                     Gtk4LayerShell.Edge.LEFT, Gtk4LayerShell.Edge.RIGHT):
+            Gtk4LayerShell.set_anchor(window, edge, True)
+        Gtk4LayerShell.set_exclusive_zone(window, 0)
         self.window = window
+
+        overlay = Gtk.Overlay()
+        overlay.set_hexpand(True)
+        overlay.set_vexpand(True)
+        overlay.set_child(Gtk.Box(hexpand=True, vexpand=True))
+        window.set_child(overlay)
+        self.overlay = overlay
+        click = Gtk.GestureClick()
+        click.connect("released", self.on_overlay_click)  # on release, so the bar never sees half a click
+        overlay.add_controller(click)
+        # Moving (header) and resizing (grip) are tracked on the overlay, which
+        # never moves, so the pointer's way is exact.
+        dragger = Gtk.GestureDrag()
+        dragger.connect("drag-begin", self.on_drag_begin)
+        dragger.connect("drag-update", self.on_drag_update)
+        dragger.connect("drag-end", self.on_drag_end)
+        overlay.add_controller(dragger)
+        window.connect("notify::is-active", self.on_active_changed)
 
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         card.add_css_class("am-card")
         frame = Gtk.Overlay()
         frame.set_child(card)
-        window.set_child(frame)
+        overlay.add_overlay(frame)
         self.card = card
+        self.card_frame = frame
         # Resize grip in the bottom-right corner (a layer surface has no frame).
         grip = Gtk.Image.new_from_icon_name("pan-down-symbolic")
         grip.add_css_class("am-grip")
@@ -151,12 +206,8 @@ class AiManager(Gtk.Application):
         grip.set_valign(Gtk.Align.END)
         grip.set_cursor_from_name("se-resize")
         grip.set_tooltip_text(_("Drag to resize · double-click for the default size"))
-        sizer = Gtk.GestureDrag()
-        sizer.connect("drag-begin", self.on_resize_begin)
-        sizer.connect("drag-update", self.on_resize_update)
-        sizer.connect("drag-end", self.on_resize_end)
-        grip.add_controller(sizer)
         frame.add_overlay(grip)
+        self.grip = grip
         self.list_h = max(ai_core.MIN_WINDOW_SIZE[1], min(self.list_h, monitor_height() - 2 * SCREEN_MARGIN))
 
         card.append(self.build_header())
@@ -186,6 +237,7 @@ class AiManager(Gtk.Application):
 
     def build_header(self) -> Gtk.Widget:
         header = Gtk.Box(spacing=8)
+        self.header = header
         title = Gtk.Label(label="AI Manager", xalign=0)
         title.add_css_class("am-title")
         title.set_ellipsize(Pango.EllipsizeMode.END)
@@ -211,11 +263,7 @@ class AiManager(Gtk.Application):
         right_clicks.connect("pressed", lambda _g, count, _x, _y: count == 2
                              and self.on_header_double_click(Gdk.BUTTON_SECONDARY))
         header.add_controller(right_clicks)
-        mover = Gtk.GestureDrag()
-        mover.connect("drag-begin", self.on_move_begin)
-        mover.connect("drag-update", self.on_move_update)
-        mover.connect("drag-end", self.on_move_end)
-        header.add_controller(mover)
+        # Left drag / double-click: on_drag_begin (the overlay sees them).
 
         # The two views, as a pair of flat toggle buttons.
         self.view_buttons = {}
@@ -274,22 +322,17 @@ class AiManager(Gtk.Application):
     def build_main_page(self) -> Gtk.Widget:
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         page.append(self.view_heading(_("Agents")))
-        self.agents_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.agents_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=AGENT_SPACING)
         self.agents_box.add_css_class("am-agents")
-        self.agent_grids = []
         page.append(self.page_scroller(self.agents_box))
         return page
-
-    def grid_columns(self) -> int:
-        """Agent cards per row: as many as fit the card's inside (17 px padding each side)."""
-        return max(1, (self.card_w - 34 + AGENT_SPACING) // (AGENT_TILE_WIDTH + AGENT_SPACING))
 
     def refresh_agents(self):
         """Rebuild the agent cards (file system only, nothing is started)."""
         box = self.agents_box
         while (child := box.get_first_child()) is not None:
             box.remove(child)
-        self.agent_grids = []
+        self.detail_boxes = {}
         found = agents.list_agents()
         installed = [a for a in found if a.installed]
         missing = [a for a in found if not a.installed]
@@ -300,30 +343,23 @@ class AiManager(Gtk.Application):
             heading = Gtk.Label(label=title.upper(), xalign=0)
             heading.add_css_class("am-group-heading")
             box.append(heading)
-            grid = Gtk.FlowBox()
-            grid.set_selection_mode(Gtk.SelectionMode.NONE)
-            grid.set_homogeneous(True)
-            grid.set_row_spacing(AGENT_SPACING)
-            grid.set_column_spacing(AGENT_SPACING)
-            grid.set_valign(Gtk.Align.START)
-            grid.set_min_children_per_line(self.grid_columns())
-            grid.set_max_children_per_line(self.grid_columns())
             for agent in group:
-                grid.append(self.build_agent_card(agent))
-            box.append(grid)
-            self.agent_grids.append(grid)
+                box.append(self.build_agent_card(agent))
 
     def build_agent_card(self, agent) -> Gtk.Widget:
-        card = Gtk.Box(spacing=10)
+        """One agent: icon, name, version; a click shows or hides its details."""
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         card.add_css_class("am-agent")
         if not agent.installed:
             card.add_css_class("am-agent-missing")
+        top = Gtk.Box(spacing=10)
+        top.set_cursor_from_name("pointer")
         icon = Gtk.Label(label=agent.icon)
         icon.add_css_class("am-agent-icon")
         if agent.icon_font == "omarchy":
             icon.add_css_class("am-agent-icon-omarchy")
         icon.set_valign(Gtk.Align.CENTER)
-        card.append(icon)
+        top.append(icon)
         text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         text.set_hexpand(True)
         text.set_valign(Gtk.Align.CENTER)
@@ -349,16 +385,172 @@ class AiManager(Gtk.Application):
         detail.set_hexpand(True)
         line.append(detail)
         text.append(line)
-        card.append(text)
-        source = {"mise": _("installed with mise"), "package": _("installed as a package"),
-                  "own": _("your own install")}.get(agent.source, "")
-        tip = _("Command: {0}").format(agent.command)
-        if agent.version:
-            tip += " · " + agent.version
-        if source:
-            tip += " · " + source
-        card.set_tooltip_text(tip)
+        top.append(text)
+        expanded = agent.command in self.expanded
+        chevron = Gtk.Image.new_from_icon_name("pan-up-symbolic" if expanded else "pan-down-symbolic")
+        chevron.add_css_class("am-agent-chevron")
+        chevron.set_valign(Gtk.Align.CENTER)
+        top.append(chevron)
+        top.set_tooltip_text(_("Click for details"))
+        card.append(top)
+
+        revealer = Gtk.Revealer()
+        revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
+        revealer.set_transition_duration(150)
+        details = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        details.add_css_class("am-agent-details")
+        revealer.set_child(details)
+        card.append(revealer)
+        self.detail_boxes[agent.command] = (details, agent)
+        if expanded:
+            self.fill_details(agent.command)
+            revealer.set_reveal_child(True)
+            if agent.installed and agent_details.usage_is_stale(agent.command):
+                self.refresh_usage(agent.command)
+
+        click = Gtk.GestureClick()
+        click.connect("released", lambda *_: self.toggle_card(agent, revealer, chevron))
+        top.add_controller(click)
         return card
+
+    def toggle_card(self, agent, revealer, chevron):
+        if agent.command in self.expanded:
+            self.expanded.discard(agent.command)
+            revealer.set_reveal_child(False)
+            chevron.set_from_icon_name("pan-down-symbolic")
+            return
+        self.expanded.add(agent.command)
+        self.fill_details(agent.command)
+        revealer.set_reveal_child(True)
+        chevron.set_from_icon_name("pan-up-symbolic")
+        if agent.installed and agent_details.usage_is_stale(agent.command):
+            self.refresh_usage(agent.command)
+
+    def refresh_usage(self, command: str):
+        """Ask Omarchy for fresh usage on a thread; fill the card again after."""
+        if command in self.refreshing:
+            return
+        self.refreshing.add(command)
+        self.fill_details(command)
+
+        def work():
+            agent_details.refresh_usage(command)
+            GLib.idle_add(done)
+
+        def done():
+            self.refreshing.discard(command)
+            self.fill_details(command)
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def fill_details(self, command: str):
+        entry = self.detail_boxes.get(command)
+        if entry is None:
+            return
+        box, agent = entry
+        while (child := box.get_first_child()) is not None:
+            box.remove(child)
+        info = agent_details.details_for(command)
+        grid = Gtk.Grid(column_spacing=10, row_spacing=4)
+        rows = []
+
+        def row(label: str, value: str, tip: str = ""):
+            if value:
+                rows.append((label, value, tip))
+
+        if not agent.installed:
+            row(_("Status"), _("Not installed"),
+                _("Install it from Omarchy's menu: Setup → Defaults → Agent."))
+        row(_("Plan"), info.plan, _("Your subscription, as Omarchy's usage data reports it."))
+        row(_("Model"), info.model, _("The model set in the agent's settings."))
+        for provider in info.providers:
+            parts = [provider.name]
+            if provider.local:
+                parts.append(_("local · {0}").format(provider.runtime) if provider.runtime else _("local"))
+            if provider.models:
+                parts.append(ngettext("1 model", "{0} models", provider.models).format(provider.models))
+            row(_("Provider"), " · ".join(parts))
+        if info.today_prompts is not None or info.today_tokens is not None:
+            today = []
+            if info.today_prompts is not None:
+                today.append(ngettext("1 prompt", "{0} prompts", info.today_prompts).format(info.today_prompts))
+            if info.today_sessions is not None:
+                today.append(ngettext("1 session", "{0} sessions", info.today_sessions).format(info.today_sessions))
+            if info.today_tokens:
+                today.append(_("{0} tokens").format(short_number(info.today_tokens)))
+            row(_("Today"), " · ".join(today))
+        if info.total_sessions:
+            total = ngettext("1 session", "{0} sessions", info.total_sessions).format(info.total_sessions)
+            if info.active_days:
+                total += " · " + ngettext("1 active day", "{0} active days", info.active_days).format(info.active_days)
+            row(_("In total"), total)
+        if agent.installed:
+            row(_("Last used"), when(info.last_used))
+            source = {"mise": _("with mise"), "package": _("as a package"),
+                      "own": _("your own install")}.get(agent.source, "")
+            row(_("Installed"), " · ".join(x for x in (source, agent.version) if x))
+        row(_("Command"), agent.command)
+        row(_("Settings"), info.config_dir)
+
+        for index, (label, value, tip) in enumerate(rows):
+            name = Gtk.Label(label=label, xalign=0, yalign=0)
+            name.add_css_class("am-line-label")
+            name.set_size_request(DETAIL_LABEL_WIDTH, -1)
+            text = Gtk.Label(label=value, xalign=0, wrap=True, max_width_chars=1, hexpand=True)
+            text.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            text.add_css_class("am-detail-value")
+            text.set_selectable(False)
+            if tip:
+                name.set_tooltip_text(tip)
+                text.set_tooltip_text(tip)
+            grid.attach(name, 0, index, 1, 1)
+            grid.attach(text, 1, index, 1, 1)
+        box.append(grid)
+
+        if info.limits:
+            heading = Gtk.Label(label=_("Limits").upper(), xalign=0)
+            heading.add_css_class("am-group-heading")
+            box.append(heading)
+            for limit in info.limits:
+                box.append(self.limit_row(limit))
+        status = ""
+        if command in self.refreshing:
+            status = _("Updating usage…")
+        elif info.usage_updated is not None:
+            status = _("Usage from Omarchy, updated {0}").format(when(info.usage_updated))
+        if info.usage_note and command not in self.refreshing:
+            status = " · ".join(x for x in (status, info.usage_note) if x)
+        if status:
+            note = Gtk.Label(label=status, xalign=0, wrap=True, max_width_chars=1)
+            note.add_css_class("am-agent-detail")
+            box.append(note)
+
+    def limit_row(self, limit) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        top = Gtk.Box(spacing=8)
+        label = Gtk.Label(label=limit.label, xalign=0, hexpand=True)
+        label.set_ellipsize(Pango.EllipsizeMode.END)
+        label.set_max_width_chars(1)
+        label.add_css_class("am-detail-value")
+        top.append(label)
+        value = _("{0} %").format(round(limit.percent * 100))
+        if limit.resets_at is not None and limit.resets_at > dt.datetime.now(dt.timezone.utc):
+            value += " · " + _("resets {0}").format(when(limit.resets_at, future=True))
+        right = Gtk.Label(label=value, xalign=1)
+        right.add_css_class("am-agent-detail")
+        top.append(right)
+        box.append(top)
+        bar = Gtk.LevelBar(min_value=0, max_value=1, value=limit.percent)
+        bar.add_css_class("am-limit")
+        for name in ("low", "high", "full"):
+            bar.remove_offset_value(name)
+        bar.add_offset_value("am-ok", 0.5)
+        bar.add_offset_value("am-warn", 0.75)
+        bar.add_offset_value("am-hot", 0.9)
+        bar.add_offset_value("am-full", 1.0)
+        box.append(bar)
+        return box
 
     def build_builder_page(self) -> Gtk.Widget:
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -529,8 +721,10 @@ class AiManager(Gtk.Application):
     # --- size ----------------------------------------------------------------------
 
     def size_limits(self) -> tuple[int, int]:
-        geo = self.monitor_geometry() if self.window is not None else None
-        width = geo.width if geo is not None else 1920
+        width = self.window.get_width() if self.window is not None else 0
+        if width <= 0:
+            geo = self.monitor_geometry() if self.window is not None else None
+            width = geo.width if geo is not None else 1920
         return (max(CARD_WIDTH, width - 80),
                 max(ai_core.MIN_WINDOW_SIZE[1], monitor_height() - 2 * SCREEN_MARGIN))
 
@@ -545,9 +739,6 @@ class AiManager(Gtk.Application):
             scroller.set_max_content_height(100000)
             scroller.set_min_content_height(self.list_h)
             scroller.set_max_content_height(self.list_h)
-        for grid in getattr(self, "agent_grids", []):
-            grid.set_min_children_per_line(self.grid_columns())
-            grid.set_max_children_per_line(self.grid_columns())
         if self.window is not None:
             # A layer surface does not shrink by itself once content gets smaller.
             self.window.set_default_size(1, 1)
@@ -576,6 +767,7 @@ class AiManager(Gtk.Application):
         else:
             self.resize_to(*self.size_limits(), save=True)
         self.move_to(None, save=True)
+        self.resized_at = time.monotonic()
 
     def update_mouse_hint(self):
         if getattr(self, "mouse_hint", None) is None:
@@ -585,37 +777,6 @@ class AiManager(Gtk.Application):
                                   _("Double-click: default size") if size == "max" else
                                   _("Double-click: default size · right double-click: maximize"))
         self.mouse_hint.set_tooltip_text(self.mouse_hint.get_label())
-
-    def on_resize_begin(self, _gesture, _x, _y):
-        # A second press on the grip within the double-click time: default size.
-        now = time.monotonic()
-        if now - getattr(self, "last_grip_press", 0.0) < 0.4:
-            self.last_grip_press = 0.0
-            self.resize_start = None
-            self.resize_to(CARD_WIDTH, LIST_HEIGHT, save=True)
-            return
-        self.last_grip_press = now
-        if self.position is None:
-            # Centred: pin the top-left corner, so the card grows right and down.
-            self.move_to(self.current_position())
-        self.resize_start = ((self.card_w, self.list_h), ai_core.cursor_position())
-
-    def on_resize_update(self, _gesture, dx, dy):
-        if self.resize_start is None:
-            return
-        (width, height), cursor_start = self.resize_start
-        cursor = ai_core.cursor_position() if cursor_start is not None else None
-        if cursor is not None:
-            dx, dy = cursor[0] - cursor_start[0], cursor[1] - cursor_start[1]
-        self.resize_to(width + round(dx), height + round(dy))
-
-    def on_resize_end(self, _gesture, _dx, _dy):
-        if self.resize_start is None:
-            return
-        self.resize_start = None
-        self.resize_to(self.card_w, self.list_h, save=True)
-        if self.position is not None:
-            self.move_to(self.position, save=True)
 
     # --- moving ------------------------------------------------------------------
 
@@ -628,66 +789,114 @@ class AiManager(Gtk.Application):
         return monitor.get_geometry() if monitor is not None else None
 
     def current_position(self) -> tuple[int, int]:
+        """Top-left of the card in the overlay."""
         if self.position is not None:
             return self.position
-        geo = self.monitor_geometry()
-        if geo is None:
-            return 0, 0
-        return (max(0, (geo.width - self.window.get_width()) // 2),
-                max(0, (geo.height - self.window.get_height()) // 2))
+        ok, bounds = self.card_frame.compute_bounds(self.overlay)
+        return (round(bounds.get_x()), round(bounds.get_y())) if ok else (0, 0)
 
     def move_to(self, position, save: bool = False):
-        """Place the card's top-left at `position` (monitor-relative, kept on
-        screen), or centre it for None."""
+        """Place the card's top-left at `position` (kept on screen), or centre it for None."""
+        frame = self.card_frame
         if position is not None:
-            geo = self.monitor_geometry()
-            if geo is not None:
-                position = (min(max(0, int(position[0])), max(0, geo.width - self.window.get_width())),
-                            min(max(0, int(position[1])), max(0, geo.height - self.window.get_height())))
+            width, height = self.overlay.get_width(), self.overlay.get_height()
+            frame_w, frame_h = frame.get_width(), frame.get_height()
+            if width > 0 and height > 0:
+                position = (min(max(0, int(position[0])), max(0, width - frame_w)),
+                            min(max(0, int(position[1])), max(0, height - frame_h)))
         self.position = position
-        for edge in (Gtk4LayerShell.Edge.TOP, Gtk4LayerShell.Edge.LEFT):
-            Gtk4LayerShell.set_anchor(self.window, edge, position is not None)
-        if position is not None:
-            Gtk4LayerShell.set_margin(self.window, Gtk4LayerShell.Edge.LEFT, position[0])
-            Gtk4LayerShell.set_margin(self.window, Gtk4LayerShell.Edge.TOP, position[1])
+        if position is None:
+            frame.set_halign(Gtk.Align.CENTER)
+            frame.set_valign(Gtk.Align.CENTER)
+            frame.set_margin_start(0)
+            frame.set_margin_top(0)
+        else:
+            frame.set_halign(Gtk.Align.START)
+            frame.set_valign(Gtk.Align.START)
+            frame.set_margin_start(position[0])
+            frame.set_margin_top(position[1])
         if save:
             try:
                 ai_core.save_window_position(position)
             except OSError:
                 pass
 
-    def on_move_begin(self, _gesture, _x, _y):
-        # Seen here rather than by a click gesture, which the drag can win:
-        # a second press within the double-click time.
-        now = time.monotonic()
-        if now - getattr(self, "last_header_press", 0.0) < 0.4:
-            self.last_header_press = 0.0
-            self.moving = False
-            self.on_header_double_click(Gdk.BUTTON_PRIMARY)
-            return
-        self.last_header_press = now
-        self.moving = True
-        self.move_start = (self.current_position(), ai_core.cursor_position())
+    def inside(self, widget, ancestor) -> bool:
+        return widget is not None and (widget == ancestor or widget.is_ancestor(ancestor))
 
-    def on_move_update(self, _gesture, dx, dy):
-        if not self.moving:
-            return
-        # The gesture's offsets are relative to the surface, which moves with
-        # the pointer; Hyprland's global cursor position does not drift.
-        (x, y), cursor_start = self.move_start
-        cursor = ai_core.cursor_position() if cursor_start is not None else None
-        if cursor is not None:
-            dx, dy = cursor[0] - cursor_start[0], cursor[1] - cursor_start[1]
+    def on_drag_begin(self, gesture, x, y):
+        """A press on the grip resizes, on the header (not a button) moves the
+        card; anything else is not ours. A second press within 0.4 s is a
+        double-click."""
+        picked = self.overlay.pick(x, y, Gtk.PickFlags.DEFAULT)
+        if self.inside(picked, self.grip):
+            mode = "resize"
+        elif self.inside(picked, self.header) and not self.on_button(picked):
+            mode = "move"
         else:
-            x, y = self.current_position()
-        self.move_to((x + round(dx), y + round(dy)))
-
-    def on_move_end(self, _gesture, _dx, _dy):
-        if not self.moving:
+            gesture.set_state(Gtk.EventSequenceState.DENIED)
+            self.drag_mode = None
             return
-        self.moving = False
-        if self.position is not None:
+        now = time.monotonic()
+        last_mode, last_time = getattr(self, "last_press", (None, 0.0))
+        self.last_press = (mode, now)
+        if last_mode == mode and now - last_time < 0.4:
+            self.last_press = (None, 0.0)
+            self.drag_mode = None
+            if mode == "resize":
+                self.resize_to(CARD_WIDTH, LIST_HEIGHT, save=True)
+            else:
+                self.on_header_double_click(Gdk.BUTTON_PRIMARY)
+            self.resized_at = now
+            return
+        if mode == "resize" and self.position is None:
+            # Centred: pin the top-left corner, so the card grows right and down.
+            self.move_to(self.current_position())
+        self.drag_mode = mode
+        self.drag_start = (self.current_position(), (self.card_w, self.list_h))
+
+    def on_button(self, widget) -> bool:
+        while widget is not None and widget != self.header:
+            if isinstance(widget, Gtk.Button):
+                return True
+            widget = widget.get_parent()
+        return False
+
+    def on_drag_update(self, _gesture, dx, dy):
+        if self.drag_mode is None or self.drag_start is None:
+            return
+        (x, y), (width, height) = self.drag_start
+        if self.drag_mode == "move":
+            self.move_to((x + round(dx), y + round(dy)))
+        else:
+            self.resize_to(width + round(dx), height + round(dy))
+
+    def on_drag_end(self, _gesture, dx, dy):
+        mode, self.drag_mode = self.drag_mode, None
+        if mode is None:
+            return
+        if abs(dx) + abs(dy) > 2:
+            self.resized_at = time.monotonic()   # not a click beside the card
+        if mode == "resize":
+            self.resize_to(self.card_w, self.list_h, save=True)
+        if self.position is not None and abs(dx) + abs(dy) > 2:
             self.move_to(self.position, save=True)
+
+    def on_overlay_click(self, _gesture, _count, x, y):
+        if self.drag_mode is not None or time.monotonic() < self.resized_at + 0.3:
+            return   # the end of a move or resize, not a click beside the card
+        picked = self.overlay.pick(x, y, Gtk.PickFlags.DEFAULT)
+        if not self.inside(picked, self.card_frame):
+            self.close()
+
+    def on_active_changed(self, window, _property):
+        if window.get_visible() and not window.is_active():
+            GLib.timeout_add(100, self.close_if_inactive)
+
+    def close_if_inactive(self):
+        if self.window.get_visible() and not self.window.is_active() and self.drag_mode is None:
+            self.close()
+        return False
 
     # --- theme ---------------------------------------------------------------------
 
@@ -714,6 +923,10 @@ class AiManager(Gtk.Application):
         fg_hex = colors.get("foreground", "#cdd6f4")
         muted_hex = colors.get("muted", "#888894")
         accent_hex = colors.get("accent", "#89b4fa")
+        green_hex = colors.get("green", "#a6e3a1")
+        yellow_hex = colors.get("yellow", "#f9e2af")
+        orange_hex = colors.get("orange", "#fab387")
+        red_hex = colors.get("red", "#f04452")
         # The settings labels' grey in the QML plugins: Qt.darker(foreground, 1.45).
         try:
             r, g, b = (int(fg_hex.lstrip("#")[i:i + 2], 16) / 255 for i in (0, 2, 4))
@@ -767,6 +980,20 @@ class AiManager(Gtk.Application):
         .am-agent-detail {{ font-size: 11px; color: {dim_hex}; }}
         .am-agent-badge {{ font-size: 10px; font-weight: 600; color: {bg_hex}; background: {accent_hex};
             border-radius: 4px; padding: 0 5px; }}
+        .am-agent {{ padding: 0; }}
+        .am-agent > box:first-child {{ padding: 10px 12px; }}
+        .am-agent-chevron {{ color: {muted_hex}; }}
+        .am-agent-details {{ padding: 2px 12px 12px 50px; }}
+        .am-card label.am-detail-value {{ font-size: 12px; }}
+        levelbar.am-limit trough {{ min-height: 5px; background: alpha({fg_hex}, 0.10); border: none;
+            border-radius: 3px; padding: 0; }}
+        levelbar.am-limit block {{ min-height: 5px; border-radius: 3px; border: none; }}
+        levelbar.am-limit block.filled {{ background: {accent_hex}; }}
+        levelbar.am-limit block.am-ok {{ background: {green_hex}; }}
+        levelbar.am-limit block.am-warn {{ background: {yellow_hex}; }}
+        levelbar.am-limit block.am-hot {{ background: {orange_hex}; }}
+        levelbar.am-limit block.am-full {{ background: {red_hex}; }}
+        levelbar.am-limit block.empty {{ background: transparent; }}
         .am-canvas {{ border: 1px dashed alpha({fg_hex}, 0.25); border-radius: {radius}px; padding: 12px; }}
         """
         provider = Gtk.CssProvider()
@@ -813,7 +1040,6 @@ class AiManager(Gtk.Application):
         # Another monitor may allow less: clamp the saved size again.
         self.resize_to(self.card_w, self.list_h)
         self.refresh_agents()
-        self.grab_keyboard()
         self.move_to(self.position)
         self.window.present()
         self.layer_watch.start()
@@ -825,34 +1051,6 @@ class AiManager(Gtk.Application):
         if os.environ.pop("AI_MANAGER_PAGE", "") == "settings":
             GLib.idle_add(self.open_settings)
 
-    def grab_keyboard(self):
-        """Take the keyboard on open, and give it back as soon as the pointer
-        moves away (ON_DEMAND afterwards, so other windows still get keys)."""
-        Gtk4LayerShell.set_keyboard_mode(self.window, Gtk4LayerShell.KeyboardMode.EXCLUSIVE)
-        if self.cursor_watch:
-            GLib.source_remove(self.cursor_watch)
-        start = ai_core.cursor_position()
-
-        def watch():
-            if not self.window.is_visible():
-                self.cursor_watch = 0
-                return False
-            now = ai_core.cursor_position()
-            if start is None or now is None or \
-                    abs(now[0] - start[0]) + abs(now[1] - start[1]) > CURSOR_SLACK:
-                self.cursor_watch = 0
-                self.release_keyboard()
-                return False
-            return True
-
-        self.cursor_watch = GLib.timeout_add(200, watch)
-
-    def release_keyboard(self):
-        if self.cursor_watch:
-            GLib.source_remove(self.cursor_watch)
-            self.cursor_watch = 0
-        Gtk4LayerShell.set_keyboard_mode(self.window, Gtk4LayerShell.KeyboardMode.ON_DEMAND)
-
     def on_menu_opened(self, _name):
         """Another menu wants the keyboard: get out of its way at once."""
         if self.window is not None and self.window.is_visible():
@@ -860,7 +1058,7 @@ class AiManager(Gtk.Application):
 
     def close(self):
         self.layer_watch.stop()
-        self.release_keyboard()
+        self.drag_mode = None
         if self.stack.get_visible_child_name() == "settings":
             self.close_settings()   # never reopen onto the settings page
         self.window.hide()

@@ -27,6 +27,10 @@ class I18nTest(unittest.TestCase):
     def test_placeholders_match(self):
         for code, table in i18n.STRINGS.items():
             for key, value in table.items():
+                if isinstance(value, list):   # plural forms: any of them may drop the count ("1 model")
+                    for form in value:
+                        self.assertLessEqual(set(re.findall(r"\{\d+\}", form)), {"{0}"}, (code, key))
+                    continue
                 self.assertEqual(sorted(re.findall(r"\{\d+\}", key)), sorted(re.findall(r"\{\d+\}", value)),
                                  (code, key))
 
