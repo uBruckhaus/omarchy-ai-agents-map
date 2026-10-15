@@ -1,4 +1,4 @@
-# AI Manager
+# AI Agents Map
 
 An easy overview of the AI setup on this computer: which coding agents are installed, which LLMs
 they use (cloud services and local runtimes) and the models those serve, which MCP servers and
@@ -25,12 +25,12 @@ skills each agent has. For people new to it as much as for checking your own set
 
 ## What is read
 
-Nothing is started and nothing is sent: AI Manager reads the agents' settings files, mise's install
+Nothing is started and nothing is sent: AI Agents Map reads the agents' settings files, mise's install
 folders, the pacman database, user services (`~/.config/systemd/user`), model folders and this
 user's processes. It takes only names, model ids, folders and local addresses from those files,
 never keys, tokens, environment values or headers, and it does not open credential files. The only
 outside data is Omarchy's usage record (`omarchy agent usage update`, which Omarchy's own agents
-panel runs too); AI Manager asks for it when you open an agent card whose record is older than
+panel runs too); AI Agents Map asks for it when you open an agent card whose record is older than
 ten minutes.
 
 ## Using the popup

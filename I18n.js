@@ -83,7 +83,7 @@ var STRINGS = {
       "backTip": "Back (Backspace, Esc)",
       "language": "Language",
       "systemLanguage": "System ({0})",
-      "tip": "AI Manager"
+      "tip": "AI Agents Map"
   },
   de: {
       "settings": "Einstellungen",
@@ -91,7 +91,7 @@ var STRINGS = {
       "backTip": "Zurück (Rücktaste, Esc)",
       "language": "Sprache",
       "systemLanguage": "System ({0})",
-      "tip": "AI Manager"
+      "tip": "AI Agents Map"
   },
   fr: {
       "settings": "Réglages",
@@ -99,7 +99,7 @@ var STRINGS = {
       "backTip": "Retour (Retour arrière, Échap)",
       "language": "Langue",
       "systemLanguage": "Système ({0})",
-      "tip": "AI Manager"
+      "tip": "AI Agents Map"
   },
   es: {
       "settings": "Ajustes",
@@ -107,7 +107,7 @@ var STRINGS = {
       "backTip": "Atrás (Retroceso, Esc)",
       "language": "Idioma",
       "systemLanguage": "Sistema ({0})",
-      "tip": "AI Manager"
+      "tip": "AI Agents Map"
   },
   it: {
       "settings": "Impostazioni",
@@ -115,7 +115,7 @@ var STRINGS = {
       "backTip": "Indietro (Backspace, Esc)",
       "language": "Lingua",
       "systemLanguage": "Sistema ({0})",
-      "tip": "AI Manager"
+      "tip": "AI Agents Map"
   },
   pt: {
       "settings": "Configurações",
@@ -123,7 +123,7 @@ var STRINGS = {
       "backTip": "Voltar (Backspace, Esc)",
       "language": "Idioma",
       "systemLanguage": "Sistema ({0})",
-      "tip": "AI Manager"
+      "tip": "AI Agents Map"
   },
   nl: {
       "settings": "Instellingen",
@@ -131,7 +131,7 @@ var STRINGS = {
       "backTip": "Terug (Backspace, Esc)",
       "language": "Taal",
       "systemLanguage": "Systeem ({0})",
-      "tip": "AI Manager"
+      "tip": "AI Agents Map"
   },
   pl: {
       "settings": "Ustawienia",
@@ -139,6 +139,6 @@ var STRINGS = {
       "backTip": "Wstecz (Backspace, Esc)",
       "language": "Język",
       "systemLanguage": "Systemowy ({0})",
-      "tip": "AI Manager"
+      "tip": "AI Agents Map"
   }
 }

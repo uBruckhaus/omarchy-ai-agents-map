@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# AI Manager - Toggle script
+# AI Agents Map - Toggle script
 #
-# Singleton toggle for the AI Manager popup. The popup is a long-lived
+# Singleton toggle for the AI Agents Map popup. The popup is a long-lived
 # GTK4 Wayland layer-shell window that is hidden and re-shown, so it stays
 # one process. If it exits, its PID file is stale and the next toggle starts
 # a fresh one.

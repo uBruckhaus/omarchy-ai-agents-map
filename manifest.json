@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "ubruckhaus.ai-manager",
-  "name": "AI Manager",
+  "name": "AI Agents Map",
   "version": "0.1.0",
   "author": "Uwe Bruckhaus",
   "license": "MIT",
@@ -14,8 +14,8 @@
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "AI Manager",
-    "description": "Toggle AI Manager",
+    "displayName": "AI Agents Map",
+    "description": "Toggle AI Agents Map",
     "category": "Utilities",
     "allowMultiple": false,
     "defaultSection": "right"

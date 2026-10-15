@@ -13,7 +13,7 @@ BarWidget {
   readonly property string togglePath: Qt.resolvedUrl("ai-manager-toggle").toString().replace(/^file:\/\//, "")
   readonly property string settingsPath: Quickshell.env("HOME") + "/.config/omarchy/ai-manager/settings.json"
 
-  // Interface language: the one picked in AI Manager's settings, else the system's.
+  // Interface language: the one picked in AI Agents Map's settings, else the system's.
   property string languageSetting: "auto"
   readonly property string systemLang: I18n.systemLanguage(Quickshell.env("LC_ALL"), Quickshell.env("LC_MESSAGES"), Quickshell.env("LANG"))
   readonly property string lang: I18n.resolve(languageSetting, systemLang)

@@ -1,4 +1,4 @@
-"""AI Manager - settings and small helpers shared by the popup.
+"""AI Agents Map - settings and small helpers shared by the popup.
 
 Settings live in ~/.config/omarchy/ai-manager/settings.json (private, written
 atomically, read with a size cap). Nothing here starts a network request.

@@ -1,4 +1,4 @@
-"""AI Manager - Theme colors from Omarchy."""
+"""AI Agents Map - Theme colors from Omarchy."""
 
 from pathlib import Path
 import tomllib
@@ -17,7 +17,7 @@ DEFAULT_COLORS = {
 
 
 class ThemePalette:
-    """Expose the current Omarchy theme colors to the AI Manager."""
+    """Expose the current Omarchy theme colors to the AI Agents Map."""
 
     def __init__(self):
         self.colors = DEFAULT_COLORS.copy()

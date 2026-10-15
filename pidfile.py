@@ -1,4 +1,4 @@
-"""PID file for the single AI Manager instance, kept in a private per-user directory.
+"""PID file for the single AI Agents Map instance, kept in a private per-user directory.
 
 The record is only ``pid:starttime``. Whoever reads it must still check the
 process against the plugin's own interpreter and script, never against paths

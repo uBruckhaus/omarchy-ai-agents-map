@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AI Manager popup: a Wayland layer-shell card that shows the AI setup of
+"""AI Agents Map popup: a Wayland layer-shell card that shows the AI setup of
 this computer: agents, local LLMs and their models, MCP servers and skills.
 Two views (the overview as cards, and a Map drawn at full size) and a
 settings page.
@@ -165,7 +165,7 @@ class AiManager(Gtk.Application):
             settings.set_property("gtk-enable-primary-paste", False)
         window = Gtk.ApplicationWindow(application=self)
         window.set_decorated(False)
-        window.set_title("AI Manager")
+        window.set_title("AI Agents Map")
         window.set_name("aimanager-window")
         Gtk4LayerShell.init_for_window(window)
         Gtk4LayerShell.set_namespace(window, "ai-manager")
@@ -246,7 +246,7 @@ class AiManager(Gtk.Application):
     def build_header(self) -> Gtk.Widget:
         header = Gtk.Box(spacing=8)
         self.header = header
-        title = Gtk.Label(label="AI Manager", xalign=0)
+        title = Gtk.Label(label="AI Agents Map", xalign=0)
         title.add_css_class("am-title")
         title.set_ellipsize(Pango.EllipsizeMode.END)
         title.set_max_width_chars(30)
@@ -821,13 +821,13 @@ class AiManager(Gtk.Application):
             box.remove(child)
         codes = ["auto"] + [code for code, _name in i18n.LANGUAGES]
         setting = i18n.language_setting()
-        self.setting_line(box, _("Language"), _("AI Manager restarts in the new language."),
+        self.setting_line(box, _("Language"), _("AI Agents Map restarts in the new language."),
                           self.dropdown([_("System ({0})").format(i18n.language_name(i18n.system_language()))]
                                         + [name for _code, name in i18n.LANGUAGES],
                                         codes.index(setting) if setting in codes else 0,
                                         lambda i: self.set_language(codes[i])))
         starts = ["main", "map", "last"]
-        self.setting_line(box, _("Open on"), _("The view shown when AI Manager opens."),
+        self.setting_line(box, _("Open on"), _("The view shown when AI Agents Map opens."),
                           self.dropdown([_("Overview"), _("Map"), _("Last used view")],
                                         starts.index(ai_core.start_view()),
                                         lambda i: self.save_setting(start_view=starts[i],
