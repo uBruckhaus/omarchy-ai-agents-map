@@ -22,6 +22,7 @@ The interface (each implementation provides all of it):
     rounding_source() -> str      who set it: "user", "theme", "default" or "desktop"
     corners_note() -> str         the Corners setting's explanation (translated)
     decorated() -> bool           whether the desktop draws the window's title bar
+    stays_in_background() -> bool whether closing only hides the window (else it quits when nothing runs in it)
     attach_window(window)         the app's Gtk.Window, once it exists
     focus_window(app_id) -> bool  bring the app's window to the front (switching workspaces)
     is_maximized(app_id) -> bool|None

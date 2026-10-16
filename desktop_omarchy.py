@@ -151,6 +151,11 @@ def corners_note() -> str:
              "window rounding.") + " " + origin
 
 
+def stays_in_background() -> bool:
+    """Closing hides the window: the bar icon opens it again at once."""
+    return True
+
+
 def decorated() -> bool:
     return False            # Hyprland draws the border; the header is the app's own
 

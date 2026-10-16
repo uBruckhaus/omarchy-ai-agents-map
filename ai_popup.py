@@ -7078,6 +7078,9 @@ class AgentsMap(Adw.Application):
         elif self.page_name() == "install":
             self.close_install()    # a running install goes on in the background
         self.window.hide()
+        busy = any(pane.running for pane in self.sessions.values()) or bool(self.jobs.active())
+        if not desktop.stays_in_background() and not busy:
+            self.quit()             # other desktops: closing quits, unless agents or downloads still run here
 
 
 def main():

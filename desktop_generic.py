@@ -131,6 +131,11 @@ def corners_note() -> str:
     return _("Your windows have the desktop's rounded corners.")
 
 
+def stays_in_background() -> bool:
+    """Closing quits, as other apps do (unless agents or downloads still run in it)."""
+    return False
+
+
 def decorated() -> bool:
     return True             # the desktop (or GTK) draws the title bar with its buttons
 
