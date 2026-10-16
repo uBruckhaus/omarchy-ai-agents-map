@@ -4880,18 +4880,17 @@ class AgentsMap(Adw.Application):
 
         for area in report.areas:
             self.section_in(body, area.title)
-            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            listbox = self.boxed_list()
             for finding in sorted(area.findings, key=lambda f: {"warn": 0, "hint": 1, "ok": 2}[f.level]):
-                box.append(self.finding_row(finding))
-            body.append(box)
+                listbox.append(self.finding_list_row(finding))
+            body.append(listbox)
 
     def section_in(self, body, title: str):
-        label = Gtk.Label(label=title.upper(), xalign=0)
-        label.add_css_class("am-group-heading")
-        body.append(label)
+        self.settings_heading(body, title)
 
     def use_tile(self, use) -> Gtk.Widget:
         tile = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        tile.add_css_class("card")
         tile.add_css_class("am-use-tile")
         top = Gtk.Box(spacing=8)
         icon = Gtk.Label(label=use.icon)
@@ -4916,6 +4915,20 @@ class AgentsMap(Adw.Application):
         for step in use.steps[:2]:
             tile.append(self.finding_row(step, compact=True))
         return tile
+
+    def finding_list_row(self, finding) -> Adw.ActionRow:
+        """A finding in an area's list: mark, title, what to do, and its action button."""
+        row = self.plain_row(finding.title, finding.text or "")
+        mark = Gtk.Label(label={"ok": "✓", "hint": "→", "warn": "!"}[finding.level])
+        mark.add_css_class("am-finding-mark")
+        mark.add_css_class({"ok": "am-state-ok", "hint": "am-state-hint", "warn": "am-state-missing"}[finding.level])
+        row.add_prefix(mark)
+        label = self.health_action_label(finding.action)
+        if label:
+            button = Gtk.Button(label=label, valign=Gtk.Align.CENTER)
+            button.connect("clicked", lambda *_, a=finding.action: self.health_action(a))
+            row.add_suffix(button)
+        return row
 
     def finding_row(self, finding, compact: bool = False) -> Gtk.Widget:
         row = Gtk.Box(spacing=10)
@@ -6781,8 +6794,7 @@ class AgentsMap(Adw.Application):
         .am-health-ok {{ color: {green_hex}; }}
         .am-health-hint {{ color: {accent_hex}; }}
         .am-health-warn {{ color: {yellow_hex}; }}
-        .am-use-tile {{ padding: 12px; border-radius: {radius}px; background: alpha({fg_hex}, 0.04);
-                        border: 1px solid alpha({fg_hex}, 0.10); }}
+        .am-use-tile {{ padding: 12px; border-radius: {radius}px; }}
         .am-use-icon {{ font-family: "JetBrainsMono Nerd Font", "Symbols Nerd Font", monospace; font-size: 20px;
                         color: {accent_hex}; min-width: 26px; }}
         .am-use-pill {{ font-size: 10px; font-weight: 700; padding: 1px 8px; border-radius: 9px; }}
