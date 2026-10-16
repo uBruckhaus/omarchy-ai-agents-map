@@ -47,7 +47,16 @@ def _default_config() -> Path:
 CONFIG = _default_config()
 _UNIT_SAFE = re.compile(r"[A-Za-z0-9/._+-]{1,1024}")       # a path systemd takes as one word, unquoted
 STATE = HOME / ".local/state/ai-agents-map/provider-watch.json"   # what we still have to stop (survives restarts)
-UNIT_NAME = "ai-agents-map-providers.service"
+def _unit_name() -> str:
+    """The plugin's watcher, or Asterism's: two installs on one machine never share a unit."""
+    try:
+        import desktop
+    except ImportError:
+        return "ai-agents-map-providers.service"      # the service itself (python3 -I) never needs it
+    return "ai-agents-map-providers.service" if desktop.NAME == "omarchy" else "asterism-providers.service"
+
+
+UNIT_NAME = _unit_name()
 UNIT_FILE = HOME / ".config/systemd/user" / UNIT_NAME
 RUNTIMES = ("llamacpp", "ollama", "lmstudio", "vllm", "jan", "koboldcpp")
 # Kept running between agents: it starts too slowly for an agent's first request
@@ -141,9 +150,10 @@ def write_config(inventory, path: Path = CONFIG) -> bool:
 
 def unit_text(script: Path, config: Path = None) -> str:
     config = config or CONFIG
+    APP = "AI Agents Map" if UNIT_NAME.startswith("ai-agents-map") else "Asterism"   # noqa: N806
     exec_start = f"/usr/bin/python3 -I {script}" + (f" --config {config}" if _UNIT_SAFE.fullmatch(str(config)) else "")
     return f"""[Unit]
-Description=AI Agents Map: start local LLMs with their agents, stop them when the agents close
+Description={APP}: start local LLMs with their agents, stop them when the agents close
 
 [Service]
 Type=simple
