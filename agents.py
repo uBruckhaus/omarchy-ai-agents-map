@@ -55,6 +55,9 @@ SPECS = {
     "hermes": "pipx:hermes-agent[extras=all]",
 }
 ROBOT = "\U000f06a9"
+# Agents Omarchy's menu does not offer (yet): AI Agents Map installs them itself
+# (install_ctl.AGENT_INSTALLERS) into a version folder, the command in ~/.local/bin.
+EXTRA = [("dsh", "DeepSeek Harness", "\U000f0e7b", ""), ("bionic", "LM Studio Bionic", "\U000f09d1", "")]
 
 
 @dataclass
@@ -186,6 +189,13 @@ def package_version(name: str, db: Path = PACMAN_DB) -> str | None:
 def detect(command: str, bin_dir: Path = BIN_DIR, mise_dir: Path = MISE_DIR,
            db: Path = PACMAN_DB) -> tuple[bool, str, str]:
     """(installed, version, source) for one agent."""
+    if command in dict((c, 1) for c, *_rest in EXTRA):
+        import install_ctl
+        inst = install_ctl.AGENT_INSTALLERS.get(command)
+        if inst is not None and inst.installed_folder() is not None:
+            version = inst.current_version().lstrip("v")
+            return True, version.split("-")[0] if command == "bionic" else version, "own"
+        return (True, "", "own") if own_install(command, bin_dir) else (False, "", "")
     if command == "openclaw":
         version = package_version("openclaw", db)
         return (True, version, "package") if version is not None else (False, "", "")
@@ -209,7 +219,9 @@ def list_agents(menu_file: Path = MENU_FILE, agent_file: Path = AGENT_FILE, bin_
     leading), then the others, each group in Omarchy's order."""
     chosen = default_agent(agent_file)
     agents = []
-    for command, label, icon, font in catalog(menu_file):
+    known = catalog(menu_file)
+    known += [e for e in EXTRA if e[0] not in {c for c, *_rest in known}]
+    for command, label, icon, font in known:
         installed, version, source = detect(command, bin_dir, mise_dir, db)
         agents.append(Agent(command=command, name=NAMES.get(command, label), icon=icon or ROBOT,
                             icon_font=font, installed=installed, version=version, source=source,

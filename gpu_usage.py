@@ -149,6 +149,10 @@ def runtime_of(comm: str, argv: list) -> str:
     exe = argv[0] if argv else ""
     if ".lmstudio" in exe or comm.lower().startswith("lm studio") or os.path.basename(exe).lower() in ("lm-studio", "lm studio"):
         return "lmstudio"
+    if comm == "jan-llama-worke" or os.path.basename(exe) == "jan-llama-worker":
+        return "jan"
+    if comm == "koboldcpp" or os.path.basename(exe).startswith("koboldcpp"):
+        return "koboldcpp"
     if comm == "llama-server" or comm.startswith("llama-"):
         return "llamacpp"
     if comm == "ollama" or os.path.basename(exe) == "ollama":
@@ -215,7 +219,7 @@ def port_of(rt) -> int:
 def loaded_models(rt) -> dict:
     """lower-case model name -> state, from the runtime's own API."""
     port, found = port_of(rt), {}
-    if rt.key == "llamacpp":
+    if rt.key in ("llamacpp", "jan"):          # Jan's engine answers like llama.cpp's router
         for row in (http_json(port, "/models") or {}).get("data", [])[:500]:
             state = (row.get("status") or {}).get("value", "") if isinstance(row, dict) else ""
             if state in ("loaded", "loading", "sleeping"):
@@ -228,6 +232,13 @@ def loaded_models(rt) -> dict:
         for row in (http_json(port, "/api/v0/models") or {}).get("data", [])[:500]:
             if isinstance(row, dict) and row.get("state") == "loaded":
                 found[str(row.get("id", "")).lower()] = "loaded"
+    elif rt.key == "koboldcpp":
+        # Router mode lists the loaded model first as "koboldcpp/<name>" ("inactive": none),
+        # then the .kcpps model ids.
+        rows = (http_json(port, "/v1/models") or {}).get("data", [])[:500]
+        first = str(rows[0].get("id", "")) if rows and isinstance(rows[0], dict) else ""
+        if first.startswith("koboldcpp/"):
+            found[first.split("/", 1)[1].lower() + ".kcpps"] = "loaded"
     elif rt.key == "vllm":
         for row in (http_json(port, "/v1/models") or {}).get("data", [])[:20]:
             if isinstance(row, dict) and row.get("id"):

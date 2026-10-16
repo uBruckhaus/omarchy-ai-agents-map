@@ -26,6 +26,8 @@ Colours come from the Omarchy theme (set_palette).
 
 import math
 
+import cairo
+
 import graph as graph_model
 
 import gi
@@ -80,9 +82,13 @@ class MapView(Gtk.DrawingArea):
         self.on_context = None   # callback(node id, (x, y, w, h)) for a right-click
         self.on_pick_model = None  # callback(agent id, runtime id, model name): a model clicked
         self.selected_edge = None  # (agent id, runtime id) of the clicked line
+        self.on_failed_edge = None # callback((agent id, target id), (x, y, w, h)): a line with hints clicked
+        self.marker_points = []    # ((source, target), x, y) of the "!" on failed lines, for clicks
         self.shift = False       # Shift held: hidden boxes come back to be added
         self.layers = set(graph_model.LAYERS)   # categories switched on
         self.hidden_ids = set()  # node ids unticked in the column headings' lists
+        self.mode_off = set()    # categories the header's setup choice (All · Online · Local LLMs) leaves out
+        self.mode_hidden = set() # boxes it leaves out (agents that cannot use local LLMs)
         self.on_header = None    # callback(column, (x, y, w, h)) for a click on a column heading
         self.on_add = None       # callback(kind, node, (x, y, w, h)): a dashed "+" box clicked (mcp, skills, model)
         self.header_rects = {}   # column -> heading rectangle, for clicks
@@ -91,6 +97,8 @@ class MapView(Gtk.DrawingArea):
         self.on_zoom = None      # callback(zoom) after Ctrl+scroll
         self.usage = None        # gpu_usage.Usage: GPU memory per local LLM, loaded models, activity
         self.set_draw_func(self.on_draw)
+        self.scroll_adjustment = None
+        self.connect("map", lambda *_: self.follow_scrolling())
         self.set_hexpand(True)
         self.set_vexpand(True)
         motion = Gtk.EventControllerMotion()
@@ -204,11 +212,10 @@ class MapView(Gtk.DrawingArea):
             gap = 0
         used = count * node_w + (count - 1) * gap
         left = PAD + max(0, (width - 2 * PAD - used) // 2)
-        body = max(0, height - HEADER_H - PAD)
         self.column_x = {}
         self.group_labels = []
         for slot, column in enumerate(active):
-            y = HEADER_H + max(0, (body - self.column_height(column)) // 2)
+            y = self.column_top(self.column_height(column), height)
             x = left + slot * (node_w + gap)
             self.column_x[column] = x
             titled = self.titled(column)
@@ -228,7 +235,8 @@ class MapView(Gtk.DrawingArea):
         category that has a selection (those come back while Shift is held)."""
         if self.graph is None:
             return set()
-        off = graph_model.hidden_by_layers(self.graph, self.layers, self.hidden_ids)
+        off = graph_model.hidden_by_layers(self.graph, self.layers - self.mode_off,
+                                           self.hidden_ids | self.mode_hidden)
         if not self.selected or self.shift:
             return off
         return off | self.selection_hidden()
@@ -247,10 +255,17 @@ class MapView(Gtk.DrawingArea):
             self.selection_changed()
         self.relayout()
 
+    def set_mode(self, off_layers, hidden_ids):
+        """The header's setup choice: categories and boxes left out, on top of the
+        user's own Show choices (which stay as they are)."""
+        self.mode_off, self.mode_hidden = set(off_layers), set(hidden_ids)
+        self.set_layers(self.layers)
+
     def set_layers(self, layers):
         self.layers = set(layers)
         if self.graph is not None:
-            off = graph_model.hidden_by_layers(self.graph, self.layers)
+            off = graph_model.hidden_by_layers(self.graph, self.layers - self.mode_off,
+                                               self.hidden_ids | self.mode_hidden)
             if any(i in off for i in self.selected):
                 self.selected = [i for i in self.selected if i not in off]
                 self.selection_changed()
@@ -265,6 +280,34 @@ class MapView(Gtk.DrawingArea):
             self.shift = held
             if self.selected:
                 self.relayout()
+
+    def follow_scrolling(self):
+        """Short columns stay in the middle of what is visible: draw again on scrolling."""
+        scroller = self.get_ancestor(Gtk.ScrolledWindow)
+        adjustment = scroller.get_vadjustment() if scroller is not None else None
+        if adjustment is None or adjustment is self.scroll_adjustment:
+            return
+        self.scroll_adjustment = adjustment
+        adjustment.connect("value-changed", lambda *_: self.queue_draw())
+        adjustment.connect("notify::page-size", lambda *_: self.queue_draw())
+
+    def visible_rows(self, height: float) -> tuple[float, float]:
+        """(top, height) of the part of the map in view, in map units (zoom undone)."""
+        adjustment = self.scroll_adjustment
+        if adjustment is None or adjustment.get_page_size() <= 0:
+            return 0.0, height
+        return adjustment.get_value() / self.zoom, adjustment.get_page_size() / self.zoom
+
+    def column_top(self, column_height: float, height: float) -> float:
+        """A column that fits the view sits in its middle (below the headings while they
+        show); a taller one starts under its heading and scrolls with the map."""
+        top, visible = self.visible_rows(height)
+        area_top = max(HEADER_H, top + PAD)
+        area_h = top + visible - PAD - area_top
+        if column_height > area_h:
+            return HEADER_H
+        y = area_top + (area_h - column_height) / 2
+        return max(HEADER_H, min(y, height - PAD - column_height))
 
     def viewport_width(self) -> int:
         parent = self.get_parent()
@@ -315,8 +358,44 @@ class MapView(Gtk.DrawingArea):
         """An agent's line to a local LLM (can be moved to another) or to an MCP server (can be removed)."""
         if self.kind_of(edge.source) != "agent":
             return False
+        if edge.kind == "failed":
+            return self.kind_of(edge.target) in ("runtime", "mcp", "skills")
         return (edge.kind in ("uses", "available") and self.kind_of(edge.target) == "runtime") \
             or (edge.kind in ("mcp", "skills") and self.kind_of(edge.target) in ("mcp", "skills"))
+
+    def curve_point(self, edge, t: float) -> tuple[float, float]:
+        """A point on the line's curve (t from 0 at the source to 1 at the target)."""
+        x1, y1, x2, y2 = self.edge_points(edge)
+        bend = (x2 - x1) * 0.5
+        px = (1 - t) ** 3 * x1 + 3 * (1 - t) ** 2 * t * (x1 + bend) + 3 * (1 - t) * t ** 2 * (x2 - bend) + t ** 3 * x2
+        py = (1 - t) ** 3 * y1 + 3 * (1 - t) ** 2 * t * y1 + 3 * (1 - t) * t ** 2 * y2 + t ** 3 * y2
+        return px, py
+
+    def draw_markers(self, cr, edges):
+        """A "!" on every failed line (click the line for its hints), apart from each other."""
+        placed = []
+        self.marker_points = []
+        for edge in sorted(edges, key=lambda e: e.failed != "error"):     # errors first: they keep the middle
+            for t in (0.5, 0.38, 0.62, 0.28, 0.72, 0.2, 0.8):
+                mx, my = self.curve_point(edge, t)
+                if all(math.hypot(mx - px, my - py) >= 18 for px, py in placed):
+                    break
+            placed.append((mx, my))
+            self.marker_points.append(((edge.source, edge.target), mx, my))
+            color = "red" if edge.failed == "error" else "yellow"
+            cr.arc(mx, my, 7.5, 0, 2 * math.pi)
+            cr.set_source_rgba(*self.color("bg"))
+            cr.fill_preserve()
+            cr.set_source_rgba(*self.color(color))
+            cr.set_line_width(1.8)
+            cr.stroke()
+            cr.set_line_cap(cairo.LINE_CAP_ROUND)
+            cr.move_to(mx, my - 3.8)
+            cr.line_to(mx, my + 0.9)
+            cr.stroke()
+            cr.set_line_cap(cairo.LINE_CAP_BUTT)
+            cr.arc(mx, my + 3.4, 1.0, 0, 2 * math.pi)
+            cr.fill()
 
     def edge_distance(self, edge, x, y) -> float:
         """How far (x, y) is from the line, sampled along its curve."""
@@ -528,10 +607,17 @@ class MapView(Gtk.DrawingArea):
                 return
         node_id = self.node_at(x, y)
         edge = self.edge_at(x, y) if node_id is None else None
+        # A "!" clicked: its own line, even where other lines cross it.
+        marker = min(((math.hypot(mx - x, my - y), key) for key, mx, my in self.marker_points), default=None)
+        if node_id is None and marker is not None and marker[0] <= 10:
+            edge = marker[1]
         if edge is not None or self.selected_edge is not None:
             self.selected_edge = None if edge == self.selected_edge else edge
             self.queue_draw()
             if edge is not None:
+                failed = next((e for e in self.graph.edges if (e.source, e.target) == edge and e.failed), None)
+                if failed is not None and self.on_failed_edge is not None:
+                    self.on_failed_edge(edge, self.to_pixels((x - 4, y - 4, 8, 8)))
                 return
         if node_id is None:
             return
@@ -674,6 +760,7 @@ class MapView(Gtk.DrawingArea):
         # Edges first, under the boxes; the active paths last, on top.
         active_edges, active_models = self.active_now(lit_edges)
         order = [i for i in range(len(self.graph.edges)) if i not in active_edges] + sorted(active_edges)
+        markers = []                 # failed lines: a "!" on each, drawn over all lines
         for index in order:
             edge = self.graph.edges[index]
             if edge.kind == "default" or edge.source not in self.boxes or edge.target not in self.boxes:
@@ -692,15 +779,26 @@ class MapView(Gtk.DrawingArea):
             active = index in active_edges
             if active and not picked:
                 alpha = 1.0
-            cr.set_source_rgba(*self.color("accent" if active else EDGE_COLORS.get(edge.kind, "muted"), alpha))
-            cr.set_line_width(3.2 if picked else 2.8 if active else
-                              2.0 if lit_edges is not None and index in lit_edges else 1.4)
-            # Dashed: set up but not in use (an agent's second provider).
-            cr.set_dash([5, 4] if edge.kind == "available" else [])
+            if edge.failed:
+                # Failed (red) or with warnings (yellow), dotted, until it is removed by hand.
+                cr.set_source_rgba(*self.color("red" if edge.failed == "error" else "yellow",
+                                               max(alpha, 0.85) if not (lit_edges is not None and alpha < 0.5) else alpha))
+                cr.set_line_width(3.2 if picked else 2.4)
+                cr.set_line_cap(cairo.LINE_CAP_ROUND)
+                cr.set_dash([0.1, 5])
+            else:
+                cr.set_source_rgba(*self.color("accent" if active else EDGE_COLORS.get(edge.kind, "muted"), alpha))
+                cr.set_line_width(3.2 if picked else 2.8 if active else
+                                  2.0 if lit_edges is not None and index in lit_edges else 1.4)
+                # Dashed: set up but not in use (an agent's second provider).
+                cr.set_dash([5, 4] if edge.kind == "available" else [])
             cr.move_to(x1, y1)
             cr.curve_to(x1 + bend, y1, x2 - bend, y2, x2, y2)
             cr.stroke()
             cr.set_dash([])
+            cr.set_line_cap(cairo.LINE_CAP_BUTT)
+            if edge.failed and not (only_lit and index not in lit_edges):
+                markers.append(edge)
             if picked:
                 # The handle: drag it to another local LLM.
                 cr.arc(x2, y2, 7, 0, 2 * math.pi)
@@ -709,6 +807,8 @@ class MapView(Gtk.DrawingArea):
                 cr.set_source_rgba(*self.color("accent", alpha))
                 cr.set_line_width(2.5)
                 cr.stroke()
+
+        self.draw_markers(cr, markers)
 
         for node in self.graph.nodes:
             if node.id not in self.boxes:

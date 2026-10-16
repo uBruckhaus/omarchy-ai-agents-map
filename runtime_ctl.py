@@ -76,7 +76,12 @@ def unload(rt) -> tuple[bool, str]:
         binary = lms_binary()
         return _run([binary, "unload", "--all"]) if binary else (False, "lms not found")
     names = [name for name, state in gpu_usage.loaded_models(rt).items() if state in ("loaded", "loading", "sleeping")]
-    if rt.key == "llamacpp":
+    if rt.key == "koboldcpp":
+        if not names:
+            return True, ""
+        reply = gpu_usage.http_json(port, "/api/admin/reload_config", "POST", {"filename": "unload_model"}, timeout=30)
+        return (True, "") if isinstance(reply, dict) and reply.get("success") else (False, "KoboldCpp did not unload")
+    if rt.key in ("llamacpp", "jan"):
         rows = (gpu_usage.http_json(port, "/models") or {}).get("data", [])
         ids = [str(r.get("id")) for r in rows if isinstance(r, dict) and str(r.get("id", "")).lower() in names]
         failed = [i for i in ids if gpu_usage.http_json(port, "/models/unload", "POST", {"model": i}, timeout=30) is None]

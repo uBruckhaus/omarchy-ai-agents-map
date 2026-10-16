@@ -304,5 +304,14 @@ class UnitTest(unittest.TestCase):
         self.assertIn("WantedBy=default.target", text)
 
 
+class InstanceModelTest(unittest.TestCase):
+    def test_model_option(self):
+        self.assertEqual(pw.instance_model("claude", ["--model", "sonnet"]), "sonnet")
+        self.assertEqual(pw.instance_model("claude", ["--model=opus", "-p"]), "opus")
+        self.assertEqual(pw.instance_model("codex", ["-m", "gpt-5"]), "gpt-5")
+        self.assertEqual(pw.instance_model("claude", ["-m", "x"]), "")   # not a model option there
+        self.assertEqual(pw.instance_model("claude", []), "")
+
+
 if __name__ == "__main__":
     unittest.main()

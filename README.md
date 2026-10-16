@@ -23,9 +23,21 @@ vLLM); the MCP and skills search uses `curl`.
 
 ## One view: cards and the map beside them
 
+**All · Online · Local LLMs** in the header picks the setup to show, in the cards and on the map
+alike: everything; only online providers (no local LLMs, their models or the GPU meters); or only
+local LLMs and the agents that can use them (the ones AI Agents Map connects, those tied to a
+local LLM, and any agent whose settings already have a local provider). Your own Show choices
+stay as they are underneath.
+
+The cards are a panel of their own beside the map. Its **Show ▾** list ticks the cards it shows,
+a whole section (Agents, Local LLMs, MCP servers, Skills, Not installed) or card by card, like
+the map's column lists.
+
 The cards are on the left, the map on the right (on a screen narrower than about 1000 px only the
 cards). The sidebar button left of the title (Ctrl+B) hides the cards so the map takes the whole
-width; every open shows them again.
+width; every open shows them again. Pages opened from a card or from the map (ⓘ Details, adding
+MCP servers or skills, models, installing, connecting) open on the right in place of the map, so
+the cards stay beside them; **Back** brings the map back.
 
 - **Cards**, in four sections. Click a card to open its details.
   - **Agents**: every coding agent Omarchy offers (its Setup → Defaults → Agent list), installed
@@ -33,7 +45,7 @@ width; every open shows them again.
     reset times and today's usage (from Omarchy's own usage data, refreshed when you open the card),
     model, providers (local ones named by runtime), MCP servers, skills, tools, last used, settings
     folder.
-  - **Local LLMs**: llama.cpp, Ollama, LM Studio and vLLM: running or stopped, the address, the user
+  - **Local LLMs**: llama.cpp, Ollama, LM Studio, vLLM, Jan and KoboldCpp: running or stopped, the address, the user
     service that starts it, the models folder and every model it can serve, and which agents use it.
   - **MCP servers**: each server with what it runs (a program or a remote host) and which agents
     use it, also servers no agent uses any more. **ⓘ Details** shows each agent's settings file,
@@ -49,7 +61,13 @@ width; every open shows them again.
   Each agent's active path (agent → provider in use → its model) is drawn bold. Esc or **Clear
   selection** clears the selection. The **Show** toggles above the map shorten it to the categories
   you are working on (models need a provider category, MCP servers and skills need Agents); the
-  choice is remembered. **− 100 % +** (Ctrl+scroll, Ctrl+plus/minus/0) zooms the map.
+  choice is remembered. **− 100 % +** (Ctrl+scroll, Ctrl+plus/minus/0) zooms the map. Columns
+  that fit stay in the middle of what you see while you scroll a long one.
+- **Running now**: an agent with an open instance gets a green dot and "running" (or "2 running"),
+  its card says which model, and the model box it runs with says "in use · <agent>": the model
+  given with `--model` when it was started, else the one in its settings (a model switched inside
+  a running session cannot be seen from outside). Checked every 2 seconds from `/proc` (your own
+  processes only).
 
 Every column heading (**MCP SERVERS · SKILLS ▾**, **AGENTS ▾**, **LLM PROVIDERS ▾**, **MODELS ▾**)
 opens a list of its boxes in groups (MCP servers and skills; online and local providers; models by
@@ -82,6 +100,26 @@ the old file in `~/.local/state/ai-agents-map/backups/`, and can be undone from 
   service, or `lms server` for LM Studio), or **Free GPU memory**: its models are unloaded, it keeps
   running and loads one again when asked (vLLM cannot unload, so it is stopped).
 
+### When a connection fails
+
+Right after a drawn connection is written, AI Agents Map checks whether it will work:
+- **Local LLM:** the agent's settings have the provider. The LLM is installed, lists the model, and
+  is running or will be started with the agent. When it runs, its port is yours and its API offers
+  the model. The model's context is at least 16k tokens.
+- **MCP server:** the agent's settings have it, and it answers (initialize and tools/list, as
+  **Test** does: a local server is started for this and stopped again).
+- **Skills:** the folder is there with skills in it, and the agent's links to them are not broken.
+
+A connection that could not be written at all, or that fails its check, stays on the map as a
+**dotted red line** with a **!** (a **dotted yellow** one has warnings only). Click the line or its
+**!** for the hints:
+- **Test again** checks once more; when it passes, the line is normal again.
+- For a connection that was never written, **Try again…** opens the connect page.
+- **Remove connection** removes it as usual (for one that was never written, only the line goes).
+
+The hints stay with the line until you remove it by hand, also across restarts
+(`~/.config/omarchy/ai-agents-map/failed-links.json`).
+
 ## Local LLMs start and stop with their agents
 
 Connect an agent to a local LLM once, close AI Agents Map and just start the agent: its local LLMs
@@ -104,6 +142,13 @@ again. This works with the window closed and after a reboot.
   processes all at once with SIGKILL and the AppImage process last, because LM Studio runs from the
   AppImage's mount and ending it piece by piece makes the rest crash. An LM Studio window you opened
   is left alone.
+- KoboldCpp is the exception: it takes about 6 s to start, longer than some agents wait for their
+  first answer, and costs no video memory while no model is loaded. So it starts at login (its
+  install page preselects that) and the watcher only **unloads** its model when the last agent
+  closes (`POST /api/admin/reload_config` with `unload_model`, after checking that the listening
+  port belongs to you).
+- When the plugin is updated, the watcher notices its own file changed and restarts with the new
+  version (what agents still need keeps running).
 - What it still has to stop is kept in `~/.local/state/ai-agents-map/provider-watch.json`, so a
   restart (reboot, plugin update) or removing an LLM's last connection never leaves it running.
 
@@ -125,6 +170,12 @@ all ticked agents at once (one preview, one Undo). No agent is ticked unless you
   inside…** unpacks each one's `usr/bin` into a temporary folder, reads it and removes it again.
   Adding a server that lives in an AppImage unpacks the AppImage into
   `~/Applications/<app>-<version>/` first. Servers already set up are not offered again.
+  **App updates**: when a newer version of an app turns up (`gridcraft-0.7.0-….AppImage` next to
+  `~/Applications/gridcraft-0.6.1/`), only the newest is listed; its AppImage is looked into
+  without asking, because an earlier version was looked into or unpacked already. While agents,
+  the list of MCP servers or a link in `~/.local/bin` still start the old version, it shows as
+  **Update…**: one preview unpacks the new version, points every one of them at it and moves the
+  old folder into the backup (deleted after 7 days; Undo within that time brings everything back).
 - **Search the web**: the official MCP registry (`registry.modelcontextprotocol.io`). npm packages
   run with `npx`, PyPI packages with `uvx`, images with `docker`, remote servers by their https
   address; the variables a server needs (API keys, folders) become fields.
@@ -171,6 +222,40 @@ Installs made by hand are shown but never changed.
   is set to the model folder. Its server runs with `lms server`.
 - **vLLM**: for NVIDIA cards, in its own Python environment (uv); on AMD cards vLLM needs ROCm
   containers, so it is not offered there.
+- **Jan**: its AppImage, unpacked (no FUSE needed), with a desktop entry (`jan-desktop`). For agents,
+  Jan's own engine (`jan-llama-worker`, a llama.cpp router) runs without the app as the user service
+  `jan` on 127.0.0.1:6767, with the models of Jan's data folder (`~/.local/share/Jan/data` unless
+  you choose another one when installing) and Jan's per-model settings
+  (`llamacpp/router.preset.ini`). Models are added in the Jan app; its own API server (port 1337)
+  counts as Jan too. The engine ends when its input closes, so the service keeps it open
+  (`sleep infinity |`); systemd stops both.
+- **KoboldCpp**: the official single-file Linux build (Vulkan for AMD and Intel, CUDA for NVIDIA,
+  or CPU) as a model router (`koboldcpp` service: `--admin --routermode`). Every GGUF in the model
+  folder gets a `.kcpps` in `~/.config/koboldcpp/models` with its context (the best fit for your
+  card) and the GPU choice; those file names are the model ids agents ask for
+  (`gemma-4-E2B-it-Q4_K_M.kcpps`), loaded on the first request. New models get theirs when the
+  window opens or after a download; uninstalling removes the ones AI Agents Map made.
+
+### Agents AI Agents Map installs
+
+Two agents Omarchy's menu does not offer are installed the same way (right-click the agent on
+the map → **Install…**, **Update…**, **Uninstall…**; a version folder, the command in
+`~/.local/bin`):
+
+- **DeepSeek Harness** (`dsh`, developer preview): from npm with install scripts switched off
+  (`npm install --ignore-scripts`; needs Node.js). Lines to local LLMs go into its web profile's
+  patch `~/.dsh/profiles/web/cordis.patch.yml`, the file its own Settings › Models writes: a
+  provider per local LLM (OpenAI Chat Completions, with a placeholder `Authorization: Bearer local`
+  header because dsh refuses a request without a key) and, for "Use it now", its default model.
+  Only those entries and the MCP servers drawn to it are rewritten; everything else in the file
+  stays as written. dsh reads `~/.agents/skills` and `~/.dsh/skills` by itself. Only local LLMs
+  are set up; DeepSeek's own API (a key) is set up in dsh. Its web server (`dsh web`) counts as
+  the agent being open.
+- **LM Studio Bionic**: its AppImage, unpacked, with a desktop entry. Bionic runs local models
+  itself with LM Studio's engine and models, so it is always linked to LM Studio and cannot be
+  connected to another local LLM; the watcher never starts LM Studio for it, and stopping a hidden
+  LM Studio never touches Bionic's processes. Its global skills live in `~/.lmstudio/skills`
+  (shared with LM Studio); its MCP servers are set up in Bionic (Settings › Connected apps).
 
 ## Downloading models
 
@@ -194,6 +279,10 @@ layers (Gemma) only keep their window and recurrent layers nothing, so those mod
 LM Studio `llm.load.contextLength` in the model's own defaults file
 `~/.lmstudio/.internal/user-concrete-model-default-config/<model>.json` (what LM Studio writes when
 you change it in its model settings; backup and Undo; used the next time LM Studio loads the model).
+For Jan, `ctx-size` in the model's section of Jan's `router.preset.ini` and `ctx_size` in its
+`model.yml` (so the Jan app keeps it; backup and Undo; restart Jan's service for it to take
+effect); for KoboldCpp, `contextsize` in the model's `.kcpps` (backup and Undo; used the next time
+it loads the model).
 LM Studio's models are listed by the names its server answers to (`gemma-4-12b-it-qat`), read from
 its model index, so agents connected to it ask for a model LM Studio knows. LM Studio loads a model
 with 8192 tokens unless told otherwise, too few for an agent's prompt: connecting an agent to an LM
@@ -214,7 +303,8 @@ the backup and Undo), and the agent is told the same context. A context you set 
   opens credential files (`auth.json`, `.credentials.json`). MCP server entries are read whole so
   they can be copied to another agent; their environment and header values are never shown.
 - **Network** (each only on a click, except where noted): GitHub's release API and release
-  downloads for Ollama and llama.cpp, `lmstudio.ai`/`installers.lmstudio.ai` for LM Studio, PyPI
+  downloads for Ollama, llama.cpp, Jan and KoboldCpp, `lmstudio.ai`/`installers.lmstudio.ai` for LM Studio
+  (`bionic-installers.lmstudio.ai` for Bionic), the npm registry for DeepSeek Harness, PyPI
   (and `uv`) for vLLM; `huggingface.co` for model search and downloads; the local Ollama on
   127.0.0.1 only after checking that the listening socket belongs to you; the same for each running
   local LLM's own API every 2 s while the window is open (which models are loaded) and for
@@ -227,25 +317,29 @@ the backup and Undo), and the agent is told the same context. A context you set 
   stdin, never on the command line.
 - **Starts**: `systemctl --user` start/stop/enable/disable/daemon-reload for the services it
   installed or that start a local LLM (service-management); the installers' `curl`, `tar`, the LM
-  Studio AppImage's `--appimage-extract`, `uv venv`/`uv pip install` (installer);
+  Studio, Jan and Bionic AppImages' `--appimage-extract`, `uv venv`/`uv pip install`,
+  `npm install --ignore-scripts` for DeepSeek Harness (installer);
   the watcher service described above (service-management: `systemctl --user start/stop` of the
   connected LLMs' services, `lms server start/stop`, `lms daemon down`; a hidden LM Studio it
   started is signalled through a pidfd taken when it is found, so a reused PID is never hit);
   `lms unload --all` for **Free GPU memory**;
   `omarchy-agent-usage-update <agent>` when an agent card's usage is older than ten minutes; an MCP
-  server's command when you click **Test** or ask for its tools (in its own process group, stopped
-  afterwards); an AppImage's `--appimage-extract` only on **Look inside…** or when adding a server
-  from it; `claude mcp add-json/remove`; `claude -p` or `codex exec` for a new agent; `wl-paste`,
+  server's command when you click **Test** or ask for its tools, or right after you connect an agent
+  to it (the check above; in its own process group, stopped afterwards); an AppImage's `--appimage-extract` only on **Look inside…**, when adding a server
+  from it, or for a newer version of an app looked into before; `claude mcp add-json/remove`; `claude -p` or `codex exec` for a new agent; `wl-paste`,
   `lspci`, `hyprctl`.
 - **Writes**, each only after you confirm it with its preview (except AI Agents Map's own state):
   the agents' settings files named above (keeping their file mode; new files 0600), links in the
   agents' skills folders, fetched skill files, programs you install into a folder you choose (one
   folder per version, a `current` link, the command in `~/.local/bin`), user services in
-  `~/.config/systemd/user`, their settings in `~/.config/<runtime>/`, an LM Studio desktop entry,
-  `~/.config/llama.cpp/models.ini` and LM Studio's per-model defaults (context sizes). Generated service files refuse paths with `%`,
+  `~/.config/systemd/user`, their settings in `~/.config/<runtime>/`, LM Studio and Jan desktop
+  entries, Jan's `settings.json` (its data folder, only on install), `~/.config/llama.cpp/models.ini`,
+  LM Studio's per-model defaults, Jan's `router.preset.ini` and `model.yml` (context sizes) and
+  KoboldCpp's `.kcpps` files in `~/.config/koboldcpp/models`, and DeepSeek Harness's
+  `~/.dsh/profiles/web/cordis.patch.yml` (never its `.credentials.yaml`). Generated service files refuse paths with `%`,
   quotes, `$`, backslashes or control characters. Own state: `~/.config/omarchy/ai-agents-map/`
-  (settings, the MCP list, looked-up agents, `providers-with-agents.json` for the watcher; private
-  files), the watcher's unit `~/.config/systemd/user/ai-agents-map-providers.service` and its state
+  (settings, the MCP list, looked-up agents, `providers-with-agents.json` for the watcher,
+  `failed-links.json` with the hints of failed connections; private files), the watcher's unit `~/.config/systemd/user/ai-agents-map-providers.service` and its state
   `~/.local/state/ai-agents-map/provider-watch.json`, `~/.local/state/ai-agents-map/backups/`
   (0700), `~/.cache/ai-agents-map/` (scan results and tool lists).
 - Text pasted into its fields is read with `wl-paste` (at most 8 KiB, 2 s deadline) instead of

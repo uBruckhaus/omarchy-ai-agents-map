@@ -22,7 +22,9 @@ import connect
 
 HOME = Path.home()
 SUPPORTED = ("claude", "codex", "copilot", "crush", "cursor-agent", "gemini", "grok", "hermes", "muse", "omp",
-             "openclaw", "opencode", "pi")
+             "openclaw", "opencode", "pi", "dsh")
+# Agents whose MCP servers are set up only in their own app (no settings file to write).
+IN_APP = {"bionic": "Settings › Connected apps"}
 NAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 
 
@@ -51,7 +53,8 @@ def paths_for(agent: str) -> list[Path]:
             "grok": [HOME / ".grok/config.toml"],
             "muse": [HOME / ".config/muse/settings.json"],
             "openclaw": [HOME / ".openclaw/openclaw.json"],
-            "lmstudio": [HOME / ".lmstudio/mcp.json"]}.get(agent, [])
+            "lmstudio": [HOME / ".lmstudio/mcp.json"],
+            "dsh": [HOME / ".dsh/profiles/web/cordis.patch.yml"]}.get(agent, [])
 
 
 # --- reading: every agent's entries as one shape -------------------------------------------
@@ -131,6 +134,12 @@ def raw_entries(agent: str) -> dict:
             found = tomllib.loads(connect._read(paths_for(agent)[0])).get("mcp_servers")
         except (OSError, ValueError):
             found = None
+    elif agent == "dsh":
+        try:
+            import dsh_ctl
+            found = dsh_ctl.mcp_servers(connect._read(paths_for(agent)[0]))
+        except Exception:       # no PyYAML, or a patch it cannot read
+            found = None
     elif agent == "hermes":
         try:
             import yaml
@@ -192,6 +201,9 @@ def native(agent: str, e: dict) -> dict:
     stdio = e["transport"] == "stdio"
     if agent not in SUPPORTED:
         return from_profile(agent_profiles.mcp_profile(agent), e)
+    if agent == "dsh":
+        import dsh_ctl
+        return dsh_ctl.mcp_config(e)
     if agent in ("muse", "openclaw", "crush"):
         if stdio:
             item = {"command": e["command"], "args": e["args"]}
@@ -438,6 +450,9 @@ def plan(agent: str, name: str, sources=(), remove: bool = False, entry: dict | 
         new_text = openclaw_text(old_text, name, item)
     elif agent == "hermes":
         new_text = hermes_text(old_text, name, item)
+    elif agent == "dsh":
+        import dsh_ctl
+        new_text = dsh_ctl.mcp_text(old_text, name, item)
     else:
         new_text = _json_text(old_text, "mcp" if agent in ("opencode", "crush") else "mcpServers", name, item)
     if new_text != old_text:

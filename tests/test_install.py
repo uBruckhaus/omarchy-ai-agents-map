@@ -57,7 +57,7 @@ class InstallTest(unittest.TestCase):
         env = ic.read_env(self.ollama.env_file)
         self.assertEqual((env["OLLAMA_MODELS"], env["HIP_VISIBLE_DEVICES"]), (str(models), "0"))
         unit = (self.home / ".config/systemd/user/ollama.service").read_text()
-        self.assertIn(f"ExecStart={self.home}/.local/bin/ollama serve", unit)
+        self.assertIn(f'ExecStart="{self.home}/.local/bin/ollama" serve', unit)
         self.assertIn(("enable", "ollama.service"), self.calls)
         self.assertFalse((folder / "downloads").exists())
 

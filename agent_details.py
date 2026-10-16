@@ -30,7 +30,8 @@ USAGE_MAX_AGE = 10 * 60      # seconds before an expanded card asks Omarchy for 
 USAGE_TIMEOUT = 90
 
 # Local runtimes by their usual port (as LLM Monitor tells them apart).
-LOCAL_PORTS = {8080: "llama.cpp", 11434: "Ollama", 1234: "LM Studio", 8000: "vLLM"}
+LOCAL_PORTS = {8080: "llama.cpp", 11434: "Ollama", 1234: "LM Studio", 8000: "vLLM", 6767: "Jan", 1337: "Jan",
+               5001: "KoboldCpp"}
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
 
 # Where each agent keeps its settings (shown in the card) and its sessions.
@@ -38,7 +39,7 @@ CONFIG_DIRS = {
     "claude": "~/.claude", "codex": "~/.codex", "copilot": "~/.copilot", "cursor-agent": "~/.cursor",
     "opencode": "~/.config/opencode", "pi": "~/.pi/agent", "omp": "~/.omp", "hermes": "~/.hermes",
     "muse": "~/.config/muse", "crush": "~/.config/crush", "gemini": "~/.gemini", "grok": "~/.grok",
-    "openclaw": "~/.openclaw",
+    "openclaw": "~/.openclaw", "dsh": "~/.dsh", "bionic": "~/.lmstudio/apps/bionic",
 }
 ACTIVITY = {
     "claude": ["~/.claude/history.jsonl", "~/.claude/projects"],
@@ -51,6 +52,8 @@ ACTIVITY = {
     "hermes": ["~/.hermes/state.db", "~/.hermes/sessions"],
     "gemini": ["~/.gemini/tmp"],
     "crush": ["~/.local/share/crush"],
+    "dsh": ["~/.dsh/sessions"],
+    "bionic": ["~/.lmstudio/apps/bionic/conversations", "~/.lmstudio/apps/bionic/.internal/ng-sessions.sqlite"],
 }
 
 
@@ -270,10 +273,31 @@ def hermes(details: Details):
                                                       active=name.group(1) == provider))
 
 
+def dsh(details: Details):
+    """DeepSeek Harness: providers and default model from its web profile's patch."""
+    import dsh_ctl
+    text = _read(dsh_ctl.PATCH) or ""
+    if not dsh_ctl.available() or not text:
+        return
+    provider, model = dsh_ctl.default_model(text)
+    details.model = f"{_text(model)} ({_text(provider, 40)})" if model and provider else _text(model)
+    for name, entry in list(dsh_ctl.providers(text).items())[:50]:
+        if isinstance(entry, dict):
+            details.providers.append(provider_for_url(str(name), entry.get("baseURL"),
+                                                      _model_count(entry.get("models")),
+                                                      active=not provider or name == provider))
+
+
+def bionic(details: Details):
+    """LM Studio Bionic runs local models with LM Studio's engine and models
+    (no providers to set up): always LM Studio."""
+    details.providers.append(Provider(name="LM Studio", local=True, runtime="LM Studio", active=True))
+
+
 READERS = {
     "claude": claude, "codex": codex, "copilot": copilot, "cursor-agent": cursor, "opencode": opencode,
     "pi": lambda d: pi_like(_expand("~/.pi/agent"), d), "omp": lambda d: pi_like(_expand("~/.omp/agent"), d),
-    "hermes": hermes,
+    "hermes": hermes, "dsh": dsh, "bionic": bionic,
 }
 
 

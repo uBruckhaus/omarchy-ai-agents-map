@@ -38,6 +38,8 @@ NATIVE = {
     "crush": ["~/.config/crush/skills", "~/.config/agents/skills", SHARED, "~/.claude/skills"],
     "grok": ["~/.grok/skills"],
     "openclaw": ["~/.openclaw/skills", SHARED],
+    "dsh": ["~/.dsh/skills", SHARED],
+    "bionic": ["~/.lmstudio/skills"],          # global skills, shared with LM Studio
     "muse": ["~/.config/muse/skills", SHARED, "~/.claude/skills", "~/.codex/skills"],
 }
 # The agent's own folder: where its links go.

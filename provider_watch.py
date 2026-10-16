@@ -35,7 +35,15 @@ CONFIG = HOME / ".config/omarchy/ai-agents-map/providers-with-agents.json"
 STATE = HOME / ".local/state/ai-agents-map/provider-watch.json"   # what we still have to stop (survives restarts)
 UNIT_NAME = "ai-agents-map-providers.service"
 UNIT_FILE = HOME / ".config/systemd/user" / UNIT_NAME
-RUNTIMES = ("llamacpp", "ollama", "lmstudio", "vllm")
+RUNTIMES = ("llamacpp", "ollama", "lmstudio", "vllm", "jan", "koboldcpp")
+# Kept running between agents: it starts too slowly for an agent's first request
+# (KoboldCpp ~6 s) and costs no video memory while no model is loaded, so the
+# watcher unloads its model instead of stopping it (UNLOADS).
+STAYS_UP = {"koboldcpp"}
+# Agents tied to a local LLM that run its models themselves: never a reason to start it
+# (LM Studio Bionic uses LM Studio's engine and models with or without LM Studio running).
+SELF_SERVED = {"bionic"}
+UNLOADS = {"koboldcpp": ("/api/admin/reload_config", {"filename": "unload_model"})}
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}$")
 UNIT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9@_.-]{0,99}$")
 INTERPRETERS = ("node", "bun", "deno", "python", "python3")
@@ -99,7 +107,8 @@ def write_config(inventory, path: Path = CONFIG) -> bool:
         port = rt.address.rpartition(":")[2]
         runtimes[rt.key] = {"service": rt.service, "port": int(port) if port.isdigit() else 0}
         for agent in getattr(rt, "active_agents", rt.agents):
-            agents.setdefault(agent, []).append(rt.key)
+            if agent not in SELF_SERVED:
+                agents.setdefault(agent, []).append(rt.key)
     text = json.dumps({"agents": agents, "runtimes": runtimes}, indent=2, sort_keys=True) + "\n"
     try:
         if path.read_text() == text:
@@ -188,8 +197,35 @@ def running_agents(names, proc: str = "/proc") -> tuple[set, set]:
     `opencode serve --service`, a user service running all the time) is not the
     agent being open: it is left out, and its idle connections do not keep an
     LLM running (socket_inodes)."""
+    instances, background = _scan_agents(names, proc)
+    return set(instances), background
+
+
+def agent_instances(names, proc: str = "/proc") -> dict:
+    """{agent: [the arguments of each open instance]} (background servers left out)."""
+    return _scan_agents(names, proc)[0]
+
+
+# Options that name the model an instance runs with ("-m" only where it means the model).
+MODEL_OPTIONS = ("--model",)
+SHORT_MODEL_AGENTS = {"codex", "opencode", "hermes", "crush"}
+
+
+def instance_model(agent: str, args) -> str:
+    """The model an instance was started with (`--model x`, `--model=x`), "" = its settings'."""
+    options = MODEL_OPTIONS + (("-m",) if agent in SHORT_MODEL_AGENTS else ())
+    for index, arg in enumerate(args):
+        if arg in options and index + 1 < len(args):
+            return args[index + 1].strip()[:200]
+        for option in options:
+            if option.startswith("--") and arg.startswith(option + "="):
+                return arg[len(option) + 1:].strip()[:200]
+    return ""
+
+
+def _scan_agents(names, proc: str = "/proc") -> tuple[dict, set]:
     names = set(names)
-    found, background, uid = set(), set(), os.getuid()
+    found, background, uid = {}, set(), os.getuid()
     try:
         pids = [p for p in os.listdir(proc) if p.isdigit()]
     except OSError:
@@ -216,7 +252,7 @@ def running_agents(names, proc: str = "/proc") -> tuple[set, set]:
         if any(a in BACKGROUND_ARGS for a in args[:3]):
             background.add(int(pid))
         elif NO_PROVIDERS_ENV not in _read(f"{proc}/{pid}/environ", 256 * 1024).split(b"\0"):
-            found.add(name)
+            found.setdefault(name, []).append(args)
     return found, background
 
 
@@ -256,6 +292,39 @@ def in_use(port: int, ignore=frozenset(), proc: str = "/proc/net") -> bool:
     return False
 
 
+def own_listener(port: int, proc: str = "/proc/net") -> bool:
+    """127.0.0.1:port is listened on, by this user only (never send a request
+    to a port another account could have taken)."""
+    owners = set()
+    for name in ("tcp", "tcp6"):
+        try:
+            lines = Path(proc, name).read_text().splitlines()[1:]
+        except OSError:
+            continue
+        for line in lines:
+            fields = line.split()
+            if len(fields) > 7 and fields[3] == "0A" and int(fields[1].rpartition(":")[2], 16) == port:
+                owners.add(int(fields[7]) if fields[7].isdigit() else -1)
+    return bool(owners) and owners == {os.getuid()}
+
+
+def unload(key: str, port: int) -> bool:
+    """Free the GPU memory of a runtime that stays up (STAYS_UP)."""
+    import http.client
+    path, body = UNLOADS[key]
+    if not port or not own_listener(port):
+        return False
+    try:
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=30)
+        connection.request("POST", path, body=json.dumps(body), headers={"Content-Type": "application/json"})
+        response = connection.getresponse()
+        response.read(64 * 1024)
+        connection.close()
+        return response.status < 400
+    except (OSError, http.client.HTTPException):
+        return False
+
+
 # --- start / stop ---------------------------------------------------------------------------
 
 def lms_binary() -> str | None:
@@ -289,12 +358,36 @@ def _is_lmstudio(argv: list[bytes]) -> bool:
     """LM Studio's app (AppImage, its mount), its engines (~/.lmstudio/extensions/backends/
     …/llama-server) and helpers (~/.lmstudio/.internal/utils/node)."""
     exe = argv[0] if argv else b""
+    if b"/.lmstudio/apps/" in exe:
+        return False           # LM Studio's other apps (Bionic) keep their helpers there
     return b"/.lmstudio/" in exe or b"lm-studio" in os.path.basename(exe).lower() or b"/.mount_lm-stu" in exe
+
+
+def _is_other_app(argv: list[bytes]) -> bool:
+    """An LM Studio app that is not LM Studio (Bionic): it shares ~/.lmstudio and its engines."""
+    exe = argv[0] if argv else b""
+    return os.path.basename(exe).lower() == b"bionic" or b"/.lmstudio/apps/" in exe
+
+
+def _other_app_family(processes) -> set:
+    """Bionic and everything it started (its engines too): never LM Studio's to stop."""
+    family = {pid for pid, _parent, argv in processes if _is_other_app(argv)}
+    parents = {pid: parent for pid, parent, _argv in processes}
+    for pid in parents:
+        seen, current = 0, pid
+        while current and seen < 64:
+            if current in family:
+                family.add(pid)
+                break
+            current, seen = parents.get(current, 0), seen + 1
+    return family
 
 
 def lmstudio_up(proc: str = "/proc") -> bool:
     """LM Studio (its app, daemon or an engine) runs already: we did not start it, so we leave it running."""
-    return any(_is_lmstudio(argv) for _pid, _parent, argv in _own_processes(proc))
+    processes = _own_processes(proc)
+    others = _other_app_family(processes)
+    return any(_is_lmstudio(argv) and pid not in others for pid, _parent, argv in processes)
 
 
 def lmstudio_pids(proc: str = "/proc") -> list[int]:
@@ -308,14 +401,15 @@ def lmstudio_pids(proc: str = "/proc") -> list[int]:
         exe = os.path.basename(argv[0]).lower() if argv else b""
         if b"lm-studio" in exe and b"--run-as-service" not in argv and not any(a.startswith(b"--type=") for a in argv):
             return []
-    picked = {pid for pid, _parent, argv in processes if _is_lmstudio(argv)}
+    others = _other_app_family(processes)
+    picked = {pid for pid, _parent, argv in processes if _is_lmstudio(argv) and pid not in others}
     children = {}
     for pid, parent, _argv in processes:
         children.setdefault(parent, []).append(pid)
     todo = list(picked)
     while todo:
         for child in children.get(todo.pop(), []):
-            if child not in picked:
+            if child not in picked and child not in others:
                 picked.add(child)
                 todo.append(child)
     return sorted(picked)
@@ -531,6 +625,12 @@ class Watcher:
             return True
         if self.busy(entry.get("port", 0), self.sockets(self.background)):
             return False            # another program is using it: wait until it is done
+        if key in STAYS_UP:
+            ok = unload(key, entry.get("port", 0))
+            log(f"unload {key} ({why}): {'ok' if ok else 'not running'}")
+            self.started.pop(key, None)
+            self.started.pop(f"{key}:ok", None)
+            return True
         argv = command(key, entry, "stop")
         if argv:
             ok = self.run(argv)
@@ -581,16 +681,33 @@ class Watcher:
         self.save_state()
 
 
+UPDATED = 75           # exit code when the plugin was updated: systemd starts the new code (Restart=on-failure)
+
+
+def source_stamp() -> tuple:
+    try:
+        info = os.stat(__file__)
+        return info.st_mtime_ns, info.st_size, info.st_ino
+    except OSError:
+        return ()
+
+
 def main():
     watcher = Watcher()
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     log("watching agents and their local LLMs")
+    started = source_stamp()
     try:
         while True:
             try:
                 watcher.tick()
             except Exception as error:      # keep watching; systemd would restart us anyway
                 log(f"error: {error}")
+            if source_stamp() != started:
+                # The plugin was updated (new providers, fixes): what is needed keeps
+                # running, the state is saved, and systemd starts the new watcher.
+                log("plugin updated: restarting with the new version")
+                sys.exit(UPDATED)
             time.sleep(INTERVAL)
     finally:
         watcher.shutdown()

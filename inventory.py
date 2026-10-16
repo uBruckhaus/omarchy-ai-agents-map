@@ -29,7 +29,7 @@ NAME_RE = re.compile(r"[\w.@:+/ -]{1,120}")
 
 @dataclass
 class Runtime:
-    key: str                 # "llamacpp", "ollama", "lmstudio", "vllm"
+    key: str                 # "llamacpp", "ollama", "lmstudio", "vllm", "jan", "koboldcpp"
     name: str
     installed: bool = False
     running: bool = False
@@ -139,6 +139,22 @@ def unit_files() -> list[Path]:
         return sorted(p for p in root.glob("*.service") if p.is_file())[:200]
     except OSError:
         return []
+
+
+def unit_named(name: str) -> tuple[str, dict]:
+    """A user service AI Agents Map's installer wrote under its own name (jan,
+    koboldcpp: their ExecStart is a shell line or a program named otherwise),
+    and the variables its EnvironmentFile= sets."""
+    unit = HOME / ".config/systemd/user" / f"{name}.service"
+    text = ad._read(unit) or ""
+    if not text:
+        return "", {}
+    env = {}
+    for line in re.findall(r"^EnvironmentFile=-?(.+)$", text, re.MULTILINE)[:10]:
+        path = Path(os.path.expanduser(line.strip().replace("%h", str(HOME))))
+        for key, value in re.findall(r"^\s*([A-Z_][A-Z0-9_]*)=(.*)$", ad._read(path) or "", re.MULTILINE):
+            env[key] = value.strip().strip("'\"")
+    return name, env
 
 
 def unit_for(binary: str) -> tuple[str, dict]:
@@ -374,6 +390,96 @@ def vllm(processes) -> Runtime:
     return rt
 
 
+JAN_ROOT = HOME / ".local/share/Jan"          # Jan's app data (settings.json, data/)
+JAN_PORT = 6767                               # the port `jan serve` uses; Jan's own app serves on 1337
+
+
+def jan_data_folder(root: Path = None) -> Path:
+    """Jan's data folder: settings.json's data_folder (absolute, or relative to
+    the app data folder), else <app data>/data."""
+    root = root or JAN_ROOT
+    value = ad.read_json(root / "settings.json").get("data_folder")
+    if isinstance(value, str) and value.strip():
+        path = Path(os.path.expanduser(value.strip()))
+        return path if path.is_absolute() else root / path
+    return root / "data"
+
+
+def jan_preset(root: Path = None) -> Path:
+    return jan_data_folder(root) / "llamacpp/router.preset.ini"
+
+
+def jan_model_ids(models: Path) -> list[str]:
+    """Model ids: folders under llamacpp/models holding a model.yml (ids may
+    have one slash: "janhq/Jan-v3-4B-gguf")."""
+    found = []
+    try:
+        entries = sorted(models.iterdir())[:MAX_ITEMS]
+    except OSError:
+        return found
+    for entry in entries:
+        if not entry.is_dir() or entry.name.startswith("."):
+            continue
+        if (entry / "model.yml").is_file():
+            found.append(entry.name)
+            continue
+        try:
+            found += [f"{entry.name}/{inner.name}" for inner in sorted(entry.iterdir())[:100]
+                      if inner.is_dir() and (inner / "model.yml").is_file()]
+        except OSError:
+            continue
+    return found[:MAX_ITEMS]
+
+
+def jan(processes) -> Runtime:
+    """Jan's engine (jan-llama-worker, a llama.cpp router) run headless as the
+    user service jan.service on JAN_PORT, serving the models of Jan's data folder."""
+    rt = Runtime("jan", "Jan", address=f"127.0.0.1:{JAN_PORT}")
+    rt.service, _env = unit_named("jan")
+    rt.installed = bool(rt.service) or JAN_ROOT.is_dir() or bool(shutil.which("jan"))
+    for _pid, comm, argv in processes:
+        if comm == "jan-llama-worke" or (argv and Path(argv[0]).name == "jan-llama-worker"):
+            rt.installed = True
+            if arg_value(argv, "--port") == str(JAN_PORT):
+                rt.running = True
+    data = jan_data_folder()
+    preset = data / "llamacpp/router.preset.ini"
+    names = [s for s in re.findall(r"^\[([^\]\n]{1,120})\]", ad._read(preset) or "", re.MULTILINE) if s != "*"]
+    models = data / "llamacpp/models"
+    names += jan_model_ids(models)
+    if models.is_dir():
+        rt.models_dir = tilde(models)
+    rt.models = dedupe_models(names)
+    return rt
+
+
+KOBOLD_CONFIGS = HOME / ".config/koboldcpp/models"     # one .kcpps per model: the router's model ids
+KOBOLD_ENV = HOME / ".config/koboldcpp/server.env"
+
+
+def koboldcpp(processes) -> Runtime:
+    """KoboldCpp in router mode (koboldcpp.service): every .kcpps in
+    KOBOLD_CONFIGS is a model id, loaded on the first request naming it."""
+    rt = Runtime("koboldcpp", "KoboldCpp", address="127.0.0.1:5001")
+    rt.service, env = unit_named("koboldcpp")
+    rt.installed = bool(rt.service) or bool(shutil.which("koboldcpp"))
+    for _pid, comm, argv in processes:
+        if comm == "koboldcpp" or (argv and Path(argv[0]).name.startswith("koboldcpp")):
+            rt.running = rt.installed = True
+            port = arg_value(argv, "--port")
+            if port.isdigit():
+                rt.address = f"127.0.0.1:{port}"
+    folder = env.get("KOBOLDCPP_MODELS") or ""
+    if folder:
+        rt.models_dir = tilde(folder)
+    try:
+        configs = sorted(p.name for p in KOBOLD_CONFIGS.glob("*.kcpps"))[:MAX_ITEMS]
+    except OSError:
+        configs = []
+    rt.models = dedupe_models(configs)
+    return rt
+
+
 # --- MCP servers -----------------------------------------------------------------------
 
 LAUNCHERS = {"npx", "bunx", "uvx", "pnpx", "pipx", "dlx", "docker", "podman", "node", "python", "python3", "uv", "bun"}
@@ -472,7 +578,8 @@ def skills_in(folder: Path, depth: int = 0) -> list[tuple[Path, Path]]:
 def collect(agent_list) -> Inventory:
     inv = Inventory()
     processes = own_processes()
-    inv.runtimes = [llamacpp(processes), ollama(processes), lmstudio(processes), vllm(processes)]
+    inv.runtimes = [llamacpp(processes), ollama(processes), lmstudio(processes), vllm(processes), jan(processes),
+                    koboldcpp(processes)]
     by_port = {}
     for rt in inv.runtimes:
         port = rt.address.rsplit(":", 1)[-1]

@@ -54,6 +54,11 @@ import mcp_library
 import mcp_registry
 import mcp_scan
 import mcp_tools
+import link_check
+import link_hints
+import jan_ctl
+import kobold_ctl
+import mcp_update
 import skills_ctl
 import skills_scan
 import skills_web
@@ -82,11 +87,14 @@ from palette import ThemePalette
 # page, the same on every page so switching never resizes the popup.
 CARD_WIDTH = 420
 LIST_HEIGHT = 590
+CARD_MARGIN = 40       # space kept free around the card (the width keeps 2 × 40 too)
+SCROLLER_MIN_HEIGHT = 120
 SCREEN_MARGIN = 120    # space kept free above and below the card
 CURSOR_SLACK = 24      # px the pointer may move after opening before the keyboard is released
 AGENT_SPACING = 8
 SPLIT_WIDTH = 1000        # from this card width the overview shows the map beside the cards
 LIST_PANE_WIDTH = 440
+RIGHT_PAGES = ("connect", "install", "models", "mcp", "addmcp", "addskills")   # open beside the cards
 DETAIL_LABEL_WIDTH = 90   # the dim labels in an opened agent card
 
 
@@ -314,7 +322,11 @@ class AgentsMap(Gtk.Application):
         frame = Gtk.Overlay()
         frame.set_child(card)
         frame.set_halign(Gtk.Align.CENTER)
-        frame.set_valign(Gtk.Align.CENTER)
+        # Fill the window's height (it already leaves the bar out); the scrollers take what
+        # the header, meters and filter lines leave, so nothing is cut off at the top.
+        frame.set_valign(Gtk.Align.FILL)
+        frame.set_margin_top(CARD_MARGIN)
+        frame.set_margin_bottom(CARD_MARGIN)
         overlay.add_overlay(frame)
         frame.add_overlay(self.build_undo_bar())
         self.card = card
@@ -331,12 +343,15 @@ class AgentsMap(Gtk.Application):
         stack.set_vhomogeneous(True)
         stack.add_named(self.build_main_page(), "main")
         stack.add_named(self.build_settings_page(), "settings")
-        stack.add_named(self.build_connect_page(), "connect")
-        stack.add_named(self.build_install_page(), "install")
-        stack.add_named(self.build_models_page(), "models")
-        stack.add_named(self.build_mcp_page(), "mcp")
-        stack.add_named(self.build_add_mcp_page(), "addmcp")
-        stack.add_named(self.build_add_skills_page(), "addskills")
+        # Details and the pages that change something open right of the cards, where the map is.
+        right = self.right_stack
+        right.add_named(self.build_connect_page(), "connect")
+        right.add_named(self.build_install_page(), "install")
+        right.add_named(self.build_models_page(), "models")
+        right.add_named(self.build_mcp_page(), "mcp")
+        right.add_named(self.build_add_mcp_page(), "addmcp")
+        right.add_named(self.build_add_skills_page(), "addskills")
+        right.connect("notify::visible-child-name", lambda *_: self.update_header())
         self.guard_text_fields_in(window)
         stack.connect("notify::visible-child-name", lambda *_: self.update_header())
         card.append(stack)
@@ -362,6 +377,9 @@ class AgentsMap(Gtk.Application):
         sidebar_button.set_tooltip_text(_("Show or hide the cards (Ctrl+B)"))
         sidebar_button.add_css_class("flat")
         sidebar_button.add_css_class("am-header-btn")
+        # Not focusable: as the first control it would hold the focus on open, and a stray
+        # Space (typing meant for another window) would hide the cards. Ctrl+B toggles it.
+        sidebar_button.set_focusable(False)
         sidebar_button.connect("toggled", lambda b: self.set_sidebar(b.get_active()))
         header.append(sidebar_button)
         self.sidebar_button = sidebar_button
@@ -374,7 +392,25 @@ class AgentsMap(Gtk.Application):
         self.title_label = title
         # One view (the cards with the map beside them): no view switch any more.
         self.view_buttons = {}
-        self.view_switch = Gtk.Box()
+        # Which setup to show, for the cards and the map alike: everything, only online
+        # providers (no local LLMs), or only local LLMs (and the agents that can use them).
+        self.view_switch = Gtk.Box(spacing=0, valign=Gtk.Align.CENTER)
+        self.view_switch.add_css_class("am-segmented")
+        self.mode_buttons = {}
+        tips = {"all": _("Everything: online providers and local LLMs"),
+                "online": _("Only online providers: no local LLMs, models or GPU meters"),
+                "local": _("Only local LLMs, and the agents that can use them")}
+        group = None
+        for mode, label in (("all", _("All")), ("online", _("Online")), ("local", _("Local LLMs"))):
+            button = Gtk.ToggleButton(label=label, group=group)
+            group = group or button
+            button.add_css_class("am-segment")
+            button.set_tooltip_text(tips[mode])
+            button.connect("toggled", lambda b, m=mode: b.get_active() and self.set_setup_mode(m))
+            self.view_switch.append(button)
+            self.mode_buttons[mode] = button
+        self.mode_buttons[self.setup_mode()].set_active(True)
+        header.append(self.view_switch)
 
         # The same Nerd Font gear (U+F0493) in a small bordered box as the other plugins.
         settings_button = Gtk.Button()
@@ -393,6 +429,7 @@ class AgentsMap(Gtk.Application):
     def page_scroller(self, child: Gtk.Widget) -> Gtk.ScrolledWindow:
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_vexpand(True)
         scroller.set_child(child)
         self.scrollers.append(scroller)
         return scroller
@@ -416,15 +453,36 @@ class AgentsMap(Gtk.Application):
     def build_main_page(self) -> Gtk.Widget:
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         page.append(self.view_heading(_("AI setup")))
-        body = Gtk.Box(spacing=16)
+        body = Gtk.Box(spacing=0)
         self.agents_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=AGENT_SPACING)
         self.agents_box.add_css_class("am-agents")
-        self.list_pane = self.page_scroller(self.agents_box)
-        self.list_pane.set_hexpand(True)
+        scroller = self.page_scroller(self.agents_box)
+        scroller.set_vexpand(True)
+        # The cards as a panel of their own: a heading line with its filter, a frame,
+        # and a rule between it and the map.
+        self.list_pane = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, hexpand=True)
+        self.list_pane.add_css_class("am-sidebar")
+        top = Gtk.Box(spacing=8)
+        heading = Gtk.Label(label=_("Overview").upper(), xalign=0, hexpand=True)
+        heading.add_css_class("am-section-title")
+        top.append(heading)
+        self.card_filter = Gtk.Button()
+        self.card_filter.add_css_class("am-small-btn")
+        self.card_filter.add_css_class("am-filter-btn")
+        self.card_filter.set_tooltip_text(_("Choose which cards the overview shows"))
+        self.card_filter.connect("clicked", lambda b: self.show_card_list(b))
+        top.append(self.card_filter)
+        self.list_pane.append(top)
+        self.list_pane.append(scroller)
         body.append(self.list_pane)
+        self.side_rule = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
+        self.side_rule.add_css_class("am-side-rule")
+        body.append(self.side_rule)
         # Wide: the map beside the cards; a click on a card selects it there.
         side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, hexpand=True)
-        side.append(self.build_gpu_line())
+        side.add_css_class("am-map-pane")
+        self.gpu_line = self.build_gpu_line()
+        side.append(self.gpu_line)
         side.append(self.build_layer_toggles())
         # The filter line: a hint, or what is selected and a way back to everything.
         bar = Gtk.Box(spacing=8)
@@ -465,6 +523,7 @@ class AgentsMap(Gtk.Application):
         self.side_map.on_relink = self.on_map_relink
         self.side_map.on_pick_model = self.on_map_pick_model
         self.side_map.on_add = self.on_map_add
+        self.side_map.on_failed_edge = self.show_link_hints
         self.side_map.on_context = lambda node_id, rect, v=self.side_map: self.show_context(v, node_id, rect)
         self.side_map.on_header = lambda column, rect: self.show_column_list(self.side_map, column, rect)
         map_scroller = self.page_scroller(self.side_map)
@@ -473,11 +532,51 @@ class AgentsMap(Gtk.Application):
         self.side_map.set_zoom(ai_core.load_settings().get("map_zoom", 1.0)
                                if isinstance(ai_core.load_settings().get("map_zoom"), (int, float)) else 1.0)
         self.zoom_label.set_label(f"{round(self.side_map.zoom * 100)} %")
-        side.set_visible(False)
-        self.side_pane = side
-        body.append(side)
+        # The right of the Overview: the map, or a page opened from a card or from the map.
+        right = Gtk.Stack(hexpand=True)
+        right.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        right.set_transition_duration(120)
+        right.add_named(side, "map")
+        right.set_visible(False)
+        self.right_stack = right
+        self.side_pane = right
+        body.append(right)
         page.append(body)
         return page
+
+    def page_name(self) -> str:
+        """The page in view: "main" (cards + map), "settings", or a page right of the cards."""
+        outer = self.stack.get_visible_child_name()
+        if outer != "main":
+            return outer
+        inner = self.right_stack.get_visible_child_name()
+        return inner if inner in RIGHT_PAGES else "main"
+
+    def show_page(self, name: str):
+        if name in RIGHT_PAGES:
+            self.stack.set_visible_child_name("main")
+            self.right_stack.set_visible_child_name(name)
+        else:
+            if name == "main":
+                self.right_stack.set_visible_child_name("map")
+            self.stack.set_visible_child_name(name)
+        self.place_panes()
+        self.update_header()
+
+    def place_panes(self):
+        """Wide: the cards stay beside whatever is on the right. Narrow (cards only):
+        a page from the right takes the whole width while it is open."""
+        if getattr(self, "right_stack", None) is None:
+            return
+        on_right = self.page_name() in RIGHT_PAGES
+        if self.split:
+            self.right_stack.set_visible(True)
+            self.list_pane.set_visible(self.sidebar_visible)
+            self.side_rule.set_visible(self.sidebar_visible)
+        else:
+            self.right_stack.set_visible(on_right)
+            self.list_pane.set_visible(not on_right)
+            self.side_rule.set_visible(False)
 
     # --- GPU memory and activity (as LLM Monitor shows them) --------------------------------------
 
@@ -529,6 +628,7 @@ class AgentsMap(Gtk.Application):
         self.gpu_line = line
         self.gpu_timer = None
         self.gpu_reading = False
+        self.running = {}        # agent command -> the model of each open instance ("" = its settings')
         return line
 
     def draw_swatch(self, cr, width, height, key, alpha, outlined):
@@ -562,12 +662,17 @@ class AgentsMap(Gtk.Application):
                 usage = gpu_usage.snapshot(runtimes)
             except Exception:
                 usage = None
-            GLib.idle_add(done, usage)
+            GLib.idle_add(done, usage, self.running_now())
 
-        def done(usage):
+        def done(usage, running):
             self.gpu_reading = False
             if usage is not None and self.window.is_visible():
                 self.show_gpu(usage, runtimes)
+            if running != self.running and self.window.is_visible():
+                # An agent was opened or closed: its dot, its model and its card change.
+                self.running = running
+                self.refresh_overview()
+                self.refresh_map()
             return False
 
         threading.Thread(target=work, daemon=True).start()
@@ -576,7 +681,7 @@ class AgentsMap(Gtk.Application):
     def show_gpu(self, usage, runtimes):
         gib = gpu_usage.gib
         total = usage.vram_total
-        self.gpu_line.set_visible(total > 0)
+        self.gpu_line.set_visible(total > 0 and "local" not in self.mode_rules()[0])
         if total:
             free = max(0, total - usage.vram_used)
             self.gpu_memory.set_parts([(usage.llm_vram / total, "accent", 1.0), (usage.other_vram / total, "fg", 0.45)])
@@ -594,7 +699,7 @@ class AgentsMap(Gtk.Application):
         # The watcher (or something else) started or stopped a local LLM: show it.
         changed = any(rt.running != usage.runtimes[rt.key].running for rt in runtimes if rt.key in usage.runtimes)
         if changed and runtimes is self.inventory.runtimes and self.side_map.link is None \
-                and self.stack.get_visible_child_name() == "main":
+                and self.page_name() == "main":
             self.collect()
             self.refresh_overview()
             self.refresh_map()
@@ -604,12 +709,32 @@ class AgentsMap(Gtk.Application):
         self.agent_list = agents.list_agents()
         self.inventory = inventory.collect(self.agent_list)
         self.configured_now = None     # installed_mcp() reads the settings again
+        self.running = self.running_now()
         try:
             changed = provider_watch.write_config(self.inventory)
         except OSError:
             changed = False
         if changed:
             self.sync_provider_watch()
+
+    def running_now(self) -> dict:
+        """Agent command -> the model each open instance runs with (/proc only)."""
+        names = [a.command for a in getattr(self, "agent_list", []) if a.installed]
+        try:
+            found = provider_watch.agent_instances(names)
+        except OSError:
+            return {}
+        return {name: sorted(provider_watch.instance_model(name, args) for args in found[name]) for name in found}
+
+    def instance_label(self, agent) -> str:
+        """"running · opus" for an agent with an open instance, "" otherwise."""
+        models = self.running.get(agent.command)
+        if not models:
+            return ""
+        configured = graph.split_model(agent_details.details_for(agent.command).model)[0]
+        names = sorted({graph.split_model(m)[0] if m else configured for m in models} - {""})
+        state = _("running") if len(models) == 1 else _("{0} running").format(len(models))
+        return " · ".join([state] + names)
 
     def sync_provider_watch(self):
         """The watcher that starts an agent's local LLMs with it (and stops them when it
@@ -626,19 +751,25 @@ class AgentsMap(Gtk.Application):
             box.remove(child)
         self.detail_boxes = {}
         self.card_widgets = {}
-        installed = [a for a in self.agent_list if a.installed]
-        missing = [a for a in self.agent_list if not a.installed]
+        off, mode_hidden = self.mode_rules()
+        hidden = self.card_hidden() | mode_hidden
+        installed = [a for a in self.agent_list if a.installed and f"agent:{a.command}" not in hidden]
+        missing = [a for a in self.agent_list if not a.installed and f"agent:{a.command}" not in hidden]
         inv = self.inventory
         names = self.agent_names()
+        self.update_card_filter()
 
-        self.section(_("Agents ({0})").format(len(installed)))
+        if installed:
+            self.section(_("Agents ({0})").format(len(installed)))
         for agent in installed:
             box.append(self.agent_card(agent))
 
-        installed = [rt for rt in inv.runtimes if rt.installed]
-        self.section(_("Local LLMs ({0})").format(len(installed)))
+        runtimes = [] if "local" in off else \
+            [rt for rt in sorted(inv.runtimes, key=lambda r: not r.installed) if f"runtime:{rt.key}" not in hidden]
+        if runtimes:
+            self.section(_("Local LLMs ({0})").format(len([rt for rt in runtimes if rt.installed])))
         # Installed ones first; the others too, grey, as something to install and connect.
-        for rt in sorted(inv.runtimes, key=lambda r: not r.installed):
+        for rt in runtimes:
             status = graph.runtime_status(rt)
             state = {"running": _("running"), "stopped": _("installed, not running")}.get(status, _("not installed"))
             sub = state if not rt.installed else \
@@ -647,10 +778,11 @@ class AgentsMap(Gtk.Application):
                                             lambda b, rt=rt: self.fill_runtime(b, rt, names),
                                             dim=not rt.installed, status=status))
 
-        self.section(_("MCP servers ({0})").format(len(inv.mcp)))
+        servers = [m for m in inv.mcp if f"mcp:{m.name}" not in hidden]
+        self.section(_("MCP servers ({0})").format(len(servers)))
         if not inv.mcp:
             self.section_hint(_("No agent has an MCP server set up."))
-        for server in inv.mcp:
+        for server in servers:
             users = ", ".join(names.get(a, a) for a in server.agents) or _("not used by any agent")
             box.append(self.expandable_card(f"mcp:{server.name}", "\U000F0337", "", server.name, users,
                                  lambda b, s=server: self.fill_mcp(b, s, names)))
@@ -662,10 +794,11 @@ class AgentsMap(Gtk.Application):
         add.connect("clicked", lambda *_: self.open_add_mcp())
         box.append(add)
 
-        self.section(_("Skills ({0})").format(sum(len(s.skills) for s in inv.skill_sets)))
+        skill_sets = [s for s in inv.skill_sets if f"skills:{s.path}" not in hidden]
+        self.section(_("Skills ({0})").format(sum(len(s.skills) for s in skill_sets)))
         if not inv.skill_sets:
             self.section_hint(_("No skills found for the installed agents."))
-        for skill_set in inv.skill_sets:
+        for skill_set in skill_sets:
             sub = ngettext("1 skill", "{0} skills", len(skill_set.skills)).format(len(skill_set.skills)) \
                 + " · " + ", ".join(names.get(a, a) for a in skill_set.agents)
             box.append(self.expandable_card(f"skills:{skill_set.path}", "\U000F0EB3", "", skill_set.path, sub,
@@ -881,6 +1014,8 @@ class AgentsMap(Gtk.Application):
     def agent_card(self, agent) -> Gtk.Widget:
         key = f"agent:{agent.command}"
         subtitle = (agent.version or _("Installed")) if agent.installed else _("Not installed")
+        if agent.installed and self.instance_label(agent):
+            subtitle = " · ".join(filter(None, [agent.version, self.instance_label(agent)]))
         card = self.expandable_card(key, agent.icon, agent.icon_font, agent.name, subtitle,
                          lambda b, a=agent: self.fill_agent(b, a), dim=not agent.installed,
                          badge=_("Default") if agent.default else "", badge_tip=_("Omarchy's default agent"),
@@ -1125,8 +1260,8 @@ class AgentsMap(Gtk.Application):
         server = next((m for m in self.inventory.mcp if m.name == name), None)
         if server is None:
             return
-        if self.stack.get_visible_child_name() != "mcp":
-            self.mcp_from = self.view if self.stack.get_visible_child_name() in ai_core.VIEWS else "main"
+        if self.page_name() != "mcp":
+            self.mcp_from = self.view if self.page_name() in ai_core.VIEWS else "main"
         self.mcp_title.set_label(_("MCP server {0}").format(name).upper())
         body = self.mcp_body
         while (child := body.get_first_child()) is not None:
@@ -1145,7 +1280,7 @@ class AgentsMap(Gtk.Application):
                       + _("draw a line from the agent to this box on the map to add it."))
         self.mcp_tools_section(body, server)
         self.mcp_showing = name
-        self.stack.set_visible_child_name("mcp")
+        self.show_page("mcp")
         self.update_header()
 
     @staticmethod
@@ -1180,8 +1315,8 @@ class AgentsMap(Gtk.Application):
         skill_set = next((s for s in self.inventory.skill_sets if s.path == path), None)
         if skill_set is None:
             return
-        if self.stack.get_visible_child_name() != "mcp":
-            self.mcp_from = self.view if self.stack.get_visible_child_name() in ai_core.VIEWS else "main"
+        if self.page_name() != "mcp":
+            self.mcp_from = self.view if self.page_name() in ai_core.VIEWS else "main"
         self.mcp_title.set_label(_("Skills in {0}").format(path).upper())
         self.mcp_showing = None
         body = self.mcp_body
@@ -1211,7 +1346,7 @@ class AgentsMap(Gtk.Application):
         located = {p.name: p for p in skills_ctl.skills_of(folder)}
         self.detail_grid(body, [(name, (skills_ctl.description(located[name]) if name in located else "") or "—", "")
                                 for name in skill_set.skills])
-        self.stack.set_visible_child_name("mcp")
+        self.show_page("mcp")
         self.update_header()
 
     def mcp_tools_section(self, body, server):
@@ -1266,7 +1401,7 @@ class AgentsMap(Gtk.Application):
 
         def done(result):
             self.asking_tools.discard(name)
-            if self.stack.get_visible_child_name() == "mcp" and getattr(self, "mcp_showing", None) == name:
+            if self.page_name() == "mcp" and getattr(self, "mcp_showing", None) == name:
                 self.open_mcp_details(name)
             elif result.get("status") != "ok":
                 self.show_note(_("{0}: {1}").format(name, result.get("error", "")))
@@ -1423,8 +1558,8 @@ class AgentsMap(Gtk.Application):
         return page
 
     def open_add_mcp(self):
-        if self.stack.get_visible_child_name() != "addmcp":
-            self.add_return = self.view if self.stack.get_visible_child_name() in ai_core.VIEWS else "main"
+        if self.page_name() != "addmcp":
+            self.add_return = self.view if self.page_name() in ai_core.VIEWS else "main"
         flow = self.add_agents
         while (child := flow.get_first_child()) is not None:
             flow.remove(child)
@@ -1439,7 +1574,7 @@ class AgentsMap(Gtk.Application):
                 flow.append(check)
                 self.add_checks[agent.command] = check
         self.add_kind_changed()
-        self.stack.set_visible_child_name("addmcp")
+        self.show_page("addmcp")
         self.update_header()
         if self.found_mcp is None:
             self.scan_mcp()
@@ -1495,7 +1630,7 @@ class AgentsMap(Gtk.Application):
             self.scanning_mcp = False
             self.found_mcp = found
             self.show_found_mcp()
-            if self.stack.get_visible_child_name() == "addmcp":
+            if self.page_name() == "addmcp":
                 self.mark_seen("mcp")
             return False
 
@@ -1538,6 +1673,14 @@ class AgentsMap(Gtk.Application):
         self.add_inside_label.set_label(ngettext(
             "1 AppImage not looked into yet ({1}).", "{0} AppImages not looked into yet ({1}).", len(pending))
             .format(len(pending), ", ".join(p.name for p in pending[:4]) + ("…" if len(pending) > 4 else "")))
+        names = self.agent_names()
+        for candidate in self.mcp_updates():
+            users = [names.get(a, a) for a in candidate.users if a != "list"] or [_("the list of MCP servers")] \
+                if candidate.users else [skills_ctl.tilde(link) for link, _o, _n in mcp_update.links(candidate)]
+            detail = "↑ " + _("Update · used by {0}").format(", ".join(users))
+            self.add_found_list.append(self.choice_row(
+                "{0}  {1} → {2}".format(candidate.name, candidate.update_from, candidate.version), detail,
+                lambda *_, c=candidate: self.open_mcp_update(c), _("Update…")))
         for candidate in sorted(fresh, key=lambda c: (c.program in seen, c.name)):
             where = Path(candidate.appimage).name if candidate.appimage else skills_ctl.tilde(candidate.program)
             if candidate.program not in seen:
@@ -1564,7 +1707,12 @@ class AgentsMap(Gtk.Application):
 
         threading.Thread(target=work, daemon=True).start()
 
-    def choice_row(self, title: str, detail: str, on_use) -> Gtk.Widget:
+    def mcp_updates(self) -> list:
+        """Found apps in a newer version whose older one is still started
+        (by an agent, the list or a link in ~/.local/bin)."""
+        return [c for c in self.found_mcp or [] if c.update_from and (c.users or mcp_update.links(c))]
+
+    def choice_row(self, title: str, detail: str, on_use, button: str = "") -> Gtk.Widget:
         """name ······ [Add…] on one line (a dotted line leads the eye to the
         button), the details under it."""
         row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
@@ -1578,7 +1726,7 @@ class AgentsMap(Gtk.Application):
         leader = Gtk.Box(hexpand=True, valign=Gtk.Align.CENTER)
         leader.add_css_class("am-leader")
         top.append(leader)
-        use = Gtk.Button(label=_("Add…"), valign=Gtk.Align.CENTER)
+        use = Gtk.Button(label=button or _("Add…"), valign=Gtk.Align.CENTER)
         use.add_css_class("am-small-btn")
         use.connect("clicked", on_use)
         top.append(use)
@@ -1865,7 +2013,9 @@ class AgentsMap(Gtk.Application):
         seen = ai_core.load_settings().get("seen_found", {})
         seen_mcp = set(seen.get("mcp", [])) if isinstance(seen, dict) else set()
         seen_skills = set(seen.get("skills", [])) if isinstance(seen, dict) else set()
-        mcp = [c for c in self.found_mcp or [] if not self.installed_mcp(c) and c.program not in seen_mcp]
+        updates = self.mcp_updates()
+        mcp = [c for c in self.found_mcp or [] if (not self.installed_mcp(c) or c in updates)
+               and c.program not in seen_mcp]
         skills = [s for s in self.found_skills or [] if s.path not in seen_skills]
         return mcp, skills
 
@@ -1894,6 +2044,18 @@ class AgentsMap(Gtk.Application):
 
         def work():
             mcp_scan.cleanup_old_cache()
+            connect.prune_retired()
+            kobold = install_ctl.installer("koboldcpp")
+            if kobold.installed_folder() is not None and kobold.models_folder():
+                try:
+                    kobold.sync(Path(kobold.models_folder()))      # models added since: router ids
+                except (OSError, ValueError):
+                    pass
+            try:
+                # New versions of apps looked into before: looked into again without asking.
+                mcp_scan.look_inside(mcp_scan.updates_to_look_into())
+            except OSError:
+                pass
             try:
                 mcp = mcp_scan.scan(configured, commands)
             except OSError:
@@ -1914,7 +2076,7 @@ class AgentsMap(Gtk.Application):
                                                                                           + ("…" if len(names) > 5 else "")))
             self.refresh_overview()
             self.refresh_map()
-            page = self.stack.get_visible_child_name()
+            page = self.page_name()
             if page == "addskills":
                 self.show_found_skills()
                 self.mark_seen("skills")
@@ -2039,8 +2201,8 @@ class AgentsMap(Gtk.Application):
         return page
 
     def open_add_skills(self):
-        if self.stack.get_visible_child_name() != "addskills":
-            self.skills_return = self.view if self.stack.get_visible_child_name() in ai_core.VIEWS else "main"
+        if self.page_name() != "addskills":
+            self.skills_return = self.view if self.page_name() in ai_core.VIEWS else "main"
         self.skills_choice = None
         self.skills_selected.set_label(_("Nothing selected yet."))
         self.skills_status.set_label("")
@@ -2070,7 +2232,7 @@ class AgentsMap(Gtk.Application):
                 self.skills_checks[agent.command] = check
         self.show_found_skills()
         self.mark_seen("skills")
-        self.stack.set_visible_child_name("addskills")
+        self.show_page("addskills")
         self.update_header()
         self.update_skills_preview()
 
@@ -2282,6 +2444,86 @@ class AgentsMap(Gtk.Application):
             self.layer_buttons[layer] = button
         return row
 
+    # --- the setup choice in the header (All · Online · Local LLMs) ----------------------------
+
+    def setup_mode(self) -> str:
+        mode = ai_core.load_settings().get("setup_mode", "all")
+        return mode if mode in ("all", "online", "local") else "all"
+
+    def local_capable(self, agent) -> bool:
+        """An agent that can work with a local LLM: one AI Agents Map connects, one tied
+        to a local LLM, or one whose settings have a local provider already."""
+        if agent.command in connect.SUPPORTED or agent.command in connect.FIXED:
+            return True
+        return any(agent.command in rt.agents for rt in self.inventory.runtimes)
+
+    def mode_rules(self, mode: str | None = None) -> tuple[set, set]:
+        """(map categories left out, node ids left out) for a setup choice."""
+        mode = mode or self.setup_mode()
+        if mode == "online":
+            return {"local"}, set()
+        if mode == "local":
+            return {"online"}, {f"agent:{a.command}" for a in self.agent_list if not self.local_capable(a)}
+        return set(), set()
+
+    def set_setup_mode(self, mode: str):
+        if getattr(self, "side_map", None) is None:
+            return                 # the header is built before the map: the saved choice is applied with it
+        if mode == self.setup_mode() and getattr(self, "mode_applied", False):
+            return
+        self.save_setting(setup_mode=mode)
+        self.apply_setup_mode()
+        self.refresh_overview()
+
+    def apply_setup_mode(self):
+        """The choice on the map: the Show chip of a category it leaves out goes, the
+        GPU meters too when there are no local LLMs."""
+        self.mode_applied = True
+        off, hidden = self.mode_rules()
+        self.side_map.set_mode(off, hidden)
+        for layer, button in getattr(self, "layer_buttons", {}).items():
+            button.set_visible(layer not in off)
+        if getattr(self, "gpu_line", None) is not None:
+            self.gpu_line.set_visible("local" not in off)
+        self.set_selection([i for i in self.selection if i not in hidden])
+
+    # --- the overview's own filter (like the map's column lists) ------------------------------
+
+    def card_hidden(self) -> set:
+        value = ai_core.load_settings().get("card_hidden", [])
+        return {str(v) for v in value[:500]} if isinstance(value, list) else set()
+
+    def card_groups(self) -> list:
+        """(heading, [(card id, label)]) of every card the overview can show."""
+        inv, names = self.inventory, self.agent_names()
+        off, mode_hidden = self.mode_rules()
+        agents = [a for a in self.agent_list if a.installed and f"agent:{a.command}" not in mode_hidden]
+        groups = [(_("Agents"), [(f"agent:{a.command}", a.name) for a in agents])]
+        if "local" not in off:
+            groups.append((_("Local LLMs"), [(f"runtime:{rt.key}", rt.name) for rt in
+                                             sorted(inv.runtimes, key=lambda r: not r.installed)]))
+        groups.append((_("MCP servers"), [(f"mcp:{m.name}", m.name) for m in inv.mcp]))
+        groups.append((_("Skills"), [(f"skills:{s.path}", s.path) for s in inv.skill_sets]))
+        missing = [a for a in self.agent_list if not a.installed and f"agent:{a.command}" not in mode_hidden]
+        if missing:
+            groups.append((_("Not installed"), [(f"agent:{a.command}", a.name) for a in missing]))
+        return groups
+
+    def update_card_filter(self):
+        hidden = self.card_hidden()
+        ids = {i for _title, items in self.card_groups() for i, _label in items}
+        count = len(hidden & ids)
+        self.card_filter.set_label(_("Show") + " ▾" if not count else
+                                   ngettext("Show · 1 hidden", "Show · {0} hidden", count).format(count) + " ▾")
+
+    def show_card_list(self, button):
+        def changed(ids, shown):
+            hidden = self.card_hidden()
+            hidden.difference_update(ids) if shown else hidden.update(ids)
+            self.save_setting(card_hidden=sorted(hidden))
+            self.refresh_overview()
+        self.tick_list(button, None, self.card_groups(), self.card_hidden(), changed)
+
     def update_layer_toggles(self):
         """Pressed = switched on; greyed out while what it needs is off."""
         on = self.map_view.layers
@@ -2385,15 +2627,23 @@ class AgentsMap(Gtk.Application):
         graph_now = view.graph
         if graph_now is None:
             return
+        groups = [(title, [(node.id, label) for node, label in items])
+                  for title, items in self.column_list_groups(graph_now, column)]
+        self.tick_list(view, rect, groups, set(view.hidden_ids), self.set_nodes_shown)
+
+    def tick_list(self, parent, rect, groups, hidden: set, changed):
+        """A popover of tick boxes in groups (a group's own box ticks all of it), with
+        All and None: the map's column lists and the overview's Show list.
+        changed(ids, shown) is called for every change."""
         popover = Gtk.Popover()
-        popover.set_parent(view)
-        area = Gdk.Rectangle()
-        area.x, area.y, area.width, area.height = (int(v) for v in rect)
-        popover.set_pointing_to(area)
+        popover.set_parent(parent)
+        if rect is not None:
+            area = Gdk.Rectangle()
+            area.x, area.y, area.width, area.height = (int(v) for v in rect)
+            popover.set_pointing_to(area)
         popover.set_position(Gtk.PositionType.BOTTOM)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         box.add_css_class("am-provider-list")
-        hidden = set(view.hidden_ids)
         checks = {}
         headings = []          # (heading check, member ids)
         syncing = [False]
@@ -2414,27 +2664,27 @@ class AgentsMap(Gtk.Application):
             for i in members:
                 checks[i].set_active(shown)
             syncing[0] = False
-            self.set_nodes_shown(members, shown)
+            changed(members, shown)
 
-        def on_check(node_id, shown, heading, members):
+        def on_check(item_id, shown, heading, members):
             if syncing[0]:
                 return
-            self.set_nodes_shown([node_id], shown)
+            changed([item_id], shown)
             sync_heading(heading, members)
 
-        for title, items in self.column_list_groups(graph_now, column):
+        for title, items in groups:
             if not items:
                 continue
-            members = [node.id for node, _label in items]
+            members = [item_id for item_id, _label in items]
             heading = Gtk.CheckButton(label=title)
             heading.add_css_class("am-list-group")
             box.append(heading)
-            for node, label in items:
+            for item_id, label in items:
                 check = Gtk.CheckButton(label=label, margin_start=18)
-                check.set_active(node.id not in hidden)
-                check.connect("toggled", lambda b, i=node.id, h=heading, m=members: on_check(i, b.get_active(), h, m))
+                check.set_active(item_id not in hidden)
+                check.connect("toggled", lambda b, i=item_id, h=heading, m=members: on_check(i, b.get_active(), h, m))
                 box.append(check)
-                checks[node.id] = check
+                checks[item_id] = check
             sync_heading(heading, members)
             heading.connect("toggled", lambda h, m=members: on_heading(h, m))
             headings.append((heading, members))
@@ -2446,7 +2696,7 @@ class AgentsMap(Gtk.Application):
             syncing[0] = False
             for heading, members in headings:
                 sync_heading(heading, members)
-            self.set_nodes_shown(list(checks), shown)
+            changed(list(checks), shown)
 
         row = Gtk.Box(spacing=6, halign=Gtk.Align.END, margin_top=6)
         for label, value in ((_("All"), True), (_("None"), False)):
@@ -2496,13 +2746,15 @@ class AgentsMap(Gtk.Application):
     def refresh_map(self):
         details = {a.command: agent_details.details_for(a.command) for a in self.agent_list if a.installed}
         labels = {"skills": lambda n: ngettext("1 skill", "{0} skills", n).format(n),
-                  "more": lambda n: _("+{0} more").format(n)}
+                  "more": lambda n: _("+{0} more").format(n),
+                  "running": lambda n: _("running") if n == 1 else _("{0} running").format(n),
+                  "in_use": lambda names: _("in use · {0}").format(names)}
         new_mcp, new_skills = self.new_found()
         labels["unused"] = _("not used by any agent")
         labels["add_mcp"] = _("+ MCP server") + (" · " + _("{0} new").format(len(new_mcp)) if new_mcp else "")
         labels["add_skills"] = _("+ Skills") + (" · " + _("{0} new").format(len(new_skills)) if new_skills else "")
         labels["add_model"] = _("+ Model")
-        built = graph.build(self.agent_list, details, self.inventory, labels)
+        built = graph.build(self.agent_list, details, self.inventory, labels, link_hints.load(), self.running)
         headers = [_("MCP servers · skills"), _("Agents"), _("LLM providers"), _("Models")]
         hidden = set(ai_core.hidden_nodes())
         for view in (self.side_map,):
@@ -2510,6 +2762,7 @@ class AgentsMap(Gtk.Application):
             view.set_graph(built, headers)
             view.set_layers(self.map_view.layers)
             view.set_hidden_ids(hidden)
+        self.apply_setup_mode()
         ids = {n.id for n in built.nodes}
         self.set_selection([i for i in self.selection if i in ids])
 
@@ -2536,7 +2789,7 @@ class AgentsMap(Gtk.Application):
     def show_view(self, name: str, save: bool = True):
         name = name if name in ai_core.VIEWS else "main"
         self.view = name
-        self.stack.set_visible_child_name(name)
+        self.show_page(name)
         self.update_header()
         if save and ai_core.start_view() == "last":
             try:
@@ -2545,7 +2798,7 @@ class AgentsMap(Gtk.Application):
                 pass
 
     def update_header(self):
-        page = self.stack.get_visible_child_name()
+        page = self.page_name()
         on_settings = page in ("settings", "connect", "install", "models", "mcp", "addmcp", "addskills")
         # Faded out rather than hidden: the header keeps its height, so the
         # card does not jump when the settings page opens.
@@ -2555,7 +2808,7 @@ class AgentsMap(Gtk.Application):
             widget.set_can_focus(not on_settings)
             widget.set_sensitive(not on_settings)
         # The sidebar button only where there is a sidebar: the Overview with the map beside the cards.
-        self.sidebar_button.set_visible(page == "main" and self.split)
+        self.sidebar_button.set_visible((page == "main" or page in RIGHT_PAGES) and self.split)
         self.updating_buttons = True
         for name, button in self.view_buttons.items():
             button.set_active(name == page)
@@ -2629,6 +2882,14 @@ class AgentsMap(Gtk.Application):
     def on_map_relink(self, agent_id: str, old_id: str, new_id: str | None):
         """A line moved to another local LLM: the old provider goes, the new one
         comes. Dropped on empty space (new_id None): the connection is removed."""
+        entry = link_hints.load().get(link_hints.key(agent_id, old_id))
+        if entry is not None and not entry["applied"]:
+            # A red line that was never written: only it goes (and maybe a new try elsewhere).
+            link_hints.forget(link_hints.key(agent_id, old_id))
+            self.refresh_map()
+            if new_id is not None:
+                self.on_map_link(agent_id, new_id)
+            return
         if new_id is None:
             self.on_map_link(agent_id, old_id, remove_only=True)
         else:
@@ -2683,14 +2944,21 @@ class AgentsMap(Gtk.Application):
         while (child := form.get_first_child()) is not None:
             form.remove(child)
         supported = agent.command in connect.SUPPORTED
+        fixed = connect.FIXED.get(agent.command)
         self.connect_preview_heading.set_visible(supported)
         self.connect_preview_scroller.set_visible(supported)
         self.connect_ok.set_visible(supported)
         self.connect_remove.set_visible(False)
         self.connect_status.set_label("")
-        if not supported:
-            self.connect_intro.set_label(_("{0} cannot be connected from here yet. Hermes, Pi and OpenCode can.")
-                                         .format(agent.name))
+        if fixed:
+            fixed_name = next((r.name for r in self.inventory.runtimes if r.key == fixed), fixed)
+            self.connect_intro.set_label(
+                (_("{0} uses {1}'s models by itself: there is nothing to connect.") if runtime.key == fixed else
+                 _("{0} can only use {1}'s models (and its own cloud); it cannot be connected to {2}."))
+                .format(agent.name, fixed_name, runtime.name))
+        elif not supported:
+            self.connect_intro.set_label(_("{0} cannot be connected from here yet. Hermes, Pi, OpenCode and "
+                                           "DeepSeek Harness can.").format(agent.name))
         else:
             already = connect.is_connected(agent.command, runtime.key)
             if remove_only:
@@ -2736,7 +3004,7 @@ class AgentsMap(Gtk.Application):
                                   self.connect_use_now)
             self.settings_ready = True
             self.update_connect_preview()
-        self.stack.set_visible_child_name("connect")
+        self.show_page("connect")
 
     def open_mcp_connect(self, agent_id: str, name: str, remove_only: bool = False):
         """A line drawn from an agent to an MCP server: copy the server's settings
@@ -2761,7 +3029,10 @@ class AgentsMap(Gtk.Application):
         self.connect_remove.set_visible(supported and already)
         self.connect_ok.set_visible(supported and not remove_only and not already)
         self.connect_ok.set_label(_("Connect"))
-        if not supported:
+        if agent.command in mcp_ctl.IN_APP:
+            self.connect_intro.set_label(_("{0} sets up its MCP servers in its own app ({1}): add {2} there.")
+                                         .format(agent.name, mcp_ctl.IN_APP[agent.command], name))
+        elif not supported:
             self.connect_intro.set_label(_("MCP servers cannot be set up for {0} from here yet.").format(agent.name))
         elif remove_only:
             self.connect_intro.set_label(_("The MCP server {0} is removed from {1}'s settings. The other agents keep it.")
@@ -2783,7 +3054,7 @@ class AgentsMap(Gtk.Application):
                                                                        source_name))
         if supported:
             self.update_connect_preview()
-        self.stack.set_visible_child_name("connect")
+        self.show_page("connect")
 
     def open_skills_connect(self, agent_id: str, folder: str, remove_only: bool = False):
         """A line drawn from an agent to a skill set: the agent gets the folder
@@ -2832,7 +3103,35 @@ class AgentsMap(Gtk.Application):
         self.connect_intro.set_label(text)
         if supported:
             self.update_connect_preview()
-        self.stack.set_visible_child_name("connect")
+        self.show_page("connect")
+
+    def open_mcp_update(self, candidate):
+        """An app's newer version: its users move to it (preview, backup, Undo)."""
+        names = self.agent_names()
+        self.connecting = {"update": candidate, "from": self.view, "remove_only": False}
+        self.connect_title.set_label(_("Update {0}").format(candidate.name).upper())
+        form = self.connect_form
+        while (child := form.get_first_child()) is not None:
+            form.remove(child)
+        self.connect_status.set_label("")
+        self.connect_preview_heading.set_visible(True)
+        self.connect_preview_scroller.set_visible(True)
+        self.connect_ok.set_visible(True)
+        self.connect_ok.set_label(_("Update"))
+        self.connect_remove.set_visible(False)
+        folder = mcp_update.new_folder(candidate)
+        text = _("{0} {1} is replaced by {2}.").format(candidate.name, candidate.update_from, candidate.version)
+        if candidate.appimage and not folder.exists():
+            text += " " + _("Unpacks {0} into {1} first (the server lives inside it).").format(
+                Path(candidate.appimage).name, skills_ctl.tilde(folder))
+        users = [names.get(a, a) for a in candidate.users if a != "list"]
+        if users:
+            text += " " + _("{0} start the new version from then on.").format(", ".join(users))
+        text += " " + _("The old version is kept with the backup for {0} days: Undo brings everything back.").format(
+            connect.RETIRED_DAYS)
+        self.connect_intro.set_label(text)
+        self.update_connect_preview()
+        self.show_page("connect")
 
     def open_mcp_delete(self, name: str):
         """The card's Remove: the server goes from every agent and from the list."""
@@ -2859,10 +3158,12 @@ class AgentsMap(Gtk.Application):
             text += " " + _("{0} keeps it: change it there.").format(", ".join(others))
         self.connect_intro.set_label(text + " " + _("Undo brings it back."))
         self.update_connect_preview()
-        self.stack.set_visible_child_name("connect")
+        self.show_page("connect")
 
     def current_connect_plan(self, remove: bool = False):
         info = self.connecting
+        if "update" in info:
+            return mcp_update.plan(info["update"], [a.command for a in self.agent_list if a.installed])
         if "delete" in info:
             plans = [mcp_ctl.plan(a, info["delete"], remove=True) for a in info["users"]]
             listed = connect.Plan("", "", info["delete"])
@@ -2892,16 +3193,74 @@ class AgentsMap(Gtk.Application):
 
     def apply_connect(self, remove: bool):
         info = self.connecting
+        candidate = info.get("update")
+        if candidate is not None and candidate.appimage and not info.get("unpacked"):
+            # The new version unpacked first (in the background), then the plan.
+            self.connect_ok.set_sensitive(False)
+            self.connect_status.set_label(_("Unpacking {0}…").format(Path(candidate.appimage).name))
+
+            def work():
+                try:
+                    mcp_scan.unpack(Path(candidate.appimage))
+                    error = ""
+                except (OSError, RuntimeError, subprocess.SubprocessError) as failure:
+                    error = str(failure)
+                GLib.idle_add(done, error)
+
+            def done(error):
+                self.connect_ok.set_sensitive(True)
+                if self.connecting is not info:
+                    return False
+                if error:
+                    self.connect_status.set_label(_("Not changed: {0}").format(error))
+                else:
+                    info["unpacked"] = True
+                    self.apply_connect(remove)
+                return False
+
+            threading.Thread(target=work, daemon=True).start()
+            return
+        link = self.link_of(info)
+        drawn = link is not None and not remove and not info.get("remove_only")
         try:
             plan_now = self.current_connect_plan(remove=remove)
             if plan_now.empty():
+                if link is not None and (remove or info.get("remove_only")) and link_hints.forget(link[0]):
+                    self.refresh_map()            # nothing left to remove: the line's hints go
                 self.close_connect()
                 return
             backup = connect.apply(plan_now)
         except (OSError, ValueError, RuntimeError) as error:
-            self.connect_status.set_label(_("Not changed: {0}").format(error))
+            if not drawn:
+                self.connect_status.set_label(_("Not changed: {0}").format(error))
+                return
+            # A drawn line that could not be written: it stays on the map, dotted red,
+            # with why, until it is removed by hand (or drawn again and it works).
+            link_key, kind, target = link
+            link_hints.remember(link_key, kind, False, [
+                link_check.hint("error", _("Not connected: {0}").format(str(error)[:300])),
+                link_check.hint("warning", _("Nothing in {0}'s settings was changed. Fix the cause, then click the "
+                                             "line → Try again, or drag it off to remove it.").format(info["agent"].name))],
+                target)
+            self.close_connect()
+            self.refresh_map()
+            self.show_note(_("{0} could not be connected: see the red line on the map.").format(info["agent"].name))
             return
         remove = remove or bool(info.get("remove_only"))
+        if link is not None and remove:
+            link_hints.forget(link[0])              # removed by hand: its hints go with it
+        if info.get("replaces") is not None and not remove:
+            link_hints.forget(link_hints.key(f"agent:{info['agent'].command}", f"runtime:{info['replaces'].key}"))
+        if candidate is not None:
+            self.found_mcp = None
+            self.configured_now = None
+            self.close_connect()
+            self.collect()
+            self.refresh_overview()
+            self.refresh_map()
+            self.show_undo(_("{0} updated to {1}").format(candidate.name, candidate.version), backup)
+            self.check_new_apps()
+            return
         if "delete" in info:
             self.close_connect()
             self.collect()
@@ -2920,6 +3279,129 @@ class AgentsMap(Gtk.Application):
         self.refresh_overview()
         self.refresh_map()
         self.show_undo(message, backup)
+        if drawn:
+            self.check_link(link, info["agent"], quiet_ok=True)
+
+    def link_of(self, info):
+        """(hint key, kind, target) of the connection on the connect page, or None."""
+        if not info or "agent" not in info:
+            return None
+        agent_id = f"agent:{info['agent'].command}"
+        if info.get("mcp"):
+            return link_hints.key(agent_id, f"mcp:{info['mcp']}"), "mcp", info["mcp"]
+        if info.get("skills"):
+            return link_hints.key(agent_id, f"skills:{info['skills']}"), "skills", info["skills"]
+        if info.get("runtime") is not None:
+            models = getattr(self, "connect_models", None) or []
+            model = models[self.connect_model.get_selected()] if models and not info.get("remove_only") else ""
+            return link_hints.key(agent_id, f"runtime:{info['runtime'].key}"), "provider", model
+        return None
+
+    def check_link(self, link, agent, quiet_ok: bool = False):
+        """Right after a line was drawn and written (or on Test again): will it work?
+        Problems stay with the line (dotted red or yellow) until it is removed by hand;
+        a check that passes takes them away."""
+        link_key, kind, target = link
+        runtime_key = link_hints.split(link_key)[1].partition(":")[2]
+        rt = next((r for r in self.inventory.runtimes if r.key == runtime_key), None) if kind == "provider" else None
+        with_agents = bool(ai_core.load_settings().get("providers_with_agents", True))
+
+        def work():
+            try:
+                if kind == "provider":
+                    hints = link_check.check_provider(agent.command, agent.name, rt, target, with_agents) if rt else \
+                        [link_check.hint("error", _("This local LLM is not on the map any more."))]
+                elif kind == "mcp":
+                    hints = link_check.check_mcp(agent.command, agent.name, target)
+                else:
+                    hints = link_check.check_skills(agent.command, agent.name, target)
+            except Exception as error:      # a check must never take the window down
+                hints = [link_check.hint("warning", _("Could not check it: {0}").format(str(error)[:200]))]
+            GLib.idle_add(done, hints)
+
+        def done(hints):
+            if link_hints.failing(hints):
+                link_hints.remember(link_key, kind, True, hints, target)
+                worst = "error" if any(h["level"] == "error" for h in hints) else "warning"
+                self.show_note((_("{0}: connected, but it will not work yet: click the red line for why.")
+                                if worst == "error" else
+                                _("{0}: connected, with a warning: click the yellow line.")).format(agent.name))
+            else:
+                had = link_hints.forget(link_key)
+                if had or not quiet_ok:
+                    self.show_note(next((h["text"] for h in hints if h["level"] == "ok"), _("It works.")))
+            self.refresh_map()
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def show_link_hints(self, edge, rect):
+        """A dotted red or yellow line clicked: what went wrong, and what to do."""
+        link_key = link_hints.key(*edge)
+        entry = link_hints.load().get(link_key)
+        agent = next((a for a in self.agent_list if f"agent:{a.command}" == edge[0]), None)
+        if entry is None or agent is None:
+            return
+        popover = Gtk.Popover()
+        popover.set_parent(self.side_map)
+        area = Gdk.Rectangle()
+        area.x, area.y, area.width, area.height = (int(v) for v in rect)
+        popover.set_pointing_to(area)
+        popover.set_position(Gtk.PositionType.BOTTOM)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.add_css_class("am-provider-list")
+        box.set_size_request(420, -1)
+        title = (_("Not connected") if not entry["applied"] else
+                 _("Connected, but not working") if link_hints.level(entry) == "error" else _("Connected, with a warning"))
+        heading = Gtk.Label(label=title.upper(), xalign=0)
+        heading.add_css_class("am-group-heading")
+        box.append(heading)
+        for item in entry["hints"]:
+            row = Gtk.Box(spacing=8)
+            mark = Gtk.Label(label={"error": "✕", "warning": "!", "ok": "✓"}[item["level"]], valign=Gtk.Align.START)
+            mark.add_css_class({"error": "am-hint-error", "warning": "am-hint-warning", "ok": "am-hint-ok"}[item["level"]])
+            row.append(mark)
+            text = Gtk.Label(label=item["text"], xalign=0, wrap=True, max_width_chars=56)
+            text.add_css_class("am-detail-value")
+            row.append(text)
+            box.append(row)
+        if entry.get("when"):
+            when = Gtk.Label(label=_("Checked {0}").format(entry["when"].replace("T", " ")), xalign=0)
+            when.add_css_class("am-agent-detail")
+            box.append(when)
+        buttons = Gtk.Box(spacing=8, halign=Gtk.Align.END)
+        remove = Gtk.Button(label=_("Remove connection"))
+        remove.add_css_class("am-small-btn")
+        remove.add_css_class("am-danger")
+        again = Gtk.Button(label=_("Test again") if entry["applied"] else _("Try again…"))
+        again.add_css_class("am-small-btn")
+        again.add_css_class("am-primary")
+        link = (link_key, entry["kind"], entry.get("target", ""))
+
+        def on_remove(_button):
+            popover.popdown()
+            if entry["applied"]:
+                self.on_map_link(edge[0], edge[1], remove_only=True)     # the usual preview, backup, Undo
+            else:
+                link_hints.forget(link_key)                               # nothing was written: only the line goes
+                self.refresh_map()
+
+        def on_again(_button):
+            popover.popdown()
+            if entry["applied"]:
+                self.show_note(_("Testing…"))
+                self.check_link(link, agent)
+            else:
+                self.on_map_link(edge[0], edge[1])                        # the connect page again
+
+        remove.connect("clicked", on_remove)
+        again.connect("clicked", on_again)
+        buttons.append(remove)
+        buttons.append(again)
+        box.append(buttons)
+        popover.set_child(box)
+        popover.connect("closed", lambda p: GLib.idle_add(p.unparent))
+        popover.popup()
 
     def close_connect(self):
         info = getattr(self, "connecting", None)
@@ -3040,7 +3522,8 @@ class AgentsMap(Gtk.Application):
         self.models_intro.set_label(
             _("Model folder: {0}. Pick a model on Hugging Face, then a size: the one marked fits your graphics "
               "card with room for context.").format(folder) +
-            (" " + _("Ollama is started for a download if it is not running.") if rt.key == "ollama" else ""))
+            (" " + _("Ollama is started for a download if it is not running.") if rt.key == "ollama" else
+             " " + _("Jan adds models in its own app (Hub); here you set their context.") if rt.key == "jan" else ""))
         self.models_pull_row.set_visible(rt.key == "ollama")
         self.models_status.set_label("")
         self.models_bar.set_fraction(0)
@@ -3049,7 +3532,7 @@ class AgentsMap(Gtk.Application):
             while (row := listbox.get_first_child()) is not None:
                 listbox.remove(row)
         self.update_model_buttons()
-        self.stack.set_visible_child_name("models")
+        self.show_page("models")
         self.models_search.grab_focus()
 
     def fill_model_list(self, rt):
@@ -3106,7 +3589,7 @@ class AgentsMap(Gtk.Application):
                                                                context_ctl.short_context(best) if best else _("too big")))
                 info.set_tooltip_text(_("Trained for {0} tokens; each token of context takes {1} of video memory.")
                                       .format(fit_info.native or "?", size_text(fit_info.per_token)))
-                if best and best != now and rt.key in ("llamacpp", "ollama", "lmstudio"):
+                if best and best != now and rt.key in ("llamacpp", "ollama", "lmstudio", "jan", "koboldcpp"):
                     button.set_visible(True)
                     button.set_tooltip_text(_("Set the context of {0} to {1} tokens.").format(name, best))
                     button.connect("clicked", lambda _b, n=name, c=best: self.set_model_context(rt, n, c))
@@ -3132,6 +3615,10 @@ class AgentsMap(Gtk.Application):
             entry = context_ctl.lmstudio_entry(name)
             now, cache = context_ctl.lmstudio_settings(entry)
             model_file = context_ctl.lmstudio_model_file(entry)
+        elif rt.key == "jan":
+            now, cache, model_file = jan_ctl.settings(name)
+        elif rt.key == "koboldcpp":
+            (now, model_file), cache = kobold_ctl.settings(name), "f16"
         else:
             return None, None, _("set the context in vLLM itself")
         if model_file is None:
@@ -3159,6 +3646,16 @@ class AgentsMap(Gtk.Application):
                     before = connect._read(path)
                     change = connect.Change(path, before, context_ctl.lmstudio_context_text(before, ctx))
                     backup = connect.apply(connect.Plan("LM Studio", "lmstudio", "", [change]))
+                elif rt.key == "jan":
+                    # Jan's preset (the engine) and the model's model.yml (the app), one backup.
+                    backup = connect.apply(connect.Plan("Jan", "jan", "", jan_ctl.context_changes(name, ctx)))
+                elif rt.key == "koboldcpp":
+                    path = kobold_ctl.config_path(name)
+                    if path is None:
+                        raise ValueError(_("KoboldCpp does not list this model"))
+                    before = connect._read(path)
+                    change = connect.Change(path, before, kobold_ctl.context_text(before, ctx))
+                    backup = connect.apply(connect.Plan("KoboldCpp", "koboldcpp", "", [change]))
                 else:
                     context_ctl.ollama_set_context(name, ctx, rt.address)
                 error = None
@@ -3174,8 +3671,10 @@ class AgentsMap(Gtk.Application):
             if error:
                 self.models_status.set_label(_("Not changed: {0}").format(error))
                 return False
-            note = _(" Restart llama.cpp for it to take effect.") if rt.key == "llamacpp" and rt.running else \
-                _(" It takes effect the next time LM Studio loads the model.") if rt.key == "lmstudio" else ""
+            note = _(" Restart {0} for it to take effect.").format(rt.name) \
+                if rt.key in ("llamacpp", "jan") and rt.running else \
+                _(" It takes effect the next time {0} loads the model.").format(rt.name) \
+                if rt.key in ("lmstudio", "koboldcpp") else ""
             self.models_status.set_label(_("{0}: context set to {1}").format(name, ctx) + "." + note)
             self.fill_model_list(state["rt"])
             return False
@@ -3271,7 +3770,7 @@ class AgentsMap(Gtk.Application):
         busy = bool(state and state["busy"])
         row = self.models_files.get_selected_row()
         self.models_get.set_sensitive(not busy and row is not None and state is not None
-                                      and state["rt"].key in ("ollama", "llamacpp", "lmstudio"))
+                                      and state["rt"].key in ("ollama", "llamacpp", "lmstudio", "koboldcpp"))
         self.models_cancel.set_label(_("Stop download") if busy else _("Back"))
 
     def start_model_download(self, pull: bool):
@@ -3322,6 +3821,9 @@ class AgentsMap(Gtk.Application):
                 else:
                     models_ctl.download_gguf(rt.key, Path(os.path.expanduser(rt.models_dir)), state["repo"],
                                              entry, progress, lambda: state["cancel"])
+                    if rt.key == "koboldcpp":
+                        # The new model becomes a .kcpps: an id the router answers to.
+                        install_ctl.installer("koboldcpp").sync(Path(os.path.expanduser(rt.models_dir)))
                 error = None
             except install_ctl.Cancelled:
                 error = _("stopped")
@@ -3462,13 +3964,22 @@ class AgentsMap(Gtk.Application):
             self.install_folder = self.folder_field(
                 form, _("Program folder"), _("Where the program goes. Each version gets its own folder in it."),
                 str(folders[0]), folders)
-            models = install_ctl.models_suggestions(runtimes, folders[0])
-            self.install_models = self.folder_field(
-                form, _("Model folder"), _("Where the models go. You can change it later (right-click → Model folder…)."),
-                str(models[0]), models)
+            if not inst.uses_models:
+                pass                       # an agent: no model folder
+            elif rt.key == "jan":
+                # Jan's data folder holds its models, chats and settings; Jan moves it later itself.
+                models = [inventory.jan_data_folder()]
+                self.install_models = self.folder_field(
+                    form, _("Data folder"), _("Jan's models, chats and settings. Change it later in Jan "
+                                              "(Settings › General)."), str(models[0]), models)
+            else:
+                models = install_ctl.models_suggestions(runtimes, folders[0])
+                self.install_models = self.folder_field(
+                    form, _("Model folder"), _("Where the models go. You can change it later (right-click → Model folder…)."),
+                    str(models[0]), models)
             self.add_build_choice(form, inst)
             if inst.has_service:
-                self.install_login = Gtk.Switch(active=False)
+                self.install_login = Gtk.Switch(active=inst.login_default)
                 self.setting_line(form, _("Start at login"), _("Start it with every login (its user service)."),
                                   self.install_login)
                 self.install_start = Gtk.Switch(active=True)
@@ -3496,7 +4007,7 @@ class AgentsMap(Gtk.Application):
                   "The models in {1} stay.").format(folder, inst.models_folder() or "—"))
             self.install_ok.set_label(_("Uninstall"))
             self.install_ok.add_css_class("am-danger")
-        self.stack.set_visible_child_name("install")
+        self.show_page("install")
         self.update_install_check()
 
     def add_build_choice(self, form, inst):
@@ -3682,12 +4193,48 @@ class AgentsMap(Gtk.Application):
 
     # --- right-click on a box ---------------------------------------------------------------
 
+    def show_install_agent_context(self, view, agent, rect):
+        """An agent AI Agents Map installs itself (DeepSeek Harness, LM Studio Bionic)."""
+        import types
+        inst = install_ctl.AGENT_INSTALLERS[agent.command]
+        ours = inst.installed_folder() is not None
+        target = types.SimpleNamespace(key=agent.command, name=agent.name, installed=agent.installed)
+        popover = Gtk.Popover()
+        popover.set_parent(view)
+        area = Gdk.Rectangle()
+        area.x, area.y, area.width, area.height = (int(v) for v in rect)
+        popover.set_pointing_to(area)
+        popover.set_position(Gtk.PositionType.BOTTOM)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        box.add_css_class("am-provider-list")
+        title = Gtk.Label(label=f"{agent.name} · " + (agent.version or _("installed") if agent.installed
+                                                      else _("not installed")), xalign=0)
+        title.add_css_class("am-agent-name")
+        box.append(title)
+        actions = [(_("Update…"), "update"), (_("Uninstall…"), "uninstall")] if ours else \
+            [] if agent.installed else [(_("Install…"), "install")]
+        if agent.installed and not ours:
+            note = Gtk.Label(label=_("Installed by hand: update it the way you installed it."), xalign=0, wrap=True)
+            note.add_css_class("am-agent-detail")
+            box.append(note)
+        for label, mode in actions:
+            button = Gtk.Button(label=label, halign=Gtk.Align.START)
+            button.add_css_class("flat")
+            button.add_css_class("am-menu-item")
+            button.connect("clicked", lambda _b, m=mode: (popover.popdown(), self.open_install(target, m)))
+            box.append(button)
+        popover.set_child(box)
+        popover.connect("closed", lambda p: GLib.idle_add(p.unparent))
+        popover.popup()
+
     def show_context(self, view, node_id: str, rect):
         """Local LLM: start, stop, start at login. A new agent: look up its setup again."""
         rt = next((r for r in self.inventory.runtimes if f"runtime:{r.key}" == node_id), None)
         if rt is None:
             agent = next((a for a in self.agent_list if f"agent:{a.command}" == node_id), None)
-            if agent is not None and self.is_new_agent(agent.command):
+            if agent is not None and agent.command in install_ctl.AGENT_INSTALLERS:
+                self.show_install_agent_context(view, agent, rect)
+            elif agent is not None and self.is_new_agent(agent.command):
                 self.show_agent_context(view, agent, rect)
             return
         popover = Gtk.Popover()
@@ -3709,8 +4256,9 @@ class AgentsMap(Gtk.Application):
         if not rt.installed and inst is not None:
             actions.append((_("Install…"), "install"))
         elif ours:
-            actions += [(_("Update…"), "update"), (_("Model folder…"), "models"), (_("Uninstall…"), "uninstall")]
-        if rt.installed and rt.key in ("ollama", "llamacpp", "lmstudio"):
+            actions += [(_("Update…"), "update")] + ([] if rt.key == "jan" else [(_("Model folder…"), "models")]) \
+                + [(_("Uninstall…"), "uninstall")]
+        if rt.installed and rt.key in ("ollama", "llamacpp", "lmstudio", "jan", "koboldcpp"):
             actions.insert(0, (_("Models…"), "download"))
         if actions:
             column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -4001,7 +4549,7 @@ class AgentsMap(Gtk.Application):
 
     def open_settings(self):
         self.fill_settings()
-        self.stack.set_visible_child_name("settings")
+        self.show_page("settings")
 
     def close_settings(self):
         self.show_view(self.view, save=False)
@@ -4013,7 +4561,7 @@ class AgentsMap(Gtk.Application):
         if width <= 0:
             geo = self.monitor_geometry() if self.window is not None else None
             width = geo.width if geo is not None else 1920
-        return (max(CARD_WIDTH, width - 80),
+        return (max(CARD_WIDTH, width - 2 * CARD_MARGIN),
                 max(ai_core.MIN_WINDOW_SIZE[1], monitor_height() - 2 * SCREEN_MARGIN))
 
     def set_sidebar(self, visible: bool):
@@ -4021,7 +4569,7 @@ class AgentsMap(Gtk.Application):
         self.sidebar_visible = visible
         if getattr(self, "list_pane", None) is None:
             return
-        self.list_pane.set_visible(visible or not self.split)
+        self.place_panes()
         if self.sidebar_button.get_active() != visible:
             self.sidebar_button.set_active(visible)
         self.update_header()
@@ -4033,15 +4581,13 @@ class AgentsMap(Gtk.Application):
         if getattr(self, "side_pane", None) is not None:
             # A very small screen keeps the cards alone.
             self.split = self.card_w >= SPLIT_WIDTH
-            self.side_pane.set_visible(self.split)
             self.list_pane.set_hexpand(not self.split)
             self.list_pane.set_size_request(LIST_PANE_WIDTH if self.split else -1, -1)
             self.set_sidebar(self.sidebar_visible)
         for scroller in self.scrollers:
-            # Raise the maximum first: GTK refuses a minimum above the maximum.
-            scroller.set_max_content_height(100000)
-            scroller.set_min_content_height(self.list_h)
-            scroller.set_max_content_height(self.list_h)
+            # The card fills the window's height; the scrollers only need a small minimum.
+            scroller.set_max_content_height(-1)
+            scroller.set_min_content_height(SCROLLER_MIN_HEIGHT)
         if self.window is not None:
             self.window.set_default_size(1, 1)
 
@@ -4153,6 +4699,10 @@ class AgentsMap(Gtk.Application):
             color: {fg_hex}; font-size: 11px; }}
         .am-card button.am-primary {{ background: alpha({accent_hex}, 0.25); border-color: {accent_hex}; }}
         .am-card button.am-danger {{ color: {red_hex}; border-color: alpha({red_hex}, 0.6); }}
+        popover button.am-danger {{ color: {red_hex}; border-color: alpha({red_hex}, 0.6); }}
+        .am-hint-error {{ color: {red_hex}; font-weight: bold; }}
+        .am-hint-warning {{ color: {yellow_hex}; font-weight: bold; }}
+        .am-hint-ok {{ color: {green_hex}; font-weight: bold; }}
         .am-undo {{ background: {bg_hex}; border: 1px solid {accent_hex}; border-radius: {radius}px;
             padding: 8px 14px; }}
         popover.am-provider-popover > contents, .am-provider-list {{ padding: 6px; }}
@@ -4202,6 +4752,15 @@ class AgentsMap(Gtk.Application):
         .am-card button.am-chip:checked {{ background: alpha({accent_hex}, 0.18); border-color: {accent_hex};
             color: {fg_hex}; }}
         .am-card button.am-chip:disabled {{ opacity: 0.4; }}
+        .am-sidebar {{ background: alpha({fg_hex}, 0.03); border: 1px solid alpha({fg_hex}, 0.10);
+            border-radius: {radius}px; padding: 10px 10px 0 10px; }}
+        .am-side-rule {{ margin: 0 14px; background: alpha({fg_hex}, 0.14); min-width: 1px; }}
+        .am-segmented {{ border: 1px solid alpha({fg_hex}, 0.22); border-radius: 999px; padding: 2px; }}
+        .am-card button.am-segment {{ font-size: 11px; min-height: 0; padding: 2px 12px; border-radius: 999px;
+            border: none; background: none; box-shadow: none; color: {dim_hex}; }}
+        .am-card button.am-segment:checked {{ background: alpha({accent_hex}, 0.22); color: {fg_hex}; }}
+        .am-card button.am-segment:hover:not(:checked) {{ color: {fg_hex}; }}
+        .am-card button.am-filter-btn {{ font-size: 11px; }}
         .am-card .am-leader {{ min-height: 0; border-bottom: 1px dotted alpha({fg_hex}, 0.35); margin: 0 4px; }}
         .am-card .am-choice {{ padding: 4px 6px; border-radius: {radius}px; }}
         .am-card .am-choice:hover {{ background: alpha({fg_hex}, 0.05); }}
@@ -4211,7 +4770,8 @@ class AgentsMap(Gtk.Application):
         for view in (getattr(self, "map_view", None), getattr(self, "side_map", None)):
             if view is not None:
                 view.set_palette({"bg": bg_hex, "fg": fg_hex, "dim": dim_hex, "muted": muted_hex,
-                                  "accent": accent_hex, "green": green_hex, "yellow": yellow_hex}, radius)
+                                  "accent": accent_hex, "green": green_hex, "yellow": yellow_hex, "red": red_hex},
+                                 radius)
         provider = Gtk.CssProvider()
         provider.load_from_string(css)
         Gtk.StyleContext.add_provider_for_display(display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
@@ -4227,7 +4787,7 @@ class AgentsMap(Gtk.Application):
         if keyval in (Gdk.KEY_Shift_L, Gdk.KEY_Shift_R):
             self.map_view.set_shift(True)
             return False
-        page = self.stack.get_visible_child_name()
+        page = self.page_name()
         ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
         if keyval == Gdk.KEY_Escape:
             if page == "settings":
@@ -4271,7 +4831,7 @@ class AgentsMap(Gtk.Application):
             self.zoom_map(1 if keyval in (Gdk.KEY_plus, Gdk.KEY_equal, Gdk.KEY_KP_Add) else
                           -1 if keyval in (Gdk.KEY_minus, Gdk.KEY_KP_Subtract) else 0)
             return True
-        if ctrl and keyval in (Gdk.KEY_b, Gdk.KEY_B) and page == "main" and self.split:
+        if ctrl and keyval in (Gdk.KEY_b, Gdk.KEY_B) and (page == "main" or page in RIGHT_PAGES) and self.split:
             self.set_sidebar(not self.sidebar_visible)
             return True
         return False
@@ -4319,11 +4879,11 @@ class AgentsMap(Gtk.Application):
         self.layer_watch.stop()
         self.stop_gpu_poll()
         self.map_view.set_shift(False)   # Shift may have been let go elsewhere
-        if self.stack.get_visible_child_name() == "settings":
+        if self.page_name() == "settings":
             self.close_settings()   # never reopen onto the settings page
-        elif self.stack.get_visible_child_name() == "connect":
+        elif self.page_name() == "connect":
             self.close_connect()    # nor onto a half-made connection
-        elif self.stack.get_visible_child_name() == "install" and not (self.installing or {}).get("busy"):
+        elif self.page_name() == "install" and not (self.installing or {}).get("busy"):
             self.close_install()
         self.window.hide()
 

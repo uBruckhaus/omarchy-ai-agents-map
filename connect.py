@@ -30,11 +30,14 @@ from pathlib import Path
 
 HOME = Path.home()
 BACKUP_ROOT = HOME / ".local/state/ai-agents-map/backups"
-KEYS = {"llamacpp": "llama-local", "ollama": "ollama-local", "lmstudio": "lmstudio-local", "vllm": "vllm-local"}
+KEYS = {"llamacpp": "llama-local", "ollama": "ollama-local", "lmstudio": "lmstudio-local", "vllm": "vllm-local",
+        "jan": "jan-local", "koboldcpp": "koboldcpp-local"}
 LABELS = {"llamacpp": "llama.cpp (local)", "ollama": "Ollama (local)", "lmstudio": "LM Studio (local)",
-          "vllm": "vLLM (local)"}
-SUPPORTED = ("hermes", "pi", "opencode")
+          "vllm": "vLLM (local)", "jan": "Jan (local)", "koboldcpp": "KoboldCpp (local)"}
+SUPPORTED = ("hermes", "pi", "opencode", "dsh")
+FIXED = {"bionic": "lmstudio"}   # agents tied to one local LLM (nothing to set up, nothing else possible)
 MAX_BYTES = 2 * 1024 * 1024
+RETIRED_DAYS = 7          # an app's old version, moved into a backup on update, is deleted after this
 
 
 @dataclass
@@ -59,6 +62,7 @@ class Plan:
     links_remove: list = field(default_factory=list)   # (link, target): symlinks to delete
     notes: list = field(default_factory=list)          # what stays as it is (skills: folders read anyway)
     files_add: list = field(default_factory=list)      # (path, bytes, executable): new files (a fetched skill)
+    retire: list = field(default_factory=list)         # folders moved into the backup (an app's old version)
 
     def diff(self) -> str:
         parts = []
@@ -66,14 +70,16 @@ class Plan:
             name = str(change.path).replace(str(HOME), "~", 1)
             parts.extend(difflib.unified_diff(change.old.splitlines(), change.new.splitlines(),
                                               name, name, n=2, lineterm=""))
-        for link, target in self.links_add:
-            parts.append(f"+ {tilde(link)} → {tilde(target)}")
         for link, target in self.links_remove:
             parts.append(f"- {tilde(link)} → {tilde(target)}")
+        for link, target in self.links_add:
+            parts.append(f"+ {tilde(link)} → {tilde(target)}")
         for path, data, _x in self.files_add:
             parts.append(f"+ {tilde(path)} ({len(data):,} B)")
         for argv in self.commands:
             parts.append("$ " + " ".join(shlex.quote(a) for a in [Path(argv[0]).name, *argv[1:]]))
+        for path in self.retire:
+            parts.append(f"- {tilde(path)}/ (kept with the backup for {RETIRED_DAYS} days)")
         text = "\n".join(parts)
         for secret in sorted(self.secrets, key=len, reverse=True):
             text = text.replace(secret, "•••")
@@ -81,7 +87,7 @@ class Plan:
 
     def empty(self) -> bool:
         return not self.changes and not self.commands and not self.links_add and not self.links_remove \
-            and not self.files_add
+            and not self.files_add and not self.retire
 
 
 def chat_models(models) -> list:
@@ -231,7 +237,8 @@ def opencode_text(text: str, provider: str, label: str, url: str, models: list, 
 def paths_for(agent: str) -> list[Path]:
     return {"hermes": [HOME / ".hermes/config.yaml"],
             "pi": [HOME / ".pi/agent/models.json", HOME / ".pi/agent/settings.json"],
-            "opencode": [HOME / ".config/opencode/opencode.json"]}.get(agent, [])
+            "opencode": [HOME / ".config/opencode/opencode.json"],
+            "dsh": [HOME / ".dsh/profiles/web/cordis.patch.yml"]}.get(agent, [])
 
 
 def is_connected(agent: str, runtime: str) -> bool:
@@ -245,7 +252,12 @@ def is_connected(agent: str, runtime: str) -> bool:
             return provider in _json(_read(paths_for(agent)[0])).get("providers", {})
         if agent == "opencode":
             return provider in _json(_read(paths_for(agent)[0])).get("provider", {})
+        if agent == "dsh":
+            import dsh_ctl
+            return provider in dsh_ctl.providers(_read(paths_for(agent)[0]))
     except (OSError, ValueError):
+        return False
+    except Exception:          # a dsh patch PyYAML cannot read
         return False
     return False
 
@@ -258,6 +270,10 @@ def _transform(agent: str, texts: list, runtime, model: str, use_now: bool, remo
         return [hermes_text(texts[0], provider, LABELS[runtime.key], url, models, context, model, use_now, remove)]
     if agent == "pi":
         return list(pi_texts(texts[0], texts[1], provider, url, models, context, model, use_now, remove))
+    if agent == "dsh":
+        import dsh_ctl
+        return [dsh_ctl.connect_text(texts[0], provider, LABELS[runtime.key], url, models, context, model,
+                                     use_now, remove)]
     return [opencode_text(texts[0], provider, LABELS[runtime.key], url, models, model, use_now, remove)]
 
 
@@ -274,7 +290,14 @@ def is_active(agent: str, runtime: str) -> bool:
             return _json(_read(paths_for(agent)[1])).get("defaultProvider") == provider
         if agent == "opencode":
             return str(_json(_read(paths_for(agent)[0])).get("model", "")).startswith(provider + "/")
+        if agent == "dsh":
+            import dsh_ctl
+            return dsh_ctl.default_model(_read(paths_for(agent)[0]))[0] == provider
+        if agent in FIXED:
+            return FIXED[agent] == runtime
     except (OSError, ValueError):
+        return False
+    except Exception:          # a dsh patch PyYAML cannot read
         return False
     return False
 
@@ -334,8 +357,9 @@ def apply(result: Plan, backup_root: Path = BACKUP_ROOT) -> Path:
     for change in result.changes:
         if _read(change.path) != change.old:
             raise RuntimeError(f"{change.path} changed in the meantime")
+    replaced = {link for link, _target in result.links_remove}
     for link, target in result.links_add:
-        if link.exists() or link.is_symlink():
+        if (link.exists() or link.is_symlink()) and link not in replaced:
             raise RuntimeError(f"{link} exists already")
     for link, target in result.links_remove:
         if not link.is_symlink() or Path(os.readlink(link)) != Path(target):
@@ -367,8 +391,12 @@ def apply(result: Plan, backup_root: Path = BACKUP_ROOT) -> Path:
                 created_dirs.append(str(parent))
     files = {"added": [[str(p), hashlib.sha256(d).hexdigest()] for p, d, _x in result.files_add],
              "dirs": created_dirs}
+    retired = []
+    for index, path in enumerate(result.retire):
+        retired.append([str(path), f"retired-{index}-{Path(path).name}"])
     (folder / "manifest.json").write_text(json.dumps({"files": manifest, "undo_commands": result.undo_commands,
-                                                      "links": links, "created": files}), encoding="utf-8")
+                                                      "links": links, "created": files, "retired": retired}),
+                                          encoding="utf-8")
     os.chmod(folder / "manifest.json", 0o600)
     for change in result.changes:
         _write(change.path, change.new)
@@ -382,7 +410,33 @@ def apply(result: Plan, backup_root: Path = BACKUP_ROOT) -> Path:
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o755 if executable else 0o644)
         with os.fdopen(fd, "wb") as handle:
             handle.write(data)
+    for path, name in retired:
+        try:
+            os.rename(path, folder / name)       # same file system: instant, nothing copied
+        except OSError:
+            pass                                 # elsewhere (or in use oddly): it stays where it is
     return folder
+
+
+def prune_retired(backup_root: Path = BACKUP_ROOT, days: int = None):
+    """Old app versions kept with a backup go after RETIRED_DAYS (Undo then
+    puts the settings back, but not the folder)."""
+    import shutil
+    limit = dt.datetime.now() - dt.timedelta(days=RETIRED_DAYS if days is None else days)
+    try:
+        backups = list(backup_root.iterdir())
+    except OSError:
+        return
+    for backup in backups:
+        try:
+            made = dt.datetime.strptime(backup.name, "%Y%m%d-%H%M%S-%f")     # when apply() ran
+        except ValueError:
+            continue
+        if made >= limit:
+            continue
+        for retired in backup.glob("retired-*"):
+            if retired.is_dir() and not retired.is_symlink():
+                shutil.rmtree(retired, ignore_errors=True)
 
 
 def undo(folder: Path) -> list[Path]:
@@ -414,6 +468,10 @@ def undo(folder: Path) -> list[Path]:
             except OSError:
                 continue
         created_dirs = created.get("dirs", [])
+        for path, name in manifest.get("retired", []):
+            if not os.path.lexists(path) and (folder / name).is_dir():
+                os.rename(folder / name, path)
+                restored.append(Path(path))
         manifest = manifest.get("files", [])
     else:
         created_dirs = []
@@ -466,4 +524,5 @@ def merge(plans: list) -> Plan:
         result.links_add += item.links_add
         result.links_remove += item.links_remove
         result.files_add += item.files_add
+        result.retire += [path for path in item.retire if path not in result.retire]
     return result

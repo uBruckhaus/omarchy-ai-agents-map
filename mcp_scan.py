@@ -51,6 +51,11 @@ class Candidate:
     configured: list = field(default_factory=list)   # agents that have it already
     sure: bool = True         # the usage text names an mcp mode
     inner: str = ""           # an AppImage's program: its name in usr/bin
+    version: str = ""         # the app's version ("0.7.0"), from its folder or AppImage name
+    update_from: str = ""     # a newer version of an app found in an older one: the older version
+    replaces: list = field(default_factory=list)     # the older versions' programs (links and real paths)
+    old_folders: list = field(default_factory=list)  # their unpacked folders in ~/Applications
+    users: list = field(default_factory=list)        # agents (and "list") that start an older version
 
 
 def _is_elf_or_script(path: Path) -> bool:
@@ -217,6 +222,60 @@ def appimage_stem(path: Path) -> str:
                   flags=re.IGNORECASE)
 
 
+VERSION_RE = re.compile(r"^(?P<app>.+?)[-_]v?(?P<version>\d+(?:\.\d+)+)$")
+
+
+def app_version(stem: str) -> tuple[str, tuple] | None:
+    """"gridcraft-0.7.0" -> ("gridcraft", (0, 7, 0)); None without a version."""
+    hit = VERSION_RE.match(stem)
+    if not hit:
+        return None
+    return hit["app"].lower(), tuple(int(part) for part in hit["version"].split("."))
+
+
+def version_text(version: tuple) -> str:
+    return ".".join(str(part) for part in version)
+
+
+def _unpacked_versions() -> dict:
+    """app -> versions unpacked in ~/Applications/<app>-<version>/."""
+    found = {}
+    try:
+        folders = [p for p in (HOME / "Applications").iterdir() if p.is_dir() and not p.name.startswith(".")]
+    except OSError:
+        return found
+    for folder in folders[:200]:
+        info = app_version(folder.name)
+        if info:
+            found.setdefault(info[0], []).append(info[1])
+    return found
+
+
+def _looked_into_versions() -> dict:
+    """app -> versions of its AppImages looked into before (the files may be gone)."""
+    found = {}
+    for key in _cache():
+        if key.startswith("appimage:"):
+            info = app_version(appimage_stem(Path(key[len("appimage:"):].split("|")[0])))
+            if info:
+                found.setdefault(info[0], []).append(info[1])
+    return found
+
+
+def updates_to_look_into() -> list[Path]:
+    """New versions of apps whose older version was looked into or unpacked
+    already: looked into without asking (the user trusted the app before)."""
+    known = _unpacked_versions()
+    for app, versions in _looked_into_versions().items():
+        known.setdefault(app, []).extend(versions)
+    result = []
+    for image in not_looked_into():
+        info = app_version(appimage_stem(image))
+        if info and any(v < info[1] for v in known.get(info[0], [])):
+            result.append(image)
+    return result
+
+
 def _image_key(path: Path) -> str | None:
     try:
         info = path.stat()
@@ -351,7 +410,61 @@ def scan(configured_commands: dict | None = None, agent_commands=()) -> list[Can
             program = HOME / "Applications" / appimage_stem(image) / "usr/bin" / name
             offer(program, count, text, appimage=str(image), inner=name)
     _save_cache()
-    return found
+    return fold_versions(found)
+
+
+def _app_of(candidate: Candidate) -> tuple[str, tuple, Path | None] | None:
+    """(app, version, its unpacked folder or None) of a candidate living in an
+    app folder ~/Applications/<app>-<version>/ or in an AppImage."""
+    if candidate.appimage:
+        info = app_version(appimage_stem(Path(candidate.appimage)))
+        return (*info, None) if info else None
+    try:
+        real = Path(candidate.program).resolve()
+        rest = real.relative_to(HOME.resolve() / "Applications")
+    except (OSError, ValueError):
+        return None
+    if len(rest.parts) < 2:
+        return None
+    info = app_version(rest.parts[0])
+    return (*info, HOME / "Applications" / rest.parts[0]) if info else None
+
+
+def fold_versions(found: list[Candidate]) -> list[Candidate]:
+    """One entry per app program: the newest version. When older versions are
+    there too (unpacked, or linked from ~/.local/bin), the newest says which
+    version it updates and who starts the older ones."""
+    groups, result = {}, []
+    for candidate in found:
+        info = _app_of(candidate)
+        if info is None:
+            result.append(candidate)
+            continue
+        app, version, folder = info
+        candidate.version = version_text(version)
+        name = candidate.inner or Path(candidate.program).resolve().name
+        groups.setdefault((app, name), []).append((version, folder, candidate))
+    for items in groups.values():
+        items.sort(key=lambda item: item[0])
+        _version, _folder, newest = items[-1]
+        older = [item for item in items[:-1] if item[0] < items[-1][0]]
+        if older:
+            used = [item for item in older if item[2].configured]
+            newest.update_from = version_text((used or older)[-1][0])
+            for _v, folder, candidate in older:
+                paths = [candidate.program]
+                try:
+                    paths.append(str(Path(candidate.program).resolve()))
+                except OSError:
+                    pass
+                for path in paths:
+                    if path not in newest.replaces:
+                        newest.replaces.append(path)
+                if folder is not None and str(folder) not in newest.old_folders:
+                    newest.old_folders.append(str(folder))
+                newest.users += [a for a in candidate.configured if a not in newest.users]
+        result.append(newest)
+    return result
 
 
 def unpack(appimage: Path, into: Path | None = None) -> Path:

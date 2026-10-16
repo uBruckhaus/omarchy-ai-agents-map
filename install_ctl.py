@@ -114,6 +114,13 @@ def check_env_value(value: str):
         raise ValueError("this path has characters a service file cannot hold (% \" ' \\ $ `)")
 
 
+def unit_path(path) -> str:
+    """A path as one argument of a service file: checked (no % " ' \\ $ ` or control
+    characters), then in double quotes, so spaces stay inside it."""
+    check_env_value(str(path))
+    return f'"{path}"'
+
+
 def check_folder(text: str) -> Path:
     """A folder the user typed: absolute (or ~), no control characters, ours to write."""
     text = (text or "").strip()
@@ -162,7 +169,11 @@ def download(url: str, target: Path, size: int, progress, cancelled, done_before
             if have > (size or MAX_DOWNLOAD):
                 proc.kill()
                 raise RuntimeError("the download is larger than announced")
-            progress((done_before + have) / max(1, total or size), None)
+            if total or size:
+                progress((done_before + have) / max(1, total or size), None)
+            else:
+                # No size announced: a bar that keeps moving but never reaches the end, and the MB.
+                progress(have / (have + 200 * 1024 * 1024), f"{have // (1024 * 1024)} MB")
             time.sleep(0.4)
     finally:
         if proc.poll() is None:
@@ -269,6 +280,8 @@ class Installer:
     env_file: Path = HOME
     address = ""
     has_service = True
+    login_default = False        # the install page's "Start at login" switch
+    uses_models = True           # False: an agent (no model folder)
     builds: tuple = ()           # (key, label) choices, first = default for the card (see default_build)
 
     @property
@@ -331,7 +344,8 @@ class Installer:
                 release: Release, progress, cancelled):
         folder.mkdir(parents=True, exist_ok=True)
         (folder / MARKER).write_text(json.dumps({"runtime": self.key}) + "\n")
-        models.mkdir(parents=True, exist_ok=True)
+        if models is not None and self.uses_models:
+            models.mkdir(parents=True, exist_ok=True)
         downloads = folder / "downloads"
         done = 0
         for asset_name, url, size in release.assets:
@@ -391,7 +405,7 @@ class Installer:
             raise RuntimeError("not installed here")
         running = self.has_service and _systemctl("is-active", "--quiet", f"{self.service}.service")[0]
         login = self.has_service and _systemctl("is-enabled", "--quiet", f"{self.service}.service")[0]
-        models = Path(self.models_folder() or folder / "models")
+        models = Path(self.models_folder() or folder / "models") if self.uses_models else None
         self.install(folder, models, login, running, gpu, release, progress, cancelled)
         for old in self.versions(folder)[:-2]:
             shutil.rmtree(folder / old, ignore_errors=True)
@@ -484,7 +498,7 @@ After=network.target
 [Service]
 Type=exec
 EnvironmentFile={self.env_file}
-ExecStart={BIN_DIR / self.command} serve
+ExecStart={unit_path(BIN_DIR / self.command)} serve
 Restart=on-failure
 RestartSec=3
 # Stopping also ends the model runners, so no video memory stays taken.
@@ -559,7 +573,7 @@ After=network.target
 Type=exec
 EnvironmentFile={self.env_file}
 # Every GGUF in the model folder, one loaded at a time; per-model settings in models.ini.
-ExecStart={BIN_DIR / self.command} --models-preset {preset} --models-max 1 --gpu-layers all --flash-attn on
+ExecStart={unit_path(BIN_DIR / self.command)} --models-preset {unit_path(preset)} --models-max 1 --gpu-layers all --flash-attn on
 Restart=on-failure
 RestartSec=3
 KillMode=control-group
@@ -706,7 +720,7 @@ After=network.target
 Type=exec
 EnvironmentFile={self.env_file}
 # Serves the model named in VLLM_MODEL (a Hugging Face id).
-ExecStart={BIN_DIR / self.command} serve ${{VLLM_MODEL}} --host {host} --port {port}
+ExecStart={unit_path(BIN_DIR / self.command)} serve ${{VLLM_MODEL}} --host {host} --port {port}
 Restart=on-failure
 KillMode=control-group
 
@@ -715,11 +729,303 @@ WantedBy=default.target
 """
 
 
-INSTALLERS = {"ollama": Ollama(), "llamacpp": LlamaCpp(), "lmstudio": LmStudio(), "vllm": Vllm()}
+class KoboldCpp(Installer):
+    """KoboldCpp's single-file Linux build as a model router: --admin with
+    --routermode serves every .kcpps in ~/.config/koboldcpp/models (one per
+    GGUF of the model folder, kobold_ctl.sync) and loads one on request."""
+    key, name, command, service = "koboldcpp", "KoboldCpp", "koboldcpp", "koboldcpp"
+    bin_rel = "koboldcpp"
+    env_file = HOME / ".config/koboldcpp/server.env"
+    address = "127.0.0.1:5001"
+    builds = (("vulkan", "Vulkan"), ("cuda", "CUDA"), ("cpu", "CPU"))
+    login_default = True         # stays up between agents (see provider_watch.STAYS_UP)
+    ASSETS = {"vulkan": "koboldcpp-linux-x64-nocuda", "cuda": "koboldcpp-linux-x64", "cpu": "koboldcpp-linux-x64-nocuda"}
+
+    def default_build(self, gpu: Gpu) -> str:
+        return "cuda" if gpu.vendor == "nvidia" else "vulkan" if gpu.vendor == "amd" else "cpu"
+
+    def latest(self, gpu: Gpu, build: str = "") -> Release:
+        build = build or self.default_build(gpu)
+        data = _curl_json("https://api.github.com/repos/LostRuins/koboldcpp/releases/latest")
+        version = str(data.get("tag_name", ""))
+        if not re.fullmatch(r"v\d+\.\d+(\.\d+)?", version):
+            raise RuntimeError("no release found")
+        assets = {a.get("name"): a for a in data.get("assets", []) if isinstance(a, dict)}
+        wanted = self.ASSETS[build]
+        if wanted not in assets:
+            raise RuntimeError(f"{version} has no Linux build")
+        asset = assets[wanted]
+        return Release(f"{version}-{build}", [(wanted, asset["browser_download_url"], int(asset.get("size", 0)))])
+
+    def unpack(self, archive: Path, folder: Path):
+        """One program file: copied in as `koboldcpp`, made executable."""
+        target = folder / self.bin_rel
+        shutil.copyfile(archive, target)
+        target.chmod(0o755)
+
+    def build_of(self) -> str:
+        build = read_env(self.env_file).get("KOBOLDCPP_BUILD", "")
+        return build if build in self.ASSETS else "vulkan"
+
+    def models_folder(self) -> str:
+        return read_env(self.env_file).get("KOBOLDCPP_MODELS", "")
+
+    def set_models_folder_value(self, models: Path):
+        set_env_value(self.env_file, "KOBOLDCPP_MODELS", str(models))
+        self.sync(models)
+
+    def env_text(self, models: Path, gpu: Gpu) -> str:
+        build = self.default_build(gpu)
+        version = self.current_version()
+        build = version.rsplit("-", 1)[-1] if version.rsplit("-", 1)[-1] in self.ASSETS else build
+        lines = ["# Written by AI Agents Map. Change the model folder there (right-click KoboldCpp).",
+                 f"KOBOLDCPP_MODELS={models}", f"KOBOLDCPP_BUILD={build}"]
+        if gpu.vendor == "nvidia" and gpu.index is not None:
+            lines.append(f"CUDA_VISIBLE_DEVICES={gpu.index}")
+        return "\n".join(lines) + "\n"
+
+    def unit_text(self, models: Path = None) -> str:
+        import inventory
+        host, _sep, port = self.address.rpartition(":")
+        build = self.build_of()
+        gpu_flag = {"cuda": "--usecuda", "vulkan": "--usevulkan", "cpu": "--usecpu"}[build]
+        return f"""[Unit]
+Description=KoboldCpp model router (installed by AI Agents Map)
+After=network.target
+
+[Service]
+Type=exec
+EnvironmentFile={self.env_file}
+# Router mode: every .kcpps in {inventory.KOBOLD_CONFIGS} is a model, loaded on request.
+ExecStart={unit_path(BIN_DIR / self.command)} --skiplauncher --nomodel --admin --admindir {unit_path(inventory.KOBOLD_CONFIGS)} --routermode --host {host} --port {port} {gpu_flag} --quiet
+Restart=on-failure
+RestartSec=3
+# Stopping ends the model process too, so no video memory stays taken.
+KillMode=control-group
+
+[Install]
+WantedBy=default.target
+"""
+
+    def sync(self, models: Path):
+        import kobold_ctl
+        check_env_value(str(models))
+        kobold_ctl.sync(models, self.build_of(), lambda: detect_gpu().vram)
+
+    def configure(self, models: Path):
+        self.sync(models)
+
+    def unconfigure(self):
+        """The .kcpps files AI Agents Map made (the user's own stay)."""
+        import inventory
+        import kobold_ctl
+        for path in inventory.KOBOLD_CONFIGS.glob("*.kcpps"):
+            if kobold_ctl.read(path).get(kobold_ctl.MARK):
+                path.unlink(missing_ok=True)
+        for folder in (inventory.KOBOLD_CONFIGS, inventory.KOBOLD_CONFIGS.parent):
+            try:
+                folder.rmdir()             # only when empty
+            except OSError:
+                pass
+
+
+class Jan(Installer):
+    """Jan's AppImage, unpacked (as LM Studio's), with a desktop entry and
+    `jan-desktop` in ~/.local/bin. For agents, Jan's own engine
+    (jan-llama-worker, a llama.cpp router) runs headless as jan.service on
+    inventory.JAN_PORT and serves the models of Jan's data folder with Jan's
+    per-model settings (router.preset.ini). Models are added in the Jan app."""
+    key, name, command, service = "jan", "Jan", "jan-desktop", "jan"
+    bin_rel = "squashfs-root/AppRun"
+    worker_rel = "squashfs-root/usr/lib/Jan/resources/bin"
+    desktop = HOME / ".local/share/applications/jan-ai-agents-map.desktop"
+
+    def latest(self, gpu: Gpu, build: str = "") -> Release:
+        data = _curl_json("https://api.github.com/repos/janhq/jan/releases/latest")
+        version = str(data.get("tag_name", ""))
+        if not re.fullmatch(r"v\d+\.\d+\.\d+", version):
+            raise RuntimeError("no release found")
+        wanted = f"Jan_{version[1:]}_amd64.AppImage"
+        asset = next((a for a in data.get("assets", []) if isinstance(a, dict) and a.get("name") == wanted), None)
+        if asset is None:
+            raise RuntimeError(f"{version} has no Linux AppImage")
+        return Release(version, [(wanted, asset["browser_download_url"], int(asset.get("size", 0)))])
+
+    def unpack(self, archive: Path, folder: Path):
+        LmStudio.unpack(self, archive, folder)
+
+    def models_folder(self) -> str:
+        import inventory
+        return str(inventory.jan_data_folder())
+
+    def set_models_folder_value(self, models: Path):
+        """Jan's data folder (models, threads, settings): only set before Jan has
+        one; later Jan moves it itself (Settings › General › Data folder)."""
+        import inventory
+        settings = inventory.JAN_ROOT / "settings.json"
+        try:
+            data = json.loads(settings.read_text(encoding="utf-8")[:2_000_000])
+        except FileNotFoundError:
+            data = {}
+        except (OSError, ValueError):
+            raise RuntimeError("Jan's settings.json cannot be read; change the folder in Jan")
+        if not isinstance(data, dict):
+            data = {}
+        current = inventory.jan_data_folder()
+        if data.get("data_folder") and Path(os.path.expanduser(str(data["data_folder"]))) != models \
+                and any(current.glob("llamacpp/models/*")):
+            raise RuntimeError("Jan has models in its data folder already; move it in Jan (Settings › General)")
+        data["data_folder"] = str(models)
+        _write(settings, json.dumps(data, indent=2) + "\n", 0o644)
+
+    def unit_text(self, models: Path = None) -> str:
+        import inventory
+        bin_dir = (self.installed_folder() or self.default_folder) / "current" / self.worker_rel
+        preset = inventory.jan_preset()
+        worker, preset_arg = unit_path(bin_dir / "jan-llama-worker"), unit_path(preset)
+        library = unit_path(f"LD_LIBRARY_PATH={bin_dir}")
+        return f"""[Unit]
+Description=Jan's engine for agents (installed by AI Agents Map)
+After=network.target
+
+[Service]
+Type=exec
+Environment={library}
+# jan-llama-worker ends when its input closes (the Jan app's way to stop it):
+# `sleep infinity` keeps it open; systemd stops both. The paths reach the shell
+# as arguments ($0, $1), never as part of its script.
+ExecStart=/bin/sh -c 'sleep infinity | exec "$0" --preset "$1" --port {inventory.JAN_PORT} --models-max 1' {worker} {preset_arg}
+Restart=on-failure
+RestartSec=3
+KillMode=control-group
+
+[Install]
+WantedBy=default.target
+"""
+
+    def configure(self, models: Path):
+        import jan_ctl
+        self.set_models_folder_value(models)
+        jan_ctl.ensure_preset()
+        folder = self.installed_folder() or self.default_folder
+        icon = next(iter(sorted(folder.glob("current/squashfs-root/*.png"))), None)
+        _write(self.desktop, f"""[Desktop Entry]
+Type=Application
+Name=Jan
+Comment=Chat with local LLMs (installed by AI Agents Map)
+Exec={BIN_DIR / self.command} %U
+Icon={icon or "jan"}
+Categories=Development;
+Terminal=false
+""")
+
+    def unconfigure(self):
+        self.desktop.unlink(missing_ok=True)
+
+
+class Bionic(Installer):
+    """LM Studio Bionic, LM Studio's agent app: its AppImage, unpacked (no FUSE
+    needed), with a desktop entry and `bionic` in ~/.local/bin. Not a local LLM:
+    it uses LM Studio for local models (LM Studio 0.4.26 or newer)."""
+    key, name, command, service = "bionic", "LM Studio Bionic", "bionic", ""
+    bin_rel = "squashfs-root/AppRun"
+    has_service = False
+    uses_models = False
+    desktop = HOME / ".local/share/applications/bionic-ai-agents-map.desktop"
+
+    def latest(self, gpu: Gpu, build: str = "") -> Release:
+        try:
+            first = netfetch.fetch("https://lmstudio.ai/download/bionic/latest/linux/x64", head=True, redirects=0,
+                                   max_bytes=16384, timeout=API_TIMEOUT).decode("utf-8", "replace")
+        except netfetch.FetchError as error:
+            raise RuntimeError("could not find the latest Bionic") from error
+        location = re.search(r"^location:\s*(https://bionic-installers\.lmstudio\.ai/linux/x64/([\w.-]+)/[\w.-]+\.AppImage)\s*$",
+                             first, re.MULTILINE | re.IGNORECASE)
+        if not location:
+            raise RuntimeError("could not find the latest Bionic")
+        url, version = location.group(1), location.group(2)
+        try:
+            head = netfetch.fetch(url, head=True, redirects=0, max_bytes=16384,
+                                  timeout=API_TIMEOUT).decode("utf-8", "replace")
+        except netfetch.FetchError:
+            head = ""
+        sizes = re.findall(r"^content-length:\s*(\d+)", head, re.MULTILINE | re.IGNORECASE)
+        return Release(f"v{version}", [(Path(url).name, url, int(sizes[-1]) if sizes else 0)])
+
+    def unpack(self, archive: Path, folder: Path):
+        LmStudio.unpack(self, archive, folder)
+
+    def configure(self, models: Path):
+        folder = self.installed_folder() or self.default_folder
+        icon = next(iter(sorted(folder.glob("current/squashfs-root/*.png"))), None)
+        _write(self.desktop, f"""[Desktop Entry]
+Type=Application
+Name=LM Studio Bionic
+Comment=Agent for open models (installed by AI Agents Map)
+Exec={BIN_DIR / self.command} %U
+Icon={icon or "bionic"}
+Categories=Development;
+Terminal=false
+""")
+
+    def unconfigure(self):
+        self.desktop.unlink(missing_ok=True)
+
+
+INSTALLERS = {"ollama": Ollama(), "llamacpp": LlamaCpp(), "lmstudio": LmStudio(), "vllm": Vllm(),
+              "jan": Jan(), "koboldcpp": KoboldCpp()}
+class Dsh(Installer):
+    """DeepSeek Harness from npm into a version folder (npm install --prefix,
+    install scripts off: no package code runs while installing), `dsh` in
+    ~/.local/bin. Needs Node.js (mise or the system's)."""
+    key, name, command, service = "dsh", "DeepSeek Harness", "dsh", ""
+    bin_rel = "node_modules/.bin/dsh"
+    has_service = False
+    uses_models = False
+    PACKAGE = "@deepseek-ai/dsh"
+
+    def latest(self, gpu: Gpu, build: str = "") -> Release:
+        data = _curl_json("https://registry.npmjs.org/@deepseek-ai%2fdsh")
+        tags = data.get("dist-tags") if isinstance(data.get("dist-tags"), dict) else {}
+        version = str(tags.get("latest", ""))
+        if not re.fullmatch(r"\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?", version):
+            raise RuntimeError("no release found")
+        return Release(f"v{version}", [])             # npm downloads it
+
+    def install(self, folder: Path, models: Path, start_at_login: bool, start_now: bool, gpu: Gpu,
+                release: Release, progress, cancelled):
+        npm = shutil.which("npm")
+        if not npm:
+            raise RuntimeError("needs Node.js with npm (mise use -g node)")
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / MARKER).write_text(json.dumps({"runtime": self.key}) + "\n")
+        partial = folder / f".{release.version}.partial"
+        shutil.rmtree(partial, ignore_errors=True)
+        partial.mkdir()
+        (partial / "package.json").write_text('{"private": true}\n')
+        progress(0.1, f"npm install {self.PACKAGE}@{release.version[1:]}")
+        out, ok = ai_core.read_bounded_output(
+            [npm, "install", "--prefix", str(partial), "--ignore-scripts", "--no-fund", "--no-audit", "--omit=dev",
+             f"{self.PACKAGE}@{release.version[1:]}"], max_bytes=1024 * 1024, timeout=1800, merge_stderr=True)
+        if cancelled():
+            shutil.rmtree(partial, ignore_errors=True)
+            raise Cancelled()
+        if not ok or not (partial / self.bin_rel).exists():
+            shutil.rmtree(partial, ignore_errors=True)
+            raise RuntimeError(out.decode("utf-8", "replace").strip()[-300:] or "npm failed")
+        check_unpacked_size(partial)
+        version_dir = folder / release.version
+        shutil.rmtree(version_dir, ignore_errors=True)
+        os.replace(partial, version_dir)
+        self.switch(folder, release.version)
+        progress(1.0, "done")
+
+
+AGENT_INSTALLERS = {"bionic": Bionic(), "dsh": Dsh()}        # agents installed the same way (not local LLMs)
 
 
 def installer(key: str):
-    return INSTALLERS.get(key)
+    return INSTALLERS.get(key) or AGENT_INSTALLERS.get(key)
 
 
 def _models_root(path: Path) -> Path:

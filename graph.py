@@ -82,7 +82,9 @@ class Node:
 class Edge:
     source: str
     target: str
-    kind: str                # uses / available (agent→provider), serves (provider→model), mcp, skills, default
+    kind: str                # uses / available (agent→provider), serves (provider→model), mcp, skills, default,
+                             # failed (drawn but not written: only its hints are kept, link_hints)
+    failed: str = ""         # "error" / "warning": the connection did not pass its check (dotted red / yellow)
 
 
 @dataclass
@@ -126,20 +128,30 @@ def split_model(model: str) -> tuple[str, str]:
     return model, ""
 
 
-def build(agent_list, details: dict, inventory, labels: dict | None = None) -> Graph:
+def build(agent_list, details: dict, inventory, labels: dict | None = None, failures: dict | None = None,
+          running: dict | None = None) -> Graph:
     """agent_list: agents.Agent (installed ones are drawn); details: command ->
-    agent_details.Details; labels: functions n -> translated text ("skills", "more")."""
+    agent_details.Details; labels: functions n -> translated text ("skills", "more");
+    running: command -> the model of each open instance ("" = its settings')."""
     labels = {"skills": "{0} skills".format, "more": "+{0} more".format, "add_mcp": "+ MCP server",
-              "add_skills": "+ Skills", "add_model": "+ Model",
+              "add_skills": "+ Skills", "add_model": "+ Model", "running": lambda n: "running" if n == 1
+              else f"{n} running", "in_use": "in use · {0}".format,
               **(labels or {})}
+    running = running or {}
     graph = Graph()
     runtimes = {rt.name: rt for rt in inventory.runtimes}
+    live = {}                # model node id -> names of the agents running with it now
 
     for agent in agent_list:
         if not agent.installed:
             continue
         aid = f"agent:{agent.command}"
-        graph.add(Node(aid, 1, agent.name, agent.version, "agent", agent.icon, agent.icon_font))
+        instances = running.get(agent.command, [])
+        if instances:
+            graph.add(Node(aid, 1, agent.name, " · ".join(filter(None, [agent.version, labels["running"](len(instances))])),
+                           "agent", agent.icon, agent.icon_font, status="running"))
+        else:
+            graph.add(Node(aid, 1, agent.name, agent.version, "agent", agent.icon, agent.icon_font))
         info = details.get(agent.command)
         model, model_provider = split_model(info.model if info else "")
 
@@ -174,6 +186,25 @@ def build(agent_list, details: dict, inventory, labels: dict | None = None) -> G
         elif model and model_provider in local_names:
             rt = runtimes[local_names[model_provider]]
             graph.link(aid, f"model:runtime:{rt.key}:{model.lower()}", "default")
+
+        # The model each open instance runs with: its own --model, else the settings'.
+        for chosen in instances:
+            name, provider = split_model(chosen) if chosen else (model, model_provider)
+            if not name:
+                continue
+            if provider in local_names:
+                mid = f"model:runtime:{runtimes[local_names[provider]].key}:{name.lower()}"
+            else:
+                service = provider_name(provider) if provider else cloud
+                if not service:
+                    continue
+                cid = f"cloud:{service.lower()}"
+                graph.add(Node(cid, 2, service, "", "cloud"))
+                mid = f"model:{cid}:{name.lower()}"
+                graph.add(Node(mid, 3, name, "", "model"))
+                graph.link(cid, mid, "serves")
+            if agent.name not in live.setdefault(mid, []):
+                live[mid].append(agent.name)
 
         for name in inventory.agent_mcp.get(agent.command, []):
             server = next((s for s in inventory.mcp if s.name == name), None)
@@ -221,11 +252,34 @@ def build(agent_list, details: dict, inventory, labels: dict | None = None) -> G
     graph.add(Node("add:mcp", 0, labels["add_mcp"], "", "add-mcp", dim=True))
     graph.add(Node("add:skills", 0, labels["add_skills"], "", "add-skills", dim=True))
 
+    for node in graph.nodes:
+        if node.id in live:
+            node.status = "running"
+            node.detail = labels["in_use"](", ".join(live[node.id]))
+
     # A default model that points at a model the runtime does not list: drop the link.
     ids = {n.id for n in graph.nodes}
     graph.edges = [e for e in graph.edges if e.source in ids and e.target in ids]
+    mark_failures(graph, failures or {})
     order_columns(graph)
     return graph
+
+
+def mark_failures(graph: Graph, failures: dict):
+    """Lines with hints (link_hints): a written one is marked; one that could
+    not be written is drawn anyway (kind "failed") until it is removed by hand."""
+    import link_hints
+    ids = {n.id for n in graph.nodes}
+    for link_key, entry in failures.items():
+        source, target = link_hints.split(link_key)
+        level = link_hints.level(entry)
+        if level == "ok" or source not in ids or target not in ids:
+            continue
+        edge = next((e for e in graph.edges if e.source == source and e.target == target), None)
+        if edge is None:
+            edge = Edge(source, target, "failed")
+            graph.edges.append(edge)
+        edge.failed = level
 
 
 def order_columns(graph: Graph):

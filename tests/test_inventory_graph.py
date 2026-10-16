@@ -135,6 +135,33 @@ class GraphTest(unittest.TestCase):
         self.assertIn(add.id, graph.hidden_by_layers(g, set(graph.LAYERS), {"runtime:llamacpp"}))
         self.assertNotIn("+ MCP server", [n.label for n in graph.listable(g, 0)])
 
+    def test_running_instances(self):
+        """An open agent gets a green dot; the model it runs with says who uses it now."""
+        pi = agents.Agent(command="pi", name="Pi", icon="p", installed=True)
+        claude = agents.Agent(command="claude", name="Claude Code", icon="c", installed=True, version="2.1")
+        details = {
+            "pi": ad.Details(model="qwen (local)", providers=[ad.Provider("local", True, "llama.cpp", 2)]),
+            "claude": ad.Details(model="opus"),
+        }
+        inv = invmod.Inventory(
+            runtimes=[invmod.Runtime("llamacpp", "llama.cpp", True, True, address="127.0.0.1:8080",
+                                     models=["qwen", "gemma"])])
+        g = graph.build([pi, claude], details, inv, running={"claude": [""], "pi": ["gemma (local)", ""]})
+        nodes = {n.id: n for n in g.nodes}
+        self.assertEqual(nodes["agent:claude"].status, "running")
+        self.assertEqual(nodes["agent:claude"].detail, "2.1 · running")
+        self.assertEqual(nodes["agent:pi"].detail, "2 running")
+        self.assertEqual(nodes["model:cloud:anthropic:opus"].status, "running")
+        self.assertEqual(nodes["model:cloud:anthropic:opus"].detail, "in use · Claude Code")
+        self.assertEqual(nodes["model:runtime:llamacpp:qwen"].status, "running")
+        self.assertEqual(nodes["model:runtime:llamacpp:gemma"].status, "running")
+        # Nothing open: no dots.
+        g = graph.build([pi, claude], details, inv)
+        self.assertFalse(any(n.status == "running" for n in g.nodes if n.kind in ("agent", "model")))
+        # An instance started with another online model adds that model.
+        g = graph.build([pi, claude], details, inv, running={"claude": ["anthropic/sonnet"]})
+        self.assertEqual({n.id: n for n in g.nodes}["model:cloud:anthropic:sonnet"].status, "running")
+
     def test_split_model(self):
         self.assertEqual(graph.split_model("qwen (llama-local)"), ("qwen", "llama-local"))
         self.assertEqual(graph.split_model("anthropic/claude-x"), ("claude-x", "anthropic"))
