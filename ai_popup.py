@@ -469,6 +469,7 @@ class AgentsMap(Adw.Application):
         title.add_css_class("am-title")
         title.set_ellipsize(Pango.EllipsizeMode.END)
         title.set_max_width_chars(30)
+        title.set_width_chars(12)          # in a header bar beside the window buttons: not just "…"
         title.set_hexpand(True)
         header.append(title)
         self.title_label = title
@@ -2490,10 +2491,10 @@ class AgentsMap(Adw.Application):
         program = self.add_kind.get_selected() == 0
         self.add_command_row.set_visible(program)
         self.add_url_row.set_visible(not program)
-        label = self.add_pairs_row.get_first_child()
-        label.set_label(_("Environment") if program else _("Headers"))
+        self.add_pairs_row.set_title(_("Environment") if program else _("Headers"))
         hint = _("One per line: NAME=value") if program else _("One per line: Name: value")
-        label.set_tooltip_text(hint)
+        self.add_pairs_row.set_subtitle(hint)
+        self.add_pairs_row.set_tooltip_text(hint)
         self.add_pairs.set_tooltip_text(hint)
         self.add_changed()
 
@@ -4191,6 +4192,7 @@ class AgentsMap(Adw.Application):
         local_box.append(top)
         self.models_local = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
         self.models_local.add_css_class("am-list")
+        self.models_local.add_css_class("boxed-list")
         self.models_local.connect("row-selected", lambda *_: self.update_model_buttons())
         local_scroller = Gtk.ScrolledWindow(hexpand=True, vexpand=True)
         local_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -4222,6 +4224,7 @@ class AgentsMap(Adw.Application):
         lists = Gtk.Box(spacing=12, vexpand=True)
         self.models_repos = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
         self.models_repos.add_css_class("am-list")
+        self.models_repos.add_css_class("boxed-list")
         self.models_repos.connect("row-selected", lambda _l, row: row is not None and self.show_model_files(row.repo))
         repo_scroller = Gtk.ScrolledWindow(hexpand=True, vexpand=True)
         repo_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -4229,6 +4232,7 @@ class AgentsMap(Adw.Application):
         lists.append(repo_scroller)
         self.models_files = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
         self.models_files.add_css_class("am-list")
+        self.models_files.add_css_class("boxed-list")
         self.models_files.connect("row-selected", lambda *_: self.update_model_buttons())
         file_scroller = Gtk.ScrolledWindow(hexpand=True, vexpand=True)
         file_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -5755,23 +5759,55 @@ class AgentsMap(Adw.Application):
         page.append(self.page_scroller(clamp))
         return page
 
-    def setting_line(self, box, title: str, hint: str, control) -> Gtk.Box:
-        """dim label | control; the explanation is the tooltip of both."""
-        row = Gtk.Box(spacing=10)
-        row.add_css_class("am-line")
-        label = Gtk.Label(label=title, xalign=0, wrap=True, max_width_chars=1)
-        label.add_css_class("am-line-label")
-        label.set_size_request(140, -1)
-        label.set_valign(Gtk.Align.CENTER)
-        row.append(label)
-        control.set_valign(Gtk.Align.CENTER)
-        control.set_halign(Gtk.Align.START)
-        control.set_hexpand(True)
+    @staticmethod
+    def ellipsize_dropdown(drop: Gtk.DropDown):
+        """The chosen entry ends in … when it is long (GTK otherwise makes the dropdown as wide as
+        its longest entry, and the page wider than the window); the open list shows it whole."""
+        def setup(_factory, item, ellipsize):
+            label = Gtk.Label(xalign=0)
+            if ellipsize:
+                label.set_ellipsize(Pango.EllipsizeMode.END)
+                label.set_max_width_chars(1)
+                label.set_hexpand(True)
+            item.set_child(label)
+
+        def bind(_factory, item):
+            value = item.get_item()
+            text = value.get_string() if hasattr(value, "get_string") else str(value)
+            item.get_child().set_label(text)
+            item.get_child().set_tooltip_text(text)
+
+        for ellipsize, setter in ((True, drop.set_factory), (False, drop.set_list_factory)):
+            factory = Gtk.SignalListItemFactory()
+            factory.connect("setup", setup, ellipsize)
+            factory.connect("bind", bind)
+            setter(factory)
+
+    def setting_line(self, box, title: str, hint: str, control) -> Adw.ActionRow:
+        """A form line as a libadwaita row: title (a short explanation under it, a long one on
+        hover) and the control at its end. Consecutive lines in a box share one boxed list."""
+        last = box.get_last_child()
+        if isinstance(last, Gtk.ListBox) and last.has_css_class("am-form-list"):
+            listbox = last
+        else:
+            listbox = self.boxed_list()
+            listbox.add_css_class("am-form-list")
+            box.append(listbox)
+        short = hint if hint and len(hint) <= 70 else ""
+        row = self.plain_row(title, short)
         if hint:
-            label.set_tooltip_text(hint)
-            control.set_tooltip_text(hint)
-        row.append(control)
-        box.append(row)
+            row.set_tooltip_text(hint)
+        control.set_valign(Gtk.Align.CENTER)
+        # Fields, lists and text areas take the row's width; switches, check boxes and buttons sit at its end.
+        wide = not isinstance(control, (Gtk.Switch, Gtk.CheckButton, Gtk.Button, Gtk.Label))
+        control.set_hexpand(wide)
+        control.set_halign(Gtk.Align.FILL if wide else Gtk.Align.END)
+        if wide:
+            control.set_size_request(260, -1)
+        if isinstance(control, Gtk.DropDown):
+            self.ellipsize_dropdown(control)
+        row.add_suffix(control)
+        listbox.append(row)
         return row
 
     # --- the Add pages' shared parts: On this PC | From the web, and the site to search ---------
@@ -6814,7 +6850,8 @@ class AgentsMap(Adw.Application):
         progressbar.am-progress trough {{ min-height: 6px; background: alpha({fg_hex}, 0.10); border-radius: 3px; }}
         progressbar.am-progress progress {{ min-height: 6px; background: {accent_hex}; border-radius: 3px; }}
         .am-card button.am-menu-item {{ padding: 3px 8px; font-size: 12px; }}
-        .am-card list.am-list {{ background: alpha({fg_hex}, 0.03); border-radius: {radius}px; }}
+        .am-form-list row .title {{ min-width: 110px; }}
+        .am-card list.am-list:not(.boxed-list) {{ background: alpha({fg_hex}, 0.03); border-radius: {radius}px; }}
         .am-card list.am-list row:selected {{ background: alpha({accent_hex}, 0.22); }}
         .am-card-check {{ color: {accent_hex}; font-weight: 700; }}
         /* Omarchy's default agent: its "Default" badge says so; no border that looks like a selection. */
@@ -6995,6 +7032,14 @@ class AgentsMap(Adw.Application):
             GLib.idle_add(lambda: self.open_runtime_status(page[8:]) and False)
         elif page == "health":
             GLib.idle_add(lambda: self.open_health() and False)
+        elif page == "addmcp":
+            GLib.idle_add(lambda: self.open_add_mcp() and False)
+        elif page == "addskills":
+            GLib.idle_add(lambda: self.open_add_skills() and False)
+        elif page.startswith("install:"):
+            rt = next((r for r in self.inventory.runtimes if r.key == page[8:]), None)
+            if rt is not None:
+                GLib.idle_add(lambda: self.open_install(rt, "update" if rt.installed else "install") and False)
         elif page.startswith("models:"):
             rt = next((r for r in self.inventory.runtimes if r.key == page[7:] and r.installed), None)
             if rt is not None:
