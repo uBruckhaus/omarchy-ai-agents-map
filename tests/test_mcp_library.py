@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import isolate  # noqa: E402
 import connect  # noqa: E402
 import mcp_ctl  # noqa: E402
 import mcp_library  # noqa: E402
@@ -18,6 +19,7 @@ class LibraryTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.home = Path(self.tmp.name)
+        isolate.desktop_in(self, self.home)
         for module in (connect, mcp_ctl, mcp_library):
             patcher = mock.patch.object(module, "HOME", self.home)
             patcher.start()

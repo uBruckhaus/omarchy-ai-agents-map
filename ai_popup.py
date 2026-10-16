@@ -26,6 +26,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 import atexit
 
 import agent_details
+import desktop
 import agent_updates
 import agent_profiles
 import agents
@@ -5947,7 +5948,7 @@ class AgentsMap(Gtk.Application):
                                         graph.SCOPES.index(self.start_scope()),
                                         lambda i: (self.save_setting(start_scope=graph.SCOPES[i]),
                                                                            self.set_scope(graph.SCOPES[i]))))
-        self.window_rounding = ai_core.hyprland_rounding()
+        self.window_rounding = desktop.window_rounding()
         like = _("Like windows ({0} px)").format(self.window_rounding) if self.window_rounding is not None \
             else _("Like windows")
         self.setting_line(box, _("Corners"), self.corners_tip(),
@@ -6038,7 +6039,7 @@ class AgentsMap(Gtk.Application):
     @staticmethod
     def corners_tip() -> str:
         """Where the windows' rounding comes from (as in App Manager and Theme Manager)."""
-        source = corners.rounding_source()
+        source = desktop.rounding_source()
         if source == "user":
             origin = _("Your windows' rounding is set in ~/.config/hypr/looknfeel.lua.")
         elif source == "theme":
@@ -6497,8 +6498,8 @@ class AgentsMap(Gtk.Application):
         self.update_widen_hint()
 
     def widen(self):
-        work = app_entry.maximize_here if self.widen_mode() == "maximize" else app_entry.widen
-        threading.Thread(target=work, daemon=True).start()
+        work = desktop.maximize if self.widen_mode() == "maximize" else desktop.widen
+        threading.Thread(target=work, args=(app_entry.APP_ID,), daemon=True).start()
 
     def update_widen_hint(self):
         """Shown while the map does not fit, unless the window is maximized already
@@ -6508,7 +6509,7 @@ class AgentsMap(Gtk.Application):
             return
 
         def work():
-            state = app_entry.maximized()
+            state = desktop.is_maximized(app_entry.APP_ID)
             GLib.idle_add(lambda: self.widen_hint.set_visible(not self.split and state is not True) and False)
 
         threading.Thread(target=work, daemon=True).start()
@@ -6590,7 +6591,9 @@ class AgentsMap(Gtk.Application):
     # --- theme ---------------------------------------------------------------------
 
     def watch_theme(self):
-        path = os.path.expanduser("~/.local/state/omarchy/current/theme")
+        path = str(desktop.theme_dir() or "")
+        if not path:
+            return
         self.theme_monitor = Gio.File.new_for_path(path).monitor(Gio.FileMonitorFlags.WATCH_MOVES, None)
         self.theme_monitor.connect("changed", lambda *_: GLib.timeout_add(300, self.reload_theme))
         parent = Gio.File.new_for_path(os.path.dirname(path))
@@ -6607,7 +6610,7 @@ class AgentsMap(Gtk.Application):
         display = Gdk.Display.get_default()
         if self.style_provider is not None:
             Gtk.StyleContext.remove_provider_for_display(display, self.style_provider)
-        self.window_rounding = ai_core.hyprland_rounding()
+        self.window_rounding = desktop.window_rounding()
         radius = corners.radius(ai_core.saved_corners(), self.window_rounding)
         bg_hex = colors.get("background", "#1e1e2e")
         fg_hex = colors.get("foreground", "#cdd6f4")
@@ -6880,7 +6883,7 @@ class AgentsMap(Gtk.Application):
             self.close()
         else:
             self.window.present()
-            app_entry.focus_window()
+            desktop.focus_window(app_entry.APP_ID)
 
     def open(self):
         self.sidebar_visible = True

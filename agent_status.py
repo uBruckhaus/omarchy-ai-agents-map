@@ -127,7 +127,7 @@ def _int(value) -> int:
 
 
 def from_record(record: dict, today: dt.date | None = None) -> Usage | None:
-    """Omarchy's usage record (omarchy-agent-usage-<agent>)."""
+    """The desktop's usage record (on Omarchy: omarchy-agent-usage-<agent>)."""
     if not record or not record.get("hasLocalStats"):
         return None
     today = today or dt.date.today()

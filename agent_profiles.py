@@ -16,7 +16,7 @@ checked before use (PROFILE rules below), because it comes from the web:
 A profile only says where things go; every change it leads to still goes
 through the preview, backup and Undo (connect.py).
 
-Profiles live in ~/.config/omarchy/ai-agents-map/agents/<command>.json.
+Profiles live in desktop.config_dir()/agents/<command>.json (~/.config/omarchy/ai-agents-map on Omarchy).
 """
 
 import datetime as dt
@@ -28,8 +28,10 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+import desktop
+
 HOME = Path.home()
-PROFILE_DIR = HOME / ".config/omarchy/ai-agents-map/agents"
+PROFILE_DIR = desktop.config_dir() / "agents"
 WORK_DIR = HOME / ".cache/ai-agents-map/research"
 RETRY_AFTER = dt.timedelta(days=7)
 TIMEOUT = 600

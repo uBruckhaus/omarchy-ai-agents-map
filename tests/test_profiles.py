@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import isolate  # noqa: E402
 import agent_profiles  # noqa: E402
 import agents  # noqa: E402
 import connect  # noqa: E402
@@ -28,6 +29,7 @@ class ProfileTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.home = Path(self.tmp.name).resolve()
+        isolate.desktop_in(self, self.home)
         for module in (connect, mcp_ctl, skills_ctl, agent_profiles):
             patcher = mock.patch.object(module, "HOME", self.home)
             patcher.start()

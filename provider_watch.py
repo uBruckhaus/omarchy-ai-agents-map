@@ -30,8 +30,10 @@ import sys
 import time
 from pathlib import Path
 
+import desktop
+
 HOME = Path.home()
-CONFIG = HOME / ".config/omarchy/ai-agents-map/providers-with-agents.json"
+CONFIG = desktop.config_dir() / "providers-with-agents.json"
 STATE = HOME / ".local/state/ai-agents-map/provider-watch.json"   # what we still have to stop (survives restarts)
 UNIT_NAME = "ai-agents-map-providers.service"
 UNIT_FILE = HOME / ".config/systemd/user" / UNIT_NAME

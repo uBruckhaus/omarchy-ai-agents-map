@@ -201,20 +201,10 @@ def forget(cache: Path = CACHE):
 
 
 def run_in_terminal(argv: list[str]) -> bool:
-    """argv in a terminal window of its own (Omarchy's, which waits at the end)."""
+    """argv in a terminal window of its own that waits at the end (desktop.run_in_terminal)."""
     if not argv or argv[:2] not in (["mise", "upgrade"], ["claude", "update"]) \
             or not all(_TOOL.fullmatch(a) for a in argv):
         return False
     # mise's version service can lag behind a release; read the versions from the source (still checksummed).
-    env = ["env", "MISE_USE_VERSIONS_HOST=0"] if argv[0] == "mise" else []
-    omarchy = shutil.which("omarchy-launch-floating-terminal-with-presentation")
-    launcher = [omarchy, " ".join(env[1:] + argv)] if omarchy else \
-        ([shutil.which("xdg-terminal-exec"), *env, *argv] if shutil.which("xdg-terminal-exec") else None)
-    if launcher is None:
-        return False
-    try:
-        subprocess.Popen(launcher, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL, start_new_session=True)
-    except OSError:
-        return False
-    return True
+    import desktop
+    return desktop.run_in_terminal(argv, {"MISE_USE_VERSIONS_HOST": "0"} if argv[0] == "mise" else None)

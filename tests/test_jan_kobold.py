@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import isolate  # noqa: E402
 import connect  # noqa: E402
 import gpu_usage  # noqa: E402
 import install_ctl  # noqa: E402
@@ -28,6 +29,7 @@ class Home(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.home = Path(self.tmp.name)
+        isolate.desktop_in(self, self.home)
         patches = [mock.patch.object(inventory, "HOME", self.home),
                    mock.patch.object(inventory, "JAN_ROOT", self.home / ".local/share/Jan"),
                    mock.patch.object(inventory, "KOBOLD_CONFIGS", self.home / ".config/koboldcpp/models"),

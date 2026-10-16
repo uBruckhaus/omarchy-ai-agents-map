@@ -1,18 +1,15 @@
 """AI Agents Map - settings and small helpers shared by the popup.
 
-Settings live in ~/.config/omarchy/ai-agents-map/settings.json (private, written
+Settings live in desktop.config_dir()/settings.json (~/.config/omarchy/ai-agents-map on Omarchy; private, written
 atomically, read with a size cap). Nothing here starts a network request.
 """
 
 import json
 import os
-import re
-import socket
 import stat
 import subprocess
 import tempfile
 import threading
-import time
 from pathlib import Path
 
 import i18n
@@ -23,7 +20,8 @@ VIEWS = ("main",)    # one view since the Map view went (its map is beside the c
 
 
 def settings_file() -> Path:
-    return Path.home() / ".config/omarchy/ai-agents-map/settings.json"
+    import desktop
+    return desktop.config_dir() / "settings.json"
 
 
 i18n.SETTINGS_FILE = settings_file()
@@ -135,68 +133,6 @@ def read_bounded_output(argv: list[str], max_bytes: int = 64 * 1024, timeout: fl
         proc.kill()
         code = proc.wait()
     return b"".join(chunks)[:max_bytes], code == 0 and not state["over"]
-
-
-def _hyprland_socket() -> Path | None:
-    runtime = os.environ.get("XDG_RUNTIME_DIR", "")
-    signature = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "")
-    if not os.path.isabs(runtime) or not re.fullmatch(r"[A-Za-z0-9_]{1,200}", signature):
-        return None
-    return Path(runtime) / "hypr" / signature / ".socket.sock"
-
-
-def _hyprland_query(command: bytes, max_bytes: int = 4096, timeout: float = 0.5) -> bytes | None:
-    """One bounded request on Hyprland's IPC socket; fast enough for pointer motion."""
-    path = _hyprland_socket()
-    if path is None:
-        return None
-    deadline = time.monotonic() + timeout
-    try:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
-            sock.settimeout(timeout)
-            sock.connect(str(path))
-            sock.sendall(command)
-            chunks, total = [], 0
-            while True:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    return None
-                sock.settimeout(remaining)
-                chunk = sock.recv(4096)
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total > max_bytes:
-                    return None
-                chunks.append(chunk)
-    except OSError:
-        return None
-    return b"".join(chunks)
-
-
-def cursor_position():
-    """Global pointer position from Hyprland, or None."""
-    raw = _hyprland_query(b"j/cursorpos")
-    if raw is None:
-        raw, ok = read_bounded_output(["hyprctl", "cursorpos", "-j"], max_bytes=4096, timeout=1.0)
-        if not ok:
-            return None
-    try:
-        data = json.loads(raw)
-        return int(data["x"]), int(data["y"])
-    except (ValueError, KeyError, TypeError):
-        return None
-
-
-def hyprland_rounding():
-    """Hyprland's window rounding (theme or looknfeel.lua), or None if unknown."""
-    raw = _hyprland_query(b"j/getoption decoration:rounding")
-    if raw is None:
-        raw, _ok = read_bounded_output(["hyprctl", "getoption", "decoration:rounding", "-j"],
-                                       max_bytes=4096, timeout=2.0)
-    # {"option": "decoration:rounding", "int": 0, "set": true}
-    import corners
-    return corners.parse_rounding(raw or "")
 
 
 def saved_corners(path: Path | None = None) -> str:

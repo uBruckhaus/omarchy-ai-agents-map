@@ -20,8 +20,6 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-MENU_FILE = Path("/usr/share/omarchy/default/omarchy/omarchy-menu.jsonc")
-AGENT_FILE = Path.home() / ".config/omarchy/defaults/agent"
 BIN_DIR = Path.home() / ".local/bin"
 MISE_DIR = Path.home() / ".local/share/mise"
 PACMAN_DB = Path("/var/lib/pacman/local")
@@ -81,8 +79,8 @@ def read_capped(path: Path, limit: int) -> str | None:
     return None if len(data) > limit else data.decode("utf-8", "replace")
 
 
-def catalog(menu_file: Path = MENU_FILE) -> list[tuple[str, str, str, str]]:
-    """[(command, label, icon, icon font)] in Omarchy's menu order."""
+def catalog(menu_file: Path) -> list[tuple[str, str, str, str]]:
+    """[(command, label, icon, icon font)] in the order of an Omarchy menu file (desktop_omarchy passes its own)."""
     text = read_capped(menu_file, MAX_MENU_BYTES)
     found = []
     for match in _MENU_RE.finditer(text or ""):
@@ -101,7 +99,7 @@ def catalog(menu_file: Path = MENU_FILE) -> list[tuple[str, str, str, str]]:
     return found or list(FALLBACK)
 
 
-def default_agent(agent_file: Path = AGENT_FILE) -> str:
+def default_agent(agent_file: Path) -> str:
     text = read_capped(agent_file, 256) or ""
     value = text.strip().splitlines()[0] if text.strip() else ""
     return value if _NAME_RE.fullmatch(value) else ""
@@ -213,13 +211,15 @@ def detect(command: str, bin_dir: Path = BIN_DIR, mise_dir: Path = MISE_DIR,
     return False, "", ""
 
 
-def list_agents(menu_file: Path = MENU_FILE, agent_file: Path = AGENT_FILE, bin_dir: Path = BIN_DIR,
+def list_agents(menu_file: Path | None = None, agent_file: Path | None = None, bin_dir: Path = BIN_DIR,
                 mise_dir: Path = MISE_DIR, db: Path = PACMAN_DB) -> list[Agent]:
-    """Every agent Omarchy offers: installed ones first (the default agent
-    leading), then the others, each group in Omarchy's order."""
-    chosen = default_agent(agent_file)
+    """Every agent the desktop offers (desktop.agent_catalog(), else FALLBACK; or the
+    given menu file): installed ones first (the default agent leading), then the
+    others, each group in the desktop's order."""
+    import desktop
+    chosen = default_agent(agent_file) if agent_file is not None else desktop.default_agent()
     agents = []
-    known = catalog(menu_file)
+    known = catalog(menu_file) if menu_file is not None else list(desktop.agent_catalog() or FALLBACK)
     known += [e for e in EXTRA if e[0] not in {c for c, *_rest in known}]
     for command, label, icon, font in known:
         installed, version, source = detect(command, bin_dir, mise_dir, db)

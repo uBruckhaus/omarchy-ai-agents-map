@@ -1,7 +1,7 @@
 """An agent's own terminal inside the window (right of the cards, like a details page).
 
 The terminal is VTE for GTK4 (the `vte4` package). Without it, Start opens the agent
-in the user's terminal instead (`xdg-terminal-exec`, as Omarchy does).
+in the user's terminal instead (desktop.open_terminal: `xdg-terminal-exec` on Omarchy).
 
 The agent runs as a child of this window's process, in the folder the user picked,
 with this process's environment plus TERM/COLORTERM. Its argv is the agent's own
@@ -29,7 +29,6 @@ _VTE = None
 # Agents that are programs with a window of their own, not a terminal program.
 NOT_CLI = {"bionic"}
 FONT = "JetBrainsMono Nerd Font 11"
-THEME = Path.home() / ".local/state/omarchy/current/theme/colors.toml"
 # The 16 terminal colours: color0…color15 when the theme has them, else Omarchy's names.
 ANSI = (("dark_background", "#1e1e2e"), ("red", "#f38ba8"), ("green", "#a6e3a1"), ("yellow", "#f9e2af"),
         ("blue", "#89b4fa"), ("magenta", "#f5c2e7"), ("cyan", "#94e2d5"), ("light_foreground", "#bac2de"),
@@ -38,13 +37,10 @@ ANSI = (("dark_background", "#1e1e2e"), ("red", "#f38ba8"), ("green", "#a6e3a1")
         ("bright_cyan", "#94e2d5"), ("bright_foreground", "#a6adc8"))
 
 
-def theme_colors(path: Path = THEME) -> dict:
-    import tomllib
-    try:
-        with open(path, "rb") as handle:
-            data = tomllib.loads(handle.read(256 * 1024).decode("utf-8", "replace"))
-    except (OSError, ValueError):
-        return {}
+def theme_colors(path: Path | None = None) -> dict:
+    """The desktop theme's colours that are colours ("#rrggbb"); path: another theme file (tests)."""
+    import desktop
+    data = desktop.theme_colors(path) if path is not None else desktop.theme_colors()
     return {k: v for k, v in data.items() if isinstance(v, str) and v.startswith("#") and len(v) <= 9}
 
 
@@ -79,15 +75,8 @@ def child_env(environ=None) -> list[str]:
 
 def open_outside(path: str, cwd: str) -> bool:
     """No vte4: the agent in the user's own terminal (a new window)."""
-    launcher = shutil.which("xdg-terminal-exec")
-    if launcher is None:
-        return False
-    try:
-        subprocess.Popen([launcher, path], cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL, start_new_session=True)
-    except OSError:
-        return False
-    return True
+    import desktop
+    return desktop.open_terminal([path], cwd)
 
 
 class TerminalPane(Gtk.Box):

@@ -1,22 +1,17 @@
 """The "Corners" setting, shared by App Manager and Theme Manager.
 
-"windows" (the default) follows Hyprland's window rounding, which Omarchy
-sets in this order, the last one winning: Omarchy's default (square), the
-current theme's hyprland.lua, then your own ~/.config/hypr/looknfeel.lua.
-"rounded" and "square" ignore it. No process is started here: the caller
-reads `hyprctl getoption decoration:rounding -j` its own bounded way and
-passes the text to parse_rounding()."""
+"windows" (the default) follows the windows' rounding, which the desktop
+module reads (desktop.window_rounding(); who set it: desktop.rounding_source(),
+which uses lua_rounding() on Omarchy). "rounded" and "square" ignore it. No
+process is started here."""
 import json
 import os
 import re
-from pathlib import Path
 
 CHOICES = ("windows", "rounded", "square")
 ROUNDED = 12      # "Rounded": Theme Manager's corners up to now.
 MAX_RADIUS = 24
 MAX_LUA_BYTES = 256 * 1024
-THEME_LUA = Path.home() / ".local/state/omarchy/current/theme/hyprland.lua"
-USER_LUA = Path.home() / ".config/hypr/looknfeel.lua"
 # `rounding = 8` outside a comment; "gradient_rounding" and "rounding_power" don't count.
 _ROUNDING = re.compile(r"(?<![\w.])rounding\s*=\s*(\d+)")
 
@@ -26,7 +21,7 @@ def choice(value):
 
 
 def parse_rounding(text):
-    """Hyprland's window rounding from `hyprctl getoption … -j`, or None."""
+    """The window rounding from Hyprland's `getoption decoration:rounding` JSON, or None."""
     try:
         value = json.loads(text).get("int")
     except (ValueError, TypeError, AttributeError):
@@ -65,12 +60,3 @@ def lua_rounding(path):
         for match in _ROUNDING.finditer(code):
             found = int(match.group(1))
     return found
-
-
-def rounding_source(theme_lua=THEME_LUA, user_lua=USER_LUA):
-    """Who set the windows' rounding: "user" (looknfeel.lua), "theme" or "default"."""
-    if lua_rounding(user_lua) is not None:
-        return "user"
-    if lua_rounding(theme_lua) is not None:
-        return "theme"
-    return "default"

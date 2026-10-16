@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import isolate  # noqa: E402
 import agent_details as ad  # noqa: E402
 import agents  # noqa: E402
 import graph  # noqa: E402
@@ -21,6 +22,7 @@ class InventoryTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.home = Path(self.tmp.name)
+        isolate.desktop_in(self, self.home)
         expand = lambda p: str(p).replace("~", str(self.home), 1)  # noqa: E731
         for target, value in ((invmod, "HOME"), (ad, "HOME"), (connect, "HOME"), (mcp_ctl, "HOME"),
                               (skills_ctl, "HOME"), (mcp_library, "HOME")):

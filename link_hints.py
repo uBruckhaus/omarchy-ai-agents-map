@@ -7,7 +7,7 @@ an error among its hints, yellow with warnings only. Its hints stay with the
 line (click it) until the user removes the connection on the map, or a new
 test of it passes.
 
-~/.config/omarchy/ai-agents-map/failed-links.json (0600):
+failed-links.json in desktop.config_dir() (~/.config/omarchy/ai-agents-map on Omarchy, 0600):
 {"agent:hermes|runtime:jan": {"kind": "provider", "applied": true, "when": "…",
   "target": "gemma-4-e2b", "hints": [{"level": "error", "text": "…"}]}}
 Only the plugin's own words and capped error messages, never settings values.
@@ -29,7 +29,8 @@ ID_RE = re.compile(r"^[a-z]+:[^|\x00-\x1f]{1,300}$")
 
 
 def store_file() -> Path:
-    return HOME / ".config/omarchy/ai-agents-map/failed-links.json"
+    import desktop
+    return desktop.config_dir() / "failed-links.json"
 
 
 def key(source: str, target: str) -> str:

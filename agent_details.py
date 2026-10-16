@@ -3,9 +3,10 @@
 
 Sources, all read-only and size-capped:
 
-- Omarchy's usage records (~/.local/state/omarchy/agents/usage/<agent>.json),
-  written by `omarchy agent usage update`: plan, rate limits, today's usage.
-  Only Omarchy talks to the providers; refresh_usage() asks it to.
+- The desktop's usage records (desktop.usage_dir(); on Omarchy
+  ~/.local/state/omarchy/agents/usage/<agent>.json, written by `omarchy agent
+  usage update`): plan, rate limits, today's usage. Only the desktop talks to
+  the providers; refresh_usage() asks it to (desktop.refresh_usage).
 - Each agent's own settings files for the model and its providers. Never
   their credential files: secrets are not read, and nothing here is shown
   that could contain one (only names, model ids and local addresses).
@@ -22,8 +23,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
 
+import desktop
+
 HOME = Path.home()
-USAGE_DIR = Path(os.environ.get("XDG_STATE_HOME") or HOME / ".local/state") / "omarchy/agents/usage"
+USAGE_DIR = desktop.usage_dir() or HOME / ".local/state/ai-agents-map/no-usage"   # the desktop's usage records
 MAX_FILE_BYTES = 512 * 1024
 MAX_SCAN = 3000              # directory entries looked at for "last used"
 USAGE_MAX_AGE = 10 * 60      # seconds before an expanded card asks Omarchy for fresh usage
@@ -358,22 +361,12 @@ def usage_is_stale(command: str, usage_dir: Path = USAGE_DIR) -> bool:
 
 
 def has_usage_collector(command: str) -> bool:
-    if not re.fullmatch(r"[a-z0-9-]{1,64}", command):
-        return False
-    root = Path(os.environ.get("OMARCHY_PATH") or "/usr/share/omarchy")
-    return any((d / f"omarchy-agent-usage-{command}").is_file() for d in (root / "bin", Path("/usr/bin")))
+    return desktop.has_usage_collector(command)
 
 
 def refresh_usage(command: str) -> bool:
-    """Ask Omarchy for this agent's usage (blocking; run it on a thread)."""
-    if not has_usage_collector(command):
-        return False
-    try:
-        result = subprocess.run(["omarchy-agent-usage-update", command], stdin=subprocess.DEVNULL,
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=USAGE_TIMEOUT)
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return result.returncode == 0
+    """Ask the desktop for this agent's usage (blocking; run it on a thread)."""
+    return desktop.has_usage_collector(command) and desktop.refresh_usage(command)
 
 
 # --- last used ---------------------------------------------------------------

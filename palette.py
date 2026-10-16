@@ -1,7 +1,6 @@
-"""AI Agents Map - Theme colors from Omarchy."""
+"""AI Agents Map - Theme colors from the desktop (desktop.theme_colors())."""
 
-from pathlib import Path
-import tomllib
+import desktop
 
 DEFAULT_COLORS = {
     "background": "#1e1e2e",
@@ -17,21 +16,17 @@ DEFAULT_COLORS = {
 
 
 class ThemePalette:
-    """Expose the current Omarchy theme colors to the AI Agents Map."""
+    """Expose the desktop theme's colors to the AI Agents Map."""
 
     def __init__(self):
         self.colors = DEFAULT_COLORS.copy()
         self.reload()
 
     def reload(self):
-        try:
-            path = Path.home() / ".local/state/omarchy/current/theme/colors.toml"
-            theme = tomllib.loads(path.read_text())
-            colors = {key: theme.get(key, fallback) for key, fallback in DEFAULT_COLORS.items()}
-            if "muted" not in theme:
-                colors["muted"] = theme.get("dark_foreground") or theme.get("color8") or DEFAULT_COLORS["muted"]
-        except (OSError, ValueError):
-            colors = DEFAULT_COLORS.copy()
+        theme = desktop.theme_colors()
+        colors = {key: theme.get(key, fallback) for key, fallback in DEFAULT_COLORS.items()}
+        if "muted" not in theme:
+            colors["muted"] = theme.get("dark_foreground") or theme.get("color8") or DEFAULT_COLORS["muted"]
         if colors == self.colors:
             return False
         self.colors = colors
