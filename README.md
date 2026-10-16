@@ -349,7 +349,7 @@ the backup and Undo), and the agent is told the same context. A context you set 
   from it, or for a newer version of an app looked into before; `claude mcp add-json/remove`; `claude -p` or `codex exec` for a new agent; `wl-paste`,
   `lspci`, `hyprctl`.
 - **Writes**, each only after you confirm it with its preview (except AI Agents Map's own state):
-  the agents' settings files named above (keeping their file mode; new files 0600), links in the
+  the agents' settings files named above (always written owner-only, 0600, since they may hold API keys or MCP secrets), links in the
   agents' skills folders, fetched skill files, programs you install into a folder you choose (one
   folder per version, a `current` link, the command in `~/.local/bin`), user services in
   `~/.config/systemd/user`, their settings in `~/.config/<runtime>/`, LM Studio and Jan desktop

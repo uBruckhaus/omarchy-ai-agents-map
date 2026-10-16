@@ -333,9 +333,12 @@ def plan(agent: str, runtime, model: str, use_now: bool, remove: bool = False, c
 
 
 def _write(path: Path, text: str):
+    """Agent settings may carry API keys or MCP env/header secrets, so the file is
+    always written owner-only: group and other bits of an existing file are dropped
+    (a 0644 settings file becomes 0600), the owner's own bits are kept."""
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        mode = path.stat().st_mode & 0o777
+        mode = path.stat().st_mode & 0o700 or 0o600
     except FileNotFoundError:
         mode = 0o600
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}-", dir=str(path.parent))

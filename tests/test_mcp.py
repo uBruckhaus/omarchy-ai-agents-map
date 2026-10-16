@@ -77,6 +77,30 @@ class McpTest(unittest.TestCase):
             self.assertNotIn("s3cret-token", text)
             self.assertNotIn("abcd-1234", text)
 
+    def test_secrets_never_land_in_a_readable_file(self):
+        """A 0644 destination in a traversable folder must not expose copied secrets."""
+        import os
+        import stat
+        for rel in (".hermes/config.yaml", ".pi/agent/mcp.json"):
+            os.chmod(self.home / rel, 0o644)
+        os.chmod(self.home / ".hermes", 0o755)
+        self.add("hermes", "tools")
+        self.add("hermes", "search")
+        cfg = self.home / ".hermes/config.yaml"
+        self.assertIn("abcd-1234", cfg.read_text())
+        self.assertEqual(stat.S_IMODE(cfg.stat().st_mode), 0o600)
+        (self.home / ".codex").mkdir(mode=0o755)
+        (self.home / ".codex/config.toml").write_text("")
+        os.chmod(self.home / ".codex/config.toml", 0o664)
+        backup = connect.apply(mcp_ctl.plan("codex", "search", ["pi"]), self.home / "backups")
+        self.assertEqual(stat.S_IMODE((self.home / ".codex/config.toml").stat().st_mode), 0o600)
+        connect.undo(backup)                                 # Undo does not loosen it again
+        self.assertEqual(stat.S_IMODE((self.home / ".codex/config.toml").stat().st_mode), 0o600)
+        for agent in ("opencode", "gemini", "cursor-agent"):  # new files: owner-only too
+            result = self.add(agent, "tools")
+            for change in result.changes:
+                self.assertEqual(stat.S_IMODE(change.path.stat().st_mode), 0o600, change.path)
+
     def test_claude_through_its_cli(self):
         result = mcp_ctl.plan("claude", "photocraft", ["pi"])
         self.assertEqual(result.changes, [])
