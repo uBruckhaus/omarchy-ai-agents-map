@@ -391,7 +391,9 @@ class AgentsMap(Adw.Application):
         holder = Gtk.ScrolledWindow()
         holder.set_policy(Gtk.PolicyType.EXTERNAL, Gtk.PolicyType.NEVER)
         holder.set_child(frame)
-        frame.add_overlay(self.build_undo_bar())
+        # Notes, Undo and questions as libadwaita toasts, over the whole window.
+        self.toasts = Adw.ToastOverlay(child=holder)
+        self.current_toast = None
         self.card = card
         self.card_frame = frame
 
@@ -404,10 +406,10 @@ class AgentsMap(Adw.Application):
             bar.set_title_widget(header)
             toolbar = Adw.ToolbarView()
             toolbar.add_top_bar(bar)
-            toolbar.set_content(holder)
+            toolbar.set_content(self.toasts)
             window.set_content(toolbar)
         else:
-            window.set_content(holder)
+            window.set_content(self.toasts)
             card.append(header)
 
         stack = Gtk.Stack()
@@ -5604,108 +5606,52 @@ class AgentsMap(Adw.Application):
 
         threading.Thread(target=work, daemon=True).start()
 
+    def toast(self, message: str, seconds: int, button: str = "", on_button=None, on_dismissed=None) -> Adw.Toast:
+        """One toast at a time (a new one replaces the last). Plain text: messages carry file names,
+        program output and web answers, which must never be read as markup."""
+        if self.current_toast is not None:
+            self.current_toast.dismiss()
+        toast = Adw.Toast(title=message, timeout=seconds)
+        toast.set_use_markup(False)
+        if button:
+            toast.set_button_label(button)
+            toast.connect("button-clicked", lambda *_: on_button and on_button())
+        clicked = {"done": False}
+        toast.connect("button-clicked", lambda *_: clicked.update(done=True))
+
+        def dismissed(t):
+            if self.current_toast is t:
+                self.current_toast = None
+            if on_dismissed is not None and not clicked["done"]:
+                on_dismissed()
+        toast.connect("dismissed", dismissed)
+        self.current_toast = toast
+        self.toasts.add_toast(toast)
+        return toast
+
     def show_note(self, message: str):
-        """The undo bar without Undo: a short message."""
-        self.undo_label.set_label(message)
-        self.undo_backup = None
-        self.undo_button.set_visible(False)
-        self.undo_bar.set_reveal_child(True)
-        if self.undo_timer:
-            GLib.source_remove(self.undo_timer)
-        self.undo_timer = GLib.timeout_add_seconds(6, self.hide_undo)
-
-    def build_undo_bar(self) -> Gtk.Widget:
-        """Floats over the bottom of the card after a change: what happened, and Undo."""
-        bar = Gtk.Revealer(transition_type=Gtk.RevealerTransitionType.SLIDE_UP)
-        bar.set_valign(Gtk.Align.END)
-        bar.set_halign(Gtk.Align.CENTER)
-        bar.set_margin_bottom(24)
-        line = Gtk.Box(spacing=12)
-        line.add_css_class("am-undo")
-        self.undo_label = Gtk.Label()
-        line.append(self.undo_label)
-        undo_button = Gtk.Button(label=_("Undo"))
-        undo_button.add_css_class("am-small-btn")
-        undo_button.connect("clicked", lambda *_: self.undo_last())
-        line.append(undo_button)
-        self.undo_button = undo_button
-        # A question with two answers (show_offer), e.g. the launcher entry on the first open.
-        self.offer_yes = Gtk.Button()
-        self.offer_yes.add_css_class("am-small-btn")
-        self.offer_yes.add_css_class("suggested-action")
-        self.offer_no = Gtk.Button()
-        self.offer_no.add_css_class("am-small-btn")
-        self.offer_no.add_css_class("flat")
-        self.offer_handlers = []
-        for button in (self.offer_yes, self.offer_no):
-            button.set_visible(False)
-            line.append(button)
-        bar.set_child(line)
-        self.undo_bar = bar
-        self.undo_backup = None
-        self.undo_timer = 0
-        return bar
-
-    def show_offer(self, message: str, yes: str, no: str, on_yes, on_no):
-        """The bar as a question: stays until it is answered."""
-        for button, handler in self.offer_handlers:
-            button.disconnect(handler)
-        self.undo_label.set_label(message)
-        self.undo_backup = None
-        self.undo_button.set_visible(False)
-
-        def answer(callback):
-            self.hide_undo()
-            callback()
-        self.offer_yes.set_label(yes)
-        self.offer_no.set_label(no)
-        self.offer_handlers = [(self.offer_yes, self.offer_yes.connect("clicked", lambda *_: answer(on_yes))),
-                               (self.offer_no, self.offer_no.connect("clicked", lambda *_: answer(on_no)))]
-        self.offer_yes.set_visible(True)
-        self.offer_no.set_visible(True)
-        if self.undo_timer:
-            GLib.source_remove(self.undo_timer)
-            self.undo_timer = 0
-        self.undo_bar.set_reveal_child(True)
-
-    def show_undo(self, message: str, backup):
-        self.offer_yes.set_visible(False)
-        self.offer_no.set_visible(False)
-        self.undo_label.set_label(message)
-        self.undo_backup = backup
-        self.undo_button.set_visible(True)
-        self.undo_bar.set_reveal_child(True)
-        if self.undo_timer:
-            GLib.source_remove(self.undo_timer)
-        self.undo_timer = GLib.timeout_add_seconds(30, self.hide_undo)
+        """A short message."""
+        self.toast(message, 6)
 
     def show_notice(self, message: str, seconds: int = 8):
-        """The undo bar as a plain message (nothing to undo)."""
-        self.offer_yes.set_visible(False)
-        self.offer_no.set_visible(False)
-        self.undo_label.set_label(message)
-        self.undo_backup = None
-        self.undo_button.set_visible(False)
-        self.undo_bar.set_reveal_child(True)
-        if self.undo_timer:
-            GLib.source_remove(self.undo_timer)
-        self.undo_timer = GLib.timeout_add_seconds(seconds, self.hide_undo)
+        """A message that stays a little longer (nothing to undo)."""
+        self.toast(message, seconds)
 
-    def hide_undo(self):
-        self.undo_timer = 0
-        self.undo_bar.set_reveal_child(False)
-        return False
+    def show_undo(self, message: str, backup):
+        """What a change did, with Undo for 30 s."""
+        self.toast(message, 30, _("Undo"), lambda: self.undo_last(backup))
 
-    def undo_last(self):
-        if self.undo_backup is None:
-            return
+    def show_offer(self, message: str, yes: str, no: str, on_yes, on_no):
+        """A question that stays until it is answered: the button says yes (`yes`), closing the
+        toast says no (`no` is that answer's name, kept for callers; the close button says it)."""
+        self.toast(message, 0, yes, on_yes, on_no)
+
+    def undo_last(self, backup):
         try:
-            connect.undo(self.undo_backup)
+            connect.undo(backup)
         except (OSError, ValueError) as error:
-            self.undo_label.set_label(_("Undo failed: {0}").format(error))
+            self.show_notice(_("Undo failed: {0}").format(error))
             return
-        self.undo_backup = None
-        self.hide_undo()
         self.collect()
         self.refresh_overview()
         self.refresh_map()
@@ -6667,7 +6613,8 @@ class AgentsMap(Adw.Application):
             light = False
         manager.set_color_scheme(Adw.ColorScheme.FORCE_LIGHT if light else Adw.ColorScheme.FORCE_DARK)
 
-    def adw_colors_css(self, bg: str, fg: str, accent: str, red: str, green: str, yellow: str) -> str:
+    def adw_colors_css(self, bg: str, fg: str, accent: str, red: str, green: str, yellow: str,
+                       radius: int = 0) -> str:
         """libadwaita's named colours from the Omarchy theme (other desktops keep their own)."""
         if desktop.NAME != "omarchy":
             return ""
@@ -6687,7 +6634,11 @@ class AgentsMap(Adw.Application):
         # Omarchy's look as before libadwaita: Hyprland rounds (or not) the window itself, and
         # buttons keep the regular weight (libadwaita makes every button label bold).
         omarchy_look = ("window#aiagentsmap-window { border-radius: 0; }\n"
-                        "window#aiagentsmap-window button { font-weight: normal; }\n")
+                        "window#aiagentsmap-window button { font-weight: normal; }\n"
+                        # Toasts as the note bar was: the theme's background, an accent border.
+                        f"toast {{ background: {bg}; color: {fg}; border: 1px solid {accent}; "
+                        f"border-radius: {radius}px; }}\n"
+                        f"toast button {{ color: {accent}; }}\n")
         return ":root { " + " ".join(f"--{k}: {v};" for k, v in pairs.items()) + " }\n" + omarchy_look
 
     def apply_theme_css(self):
@@ -6881,7 +6832,7 @@ class AgentsMap(Adw.Application):
                                   "accent": accent_hex, "green": green_hex, "yellow": yellow_hex, "red": red_hex},
                                  radius)
         self.apply_style_scheme(bg_hex)
-        css = self.adw_colors_css(bg_hex, fg_hex, accent_hex, red_hex, green_hex, yellow_hex) + css
+        css = self.adw_colors_css(bg_hex, fg_hex, accent_hex, red_hex, green_hex, yellow_hex, radius) + css
         provider = Gtk.CssProvider()
         provider.load_from_string(css)
         Gtk.StyleContext.add_provider_for_display(display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
