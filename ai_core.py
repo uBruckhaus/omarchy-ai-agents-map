@@ -135,6 +135,29 @@ def read_bounded_output(argv: list[str], max_bytes: int = 64 * 1024, timeout: fl
     return b"".join(chunks)[:max_bytes], code == 0 and not state["over"]
 
 
+LOOKS = ("omarchy", "adwaita")
+
+
+def saved_look(path: Path | None = None) -> str:
+    """Settings › Look on Omarchy: "omarchy" (its theme; the default) or "adwaita" (GNOME's look).
+    Other desktops always have Adwaita."""
+    import desktop
+    if desktop.NAME != "omarchy":
+        return "adwaita"
+    value = load_settings(path).get("look")
+    return value if value in LOOKS else "omarchy"
+
+
+def look_colors() -> dict:
+    """The colours of the look in use: the desktop theme's, or Adwaita's (light/dark and accent
+    as the system has them) when Omarchy is set to GNOME's look."""
+    import desktop
+    if desktop.NAME == "omarchy" and saved_look() == "adwaita":
+        import desktop_generic
+        return desktop_generic.theme_colors()
+    return desktop.theme_colors()
+
+
 def saved_corners(path: Path | None = None) -> str:
     """"windows" (follow Hyprland's window rounding; the default), "rounded" or "square"
     — the same setting as App Manager and Theme Manager."""

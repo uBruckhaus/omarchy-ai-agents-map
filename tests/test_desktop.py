@@ -95,5 +95,35 @@ class GenericTest(unittest.TestCase):
         self.assertFalse(g.refresh_usage("claude"))
 
 
+class LookTest(unittest.TestCase):
+    """Settings › Look: Omarchy's theme (default) or GNOME's Adwaita, on Omarchy only."""
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.settings = Path(folder.name) / "settings.json"
+
+    def test_default_and_values(self):
+        import ai_core
+        with mock.patch.object(desktop, "current", return_value=desktop_omarchy):
+            self.assertEqual(ai_core.saved_look(self.settings), "omarchy")
+            self.settings.write_text('{"look": "adwaita"}')
+            self.assertEqual(ai_core.saved_look(self.settings), "adwaita")
+            self.settings.write_text('{"look": "../x"}')
+            self.assertEqual(ai_core.saved_look(self.settings), "omarchy")
+        with mock.patch.object(desktop, "current", return_value=g):
+            self.assertEqual(ai_core.saved_look(self.settings), "adwaita")
+
+    def test_colours_follow_the_look(self):
+        import ai_core
+        with mock.patch.object(desktop, "current", return_value=desktop_omarchy), \
+                mock.patch.object(desktop_omarchy, "theme_colors", return_value={"accent": "#ff8800"}), \
+                mock.patch.object(g, "theme_colors", return_value={"accent": "#3584e4"}):
+            with mock.patch.object(ai_core, "saved_look", return_value="omarchy"):
+                self.assertEqual(ai_core.look_colors()["accent"], "#ff8800")
+            with mock.patch.object(ai_core, "saved_look", return_value="adwaita"):
+                self.assertEqual(ai_core.look_colors()["accent"], "#3584e4")
+
+
 if __name__ == "__main__":
     unittest.main()

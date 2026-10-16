@@ -39,8 +39,9 @@ ANSI = (("dark_background", "#1e1e2e"), ("red", "#f38ba8"), ("green", "#a6e3a1")
 
 def theme_colors(path: Path | None = None) -> dict:
     """The desktop theme's colours that are colours ("#rrggbb"); path: another theme file (tests)."""
+    import ai_core
     import desktop
-    data = desktop.theme_colors(path) if path is not None else desktop.theme_colors()
+    data = desktop.theme_colors(path) if path is not None else ai_core.look_colors()
     return {k: v for k, v in data.items() if isinstance(v, str) and v.startswith("#") and len(v) <= 9}
 
 

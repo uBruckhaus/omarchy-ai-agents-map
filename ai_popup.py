@@ -5760,9 +5760,10 @@ class AgentsMap(Adw.Application):
         rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         rule.add_css_class("am-settings-rule")
         page.append(rule)
-        self.settings_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.settings_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18, margin_top=6, margin_bottom=12)
         self.settings_box.add_css_class("am-settings")
-        page.append(self.page_scroller(self.settings_box))
+        clamp = Adw.Clamp(maximum_size=760, tightening_threshold=560, child=self.settings_box)
+        page.append(self.page_scroller(clamp))
         return page
 
     def setting_line(self, box, title: str, hint: str, control) -> Gtk.Box:
@@ -5932,6 +5933,7 @@ class AgentsMap(Adw.Application):
         return drop
 
     def fill_settings(self):
+        """The settings as libadwaita preference groups (in the theme's colours on Omarchy)."""
         self.settings_ready = False
         box = self.settings_box
         while (child := box.get_first_child()) is not None:
@@ -5940,111 +5942,139 @@ class AgentsMap(Adw.Application):
         if desktop.launcher_entry():
             self.fill_launcher_setting(box)
         self.fill_general_settings(box)
+        self.settings_ready = True
+
+    def preference_group(self, box, title: str) -> Adw.PreferencesGroup:
+        group = Adw.PreferencesGroup(title=title)
+        box.append(group)
+        return group
+
+    def switch_row(self, group, title: str, hint: str, active: bool, on_toggle) -> Adw.SwitchRow:
+        row = Adw.SwitchRow(title=title, subtitle=hint, active=active)
+        row.connect("notify::active", lambda r, *_: self.settings_ready and on_toggle(r.get_active()))
+        group.add(row)
+        return row
+
+    def combo_row(self, group, title: str, hint: str, labels: list[str], selected: int, on_change) -> Adw.ComboRow:
+        """A long explanation would squeeze the chosen value: its first sentence shows, all of it on hover."""
+        first = re.split(r"(?<=[.;])\s", hint, maxsplit=1)[0].rstrip(".;") + "."
+        short = first if len(hint) > 90 and len(first) < len(hint) else hint
+        row = Adw.ComboRow(title=title, subtitle=short, model=Gtk.StringList.new(labels))
+        if short != hint:
+            row.set_tooltip_text(hint)
+        row.set_selected(max(0, selected))
+        row.connect("notify::selected", lambda r, *_: self.settings_ready and on_change(r.get_selected()))
+        group.add(row)
+        return row
+
+    def button_row(self, group, title: str, hint: str, label: str, on_click) -> Adw.ActionRow:
+        row = Adw.ActionRow(title=title, subtitle=hint)
+        button = Gtk.Button(label=label, valign=Gtk.Align.CENTER)
+        button.connect("clicked", lambda *_: on_click())
+        row.add_suffix(button)
+        row.set_activatable_widget(button)
+        group.add(row)
+        return row
+
+    def folder_row(self, group, title: str, hint: str, text: str, on_save) -> Adw.EntryRow:
+        """A folder to type: Enter or the apply button saves it (on_save(row) marks errors)."""
+        row = Adw.EntryRow(title=title, text=text, show_apply_button=True)
+        row.set_tooltip_text(hint)
+        row.connect("apply", lambda r: on_save(r))
+        row.connect("entry-activated", lambda r: on_save(r))
+        self.guard_text_fields_in(row)
+        group.add(row)
+        return row
 
     def fill_launcher_setting(self, box):
-        self.settings_heading(box, _("Omarchy app"))
-        launcher = Gtk.Switch(active=ai_core.load_settings().get("launcher_entry") is True, valign=Gtk.Align.CENTER)
-        launcher.connect("notify::active", lambda w, *_: self.settings_ready
-                         and (self.save_setting(launcher_entry=w.get_active()), app_entry.ensure_entry(w.get_active())))
-        launcher_hint = _("AI Agents Map as an app in Omarchy's launcher (Super + Space), besides the bar icon.")
-        self.setting_line(box, _("In the app launcher"), launcher_hint, launcher)
-        note = Gtk.Label(label=launcher_hint, xalign=0, wrap=True, max_width_chars=1)
-        note.add_css_class("am-agent-detail")
-        box.append(note)
+        group = self.preference_group(box, _("Omarchy app"))
+        self.switch_row(group, _("In the app launcher"),
+                        _("AI Agents Map as an app in Omarchy's launcher (Super + Space), besides the bar icon."),
+                        ai_core.load_settings().get("launcher_entry") is True,
+                        lambda on: (self.save_setting(launcher_entry=on), app_entry.ensure_entry(on)))
 
     def fill_general_settings(self, box):
-        self.settings_heading(box, _("General"))
+        settings = ai_core.load_settings()
+        group = self.preference_group(box, _("General"))
         codes = ["auto"] + [code for code, _name in i18n.LANGUAGES]
         setting = i18n.language_setting()
-        self.setting_line(box, _("Language"), _("AI Agents Map restarts in the new language."),
-                          self.dropdown([_("System ({0})").format(i18n.language_name(i18n.system_language()))]
-                                        + [name for _code, name in i18n.LANGUAGES],
-                                        codes.index(setting) if setting in codes else 0,
-                                        lambda i: self.set_language(codes[i])))
-        self.setting_line(box, _("Start with"),
-                          _("What the cards and the map show when AI Agents Map opens; My setup and + Available "
-                            "in the header switch for the moment."),
-                          self.dropdown([_("My setup: installed and set up"), _("Everything you could add too")],
-                                        graph.SCOPES.index(self.start_scope()),
-                                        lambda i: (self.save_setting(start_scope=graph.SCOPES[i]),
-                                                                           self.set_scope(graph.SCOPES[i]))))
+        self.combo_row(group, _("Language"), _("AI Agents Map restarts in the new language."),
+                       [_("System ({0})").format(i18n.language_name(i18n.system_language()))]
+                       + [name for _code, name in i18n.LANGUAGES],
+                       codes.index(setting) if setting in codes else 0, lambda i: self.set_language(codes[i]))
+        self.combo_row(group, _("Start with"),
+                       _("What the cards and the map show when AI Agents Map opens; My setup and + Available "
+                         "in the header switch for the moment."),
+                       [_("My setup: installed and set up"), _("Everything you could add too")],
+                       graph.SCOPES.index(self.start_scope()),
+                       lambda i: (self.save_setting(start_scope=graph.SCOPES[i]), self.set_scope(graph.SCOPES[i])))
         self.window_rounding = desktop.window_rounding()
         like = _("Like windows ({0} px)").format(self.window_rounding) if self.window_rounding is not None \
             else _("Like windows")
-        self.setting_line(box, _("Corners"), self.corners_tip(),
-                          self.dropdown([like, _("Rounded"), _("Square")],
-                                        corners.CHOICES.index(ai_core.saved_corners()),
-                                        lambda i: (self.save_setting(corners=corners.CHOICES[i]),
-                                                   self.apply_theme_css())))
-        look_up = Gtk.Switch(active=ai_core.load_settings().get("look_up_new_agents", True),
-                             valign=Gtk.Align.CENTER)
-        look_up.connect("notify::active", lambda w, *_: self.settings_ready
-                        and self.save_setting(look_up_new_agents=w.get_active()))
-        self.setting_line(box, _("Look up new agents"),
-                          _("When a new agent is installed, Claude Code or Codex finds out on the web where it keeps "
-                            "MCP servers and skills (once, a few minutes in the background)."), look_up)
-        more_hint = Gtk.Switch(active=ai_core.load_settings().get("show_more_hint", True), valign=Gtk.Align.CENTER)
-        more_hint.connect("notify::active", lambda w, *_: self.settings_ready
-                          and (self.save_setting(show_more_hint=w.get_active()), self.refresh_overview()))
-        self.setting_line(box, _("Show what you could set up"),
-                          _("In My setup, a hint below the cards: “{0}” (agents and local LLMs that are not "
-                            "installed, MCP servers no agent uses). + Available in the header shows them either "
-                            "way.").format(ngettext("Show 1 more you could set up", "Show {0} more you could set up",
-                                                    2).format("N")), more_hint)
-        with_agents = Gtk.Switch(active=ai_core.load_settings().get("providers_with_agents", True),
-                                 valign=Gtk.Align.CENTER)
-        with_agents.connect("notify::active", lambda w, *_: self.settings_ready
-                            and (self.save_setting(providers_with_agents=w.get_active()), self.sync_provider_watch()))
-        self.setting_line(box, _("Start local LLMs with their agents"),
-                          _("When an agent connected to a local LLM starts, its LLM starts too; when the last such "
-                            "agent closes, the LLM stops and its GPU memory is free again. Works with this window "
-                            "closed and after a reboot (user service {0}).").format(provider_watch.UNIT_NAME),
-                          with_agents)
-        folder = Gtk.Entry(text=self.agent_folder(), hexpand=True)
-        folder.set_max_length(1024)
-        folder.connect("activate", self.save_agent_folder)
-        leave = Gtk.EventControllerFocus()
-        leave.connect("leave", lambda *_: self.save_agent_folder(folder))
-        folder.add_controller(leave)
-        self.guard_text_fields_in(folder)
-        modes = previews.WIDEN_MODES
-        mode = self.widen_mode()
-        self.setting_line(box, _("Too narrow for the map"),
-                          _("What “Maximize to see the map” in the header does when the window is tiled too narrow "
-                            "for the map beside the cards."),
-                          self.dropdown([_("Move to a free workspace"), _("Maximize where it is"), _("No hint")],
-                                        modes.index(mode), lambda i: self.set_widen_mode(modes[i])))
-        preview = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        preview.add_css_class("am-help-card")
-        preview.set_halign(Gtk.Align.START)
-        preview.append(previews.WidenSketch(lambda: self.theme.colors, self.widen_mode))
-        box.append(preview)
-        self.setting_line(box, _("Agents start in"),
-                          _("The folder an agent started here (Start on its card) works in. Enter saves it."), folder)
-        self.settings_heading(box, _("Models"))
-        models = Gtk.Entry(text=self.models_root(), hexpand=True, max_length=1024)
-        models.add_css_class("am-path")
-        self.guard_text_fields_in(models)
-        models.connect("activate", self.save_models_root)
-        leave = Gtk.EventControllerFocus()
-        leave.connect("leave", lambda *_: self.save_models_root(models))
-        models.add_controller(leave)
-        choose = Gtk.Button(label=_("Choose…"))
-        choose.add_css_class("am-small-btn")
+        self.combo_row(group, _("Corners"), self.corners_tip(), [like, _("Rounded"), _("Square")],
+                       corners.CHOICES.index(ai_core.saved_corners()),
+                       lambda i: (self.save_setting(corners=corners.CHOICES[i]), self.apply_theme_css()))
+        if desktop.NAME == "omarchy":
+            self.combo_row(group, _("Look"),
+                           _("The colours, light or dark: from the Omarchy theme, or GNOME's Adwaita (light or dark "
+                             "and the accent colour as set in the system). Everything else works the same."),
+                           [_("Omarchy theme"), _("GNOME (Adwaita)")], ai_core.LOOKS.index(ai_core.saved_look()),
+                           lambda i: self.set_look(ai_core.LOOKS[i]))
+        self.switch_row(group, _("Look up new agents"),
+                        _("When a new agent is installed, Claude Code or Codex finds out on the web where it keeps "
+                          "MCP servers and skills (once, a few minutes in the background)."),
+                        settings.get("look_up_new_agents", True), lambda on: self.save_setting(look_up_new_agents=on))
+        self.switch_row(group, _("Show what you could set up"),
+                        _("In My setup, a hint below the cards: “{0}” (agents and local LLMs that are not "
+                          "installed, MCP servers no agent uses). + Available in the header shows them either "
+                          "way.").format(ngettext("1 more you could set up", "{0} more you could set up",
+                                                  2).format("N")),
+                        settings.get("show_more_hint", True),
+                        lambda on: (self.save_setting(show_more_hint=on), self.refresh_overview()))
+        self.switch_row(group, _("Start local LLMs with their agents"),
+                        _("When an agent connected to a local LLM starts, its LLM starts too; when the last such "
+                          "agent closes, the LLM stops and its GPU memory is free again. Works with this window "
+                          "closed and after a reboot (user service {0}).").format(provider_watch.UNIT_NAME),
+                        settings.get("providers_with_agents", True),
+                        lambda on: (self.save_setting(providers_with_agents=on), self.sync_provider_watch()))
+        self.folder_row(group, _("Agents start in"),
+                        _("The folder an agent started here (Start on its card) works in. Enter saves it."),
+                        self.agent_folder(), self.save_agent_folder)
+        if desktop.NAME == "omarchy":
+            # Hyprland tiles the window: what "Maximize to see the map" does, with its sketch below
+            # (last in the group: libadwaita puts what is not a row after the list).
+            modes = previews.WIDEN_MODES
+            self.combo_row(group, _("Too narrow for the map"),
+                           _("What “Maximize to see the map” in the header does when the window is tiled too narrow "
+                             "for the map beside the cards."),
+                           [_("Move to a free workspace"), _("Maximize where it is"), _("No hint")],
+                           modes.index(self.widen_mode()), lambda i: self.set_widen_mode(modes[i]))
+            preview = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, margin_top=8)
+            preview.add_css_class("am-help-card")
+            preview.set_halign(Gtk.Align.START)
+            preview.append(previews.WidenSketch(lambda: self.theme.colors, self.widen_mode))
+            group.add(preview)
+
+        group = self.preference_group(box, _("Models"))
+        models = self.folder_row(group, _("Models folder"),
+                                 _("One folder for the models of every local LLM. On this PC (Add models) looks "
+                                   "here too."), self.models_root(), self.save_models_root)
+        choose = Gtk.Button(icon_name="folder-open-symbolic", valign=Gtk.Align.CENTER)
+        choose.add_css_class("flat")
+        choose.set_tooltip_text(_("Choose…"))
         choose.connect("clicked", lambda *_: self.choose_models_root(models))
-        line = Gtk.Box(spacing=8, hexpand=True)
-        line.append(models)
-        line.append(choose)
-        self.setting_line(box, _("Models folder"),
-                          _("One folder for the models of every local LLM. On this PC (Add models) looks here too."),
-                          line)
-        reorganize = Gtk.Button(label=_("Reorganize models…"), halign=Gtk.Align.START)
-        reorganize.add_css_class("am-small-btn")
-        reorganize.connect("clicked", lambda *_: (self.save_models_root(models), self.open_reorganize()))
-        self.setting_line(box, _("Tidy up"),
-                          _("Moves every local LLM's models into this folder in one layout and points the local LLMs "
-                            "there. Shows a preview first; Undo puts everything back."), reorganize)
-        self.settings_ready = True
+        models.add_suffix(choose)
+        self.button_row(group, _("Tidy up"),
+                        _("Moves every local LLM's models into this folder in one layout and points the local LLMs "
+                          "there. Shows a preview first; Undo puts everything back."),
+                        _("Reorganize models…"), lambda: (self.save_models_root(models), self.open_reorganize()))
+
+    def set_look(self, look: str):
+        """Settings › Look: the new colours at once (the cards, the map, the terminal's next start)."""
+        self.save_setting(look=look)
+        self.theme.reload()
+        self.apply_theme_css()
+        self.refresh_map()
 
     def save_agent_folder(self, entry):
         text = entry.get_text().strip()
@@ -6605,12 +6635,13 @@ class AgentsMap(Adw.Application):
     # --- theme ---------------------------------------------------------------------
 
     def watch_theme(self):
+        # The system's light/dark style and accent colour: Adwaita's look (other desktops, or
+        # Settings › Look on Omarchy).
+        manager = Adw.StyleManager.get_default()
+        for signal in ("notify::dark", "notify::accent-color"):
+            manager.connect(signal, lambda *_: GLib.timeout_add(100, self.reload_theme))
         path = str(desktop.theme_dir() or "")
         if not path:
-            # Other desktops: the system's light/dark style and accent colour.
-            manager = Adw.StyleManager.get_default()
-            for signal in ("notify::dark", "notify::accent-color"):
-                manager.connect(signal, lambda *_: GLib.timeout_add(100, self.reload_theme))
             return
         self.theme_monitor = Gio.File.new_for_path(path).monitor(Gio.FileMonitorFlags.WATCH_MOVES, None)
         self.theme_monitor.connect("changed", lambda *_: GLib.timeout_add(300, self.reload_theme))
@@ -6626,7 +6657,7 @@ class AgentsMap(Adw.Application):
     def apply_style_scheme(self, background: str):
         """Omarchy: light or dark as its theme's background; other desktops: as the system."""
         manager = Adw.StyleManager.get_default()
-        if desktop.NAME != "omarchy":
+        if desktop.NAME != "omarchy" or ai_core.saved_look() == "adwaita":
             manager.set_color_scheme(Adw.ColorScheme.DEFAULT)
             return
         try:
@@ -6640,6 +6671,9 @@ class AgentsMap(Adw.Application):
         """libadwaita's named colours from the Omarchy theme (other desktops keep their own)."""
         if desktop.NAME != "omarchy":
             return ""
+        if ai_core.saved_look() == "adwaita":
+            # GNOME's look on Omarchy: Adwaita's own colours and buttons; Hyprland still rounds the window.
+            return "window#aiagentsmap-window { border-radius: 0; }\n"
         pairs = {"window-bg-color": bg, "window-fg-color": fg, "view-bg-color": bg, "view-fg-color": fg,
                  "headerbar-bg-color": bg, "headerbar-fg-color": fg, "popover-bg-color": bg,
                  "popover-fg-color": fg, "dialog-bg-color": bg, "dialog-fg-color": fg,
