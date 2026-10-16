@@ -1,0 +1,511 @@
+"""What an agent's or a local LLM's details page sums up: usage over time and
+whether it is fully set up, with the next step when it is not.
+
+Reads numbers and times only: Omarchy's usage records (Claude Code, Codex),
+the token and time columns of Hermes's and OpenCode's session databases
+(opened read-only), and the names and times of Pi's session files. Never the
+text of a conversation. Credential files are never opened: whether one exists
+(a stat) and whether an API-key variable is set in this process's environment
+(its name only) is all that is checked.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import os
+import sqlite3
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from i18n import _
+
+HOME = Path.home()
+DAYS = 7
+MAX_ROWS = 20000            # sessions read from a database
+MAX_FILES = 5000            # session files looked at
+DB_TIMEOUT = 2.0            # seconds to wait for a database another program is writing
+
+
+@dataclass
+class Usage:
+    days: list = field(default_factory=list)       # [(date, tokens)] for the last DAYS days, oldest first
+    by_model: dict = field(default_factory=dict)   # model -> [input, output, cache]
+    sessions_week: int | None = None
+    sessions_total: int | None = None
+    sessions_today: int | None = None
+    prompts_today: int | None = None
+    last: dt.datetime | None = None
+    cost: float | None = None                      # USD the agent itself estimated, when it does
+    source: str = ""                                # where the numbers come from, for the page
+    has_tokens: bool = True                         # False: only sessions are known (Pi)
+
+    @property
+    def week_tokens(self) -> int:
+        return sum(t for _d, t in self.days)
+
+    @property
+    def today_tokens(self) -> int:
+        return self.days[-1][1] if self.days else 0
+
+
+@dataclass
+class Check:
+    state: str              # "ok", "warn" (works, but worth a look), "missing" (needs doing), "info"
+    title: str
+    detail: str = ""
+    step: str = ""          # what to do next, when it is not ok
+    command: str = ""       # a command line for that step, shown with a copy button
+
+
+# --- problems the last Start ran into (kept until a start works) ------------------------------
+
+ISSUES = HOME / ".local/state/ai-agents-map/start-issues.json"
+# kind -> (what happened, what to do, the command that fixes it)
+ISSUE_KINDS = ("vte4", "terminal")
+
+
+def issue_text(kind: str) -> tuple[str, str, str]:
+    return {
+        "vte4": (_("The terminal inside the map needs the vte4 package, so it started in a separate terminal."),
+                 _("Install it (it needs your password); the next Start then runs inside the map:"),
+                 "sudo pacman -S vte4"),
+        "terminal": (_("No terminal was found to start it in."),
+                     _("Install the terminal launcher Omarchy uses:"), "sudo pacman -S xdg-terminal-exec"),
+    }[kind]
+
+
+def load_issues(path: Path = None) -> dict:
+    import json
+    try:
+        with open(path or ISSUES, "rb") as handle:
+            data = json.loads(handle.read(64 * 1024))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {str(k)[:64]: v for k, v in data.items()
+            if isinstance(v, dict) and v.get("kind") in ISSUE_KINDS}
+
+
+def _save_issues(issues: dict, path: Path = None):
+    import json
+    path = path or ISSUES
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    tmp = path.with_name(f".{path.name}.new")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        json.dump(issues, handle, indent=2)
+    os.replace(tmp, path)
+
+
+def remember_issue(command: str, kind: str, path: Path = None):
+    issues = load_issues(path)
+    issues[command] = {"kind": kind, "when": dt.datetime.now().isoformat(timespec="seconds")}
+    _save_issues(issues, path)
+
+
+def forget_issue(command: str, path: Path = None) -> bool:
+    issues = load_issues(path)
+    if command not in issues:
+        return False
+    issues.pop(command)
+    _save_issues(issues, path)
+    return True
+
+
+# --- usage -------------------------------------------------------------------------------------
+
+def _day_list(today: dt.date) -> list:
+    return [today - dt.timedelta(days=DAYS - 1 - i) for i in range(DAYS)]
+
+
+def _int(value) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def from_record(record: dict, today: dt.date | None = None) -> Usage | None:
+    """Omarchy's usage record (omarchy-agent-usage-<agent>)."""
+    if not record or not record.get("hasLocalStats"):
+        return None
+    today = today or dt.date.today()
+    per_day = {}
+    for item in record.get("recentDays") or []:
+        if isinstance(item, dict):
+            try:
+                per_day[dt.date.fromisoformat(str(item.get("date")))] = _int(item.get("messageCount"))
+            except ValueError:
+                continue
+    usage = Usage(days=[(d, per_day.get(d, 0)) for d in _day_list(today)], source="Omarchy")
+    for model, numbers in (record.get("modelUsage") or {}).items():
+        if isinstance(numbers, dict):
+            usage.by_model[str(model)[:80]] = [
+                _int(numbers.get("inputTokens")), _int(numbers.get("outputTokens")),
+                _int(numbers.get("cacheReadInputTokens")) + _int(numbers.get("cacheCreationInputTokens"))]
+    usage.sessions_total = _int(record.get("totalSessions")) if "totalSessions" in record else None
+    usage.sessions_today = _int(record.get("todaySessions")) if "todaySessions" in record else None
+    usage.prompts_today = _int(record.get("todayPrompts")) if "todayPrompts" in record else None
+    return usage
+
+
+def _connect(path: Path):
+    """Read-only, never creating anything; None when it cannot be opened."""
+    if not path.is_file():
+        return None
+    try:
+        return sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=DB_TIMEOUT)
+    except sqlite3.Error:
+        return None
+
+
+def _from_rows(rows, today: dt.date, source: str) -> Usage:
+    """rows: (started epoch seconds, model, input, output, cache, cost)."""
+    usage = Usage(days=[], source=source)
+    per_day, week_start = {}, today - dt.timedelta(days=DAYS - 1)
+    total = week = 0
+    cost = 0.0
+    for started, model, inp, out, cache, spent in rows:
+        try:
+            when = dt.datetime.fromtimestamp(float(started))
+        except (TypeError, ValueError, OverflowError, OSError):
+            continue
+        total += 1
+        inp, out, cache = _int(inp), _int(out), _int(cache)
+        if when.date() >= week_start:
+            week += 1
+            per_day[when.date()] = per_day.get(when.date(), 0) + inp + out + cache
+        model = _model_name(model)
+        if model:
+            numbers = usage.by_model.setdefault(model, [0, 0, 0])
+            numbers[0] += inp
+            numbers[1] += out
+            numbers[2] += cache
+        try:
+            cost += float(spent or 0)
+        except (TypeError, ValueError):
+            pass
+        if usage.last is None or when > usage.last:
+            usage.last = when
+    usage.days = [(d, per_day.get(d, 0)) for d in _day_list(today)]
+    usage.sessions_total, usage.sessions_week = total, week
+    usage.sessions_today = sum(1 for started, *_rest in rows if _is_day(started, today))
+    usage.cost = cost or None
+    return usage
+
+
+def _model_name(value) -> str:
+    """OpenCode keeps {"id": …, "providerID": …}; the others a plain name."""
+    text = str(value or "").strip()
+    if text.startswith("{"):
+        try:
+            import json
+            data = json.loads(text[:2000])
+            text = str(data.get("id", "")) if isinstance(data, dict) else ""
+        except ValueError:
+            return ""
+    return text[:80]
+
+
+def _is_day(started, day: dt.date) -> bool:
+    try:
+        return dt.datetime.fromtimestamp(float(started)).date() == day
+    except (TypeError, ValueError, OverflowError, OSError):
+        return False
+
+
+def hermes(today: dt.date | None = None, root: Path = HOME) -> Usage | None:
+    db = _connect(root / ".hermes/state.db")
+    if db is None:
+        return None
+    try:
+        rows = db.execute(
+            "SELECT started_at, model, input_tokens, output_tokens,"
+            " COALESCE(cache_read_tokens, 0) + COALESCE(cache_write_tokens, 0), estimated_cost_usd"
+            " FROM sessions ORDER BY started_at DESC LIMIT ?", (MAX_ROWS,)).fetchall()
+    except sqlite3.Error:
+        return None
+    finally:
+        db.close()
+    return _from_rows(rows, today or dt.date.today(), "Hermes")
+
+
+def opencode(today: dt.date | None = None, root: Path = HOME) -> Usage | None:
+    db = _connect(root / ".local/share/opencode/opencode.db")
+    if db is None:
+        return None
+    try:
+        rows = db.execute(
+            "SELECT time_created / 1000.0, model, tokens_input, tokens_output,"
+            " COALESCE(tokens_cache_read, 0) + COALESCE(tokens_cache_write, 0), cost"
+            " FROM session_v2 WHERE parent_id IS NULL ORDER BY time_created DESC LIMIT ?", (MAX_ROWS,)).fetchall()
+    except sqlite3.Error:
+        return None
+    finally:
+        db.close()
+    return _from_rows(rows, today or dt.date.today(), "OpenCode")
+
+
+def pi(today: dt.date | None = None, root: Path = HOME) -> Usage | None:
+    """Pi keeps one file per session (named by its start time): counted, never opened."""
+    folder = root / ".pi/agent/sessions"
+    if not folder.is_dir():
+        return None
+    rows = []
+    try:
+        for project in sorted(folder.iterdir())[:500]:
+            if not project.is_dir() or project.is_symlink():
+                continue
+            for item in sorted(project.glob("*.jsonl"))[-MAX_FILES:]:
+                try:
+                    rows.append((item.stat().st_mtime, item.name))
+                except OSError:
+                    continue
+                if len(rows) >= MAX_FILES:
+                    break
+    except OSError:
+        return None
+    today = today or dt.date.today()
+    started = []
+    for mtime, name in rows:
+        try:      # 2026-09-27T22-16-27-758Z_<id>.jsonl
+            stamp = dt.datetime.strptime(name[:19], "%Y-%m-%dT%H-%M-%S").replace(tzinfo=dt.timezone.utc)
+            started.append((stamp.astimezone().timestamp(), mtime))
+        except ValueError:
+            started.append((mtime, mtime))
+    usage = _from_rows([(s, None, 0, 0, 0, 0) for s, _m in started], today, "Pi")
+    usage.has_tokens = False
+    if started:
+        usage.last = dt.datetime.fromtimestamp(max(m for _s, m in started))
+    return usage
+
+
+READERS = {"hermes": hermes, "opencode": opencode, "pi": pi}
+
+
+def usage_for(command: str, record: dict) -> Usage | None:
+    """The best numbers there are for an agent: Omarchy's record, else its own store."""
+    found = from_record(record)
+    if found is not None:
+        return found
+    reader = READERS.get(command)
+    try:
+        return reader() if reader else None
+    except Exception:          # a store in a format we do not know: no numbers, no crash
+        return None
+
+
+# --- access: subscription, sign-in or API key ---------------------------------------------------
+
+@dataclass
+class Access:
+    how: str                 # what it needs
+    login: str = ""          # the command that signs in
+    files: tuple = ()        # credential files (relative to ~): only whether one exists is checked
+    env: tuple = ()          # API-key variables: only whether one is set is checked
+    local_ok: bool = False   # works with a local LLM, without any account
+
+
+def access_table() -> dict:
+    """Per agent: what it needs to work (built on each call, so it follows the interface language)."""
+    return {
+        "claude": Access(_("A Claude Pro or Max subscription (claude.ai), or an API key from console.anthropic.com"),
+                         "claude auth login", (".claude/.credentials.json",), ("ANTHROPIC_API_KEY",)),
+        "codex": Access(_("A ChatGPT plan (Plus, Pro, Business), or an API key from platform.openai.com"),
+                        "codex login", (".codex/auth.json",), ("OPENAI_API_KEY",), local_ok=True),
+        "gemini": Access(_("A Google account (free tier), or an API key from aistudio.google.com"),
+                         "gemini", (".gemini/oauth_creds.json",), ("GEMINI_API_KEY", "GOOGLE_API_KEY")),
+        "copilot": Access(_("A GitHub Copilot subscription (github.com/features/copilot)"),
+                          "copilot  →  /login", (".copilot/config.json",), ("COPILOT_GITHUB_TOKEN", "GH_TOKEN")),
+        "cursor-agent": Access(_("A Cursor account (cursor.com)"), "cursor-agent login",
+                               (".config/cursor/auth.json",), ("CURSOR_API_KEY",)),
+        "opencode": Access(_("An account or API key for any provider, or a local LLM from the map"),
+                           "opencode auth login", (".local/share/opencode/auth.json",), (), local_ok=True),
+        "hermes": Access(_("A provider key (hermes setup), or a local LLM from the map"),
+                         "hermes setup", (".hermes/auth.json", ".hermes/.env"), (), local_ok=True),
+        "pi": Access(_("Sign in inside Pi (/login: Claude, ChatGPT, Copilot …), an API key, or a local LLM from the map"),
+                     "pi  →  /login", (".pi/agent/auth.json",), ("ANTHROPIC_API_KEY", "OPENAI_API_KEY"), local_ok=True),
+        "dsh": Access(_("An API key from platform.deepseek.com, or a local LLM from the map"),
+                      "dsh web", (".dsh/.credentials.yaml",), ("DEEPSEEK_API_KEY",), local_ok=True),
+        "grok": Access(_("An API key from console.x.ai"), "grok", (), ("XAI_API_KEY",)),
+        "crush": Access(_("An API key for a provider, or a local LLM from the map"), "crush",
+                        (".local/share/crush/crush.json",), ("ANTHROPIC_API_KEY", "OPENAI_API_KEY"), local_ok=True),
+        "bionic": Access(_("Nothing: it runs models on this computer"), "", (), (), local_ok=True),
+    }
+
+
+# Agents that tell their sign-in state themselves: argv, text meaning "no", text meaning "yes".
+STATUS_COMMANDS = {"cursor-agent": (("cursor-agent", "status"), "not logged in", "logged in")}
+
+
+def login_state(command: str) -> bool | None:
+    """The agent's own answer (a bounded run of its status command), None when unknown."""
+    import ai_core
+    import shutil
+    entry = STATUS_COMMANDS.get(command)
+    if entry is None or not shutil.which(entry[0][0]):
+        return None
+    argv, negative, positive = entry
+    try:
+        out, _ok = ai_core.read_bounded_output(list(argv), max_bytes=16384, timeout=8, merge_stderr=True)
+    except Exception:
+        return None
+    text = out.decode("utf-8", "replace").lower()
+    return False if negative in text else True if positive in text else None
+
+
+def credentials_present(access: Access, root: Path = HOME, environ=None) -> bool:
+    environ = os.environ if environ is None else environ
+    if any(environ.get(name) for name in access.env):
+        return True
+    for name in access.files:
+        try:
+            if (root / name).is_file():       # a stat, never a read
+                return True
+        except OSError:
+            continue
+    return False
+
+
+# --- setup checks ------------------------------------------------------------------------------
+
+def agent_checks(agent, info, record: dict, inventory, hints: dict, logged_in: bool | None = None,
+                 root: Path = HOME, environ=None, issue: dict | None = None) -> list:
+    """Is the agent ready to use? Each check with what to do next when it is not."""
+    import graph
+    checks = []
+    if not agent.installed:
+        checks.append(Check("missing", _("Not installed"),
+                            step=_("Install it from Omarchy's menu: Setup → Defaults → Agent.")))
+        return checks
+    checks.append(Check("ok", _("Installed"), " · ".join(x for x in (agent.version,) if x)))
+    if issue and issue.get("kind") in ISSUE_KINDS:
+        what, step, command = issue_text(issue["kind"])
+        checks.append(Check("warn", _("Start ran into a problem"), what, step, command))
+
+    model, provider = graph.split_model(info.model)
+    local_names = {p.name for p in info.providers if p.local}
+    uses_local = bool(provider) and provider in local_names
+    access = access_table().get(agent.command)
+    if uses_local:
+        checks.append(Check("ok", _("No account needed"), _("It uses a local LLM on this computer.")))
+    elif record and record.get("ready") and record.get("tierLabel"):
+        checks.append(Check("ok", _("Signed in"), _("Plan: {0}").format(str(record["tierLabel"])[:40])))
+    elif record and record.get("authHelpText") and not record.get("ready"):
+        checks.append(Check("missing", _("Not signed in"), str(record.get("usageStatusText") or "")[:200],
+                            str(record["authHelpText"])[:300]))
+    elif access is not None and access.local_ok and not access.files and not access.env and not access.login:
+        checks.append(Check("ok", _("No account needed"), access.how))
+    elif access is not None:
+        signed_in = credentials_present(access, root, environ) if logged_in is None else logged_in
+        if signed_in:
+            checks.append(Check("ok", _("Signed in"), _("Its sign-in or API key is set up.")))
+        elif access.local_ok and local_names:
+            checks.append(Check("info", _("No account set up"),
+                                _("It can use the local LLMs it is connected to."),
+                                access.how + (" · " + _("Sign in: {0}").format(access.login) if access.login else "")))
+        else:
+            checks.append(Check("missing", _("Not signed in"), access.how,
+                                _("Sign in: {0}").format(access.login) if access.login else access.how))
+    else:
+        checks.append(Check("info", _("Sign-in unknown"),
+                            _("AI Agents Map does not know how this agent signs in.")))
+
+    if model:
+        checks.append(Check("ok", _("Model"), model + (f" · {provider}" if provider else "")))
+    elif local_names:
+        checks.append(Check("warn", _("No model chosen"), "",
+                            _("Select the agent on the map and click a model of a local LLM it is connected to.")))
+    else:
+        checks.append(Check("info", _("Model"), _("the agent's own default")))
+
+    by_name = {rt.name: rt for rt in inventory.runtimes}
+    for p in info.providers:
+        if not p.local:
+            continue
+        rt = by_name.get(p.runtime)
+        if rt is None or not rt.installed:
+            checks.append(Check("missing", _("{0} is not installed").format(p.runtime or p.name), "",
+                                _("Install it: right-click its box on the map → Install.")))
+        elif not rt.models:
+            checks.append(Check("missing", _("{0} has no models").format(rt.name), "",
+                                _("Download one: the + Model box on the map.")))
+        elif p.active and not rt.running:
+            checks.append(Check("ok", rt.name, _("starts with the agent") if rt.service or rt.key == "lmstudio"
+                                else _("installed, not running")))
+        else:
+            checks.append(Check("ok", rt.name, _("running") if rt.running else _("set up")))
+
+    for link_key, entry in sorted(hints.items()):
+        if not link_key.startswith(f"agent:{agent.command}|"):
+            continue
+        first = entry["hints"][0]["text"] if entry.get("hints") else ""
+        checks.append(Check("missing" if entry.get("kind") and any(h["level"] == "error" for h in entry["hints"])
+                            else "warn", _("A connection does not work: {0}").format(link_key.partition("|")[2]
+                                                                                    .partition(":")[2]),
+                            first, _("Click its dotted line on the map for all hints and Test again.")))
+
+    servers = inventory.agent_mcp.get(agent.command, [])
+    if servers:
+        checks.append(Check("ok", _("MCP servers"), ", ".join(servers)))
+    else:
+        checks.append(Check("info", _("No MCP servers yet"), "",
+                            _("Add one: the + MCP server box on the map, then draw a line to the agent.")))
+    sets = inventory.agent_skills.get(agent.command, [])
+    if sets:
+        checks.append(Check("ok", _("Skills"), ", ".join(sets)))
+    else:
+        checks.append(Check("info", _("No skills yet"), "", _("Add some: the + Skills box on the map.")))
+    return checks
+
+
+def runtime_checks(rt, hints: dict, agent_names: dict, login: bool | None) -> list:
+    checks = []
+    if not rt.installed:
+        return [Check("missing", _("Not installed"), "",
+                      _("Install it: right-click its box on the map → Install."))]
+    checks.append(Check("ok", _("Installed"), rt.address))
+    if rt.running:
+        checks.append(Check("ok", _("Running"), rt.address))
+    elif rt.service or rt.key == "lmstudio":
+        checks.append(Check("info", _("Not running"), _("starts with an agent that uses it")
+                            if rt.active_agents else _("nothing uses it now"),
+                            "" if rt.active_agents else _("Right-click → Start to run it now.")))
+    else:
+        checks.append(Check("warn", _("Not running"), _("no user service starts it"),
+                            _("Start it yourself, or reinstall it from the map so a service starts it.")))
+    if login is not None:
+        checks.append(Check("ok" if login else "info", _("Start at login"), _("on") if login else _("off")))
+    if rt.models:
+        checks.append(Check("ok", _("Models"), str(len(rt.models)) + (f" · {rt.models_dir}" if rt.models_dir else "")))
+    else:
+        checks.append(Check("missing", _("No models"), "", _("Download one: the + Model box on the map.")))
+    users = [agent_names.get(a, a) for a in rt.agents]
+    if users:
+        now = [agent_names.get(a, a) for a in rt.active_agents]
+        checks.append(Check("ok", _("Connected agents"), ", ".join(users)
+                            + (" · " + _("in use by {0}").format(", ".join(now)) if now else "")))
+    else:
+        checks.append(Check("missing", _("No agent connected"), "",
+                            _("Draw a line from an agent to this box on the map.")))
+    for link_key, entry in sorted(hints.items()):
+        if link_key.endswith(f"|runtime:{rt.key}"):
+            first = entry["hints"][0]["text"] if entry.get("hints") else ""
+            source = link_key.partition("|")[0].partition(":")[2]
+            checks.append(Check("missing", _("The connection from {0} does not work").format(
+                agent_names.get(source, source)), first,
+                _("Click its dotted line on the map for all hints and Test again.")))
+    return checks
+
+
+def summary_line(checks: list) -> tuple[str, str]:
+    """("ok" | "warn" | "missing", one sentence) for the top of the page."""
+    missing = [c for c in checks if c.state == "missing"]
+    warn = [c for c in checks if c.state == "warn"]
+    if missing:
+        return "missing", _("Not ready yet: {0}").format(missing[0].title) + (
+            " " + _("(+{0} more to do)").format(len(missing) - 1) if len(missing) > 1 else "")
+    if warn:
+        return "warn", _("Works, one thing to look at: {0}").format(warn[0].title)
+    return "ok", _("Set up and ready")

@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "ubruckhaus.ai-agents-map",
   "name": "AI Agents Map",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "author": "Uwe Bruckhaus",
   "license": "MIT",
-  "description": "The AI setup on this computer as cards and a map: coding agents with plan, limits and usage, local LLMs (llama.cpp, Ollama, LM Studio, vLLM, Jan, KoboldCpp) and their models, MCP servers and skills. Connect agents to LLMs, MCP servers and skills by drawing a line, with a preview and Undo; install local LLMs and models, which start and stop with their agents (GPU memory freed); add MCP servers and skills found on this PC or on the web. 8 languages.",
+  "description": "The AI setup on this computer as cards and a map, in an app window: coding agents with plan, limits and usage, local LLMs (llama.cpp, Ollama, LM Studio, vLLM, Jan, KoboldCpp) and their models, MCP servers and skills. Connect them by drawing a line, with a preview and Undo; see what each agent still needs; start agents in a terminal inside it; install local LLMs and models, which start and stop with their agents. 8 languages.",
   "kinds": [
     "bar-widget"
   ],

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""AI Agents Map popup: a Wayland layer-shell card that shows the AI setup of
-this computer: agents, local LLMs and their models, MCP servers and skills.
-Two views (the overview as cards, and a Map drawn at full size) and a
-settings page.
+"""AI Agents Map: an app window that shows the AI setup of this computer:
+agents, local LLMs and their models, MCP servers and skills, as cards with a
+map beside them, details pages and agents running in terminals of their own.
 
-A singleton process woken by SIGUSR1 from ai-agents-map-toggle (as Theme
-Manager and App Manager). The card always fills the screen: cards on the
-left, the map beside them; it is neither moved nor resized.
+A normal window (app id org.omarchy.aiagentsmap): Hyprland tiles or floats it,
+Alt+Tab and workspaces work as for any app. One process: the bar icon and the
+launcher entry run ai-agents-map-toggle, which wakes it with SIGUSR1; closing
+the window hides it, so agents started in it keep running.
 """
 
 import colorsys
@@ -17,29 +17,11 @@ import signal
 import sys
 import threading
 
-# GTK4 layer shell must load before GTK's Wayland client library. The Python
-# bindings load GTK first, so preload the layer-shell library on re-exec.
-layer_shell_library = "libgtk4-layer-shell.so.0"
-if layer_shell_library not in os.environ.get("LD_PRELOAD", "").split(":"):
-    os.environ["LD_PRELOAD"] = ":".join(filter(None, (
-        layer_shell_library, os.environ.get("LD_PRELOAD", ""))))
-    os.execv(sys.executable, [sys.executable, *sys.argv])
-
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
-gi.require_version("Gtk4LayerShell", "1.0")
-from gi.repository import Gdk, Gio, GLib, Gtk, Gtk4LayerShell, Pango
-
-# Once Gtk4LayerShell is loaded into this process by ld.so, remove it from
-# LD_PRELOAD so child processes do not inherit it.
-_preloads = [p for p in os.environ.get("LD_PRELOAD", "").split(":")
-             if p and p != layer_shell_library]
-if _preloads:
-    os.environ["LD_PRELOAD"] = ":".join(_preloads)
-else:
-    os.environ.pop("LD_PRELOAD", None)
+from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
 import atexit
 
@@ -73,13 +55,17 @@ import subprocess
 from pathlib import Path
 import graph
 import gpu_usage
+import agent_status
+import terminal_pane
+import previews
 import inventory
 import provider_watch
 import i18n
 import pidfile
 from i18n import _, ngettext
-from layer_watch import LayerWatch
+import app_entry
 from map_view import MapView, Meter
+from gi.repository import PangoCairo  # noqa: E402  (map_view asked for its version)
 from palette import ThemePalette
 
 # Smallest card (a small monitor); normally the card fills the screen.
@@ -87,14 +73,13 @@ from palette import ThemePalette
 # page, the same on every page so switching never resizes the popup.
 CARD_WIDTH = 420
 LIST_HEIGHT = 590
-CARD_MARGIN = 40       # space kept free around the card (the width keeps 2 × 40 too)
 SCROLLER_MIN_HEIGHT = 120
 SCREEN_MARGIN = 120    # space kept free above and below the card
-CURSOR_SLACK = 24      # px the pointer may move after opening before the keyboard is released
+WINDOW_SIZE = (1600, 960)   # first open; afterwards the size it was closed with
 AGENT_SPACING = 8
-SPLIT_WIDTH = 1000        # from this card width the overview shows the map beside the cards
+SPLIT_WIDTH = 1300        # from this window width the overview shows the map beside the cards
 LIST_PANE_WIDTH = 440
-RIGHT_PAGES = ("connect", "install", "models", "mcp", "addmcp", "addskills")   # open beside the cards
+RIGHT_PAGES = ("connect", "install", "models", "mcp", "addmcp", "addskills", "status", "terminal")   # open beside the cards
 DETAIL_LABEL_WIDTH = 90   # the dim labels in an opened agent card
 
 
@@ -169,14 +154,89 @@ def monitor_height() -> int:
     return min(heights) if heights else 1080
 
 
+class TokenChart(Gtk.DrawingArea):
+    """Tokens per day as bars (one series, the accent colour; today full strength).
+    Hovering a bar tells its day and number; the largest one is labelled."""
+
+    HEIGHT = 120
+    LABEL_H = 16
+
+    def __init__(self, color, days):
+        super().__init__()
+        self.color = color          # (name, alpha) -> rgba, the map's palette
+        self.days = list(days)
+        self.bars = []
+        self.set_content_height(self.HEIGHT)
+        self.set_hexpand(True)
+        self.set_has_tooltip(True)
+        self.connect("query-tooltip", self.on_tooltip)
+        self.set_draw_func(self.on_draw)
+
+    def on_draw(self, _area, cr, width, height):
+        layout = PangoCairo.create_layout(cr)
+        layout.set_font_description(Pango.FontDescription.from_string("Sans 8"))
+        top, bottom = self.LABEL_H, height - self.LABEL_H
+        peak = max((t for _d, t in self.days), default=0) or 1
+        count = max(1, len(self.days))
+        slot = width / count
+        bar_w = max(6.0, min(48.0, slot - 8))
+        self.bars = []
+        # Baseline (recessive).
+        cr.set_source_rgba(*self.color("fg", 0.15))
+        cr.rectangle(0, bottom, width, 1)
+        cr.fill()
+        for index, (day, tokens) in enumerate(self.days):
+            x = index * slot + (slot - bar_w) / 2
+            h = (bottom - top) * tokens / peak
+            today = index == count - 1
+            if tokens:
+                MapView.rounded_top(cr, x, bottom - h, bar_w, h, 4)
+                cr.set_source_rgba(*self.color("accent", 1.0 if today else 0.55))
+                cr.fill()
+            self.bars.append((x, bar_w, day, tokens))
+            layout.set_text(_("today") if today else day.strftime("%a"), -1)
+            text_w, _text_h = layout.get_pixel_size()
+            cr.set_source_rgba(*self.color("dim"))
+            cr.move_to(x + (bar_w - text_w) / 2, bottom + 3)
+            PangoCairo.show_layout(cr, layout)
+            if tokens == peak and tokens:
+                layout.set_text(short_number(tokens), -1)
+                text_w, text_h = layout.get_pixel_size()
+                cr.set_source_rgba(*self.color("fg"))
+                cr.move_to(x + (bar_w - text_w) / 2, bottom - h - text_h - 1)
+                PangoCairo.show_layout(cr, layout)
+
+    def on_tooltip(self, _widget, x, _y, _keyboard, tooltip):
+        for left, bar_w, day, tokens in self.bars:
+            if left - 4 <= x <= left + bar_w + 4:
+                tooltip.set_text(f"{day.strftime('%a %d.%m.')} · " + _("{0} tokens").format(f"{tokens:,}".replace(",", " ")))
+                return True
+        return False
+
+
+class AppWindow(Gtk.ApplicationWindow):
+    """Tells when the compositor gives it another width (Hyprland tiles the window
+    without touching GTK's default size; its content may be wider than the window
+    while the cards and the map still sit side by side)."""
+
+    def __init__(self, on_width, **kwargs):
+        super().__init__(**kwargs)
+        self.on_width = on_width
+        self.last_width = 0
+
+    def do_size_allocate(self, width, height, baseline):
+        Gtk.ApplicationWindow.do_size_allocate(self, width, height, baseline)
+        if width != self.last_width:
+            self.last_width = width
+            GLib.idle_add(self.on_width, width)
+
+
 class AgentsMap(Gtk.Application):
     def __init__(self):
         super().__init__(application_id="org.omarchy.aiagentsmap")
         self.window = None
         self.theme = ThemePalette()
         self.style_provider = None
-        # Omarchy's menus (Super + Space, …) open underneath this popup: close for them.
-        self.layer_watch = LayerWatch("ai-agents-map", self.on_menu_opened)
         self.card_w, self.list_h = CARD_WIDTH, LIST_HEIGHT   # fit() makes it fill the screen
         self.scrollers = []        # every page's scroller follows the page height
         self.view = ai_core.last_view() if ai_core.start_view() == "last" else ai_core.start_view()
@@ -197,6 +257,7 @@ class AgentsMap(Gtk.Application):
         self.card_widgets = {}     # card key -> (card box, check mark label)
         self.split = False         # wide overview: cards left, map right
         self.sidebar_visible = True  # the cards beside the map (header toggle, Ctrl+B); shown on every open
+        self.sessions = {}           # agent command -> terminal_pane.TerminalPane (an agent started here)
 
     def do_shutdown(self):
         cleanup_pid()
@@ -289,49 +350,35 @@ class AgentsMap(Gtk.Application):
         settings = Gtk.Settings.get_default()
         if settings is not None:
             settings.set_property("gtk-enable-primary-paste", False)
-        window = Gtk.ApplicationWindow(application=self)
-        window.set_decorated(False)
+        window = AppWindow(self.width_changed, application=self)
+        window.set_decorated(False)       # Hyprland draws the border; the header is our own
         window.set_title("AI Agents Map")
         window.set_name("aiagentsmap-window")
-        Gtk4LayerShell.init_for_window(window)
-        Gtk4LayerShell.set_namespace(window, "ai-agents-map")
-        Gtk4LayerShell.set_layer(window, Gtk4LayerShell.Layer.OVERLAY)
-        Gtk4LayerShell.set_keyboard_mode(window, Gtk4LayerShell.KeyboardMode.ON_DEMAND)
-        # Full screen and transparent like App Manager: a click beside the card
-        # closes it, and so does focus moving elsewhere. The card itself sits
-        # on top, centred or where it was moved to.
-        for edge in (Gtk4LayerShell.Edge.TOP, Gtk4LayerShell.Edge.BOTTOM,
-                     Gtk4LayerShell.Edge.LEFT, Gtk4LayerShell.Edge.RIGHT):
-            Gtk4LayerShell.set_anchor(window, edge, True)
-        Gtk4LayerShell.set_exclusive_zone(window, 0)
+        window.set_icon_name(app_entry.ICON_NAME)
+        size = ai_core.load_settings().get("window_size")
+        if isinstance(size, list) and len(size) == 2 and all(isinstance(v, int) and 400 <= v <= 10000 for v in size):
+            window.set_default_size(*size)
+        else:
+            window.set_default_size(*WINDOW_SIZE)
+        window.set_size_request(ai_core.MIN_WINDOW_SIZE[0], ai_core.MIN_WINDOW_SIZE[1] + 200)
+        # Closing hides it: the process stays, with any agent running in it.
+        window.connect("close-request", lambda *_: (self.close(), True)[1])
         self.window = window
 
-        overlay = Gtk.Overlay()
-        overlay.set_hexpand(True)
-        overlay.set_vexpand(True)
-        overlay.set_child(Gtk.Box(hexpand=True, vexpand=True))
-        window.set_child(overlay)
-        self.overlay = overlay
-        click = Gtk.GestureClick()
-        click.connect("released", self.on_overlay_click)  # on release, so the bar never sees half a click
-        overlay.add_controller(click)
-        window.connect("notify::is-active", self.on_active_changed)
-
-        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        # The cards beside the map need room: the card follows its own width.
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, hexpand=True, vexpand=True)
         card.add_css_class("am-card")
         frame = Gtk.Overlay()
         frame.set_child(card)
-        frame.set_halign(Gtk.Align.CENTER)
-        # Fill the window's height (it already leaves the bar out); the scrollers take what
-        # the header, meters and filter lines leave, so nothing is cut off at the top.
-        frame.set_valign(Gtk.Align.FILL)
-        frame.set_margin_top(CARD_MARGIN)
-        frame.set_margin_bottom(CARD_MARGIN)
-        overlay.add_overlay(frame)
+        # The content's minimum width (cards + map) must not become the window's: Hyprland may
+        # tile it narrower, and only then does the window learn its real width (and drop the map).
+        holder = Gtk.ScrolledWindow()
+        holder.set_policy(Gtk.PolicyType.EXTERNAL, Gtk.PolicyType.NEVER)
+        holder.set_child(frame)
+        window.set_child(holder)
         frame.add_overlay(self.build_undo_bar())
         self.card = card
         self.card_frame = frame
-        self.list_h = max(ai_core.MIN_WINDOW_SIZE[1], min(self.list_h, monitor_height() - 2 * SCREEN_MARGIN))
 
         card.append(self.build_header())
 
@@ -343,6 +390,7 @@ class AgentsMap(Gtk.Application):
         stack.set_vhomogeneous(True)
         stack.add_named(self.build_main_page(), "main")
         stack.add_named(self.build_settings_page(), "settings")
+        stack.add_named(self.build_help_page(), "help")
         # Details and the pages that change something open right of the cards, where the map is.
         right = self.right_stack
         right.add_named(self.build_connect_page(), "connect")
@@ -351,6 +399,7 @@ class AgentsMap(Gtk.Application):
         right.add_named(self.build_mcp_page(), "mcp")
         right.add_named(self.build_add_mcp_page(), "addmcp")
         right.add_named(self.build_add_skills_page(), "addskills")
+        right.add_named(self.build_status_page(), "status")
         right.connect("notify::visible-child-name", lambda *_: self.update_header())
         self.guard_text_fields_in(window)
         stack.connect("notify::visible-child-name", lambda *_: self.update_header())
@@ -390,6 +439,18 @@ class AgentsMap(Gtk.Application):
         title.set_hexpand(True)
         header.append(title)
         self.title_label = title
+        # Too narrow for the map (a tiled window): a hint that also does it.
+        self.widen_hint = Gtk.Button(valign=Gtk.Align.CENTER, visible=False)
+        content = Gtk.Box(spacing=6)
+        content.append(Gtk.Image.new_from_icon_name("view-fullscreen-symbolic"))
+        content.append(Gtk.Label(label=_("Maximize to see the map")))
+        self.widen_hint.set_child(content)
+        self.widen_hint.add_css_class("am-small-btn")
+        self.widen_hint.add_css_class("am-widen-hint")
+        self.widen_hint.set_tooltip_text(_("Only the cards fit at this width. A click moves the window to a free "
+                                           "workspace, where it gets the whole width (or press Super + Alt + F)."))
+        self.widen_hint.connect("clicked", lambda *_: self.widen())
+        header.append(self.widen_hint)
         # One view (the cards with the map beside them): no view switch any more.
         self.view_buttons = {}
         # Which setup to show, for the cards and the map alike: everything, only online
@@ -412,6 +473,19 @@ class AgentsMap(Gtk.Application):
         self.mode_buttons[self.setup_mode()].set_active(True)
         header.append(self.view_switch)
 
+        # Help (the manual: setting up by drawing, …), left of the gear, in the same bordered box.
+        help_button = Gtk.Button()
+        mark = Gtk.Label(label="?")
+        mark.add_css_class("am-gear")
+        mark.add_css_class("am-help-mark")
+        help_button.set_child(mark)
+        help_button.set_tooltip_text(_("Help (F1)"))
+        help_button.add_css_class("flat")
+        help_button.add_css_class("am-header-btn")
+        help_button.add_css_class("am-gear-btn")
+        help_button.connect("clicked", lambda *_: self.open_help())
+        header.append(help_button)
+        self.help_button = help_button
         # The same Nerd Font gear (U+F0493) in a small bordered box as the other plugins.
         settings_button = Gtk.Button()
         gear = Gtk.Label(label="\U000F0493")
@@ -549,7 +623,9 @@ class AgentsMap(Gtk.Application):
         outer = self.stack.get_visible_child_name()
         if outer != "main":
             return outer
-        inner = self.right_stack.get_visible_child_name()
+        inner = self.right_stack.get_visible_child_name() or ""
+        if inner.startswith("term:"):
+            return "terminal"
         return inner if inner in RIGHT_PAGES else "main"
 
     def show_page(self, name: str):
@@ -1108,7 +1184,9 @@ class AgentsMap(Gtk.Application):
         tip = "\n".join([profile.get("notes", "")] + profile.get("sources", [])).strip()
         return (_("Setup"), value, tip)
 
-    def fill_agent(self, box, agent):
+    def fill_agent(self, box, agent, summary: bool = False):
+        """The agent card's details; summary=True: its configuration only (the details
+        page shows usage, plan and limits in its own summary above)."""
         command = agent.command
         info = agent_details.details_for(command)
         inv = self.inventory
@@ -1118,7 +1196,8 @@ class AgentsMap(Gtk.Application):
         if not agent.installed:
             rows.append((_("Status"), _("Not installed"),
                          _("Install it from Omarchy's menu: Setup → Defaults → Agent.")))
-        rows.append((_("Plan"), info.plan, _("Your subscription, as Omarchy's usage data reports it.")))
+        if not summary:
+            rows.append((_("Plan"), info.plan, _("Your subscription, as Omarchy's usage data reports it.")))
         rows.append((_("Model"), info.model, _("The model set in the agent's settings.")))
         for provider in info.providers:
             parts = [provider.name]
@@ -1136,7 +1215,7 @@ class AgentsMap(Gtk.Application):
                          + ", ".join(s.path for s in sets), ""))
         rows.append((_("Tools"), ", ".join(inv.agent_tools.get(command, [])),
                      _("The built-in tools the agent may use, as its settings list them.")))
-        if info.today_prompts is not None or info.today_tokens is not None:
+        if not summary and (info.today_prompts is not None or info.today_tokens is not None):
             today = []
             if info.today_prompts is not None:
                 today.append(ngettext("1 prompt", "{0} prompts", info.today_prompts).format(info.today_prompts))
@@ -1145,7 +1224,7 @@ class AgentsMap(Gtk.Application):
             if info.today_tokens:
                 today.append(_("{0} tokens").format(short_number(info.today_tokens)))
             rows.append((_("Today"), " · ".join(today), ""))
-        if info.total_sessions:
+        if info.total_sessions and not summary:
             total = ngettext("1 session", "{0} sessions", info.total_sessions).format(info.total_sessions)
             if info.active_days:
                 total += " · " + ngettext("1 active day", "{0} active days", info.active_days).format(info.active_days)
@@ -1159,6 +1238,8 @@ class AgentsMap(Gtk.Application):
         rows.append((_("Settings"), info.config_dir, ""))
         self.detail_grid(box, rows)
 
+        if summary:
+            return
         if info.limits:
             heading = Gtk.Label(label=_("Limits").upper(), xalign=0)
             heading.add_css_class("am-group-heading")
@@ -1174,10 +1255,16 @@ class AgentsMap(Gtk.Application):
             status = " · ".join(x for x in (status, info.usage_note) if x)
         if status:
             self.note(box, status)
+        if not summary:
+            buttons = Gtk.Box(spacing=8)
+            if agent.installed and terminal_pane.program(agent.command):
+                buttons.append(self.start_button(agent))
+            buttons.append(self.details_button(lambda *_: self.open_agent_status(agent)))
+            box.append(buttons)
 
     # --- runtime, MCP and skill cards ----------------------------------------------------
 
-    def fill_runtime(self, box, rt, names):
+    def fill_runtime(self, box, rt, names, summary: bool = False):
         self.detail_grid(box, [
             (_("Status"), {"running": _("running"), "stopped": _("installed, not running")}
              .get(graph.runtime_status(rt), _("not installed")), ""),
@@ -1193,6 +1280,8 @@ class AgentsMap(Gtk.Application):
             heading.add_css_class("am-group-heading")
             box.append(heading)
             self.note(box, "\n".join(rt.models))
+        if not summary:
+            box.append(self.details_button(lambda *_: self.open_runtime_status(rt.key)))
 
     def fill_mcp(self, box, server, names):
         kind = {"command": _("runs a program"), "url": _("remote server")}.get(server.kind, "")
@@ -1226,6 +1315,366 @@ class AgentsMap(Gtk.Application):
         button.add_css_class("am-small-btn")
         button.connect("clicked", on_click)
         return button
+
+    # --- an agent started here, in its own terminal ------------------------------------------
+
+    def ask_start_outside(self, agent, path: str, folder: str, anchor):
+        """No vte4: ask whether to fix that (its details page shows how) or to start the
+        agent in a separate terminal this time."""
+        popover = Gtk.Popover()
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.set_margin_top(10)
+        box.set_margin_bottom(10)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+        text = Gtk.Label(label=_("{0} cannot run inside the map yet: the vte4 package is missing.").format(agent.name),
+                         xalign=0, wrap=True, max_width_chars=42)
+        box.append(text)
+        row = Gtk.Box(spacing=8)
+        fix = Gtk.Button(label=_("Show how to fix"))
+        fix.add_css_class("suggested-action")
+
+        def show_fix(*_):
+            popover.popdown()
+            self.open_agent_status(agent)
+        fix.connect("clicked", show_fix)
+        row.append(fix)
+        outside = Gtk.Button(label=_("Start in a separate terminal"))
+
+        def start_outside(*_):
+            popover.popdown()
+            ok = terminal_pane.open_outside(path, folder)
+            if not ok:
+                try:
+                    agent_status.remember_issue(agent.command, "terminal")
+                except OSError:
+                    pass
+            self.show_notice(_("{0} opened in your terminal").format(agent.name) if ok
+                             else _("No terminal found (xdg-terminal-exec)"))
+        outside.connect("clicked", start_outside)
+        row.append(outside)
+        box.append(row)
+        popover.set_child(box)
+        popover.set_parent(anchor if anchor is not None else self.title_label)
+        popover.connect("closed", lambda p: GLib.idle_add(p.unparent))
+        popover.popup()
+
+    def start_agent(self, agent, anchor=None):
+        """Its terminal right of the cards (a running one is shown again)."""
+        pane = self.sessions.get(agent.command)
+        if pane is not None:
+            if not pane.running:
+                pane.start()
+            self.show_terminal(agent.command)
+            return
+        path = terminal_pane.program(agent.command)
+        if path is None:
+            self.show_notice(_("{0} cannot be started from here").format(agent.name))
+            return
+        folder = self.agent_folder()
+        if terminal_pane.vte() is None:
+            try:
+                agent_status.remember_issue(agent.command, "vte4")
+            except OSError:
+                pass
+            self.ask_start_outside(agent, path, folder, anchor)
+            return
+        pane = terminal_pane.TerminalPane(agent, folder, self.theme.colors,
+                                          on_back=lambda: self.show_view("main", save=False),
+                                          on_state=lambda _p: GLib.idle_add(self.terminal_changed))
+        self.sessions[agent.command] = pane
+        self.right_stack.add_named(pane, f"term:{agent.command}")
+        self.show_terminal(agent.command)
+
+    def show_terminal(self, command: str):
+        self.stack.set_visible_child_name("main")
+        self.right_stack.set_visible_child_name(f"term:{command}")
+        self.place_panes()
+        self.update_header()
+        GLib.idle_add(lambda: self.sessions[command].terminal.grab_focus() and False)
+
+    def terminal_changed(self):
+        """An agent started or ended here: its card's button and the running marks follow.
+        A start that worked clears the problem an earlier one ran into."""
+        for command, pane in self.sessions.items():
+            if pane.running and pane.pid:
+                try:
+                    agent_status.forget_issue(command)
+                except OSError:
+                    pass
+        self.running = self.running_now()
+        self.refresh_overview()
+        self.refresh_map()
+        return False
+
+    def agent_folder(self) -> str:
+        """Where agents start: the folder set in Settings, else home."""
+        saved = ai_core.load_settings().get("agent_folder")
+        if isinstance(saved, str) and saved and os.path.isdir(os.path.expanduser(saved)):
+            return os.path.realpath(os.path.expanduser(saved))
+        return str(Path.home())
+
+    def start_button(self, agent) -> Gtk.Widget:
+        pane = self.sessions.get(agent.command)
+        shown = pane is not None and pane.running
+        button = Gtk.Button(halign=Gtk.Align.START)
+        content = Gtk.Box(spacing=6)
+        content.append(Gtk.Image.new_from_icon_name("utilities-terminal-symbolic"))
+        content.append(Gtk.Label(label=_("Show terminal") if shown else _("Start")))
+        button.set_child(content)
+        button.add_css_class("flat")
+        button.add_css_class("am-small-btn")
+        button.set_tooltip_text(_("Run {0} in a terminal here, in {1}").format(agent.name, self.agent_folder()))
+        button.connect("clicked", lambda b: self.start_agent(agent, b))
+        return button
+
+    # --- agent and local LLM details (the (i) on their cards) -----------------------------------
+
+    def build_status_page(self) -> Gtk.Widget:
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        header = Gtk.Box(spacing=8)
+        back = Gtk.Button()
+        back.add_css_class("flat")
+        back.add_css_class("am-header-btn")
+        back.add_css_class("am-back-bordered")
+        back_box = Gtk.Box(spacing=6)
+        back_box.append(Gtk.Image.new_from_icon_name("go-previous-symbolic"))
+        back_box.append(Gtk.Label(label=_("Back")))
+        back_box.append(Gtk.Label(label="· ⌫"))
+        back.set_child(back_box)
+        back.set_tooltip_text(_("Back (Backspace, Esc)"))
+        back.connect("clicked", lambda *_: self.close_status())
+        header.append(back)
+        self.status_title = Gtk.Label(xalign=0, hexpand=True)
+        self.status_title.add_css_class("am-section-title")
+        header.append(self.status_title)
+        page.append(header)
+        rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        rule.add_css_class("am-settings-rule")
+        page.append(rule)
+        self.status_body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.status_body.add_css_class("am-settings")
+        page.append(self.page_scroller(self.status_body))
+        self.status_showing = None
+        return page
+
+    def clear_status(self, title: str):
+        self.status_title.set_label(title.upper())
+        while (child := self.status_body.get_first_child()) is not None:
+            self.status_body.remove(child)
+
+    def close_status(self):
+        self.status_showing = None
+        self.show_view("main", save=False)
+
+    def open_agent_status(self, agent):
+        """Usage over time, whether it is set up (and what to do if not), its configuration."""
+        self.clear_status(agent.name)
+        self.status_showing = ("agent", agent.command)
+        self.note(self.status_body, _("Reading…"))
+        self.show_page("status")
+        inventory = self.inventory
+
+        def work():
+            info = agent_details.details_for(agent.command)
+            record = agent_details.usage_record(agent.command)
+            try:
+                usage = agent_status.usage_for(agent.command, record)
+            except Exception:
+                usage = None
+            logged_in = agent_status.login_state(agent.command) if agent.installed else None
+            checks = agent_status.agent_checks(agent, info, record, inventory, link_hints.load(), logged_in,
+                                               issue=agent_status.load_issues().get(agent.command))
+            GLib.idle_add(done, info, usage, checks)
+
+        def done(info, usage, checks):
+            if self.status_showing == ("agent", agent.command):
+                self.fill_agent_status(agent, info, usage, checks)
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def fill_agent_status(self, agent, info, usage, checks):
+        self.clear_status(agent.name)
+        body = self.status_body
+        # At the top: one sentence, then what it is doing now.
+        state, sentence = agent_status.summary_line(checks)
+        models = self.running.get(agent.command)
+        if models:
+            now = self.instance_label(agent)
+        elif info.last_used or (usage and usage.last):
+            now = _("Not running · last used {0}").format(when(max(x for x in (info.last_used, usage and usage.last) if x)))
+        else:
+            now = _("Not running")
+        body.append(self.status_hero(state, sentence, now))
+
+        tiles = []
+        if usage is not None and usage.has_tokens:
+            tiles.append((_("Today"), _("{0} tokens").format(short_number(usage.today_tokens)),
+                          ngettext("1 session", "{0} sessions", usage.sessions_today).format(usage.sessions_today)
+                          if usage.sessions_today is not None else ""))
+            tiles.append((_("Last 7 days"), _("{0} tokens").format(short_number(usage.week_tokens)),
+                          ngettext("1 session", "{0} sessions", usage.sessions_week).format(usage.sessions_week)
+                          if usage.sessions_week is not None else ""))
+        elif usage is not None:
+            tiles.append((_("Last 7 days"), ngettext("1 session", "{0} sessions", usage.sessions_week or 0)
+                          .format(usage.sessions_week or 0), _("tokens not recorded")))
+        if usage is not None and usage.sessions_total is not None:
+            tiles.append((_("In total"), ngettext("1 session", "{0} sessions", usage.sessions_total)
+                          .format(usage.sessions_total), _("{0} active days").format(info.active_days)
+                          if info.active_days else ""))
+        if info.plan:
+            tiles.append((_("Plan"), info.plan, ""))
+        elif usage is not None and usage.cost:
+            tiles.append((_("Cost"), f"$ {usage.cost:.2f}", _("as the agent estimates it")))
+        if tiles:
+            body.append(self.stat_tiles(tiles))
+        if usage is not None and usage.has_tokens and any(t for _d, t in usage.days):
+            self.settings_heading(body, _("Tokens per day"))
+            body.append(TokenChart(self.side_map.color, usage.days))
+        if info.limits:
+            self.settings_heading(body, _("Limits"))
+            for limit in info.limits:
+                body.append(self.limit_row(limit))
+        if usage is not None and usage.by_model:
+            self.settings_heading(body, _("Tokens by model"))
+            rows = sorted(usage.by_model.items(), key=lambda item: -sum(item[1]))[:8]
+            self.detail_grid(body, [(model, _("{0} in · {1} out · {2} cache").format(
+                short_number(i), short_number(o), short_number(c)), "") for model, (i, o, c) in rows])
+        if usage is not None and usage.source:
+            source = _("Usage from Omarchy, updated {0}").format(when(info.usage_updated)) \
+                if usage.source == "Omarchy" and info.usage_updated else \
+                _("Usage from {0}'s own session records (numbers and times only)").format(usage.source)
+            self.note(body, source)
+
+        self.settings_heading(body, _("Setup"))
+        body.append(self.check_list(checks))
+        self.settings_heading(body, _("Configuration"))
+        config = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.fill_agent(config, agent, summary=True)
+        body.append(config)
+
+    def open_runtime_status(self, key: str):
+        rt = next((r for r in self.inventory.runtimes if r.key == key), None)
+        if rt is None:
+            return
+        self.clear_status(rt.name)
+        self.status_showing = ("runtime", key)
+        body = self.status_body
+        names = self.agent_names()
+        try:
+            login = runtime_ctl.start_at_login(rt) if rt.installed else None
+        except Exception:
+            login = None
+        checks = agent_status.runtime_checks(rt, link_hints.load(), names, login)
+        state, sentence = agent_status.summary_line(checks)
+        use = self.side_map.runtime_use(graph.Node(f"runtime:{key}", 2, rt.name, kind="runtime"))
+        if rt.running:
+            now = _("Running") + (" · " + _("{0} GB of GPU memory").format(f"{use.vram / 1024 ** 3:.1f}")
+                                   if use is not None and use.vram >= 64 * 1024 ** 2 else "")
+            loaded = [m for m, state_ in (use.models.items() if use is not None else []) if state_ == "loaded"]
+            if loaded:
+                now += " · " + _("loaded: {0}").format(", ".join(loaded))
+        else:
+            now = _("Not running") if rt.installed else _("Not installed")
+        body.append(self.status_hero(state, sentence, now))
+        tiles = [(_("Models"), str(len(rt.models)), rt.models_dir),
+                 (_("Agents"), str(len(rt.agents)), ", ".join(names.get(a, a) for a in rt.agents))]
+        if rt.address:
+            tiles.append((_("Address"), rt.address, rt.service))
+        body.append(self.stat_tiles(tiles))
+        self.settings_heading(body, _("Setup"))
+        body.append(self.check_list(checks))
+        self.settings_heading(body, _("Configuration"))
+        config = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.fill_runtime(config, rt, names, summary=True)
+        body.append(config)
+        self.show_page("status")
+
+    def status_hero(self, state: str, sentence: str, now: str) -> Gtk.Widget:
+        box = Gtk.Box(spacing=12)
+        box.add_css_class("am-status-hero")
+        mark = Gtk.Label(label={"ok": "✓", "warn": "!", "missing": "✕"}.get(state, "·"))
+        mark.add_css_class("am-status-mark")
+        mark.add_css_class(f"am-state-{state}")
+        mark.set_valign(Gtk.Align.CENTER)
+        box.append(mark)
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, hexpand=True)
+        title = Gtk.Label(label=sentence, xalign=0, wrap=True, max_width_chars=1)
+        title.add_css_class("am-status-title")
+        text.append(title)
+        line = Gtk.Label(label=now, xalign=0, wrap=True, max_width_chars=1)
+        line.add_css_class("am-agent-detail")
+        text.append(line)
+        box.append(text)
+        return box
+
+    def command_line(self, command: str) -> Gtk.Widget:
+        """A command to run, in monospace, with a button that copies it."""
+        row = Gtk.Box(spacing=6, halign=Gtk.Align.START)
+        row.add_css_class("am-command-line")
+        label = Gtk.Label(label=command, xalign=0, selectable=True)
+        label.add_css_class("am-command")
+        row.append(label)
+        copy = Gtk.Button(icon_name="edit-copy-symbolic")
+        copy.add_css_class("flat")
+        copy.add_css_class("am-small-btn")
+        copy.set_tooltip_text(_("Copy"))
+
+        def copied(button):
+            Gdk.Display.get_default().get_clipboard().set(command)
+            button.set_icon_name("object-select-symbolic")
+            GLib.timeout_add(1200, lambda: button.set_icon_name("edit-copy-symbolic") or False)
+        copy.connect("clicked", copied)
+        row.append(copy)
+        return row
+
+    def stat_tiles(self, tiles) -> Gtk.Widget:
+        """(heading, big value, small line) side by side."""
+        row = Gtk.Box(spacing=10, homogeneous=True)
+        for heading, value, small in tiles:
+            tile = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            tile.add_css_class("am-stat-tile")
+            top = Gtk.Label(label=heading.upper(), xalign=0)
+            top.add_css_class("am-group-heading")
+            tile.append(top)
+            big = Gtk.Label(label=value, xalign=0, ellipsize=Pango.EllipsizeMode.END, max_width_chars=1)
+            big.add_css_class("am-stat-value")
+            tile.append(big)
+            if small:
+                line = Gtk.Label(label=small, xalign=0, ellipsize=Pango.EllipsizeMode.END, max_width_chars=1)
+                line.add_css_class("am-agent-detail")
+                line.set_tooltip_text(small)
+                tile.append(line)
+            row.append(tile)
+        return row
+
+    def check_list(self, checks) -> Gtk.Widget:
+        """One line per check: a mark, what it is, and under it what to do when it is not done."""
+        grid = Gtk.Grid(column_spacing=10, row_spacing=6)
+        row = 0
+        for check in checks:
+            mark = Gtk.Label(label={"ok": "✓", "warn": "!", "missing": "✕", "info": "·"}[check.state], yalign=0)
+            mark.add_css_class(f"am-state-{check.state}")
+            mark.add_css_class("am-check-mark")
+            grid.attach(mark, 0, row, 1, 1)
+            text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1, hexpand=True)
+            title = Gtk.Label(label=check.title + (f" · {check.detail}" if check.detail else ""), xalign=0,
+                              wrap=True, max_width_chars=1)
+            title.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            title.add_css_class("am-detail-value")
+            text.append(title)
+            if check.step and check.state != "ok":
+                step = Gtk.Label(label="→ " + check.step, xalign=0, wrap=True, max_width_chars=1, selectable=True)
+                step.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+                step.add_css_class("am-check-step")
+                step.add_css_class(f"am-state-{check.state}")
+                text.append(step)
+            if check.command and check.state != "ok":
+                text.append(self.command_line(check.command))
+            grid.attach(text, 1, row, 1, 1)
+            row += 1
+        return grid
 
     # --- MCP server details (the (i) on its card) ---------------------------------------------------
 
@@ -2799,10 +3248,10 @@ class AgentsMap(Gtk.Application):
 
     def update_header(self):
         page = self.page_name()
-        on_settings = page in ("settings", "connect", "install", "models", "mcp", "addmcp", "addskills")
+        on_settings = page in ("settings", "help", "connect", "install", "models", "mcp", "addmcp", "addskills")
         # Faded out rather than hidden: the header keeps its height, so the
         # card does not jump when the settings page opens.
-        for widget in (self.settings_button, self.view_switch):
+        for widget in (self.settings_button, self.help_button, self.view_switch):
             widget.set_opacity(0 if on_settings else 1)
             widget.set_can_target(not on_settings)
             widget.set_can_focus(not on_settings)
@@ -4356,13 +4805,48 @@ class AgentsMap(Gtk.Application):
         undo_button.connect("clicked", lambda *_: self.undo_last())
         line.append(undo_button)
         self.undo_button = undo_button
+        # A question with two answers (show_offer), e.g. the launcher entry on the first open.
+        self.offer_yes = Gtk.Button()
+        self.offer_yes.add_css_class("am-small-btn")
+        self.offer_yes.add_css_class("suggested-action")
+        self.offer_no = Gtk.Button()
+        self.offer_no.add_css_class("am-small-btn")
+        self.offer_no.add_css_class("flat")
+        self.offer_handlers = []
+        for button in (self.offer_yes, self.offer_no):
+            button.set_visible(False)
+            line.append(button)
         bar.set_child(line)
         self.undo_bar = bar
         self.undo_backup = None
         self.undo_timer = 0
         return bar
 
+    def show_offer(self, message: str, yes: str, no: str, on_yes, on_no):
+        """The bar as a question: stays until it is answered."""
+        for button, handler in self.offer_handlers:
+            button.disconnect(handler)
+        self.undo_label.set_label(message)
+        self.undo_backup = None
+        self.undo_button.set_visible(False)
+
+        def answer(callback):
+            self.hide_undo()
+            callback()
+        self.offer_yes.set_label(yes)
+        self.offer_no.set_label(no)
+        self.offer_handlers = [(self.offer_yes, self.offer_yes.connect("clicked", lambda *_: answer(on_yes))),
+                               (self.offer_no, self.offer_no.connect("clicked", lambda *_: answer(on_no)))]
+        self.offer_yes.set_visible(True)
+        self.offer_no.set_visible(True)
+        if self.undo_timer:
+            GLib.source_remove(self.undo_timer)
+            self.undo_timer = 0
+        self.undo_bar.set_reveal_child(True)
+
     def show_undo(self, message: str, backup):
+        self.offer_yes.set_visible(False)
+        self.offer_no.set_visible(False)
         self.undo_label.set_label(message)
         self.undo_backup = backup
         self.undo_button.set_visible(True)
@@ -4370,6 +4854,18 @@ class AgentsMap(Gtk.Application):
         if self.undo_timer:
             GLib.source_remove(self.undo_timer)
         self.undo_timer = GLib.timeout_add_seconds(30, self.hide_undo)
+
+    def show_notice(self, message: str, seconds: int = 8):
+        """The undo bar as a plain message (nothing to undo)."""
+        self.offer_yes.set_visible(False)
+        self.offer_no.set_visible(False)
+        self.undo_label.set_label(message)
+        self.undo_backup = None
+        self.undo_button.set_visible(False)
+        self.undo_bar.set_reveal_child(True)
+        if self.undo_timer:
+            GLib.source_remove(self.undo_timer)
+        self.undo_timer = GLib.timeout_add_seconds(seconds, self.hide_undo)
 
     def hide_undo(self):
         self.undo_timer = 0
@@ -4512,7 +5008,44 @@ class AgentsMap(Gtk.Application):
                             "agent closes, the LLM stops and its GPU memory is free again. Works with this window "
                             "closed and after a reboot (user service {0}).").format(provider_watch.UNIT_NAME),
                           with_agents)
+        folder = Gtk.Entry(text=self.agent_folder(), hexpand=True)
+        folder.set_max_length(1024)
+        folder.connect("activate", self.save_agent_folder)
+        leave = Gtk.EventControllerFocus()
+        leave.connect("leave", lambda *_: self.save_agent_folder(folder))
+        folder.add_controller(leave)
+        self.guard_text_fields_in(folder)
+        modes = previews.WIDEN_MODES
+        mode = self.widen_mode()
+        self.setting_line(box, _("Too narrow for the map"),
+                          _("What “Maximize to see the map” in the header does when the window is tiled too narrow "
+                            "for the map beside the cards."),
+                          self.dropdown([_("Move to a free workspace"), _("Maximize where it is"), _("No hint")],
+                                        modes.index(mode), lambda i: self.set_widen_mode(modes[i])))
+        preview = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        preview.add_css_class("am-help-card")
+        preview.set_halign(Gtk.Align.START)
+        preview.append(previews.WidenSketch(lambda: self.theme.colors, self.widen_mode))
+        box.append(preview)
+        launcher = Gtk.Switch(active=ai_core.load_settings().get("launcher_entry") is True, valign=Gtk.Align.CENTER)
+        launcher.connect("notify::active", lambda w, *_: self.settings_ready
+                         and (self.save_setting(launcher_entry=w.get_active()), app_entry.ensure_entry(w.get_active())))
+        self.setting_line(box, _("In the app launcher"),
+                          _("AI Agents Map as an app in Omarchy's launcher (Super + Space), besides the bar icon."),
+                          launcher)
+        self.setting_line(box, _("Agents start in"),
+                          _("The folder an agent started here (Start on its card) works in. Enter saves it."), folder)
         self.settings_ready = True
+
+    def save_agent_folder(self, entry):
+        text = entry.get_text().strip()
+        path = os.path.realpath(os.path.expanduser(text)) if text else ""
+        if not path or not os.path.isdir(path) or "\0" in path:
+            entry.add_css_class("error")
+            return
+        entry.remove_css_class("error")
+        if self.settings_ready:
+            self.save_setting(agent_folder=path)
 
     @staticmethod
     def corners_tip() -> str:
@@ -4551,17 +5084,140 @@ class AgentsMap(Gtk.Application):
         self.fill_settings()
         self.show_page("settings")
 
+    # --- help: the manual (for now: setting up by drawing) ---------------------------------------
+
+    def build_help_page(self) -> Gtk.Widget:
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        header = Gtk.Box(spacing=8)
+        back = Gtk.Button()
+        back.add_css_class("flat")
+        back.add_css_class("am-header-btn")
+        back.add_css_class("am-back-bordered")
+        back_box = Gtk.Box(spacing=6)
+        back_box.append(Gtk.Image.new_from_icon_name("go-previous-symbolic"))
+        back_box.append(Gtk.Label(label=_("Back")))
+        back_box.append(Gtk.Label(label="· ⌫"))
+        back.set_child(back_box)
+        back.set_tooltip_text(_("Back (Backspace, Esc)"))
+        back.connect("clicked", lambda *_: self.close_help())
+        header.append(back)
+        title = Gtk.Label(label=_("Help").upper(), xalign=0, hexpand=True)
+        title.add_css_class("am-section-title")
+        header.append(title)
+        page.append(header)
+        rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        rule.add_css_class("am-settings-rule")
+        page.append(rule)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        body.add_css_class("am-settings")
+        body.append(self.help_setup_card())
+        page.append(self.page_scroller(body))
+        return page
+
+    def help_setup_card(self) -> Gtk.Widget:
+        """Setting up by drawing: an animation with dummy boxes, played on Start."""
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        card.add_css_class("am-help-card")
+        top = Gtk.Box(spacing=10)
+        heading = Gtk.Label(label=_("Set up by drawing").upper(), xalign=0, hexpand=True)
+        heading.add_css_class("am-setting-heading")
+        top.append(heading)
+        play = Gtk.Button()
+        content = Gtk.Box(spacing=6)
+        content.append(Gtk.Image.new_from_icon_name("media-playback-start-symbolic"))
+        play_label = Gtk.Label(label=_("Start"))
+        content.append(play_label)
+        play.set_child(content)
+        play.add_css_class("am-small-btn")
+        top.append(play)
+        card.append(top)
+        intro = Gtk.Label(label=_("Agents get their LLM, their model, MCP servers and skills by lines you draw on the "
+                                  "map. The animation shows it with made-up boxes; nothing on your computer changes."),
+                          xalign=0, wrap=True, max_width_chars=1)
+        intro.add_css_class("am-agent-detail")
+        card.append(intro)
+        labels = {"h_mcp": _("MCP servers · skills"), "h_agents": _("Agents"), "h_providers": _("LLM providers"),
+                  "h_models": _("Models"), "mcp": _("an MCP server"), "skills": _("a skill folder"),
+                  "agent": _("your agent"), "online": _("an online provider"), "local": _("a local LLM"),
+                  "model_a": "model-a", "model_b": "model-b"}
+        captions = {0: _("Press Start to see how an agent is set up by drawing."),
+                    1: _("Drag from the agent to a provider: a line connects them."),
+                    2: _("Click a model of that provider: the agent uses it now."),
+                    3: _("Drag from the agent to an MCP server: it can use its tools."),
+                    4: _("Drag from the agent to a skill folder: it can use those skills."),
+                    5: _("Every change shows a preview first and keeps a backup; Undo takes it back.")}
+        sketch = previews.SetupSketch(lambda: self.theme.colors, labels, captions,
+                                      on_end=lambda: play_label.set_label(_("Replay")))
+        play.connect("clicked", lambda *_: sketch.start())
+        self.setup_sketch = sketch
+        card.append(sketch)
+        return card
+
+    def open_help(self):
+        self.show_page("help")
+
+    def close_help(self):
+        self.show_view(self.view, save=False)
+
     def close_settings(self):
         self.show_view(self.view, save=False)
 
     # --- size ----------------------------------------------------------------------
 
+    def launcher_entry_on_open(self):
+        """The launcher entry is opt-in: asked once, then kept as the setting says."""
+        wanted = ai_core.load_settings().get("launcher_entry")
+        if isinstance(wanted, bool):
+            app_entry.ensure_entry(wanted)
+            return
+
+        def answer(on: bool):
+            self.save_setting(launcher_entry=on)
+            app_entry.ensure_entry(on)
+        GLib.timeout_add(1500, lambda: self.show_offer(
+            _("Add AI Agents Map to Omarchy's app launcher (Super + Space)?"), _("Add"), _("Not now"),
+            lambda: answer(True), lambda: answer(False)) or False)
+
+    def width_changed(self, _width):
+        split = self.split
+        self.fit()
+        if self.split != split:
+            self.place_panes()
+            self.update_header()
+        self.update_widen_hint()
+        return False
+
+    def widen_mode(self) -> str:
+        mode = ai_core.load_settings().get("widen", "workspace")
+        return mode if mode in previews.WIDEN_MODES else "workspace"
+
+    def set_widen_mode(self, mode: str):
+        self.save_setting(widen=mode)
+        self.update_widen_hint()
+
+    def widen(self):
+        work = app_entry.maximize_here if self.widen_mode() == "maximize" else app_entry.widen
+        threading.Thread(target=work, daemon=True).start()
+
+    def update_widen_hint(self):
+        """Shown while the map does not fit, unless the window is maximized already
+        (then the screen itself is too narrow and maximizing cannot help)."""
+        if self.split or self.widen_mode() == "off":
+            self.widen_hint.set_visible(False)
+            return
+
+        def work():
+            state = app_entry.maximized()
+            GLib.idle_add(lambda: self.widen_hint.set_visible(not self.split and state is not True) and False)
+
+        threading.Thread(target=work, daemon=True).start()
+
     def size_limits(self) -> tuple[int, int]:
-        width = self.window.get_width() if self.window is not None else 0
+        width = getattr(self.window, "last_width", 0) or (self.window.get_width() if self.window is not None else 0)
         if width <= 0:
             geo = self.monitor_geometry() if self.window is not None else None
             width = geo.width if geo is not None else 1920
-        return (max(CARD_WIDTH, width - 2 * CARD_MARGIN),
+        return (max(CARD_WIDTH, width),
                 max(ai_core.MIN_WINDOW_SIZE[1], monitor_height() - 2 * SCREEN_MARGIN))
 
     def set_sidebar(self, visible: bool):
@@ -4577,7 +5233,6 @@ class AgentsMap(Gtk.Application):
     def fit(self):
         """As large as the screen allows (checked on every open: another monitor)."""
         self.card_w, self.list_h = self.size_limits()
-        self.card.set_size_request(self.card_w, -1)
         if getattr(self, "side_pane", None) is not None:
             # A very small screen keeps the cards alone.
             self.split = self.card_w >= SPLIT_WIDTH
@@ -4605,19 +5260,6 @@ class AgentsMap(Gtk.Application):
     def inside(widget, ancestor) -> bool:
         return widget is not None and (widget == ancestor or widget.is_ancestor(ancestor))
 
-    def on_overlay_click(self, _gesture, _count, x, y):
-        picked = self.overlay.pick(x, y, Gtk.PickFlags.DEFAULT)
-        if not self.inside(picked, self.card_frame):
-            self.close()
-
-    def on_active_changed(self, window, _property):
-        if window.get_visible() and not window.is_active():
-            GLib.timeout_add(100, self.close_if_inactive)
-
-    def close_if_inactive(self):
-        if self.window.get_visible() and not self.window.is_active():
-            self.close()
-        return False
 
     # --- theme ---------------------------------------------------------------------
 
@@ -4657,9 +5299,9 @@ class AgentsMap(Gtk.Application):
         except (ValueError, IndexError):
             dim_hex = muted_hex
         css = f"""
-        window#aiagentsmap-window {{ background: transparent; }}
-        .am-card {{ background: {bg_hex}; color: {fg_hex}; border: 1px solid {accent_hex};
-            border-radius: {radius}px; padding: 17px; }}
+        window#aiagentsmap-window {{ background: {bg_hex}; }}
+        .am-card {{ background: {bg_hex}; color: {fg_hex}; border: none;
+            border-radius: 0; padding: 17px; }}
         .am-title {{ font-size: 15px; font-weight: 600; }}
         .am-header-hint {{ font-size: 10px; color: {dim_hex}; }}
         .am-hint {{ color: {muted_hex}; font-size: 13px; }}
@@ -4686,6 +5328,29 @@ class AgentsMap(Gtk.Application):
         .am-line switch:checked {{ background: {accent_hex}; }}
         .am-empty-icon {{ color: {muted_hex}; opacity: 0.6; }}
         .am-empty-title {{ font-size: 14px; font-weight: 600; }}
+        .am-status-hero {{ background: alpha({fg_hex}, 0.04); border: 1px solid alpha({fg_hex}, 0.10);
+            border-radius: {radius}px; padding: 12px 14px; }}
+        .am-status-mark {{ font-size: 22px; font-weight: 700; min-width: 30px; }}
+        .am-status-title {{ font-size: 14px; font-weight: 600; }}
+        .am-state-ok {{ color: {green_hex}; }}
+        .am-state-warn {{ color: {yellow_hex}; }}
+        .am-state-missing {{ color: {red_hex}; }}
+        .am-state-info {{ color: {dim_hex}; }}
+        .am-check-mark {{ font-weight: 700; min-width: 14px; }}
+        .am-check-step {{ font-size: 11px; }}
+        .am-check-step.am-state-info {{ color: {dim_hex}; }}
+        .am-stat-tile {{ background: alpha({fg_hex}, 0.03); border: 1px solid alpha({fg_hex}, 0.08);
+            border-radius: {radius}px; padding: 8px 10px; }}
+        .am-command-line {{ background: alpha({fg_hex}, 0.06); border-radius: 6px; padding: 2px 4px 2px 10px;
+            margin-top: 3px; }}
+        .am-command {{ font-family: "JetBrainsMono Nerd Font", monospace; font-size: 12px; }}
+        .am-card button.am-widen-hint {{ color: {accent_hex}; border: 1px solid alpha({accent_hex}, 0.45);
+            padding: 1px 10px; }}
+        .am-undo button.suggested-action {{ background: {accent_hex}; color: {bg_hex}; border: none; }}
+        .am-help-card {{ background: alpha({fg_hex}, 0.03); border: 1px solid alpha({fg_hex}, 0.10);
+            border-radius: {radius}px; padding: 12px 14px; }}
+        .am-help-mark {{ font-weight: 700; }}
+        .am-stat-value {{ font-size: 17px; font-weight: 600; }}
         .am-group-heading {{ font-size: 10px; font-weight: 700; letter-spacing: 1px; color: {dim_hex};
             margin-top: 4px; }}
         .am-agent {{ background: alpha({fg_hex}, 0.05); border: 1px solid alpha({fg_hex}, 0.10);
@@ -4789,6 +5454,14 @@ class AgentsMap(Gtk.Application):
             return False
         page = self.page_name()
         ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
+        if page == "terminal":
+            return False          # Esc, Backspace, Ctrl+… belong to the agent
+        if keyval == Gdk.KEY_F1 and page != "help":
+            self.open_help()
+            return True
+        if page == "help" and keyval in (Gdk.KEY_Escape, Gdk.KEY_BackSpace):
+            self.close_help()
+            return True
         if keyval == Gdk.KEY_Escape:
             if page == "settings":
                 self.close_settings()
@@ -4800,14 +5473,14 @@ class AgentsMap(Gtk.Application):
                 self.close_models()
             elif page == "mcp":
                 self.close_mcp_details()
+            elif page == "status":
+                self.close_status()
             elif page == "addmcp":
                 self.close_add_mcp()
             elif page == "addskills":
                 self.close_add_skills()
             elif page == "main" and self.selection:
-                self.set_selection([])   # the first Esc clears the selection
-            else:
-                self.close()
+                self.set_selection([])   # Esc clears the selection; the window stays (an app)
             return True
         if page in ("install", "models", "addmcp", "addskills") and keyval == Gdk.KEY_BackSpace and \
                 isinstance(self.window.get_focus(), (Gtk.Text, Gtk.TextView)):
@@ -4817,10 +5490,11 @@ class AgentsMap(Gtk.Application):
                 self.close_add_mcp() if page == "addmcp" else self.close_add_skills()
                 return True
             return False          # typing in the search fields
-        if page in ("settings", "connect", "install", "mcp"):
+        if page in ("settings", "connect", "install", "mcp", "status"):
             if keyval == Gdk.KEY_BackSpace:
                 {"settings": self.close_settings, "connect": self.close_connect,
-                 "install": self.close_install, "mcp": self.close_mcp_details}[page]()
+                 "install": self.close_install, "mcp": self.close_mcp_details,
+                 "status": self.close_status}[page]()
                 return True
             return False          # Tab and arrows move between the controls
         if ctrl and keyval == Gdk.KEY_comma:
@@ -4839,10 +5513,14 @@ class AgentsMap(Gtk.Application):
     # --- open / close ------------------------------------------------------------
 
     def toggle(self):
-        if self.window.is_visible():
+        """The bar icon: open it, bring it to the front, or (already in front) hide it."""
+        if not self.window.is_visible():
+            self.open()
+        elif self.window.is_active():
             self.close()
         else:
-            self.open()
+            self.window.present()
+            app_entry.focus_window()
 
     def open(self):
         self.sidebar_visible = True
@@ -4855,7 +5533,7 @@ class AgentsMap(Gtk.Application):
         self.start_gpu_poll()
         self.research_new_agents()
         self.check_new_apps()
-        self.layer_watch.start()
+        self.launcher_entry_on_open()
         # Restarted after a language change: back on the settings page.
         view = os.environ.pop("AI_AGENTS_MAP_VIEW", "")
         if view in ai_core.VIEWS:
@@ -4863,20 +5541,31 @@ class AgentsMap(Gtk.Application):
         page = os.environ.pop("AI_AGENTS_MAP_PAGE", "")
         if page == "settings":
             GLib.idle_add(self.open_settings)
+        elif page in ("help", "help:play"):
+            GLib.idle_add(self.open_help)
+            if page == "help:play":
+                GLib.timeout_add(600, lambda: self.setup_sketch.start() or False)
         elif page == "addmcp":
             GLib.idle_add(self.open_add_mcp)
         elif page == "addskills":
             GLib.idle_add(self.open_add_skills)
+        elif page.startswith("agent:"):
+            agent = next((x for x in self.agent_list if x.command == page[6:]), None)
+            if agent is not None:
+                GLib.idle_add(self.open_agent_status, agent)
+        elif page.startswith("runtime:"):
+            GLib.idle_add(self.open_runtime_status, page[8:])
         elif page.startswith("details:") and mcp_ctl.NAME_RE.match(page[8:]):
             GLib.idle_add(self.open_mcp_details, page[8:])
 
-    def on_menu_opened(self, _name):
-        """Another menu wants the keyboard: get out of its way at once."""
-        if self.window is not None and self.window.is_visible():
-            self.close()
-
     def close(self):
-        self.layer_watch.stop()
+        """Hide the window (agents running in it keep running) and remember its size."""
+        width, height = self.window.get_width(), self.window.get_height()
+        if width >= 400 and height >= 400 and [width, height] != ai_core.load_settings().get("window_size"):
+            try:
+                ai_core.update_settings(window_size=[width, height])
+            except OSError:
+                pass
         self.stop_gpu_poll()
         self.map_view.set_shift(False)   # Shift may have been let go elsewhere
         if self.page_name() == "settings":

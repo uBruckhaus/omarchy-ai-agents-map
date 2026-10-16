@@ -926,6 +926,21 @@ class MapView(Gtk.DrawingArea):
         self.draw_link(cr)
 
     @staticmethod
+    def rounded_top(cr, x, y, w, h, r):
+        """A bar: rounded at its data end (the top), square on the baseline."""
+        r = min(r, h, w / 2)
+        cr.new_sub_path()
+        cr.move_to(x, y + h)
+        cr.line_to(x, y + r)
+        if r > 0:
+            cr.arc(x + r, y + r, r, math.pi, 3 * math.pi / 2)
+            cr.arc(x + w - r, y + r, r, -math.pi / 2, 0)
+        else:
+            cr.line_to(x + w, y)
+        cr.line_to(x + w, y + h)
+        cr.close_path()
+
+    @staticmethod
     def rounded(cr, x, y, w, h, r):
         r = min(r, h / 2, w / 2)
         if r <= 0:

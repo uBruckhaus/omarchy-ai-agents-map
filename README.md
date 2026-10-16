@@ -13,12 +13,16 @@ tidying your own setup.
 omarchy plugin add https://github.com/uBruckhaus/omarchy-ai-agents-map.git --enable
 ```
 
-A robot button appears in the bar. Click it to open or close the window. It fills the screen; Esc, a
-click beside the card or switching to another window closes it. It stays running in the background
-between opens, so it appears instantly.
+A robot button appears in the bar. On the first open AI Agents Map asks whether to add itself to
+Omarchy's app launcher (Super + Space); nothing is written there unless you say yes.
+It is a normal app window: Hyprland tiles or floats it like any other, Alt+Tab and workspaces work,
+and it stays open while you work in other windows. The bar button opens it, brings it to the front
+(also from another workspace), or hides it when it is already in front. Closing the window hides it:
+the program keeps running in the background, with any agent started in it, and opens again at once.
 
-Requires Python with PyGObject, GTK4 and GTK4 Layer Shell in an Omarchy/Hyprland session; all of
-these come with a standard Omarchy install. Installing local LLMs uses `curl` and `tar` (and `uv` for
+Requires Python with PyGObject and GTK4 in an Omarchy/Hyprland session; both come with a standard
+Omarchy install. Running agents inside the window (Start on an agent's card) needs VTE for GTK4
+(`sudo pacman -S vte4`); without it, Start opens the agent in your normal terminal. Installing local LLMs uses `curl` and `tar` (and `uv` for
 vLLM); the MCP and skills search uses `curl`.
 
 ## One view: cards and the map beside them
@@ -33,11 +37,20 @@ The cards are a panel of their own beside the map. Its **Show ▾** list ticks t
 a whole section (Agents, Local LLMs, MCP servers, Skills, Not installed) or card by card, like
 the map's column lists.
 
-The cards are on the left, the map on the right (on a screen narrower than about 1000 px only the
-cards). The sidebar button left of the title (Ctrl+B) hides the cards so the map takes the whole
+The cards are on the left, the map on the right (in a window narrower than about 1300 px, such as
+half the screen, only the cards; pages then open over them). The sidebar button left of the title (Ctrl+B) hides the cards so the map takes the whole
 width; every open shows them again. Pages opened from a card or from the map (ⓘ Details, adding
 MCP servers or skills, models, installing, connecting) open on the right in place of the map, so
 the cards stay beside them; **Back** brings the map back.
+
+**ⓘ Details** on an agent's card sums it up at the top: ready or not (and why), running now or
+when it was last used, today's and the last 7 days' tokens and sessions, the plan, a chart of
+tokens per day, its limits and tokens by model. Then **Setup**: every check with a ✓, or with
+what to do next when it is missing (sign in with which command, which subscription or API key it
+needs and where to get one, install or start its local LLM, download a model, add MCP servers or
+skills, a connection that does not work). **Configuration** lists its settings. A local LLM's
+ⓘ Details does the same: running, GPU memory and loaded models, models, connected agents, and
+what is missing (install, models, an agent to connect).
 
 - **Cards**, in four sections. Click a card to open its details.
   - **Agents**: every coding agent Omarchy offers (its Setup → Defaults → Agent list), installed
@@ -302,6 +315,13 @@ the backup and Undo), and the agent is told the same context. A context you set 
   LLM's port). From settings it takes names, model ids, folders and addresses; it never
   opens credential files (`auth.json`, `.credentials.json`). MCP server entries are read whole so
   they can be copied to another agent; their environment and header values are never shown.
+- **Details pages** (ⓘ on an agent or local LLM card) read usage as numbers and times only:
+  Omarchy's usage records (Claude Code, Codex), the token, model and time columns of Hermes's
+  (`~/.hermes/state.db`) and OpenCode's (`~/.local/share/opencode/opencode.db`) session
+  databases, opened read-only, and the names and dates of Pi's session files (never opened). No
+  conversation text is read. Whether an agent is signed in is judged from whether its credential
+  file exists (never opened) or an API-key variable is set (its name only); Cursor CLI is asked
+  with its own `cursor-agent status`.
 - **Network** (each only on a click, except where noted): GitHub's release API and release
   downloads for Ollama, llama.cpp, Jan and KoboldCpp, `lmstudio.ai`/`installers.lmstudio.ai` for LM Studio
   (`bionic-installers.lmstudio.ai` for Bionic), the npm registry for DeepSeek Harness, PyPI
@@ -350,9 +370,15 @@ the backup and Undo), and the agent is told the same context. A context you set 
 
 ## Languages and settings
 
+**?** (F1), left of the gear, opens **Help**: for now an animation of setting up by drawing (an
+agent, a provider and its model, an MCP server and a skill folder, with made-up boxes), started
+with **Start**. More of the manual will follow there.
+
 The gear (Ctrl+,) opens the settings: **Language** (system or one of English, Deutsch, Français,
 Español, Italiano, Português, Nederlands, Polski), **Corners** (like windows, rounded or square, as
-in App Manager and Theme Manager), **Look up new agents** and **Start local LLMs with their agents**. Backspace or Esc goes back. Settings
+in App Manager and Theme Manager), **Look up new agents**, **Start local LLMs with their agents**, **Too narrow for the map** (what the header's "Maximize to see the map" does: move the window to a
+free workspace, maximize it where it is, or show no hint; with an animated preview), **In the app
+launcher** (the launcher entry; off removes it) and **Agents start in** (the folder for Start). Backspace or Esc goes back. Settings
 live in `~/.config/omarchy/ai-agents-map/settings.json`.
 
 ## Remove
@@ -361,7 +387,10 @@ live in `~/.config/omarchy/ai-agents-map/settings.json`.
 omarchy plugin remove ubruckhaus.ai-agents-map
 ```
 
-This removes the bar button and the window. Switch off **Start local LLMs with their agents**
+This removes the bar button and the window. The launcher entry
+(`~/.local/share/applications/org.omarchy.aiagentsmap.desktop`) is ignored by launchers once the
+plugin is gone (its `TryExec` points into the plugin); switch off **In the app launcher** first to
+delete it, or `rm` it. Switch off **Start local LLMs with their agents**
 first, or remove the watcher by hand:
 
 ```sh
@@ -384,7 +413,9 @@ rm -rf ~/.config/omarchy/ai-agents-map ~/.local/state/ai-agents-map ~/.cache/ai-
 | `manifest.json` | Plugin metadata (bar-widget) |
 | `BarWidget.qml` | Bar button: runs `ai-agents-map-toggle` |
 | `ai-agents-map-toggle` | Singleton toggle: start the window, or signal it to show/hide |
-| `ai_popup.py` | GTK4 layer-shell window: cards, map, pages |
+| `ai_popup.py` | The GTK4 app window: cards, map, pages, agents' terminals |
+| `app_entry.py`, `assets/ai-agents-map.svg` | Launcher entry and icon; bringing the window to the front |
+| `terminal_pane.py`, `agent_status.py` | An agent's own terminal (VTE); details pages: usage and setup checks |
 | `map_view.py`, `graph.py` | The map: drawing, selection, lines; what it shows |
 | `agents.py`, `agent_details.py`, `inventory.py` | What is installed and set up (read only) |
 | `connect.py` | Planned changes: diff, backup, apply, Undo |
@@ -396,5 +427,5 @@ rm -rf ~/.config/omarchy/ai-agents-map ~/.local/state/ai-agents-map ~/.cache/ai-
 | `agent_profiles.py` | Looking up new agents on the web |
 | `install_ctl.py`, `runtime_ctl.py`, `models_ctl.py`, `context_ctl.py` | Local LLMs: install, start/stop, models, context size |
 | `netfetch.py` | The one bounded way to the web (curl) |
-| `ai_core.py`, `palette.py`, `corners.py`, `layer_watch.py`, `pidfile.py`, `i18n.py`, `I18n.js` | Shared helpers, theme colours, corners, closing for Omarchy's menus, PID file, languages |
+| `ai_core.py`, `palette.py`, `corners.py`, `pidfile.py`, `i18n.py`, `I18n.js` | Shared helpers, theme colours, corners, PID file, languages |
 | `tests/` | Unit tests (`python3 -m unittest discover -s tests`) |
