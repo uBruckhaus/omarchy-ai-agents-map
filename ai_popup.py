@@ -365,7 +365,8 @@ class AgentsMap(Gtk.Application):
         if settings is not None:
             settings.set_property("gtk-enable-primary-paste", False)
         window = AppWindow(self.width_changed, application=self)
-        window.set_decorated(False)       # Hyprland draws the border; the header is our own
+        window.set_decorated(desktop.decorated())       # Omarchy: Hyprland draws the border, the header is our own
+        desktop.attach_window(window)
         window.set_title("AI Agents Map")
         window.set_name("aiagentsmap-window")
         window.set_icon_name(app_entry.ICON_NAME)
@@ -6039,16 +6040,7 @@ class AgentsMap(Gtk.Application):
     @staticmethod
     def corners_tip() -> str:
         """Where the windows' rounding comes from (as in App Manager and Theme Manager)."""
-        source = desktop.rounding_source()
-        if source == "user":
-            origin = _("Your windows' rounding is set in ~/.config/hypr/looknfeel.lua.")
-        elif source == "theme":
-            origin = _("Your windows' rounding is set by the current theme (its hyprland.lua).")
-        else:
-            origin = _("Your windows use Omarchy's default rounding (square); a theme or "
-                       "~/.config/hypr/looknfeel.lua can change it.")
-        return _("Corners of the window, its cards and the map's boxes. “Like windows” follows Hyprland's "
-                 "window rounding.") + " " + origin
+        return desktop.corners_note()
 
     def save_setting(self, **values):
         try:

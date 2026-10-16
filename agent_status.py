@@ -65,12 +65,14 @@ ISSUE_KINDS = ("vte4", "terminal")
 
 
 def issue_text(kind: str) -> tuple[str, str, str]:
+    """(what happened, what to do, the command that fixes it: the desktop's package manager)."""
+    import desktop
     return {
         "vte4": (_("The terminal inside the map needs the vte4 package, so it started in a separate terminal."),
                  _("Install it (it needs your password); the next Start then runs inside the map:"),
-                 "sudo pacman -S vte4"),
+                 desktop.install_command("vte4")),
         "terminal": (_("No terminal was found to start it in."),
-                     _("Install the terminal launcher Omarchy uses:"), "sudo pacman -S xdg-terminal-exec"),
+                     _("Install the terminal launcher Omarchy uses:"), desktop.install_command("xdg-terminal-exec")),
     }[kind]
 
 

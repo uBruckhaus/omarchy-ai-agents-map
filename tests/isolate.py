@@ -3,6 +3,7 @@ nothing a test writes can reach the real ~/.config/omarchy/ai-agents-map."""
 from pathlib import Path
 from unittest import mock
 
+import desktop_generic
 import desktop_omarchy
 
 
@@ -14,3 +15,6 @@ def desktop_in(testcase, home: Path):
         patcher = mock.patch.object(desktop_omarchy, name, value)
         patcher.start()
         testcase.addCleanup(patcher.stop)
+    patcher = mock.patch.object(desktop_generic, "CONFIG_DIR", home / ".config/asterism")
+    patcher.start()
+    testcase.addCleanup(patcher.stop)

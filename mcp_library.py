@@ -72,5 +72,5 @@ def remember(used: dict):
     if merged == servers:
         return
     path = library_file()
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     connect._write(path, text_with(dict(list(merged.items())[:MAX_SERVERS])))

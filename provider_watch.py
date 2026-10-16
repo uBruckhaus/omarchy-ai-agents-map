@@ -30,10 +30,22 @@ import sys
 import time
 from pathlib import Path
 
-import desktop
-
 HOME = Path.home()
-CONFIG = desktop.config_dir() / "providers-with-agents.json"
+
+
+def _default_config() -> Path:
+    """Plugin side: in the desktop's folder (desktop.config_dir()). The service runs with
+    `python3 -I` (the plugin folder is not on sys.path) and gets the file with --config
+    from its unit; a unit written before --config existed is an Omarchy one."""
+    try:
+        import desktop
+    except ImportError:
+        return HOME / ".config/omarchy/ai-agents-map/providers-with-agents.json"
+    return desktop.config_dir() / "providers-with-agents.json"
+
+
+CONFIG = _default_config()
+_UNIT_SAFE = re.compile(r"[A-Za-z0-9/._+-]{1,1024}")       # a path systemd takes as one word, unquoted
 STATE = HOME / ".local/state/ai-agents-map/provider-watch.json"   # what we still have to stop (survives restarts)
 UNIT_NAME = "ai-agents-map-providers.service"
 UNIT_FILE = HOME / ".config/systemd/user" / UNIT_NAME
@@ -117,7 +129,7 @@ def write_config(inventory, path: Path = CONFIG) -> bool:
             return False
     except OSError:
         pass
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     tmp = path.with_name(f".{path.name}.new")
     tmp.write_text(text)
     os.chmod(tmp, 0o600)
@@ -127,13 +139,15 @@ def write_config(inventory, path: Path = CONFIG) -> bool:
 
 # --- the user service (plugin side) ---------------------------------------------------------
 
-def unit_text(script: Path) -> str:
+def unit_text(script: Path, config: Path = None) -> str:
+    config = config or CONFIG
+    exec_start = f"/usr/bin/python3 -I {script}" + (f" --config {config}" if _UNIT_SAFE.fullmatch(str(config)) else "")
     return f"""[Unit]
 Description=AI Agents Map: start local LLMs with their agents, stop them when the agents close
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 -I {script}
+ExecStart={exec_start}
 Restart=on-failure
 RestartSec=5
 
@@ -694,8 +708,15 @@ def source_stamp() -> tuple:
         return ()
 
 
+def config_from(argv: list) -> Path:
+    """--config <file> from the unit, else CONFIG."""
+    if len(argv) >= 3 and argv[1] == "--config" and _UNIT_SAFE.fullmatch(argv[2]) and argv[2].startswith("/"):
+        return Path(argv[2])
+    return CONFIG
+
+
 def main():
-    watcher = Watcher()
+    watcher = Watcher(config=config_from(sys.argv))
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     log("watching agents and their local LLMs")
     started = source_stamp()

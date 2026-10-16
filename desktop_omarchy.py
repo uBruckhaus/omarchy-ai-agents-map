@@ -126,7 +126,29 @@ def rounding_source(theme_lua: Path = THEME_LUA, user_lua: Path = USER_LUA) -> s
     return "default"
 
 
+def corners_note() -> str:
+    """Where the windows' rounding comes from, for the Corners setting."""
+    from i18n import _
+    source = rounding_source()
+    if source == "user":
+        origin = _("Your windows' rounding is set in ~/.config/hypr/looknfeel.lua.")
+    elif source == "theme":
+        origin = _("Your windows' rounding is set by the current theme (its hyprland.lua).")
+    else:
+        origin = _("Your windows use Omarchy's default rounding (square); a theme or "
+                   "~/.config/hypr/looknfeel.lua can change it.")
+    return _("Corners of the window, its cards and the map's boxes. “Like windows” follows Hyprland's "
+             "window rounding.") + " " + origin
+
+
+def decorated() -> bool:
+    return False            # Hyprland draws the border; the header is the app's own
+
+
 # --- windows --------------------------------------------------------------------------------------
+
+def attach_window(window):
+    """Nothing to keep: windows are found by app id through Hyprland."""
 
 def _selector(app_id: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9._-]{1,100}", app_id):
@@ -232,6 +254,13 @@ def run_in_terminal(argv: list, env: dict | None = None) -> bool:
     except OSError:
         return False
     return True
+
+
+# --- packages -------------------------------------------------------------------------------------
+
+def install_command(package: str) -> str:
+    """The command that installs vte4 or xdg-terminal-exec (Omarchy is Arch: pacman)."""
+    return f"sudo pacman -S {package}" if package in ("vte4", "xdg-terminal-exec") else ""
 
 
 # --- agents ---------------------------------------------------------------------------------------
