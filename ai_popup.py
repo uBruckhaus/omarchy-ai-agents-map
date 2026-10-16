@@ -1029,7 +1029,7 @@ class AgentsMap(Adw.Application):
     def section(self, title: str) -> Adw.PreferencesGroup:
         """A category: a libadwaita group (title, its Add button in the header) whose cards are
         the rows of its boxed list; returns the group to add() cards to."""
-        group = Adw.PreferencesGroup(title=title)
+        group = Adw.PreferencesGroup(title=GLib.markup_escape_text(title))
         group.add_css_class("am-category")
         self.agents_box.append(group)
         return group
@@ -1229,8 +1229,37 @@ class AgentsMap(Adw.Application):
             box.remove(child)
         fill(box)
 
+    @staticmethod
+    def boxed_list() -> Gtk.ListBox:
+        listbox = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        listbox.add_css_class("boxed-list")
+        return listbox
+
+    @staticmethod
+    def plain_row(title: str, subtitle: str = "") -> Adw.ActionRow:
+        """A row whose texts are never markup (they carry paths, names, settings values, errors)."""
+        row = Adw.ActionRow(title=title, subtitle=subtitle, use_markup=False)
+        row.set_title_lines(0)
+        row.set_subtitle_lines(0)
+        return row
+
     def detail_grid(self, box, rows):
-        """rows: (label, value, tooltip); empty values are left out."""
+        """rows: (label, value, tooltip); empty values are left out. In a box marked am-boxed
+        (the details pages) as libadwaita property rows, else as a compact grid."""
+        if box.has_css_class("am-boxed"):
+            listbox = self.boxed_list()
+            for label, value, tip in rows:
+                if not value:
+                    continue
+                row = self.plain_row(label, value)
+                row.add_css_class("property")
+                row.set_subtitle_selectable(True)
+                if tip:
+                    row.set_tooltip_text(tip)
+                listbox.append(row)
+            if listbox.get_first_child() is not None:
+                box.append(listbox)
+            return
         grid = Gtk.Grid(column_spacing=10, row_spacing=4)
         index = 0
         for label, value, tip in rows:
@@ -1444,7 +1473,16 @@ class AgentsMap(Adw.Application):
             (_("Used by"), ", ".join(names.get(a, a) for a in rt.agents),
              _("Agents with a provider pointing at this runtime.")),
         ])
-        if rt.models:
+        if rt.models and box.has_css_class("am-boxed"):
+            # The details page: a heading and one row per model.
+            self.settings_heading(box, ngettext("1 model", "{0} models", len(rt.models)).format(len(rt.models)))
+            listbox = self.boxed_list()
+            for model in rt.models:
+                row = self.plain_row(model)
+                row.set_title_selectable(True)
+                listbox.append(row)
+            box.append(listbox)
+        elif rt.models:
             heading = Gtk.Label(label=ngettext("1 model", "{0} models", len(rt.models)).format(len(rt.models)).upper(),
                                 xalign=0)
             heading.add_css_class("am-group-heading")
@@ -1721,6 +1759,7 @@ class AgentsMap(Adw.Application):
         body.append(self.check_list(checks))
         self.settings_heading(body, _("Configuration"))
         config = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        config.add_css_class("am-boxed")
         self.fill_agent(config, agent, summary=True)
         body.append(config)
 
@@ -1757,12 +1796,14 @@ class AgentsMap(Adw.Application):
         body.append(self.check_list(checks))
         self.settings_heading(body, _("Configuration"))
         config = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        config.add_css_class("am-boxed")
         self.fill_runtime(config, rt, names, summary=True)
         body.append(config)
         self.show_page("status")
 
     def status_hero(self, state: str, sentence: str, now: str) -> Gtk.Widget:
         box = Gtk.Box(spacing=12)
+        box.add_css_class("card")
         box.add_css_class("am-status-hero")
         mark = Gtk.Label(label={"ok": "✓", "warn": "!", "missing": "✕"}.get(state, "·"))
         mark.add_css_class("am-status-mark")
@@ -1779,31 +1820,12 @@ class AgentsMap(Adw.Application):
         box.append(text)
         return box
 
-    def command_line(self, command: str) -> Gtk.Widget:
-        """A command to run, in monospace, with a button that copies it."""
-        row = Gtk.Box(spacing=6, halign=Gtk.Align.START)
-        row.add_css_class("am-command-line")
-        label = Gtk.Label(label=command, xalign=0, selectable=True)
-        label.add_css_class("am-command")
-        row.append(label)
-        copy = Gtk.Button(icon_name="edit-copy-symbolic")
-        copy.add_css_class("flat")
-        copy.add_css_class("am-small-btn")
-        copy.set_tooltip_text(_("Copy"))
-
-        def copied(button):
-            Gdk.Display.get_default().get_clipboard().set(command)
-            button.set_icon_name("object-select-symbolic")
-            GLib.timeout_add(1200, lambda: button.set_icon_name("edit-copy-symbolic") or False)
-        copy.connect("clicked", copied)
-        row.append(copy)
-        return row
-
     def stat_tiles(self, tiles) -> Gtk.Widget:
         """(heading, big value, small line) side by side."""
         row = Gtk.Box(spacing=10, homogeneous=True)
         for heading, value, small in tiles:
             tile = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            tile.add_css_class("card")
             tile.add_css_class("am-stat-tile")
             top = Gtk.Label(label=heading.upper(), xalign=0)
             top.add_css_class("am-group-heading")
@@ -1820,31 +1842,41 @@ class AgentsMap(Adw.Application):
         return row
 
     def check_list(self, checks) -> Gtk.Widget:
-        """One line per check: a mark, what it is, and under it what to do when it is not done."""
-        grid = Gtk.Grid(column_spacing=10, row_spacing=6)
-        row = 0
+        """One row per check: a mark, what it is, and under it what to do when it is not done;
+        a command to run gets a row of its own with a copy button."""
+        listbox = self.boxed_list()
         for check in checks:
-            mark = Gtk.Label(label={"ok": "✓", "warn": "!", "missing": "✕", "info": "·"}[check.state], yalign=0)
+            lines = [check.detail] if check.detail else []
+            if check.step and check.state != "ok":
+                lines.append("→ " + check.step)
+            row = self.plain_row(check.title, "\n".join(lines))
+            row.set_subtitle_selectable(True)
+            mark = Gtk.Label(label={"ok": "✓", "warn": "!", "missing": "✕", "info": "·"}[check.state])
             mark.add_css_class(f"am-state-{check.state}")
             mark.add_css_class("am-check-mark")
-            grid.attach(mark, 0, row, 1, 1)
-            text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1, hexpand=True)
-            title = Gtk.Label(label=check.title + (f" · {check.detail}" if check.detail else ""), xalign=0,
-                              wrap=True, max_width_chars=1)
-            title.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            title.add_css_class("am-detail-value")
-            text.append(title)
-            if check.step and check.state != "ok":
-                step = Gtk.Label(label="→ " + check.step, xalign=0, wrap=True, max_width_chars=1, selectable=True)
-                step.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-                step.add_css_class("am-check-step")
-                step.add_css_class(f"am-state-{check.state}")
-                text.append(step)
+            row.add_prefix(mark)
+            listbox.append(row)
             if check.command and check.state != "ok":
-                text.append(self.command_line(check.command))
-            grid.attach(text, 1, row, 1, 1)
-            row += 1
-        return grid
+                listbox.append(self.command_row(check.command))
+        return listbox
+
+    def command_row(self, command: str) -> Adw.ActionRow:
+        """A command to run, in monospace and selectable, with a button that copies it."""
+        row = self.plain_row(command)
+        row.add_css_class("monospace")
+        row.set_title_selectable(True)
+        row.add_prefix(Gtk.Image.new_from_icon_name("utilities-terminal-symbolic"))
+        copy = Gtk.Button(icon_name="edit-copy-symbolic", valign=Gtk.Align.CENTER)
+        copy.add_css_class("flat")
+        copy.set_tooltip_text(_("Copy"))
+
+        def copied(button):
+            Gdk.Display.get_default().get_clipboard().set(command)
+            button.set_icon_name("object-select-symbolic")
+            GLib.timeout_add(1200, lambda: button.set_icon_name("edit-copy-symbolic") or False)
+        copy.connect("clicked", copied)
+        row.add_suffix(copy)
+        return row
 
     # --- MCP server details (the (i) on its card) ---------------------------------------------------
 
@@ -5866,8 +5898,9 @@ class AgentsMap(Adw.Application):
 
     @staticmethod
     def settings_heading(box, text: str):
-        label = Gtk.Label(label=text.upper(), xalign=0)
-        label.add_css_class("am-setting-heading")
+        """A section heading on a page (libadwaita's heading style)."""
+        label = Gtk.Label(label=text, xalign=0, margin_top=8)
+        label.add_css_class("heading")
         box.append(label)
 
     def dropdown(self, labels: list[str], selected: int, on_change) -> Gtk.DropDown:
@@ -5889,12 +5922,12 @@ class AgentsMap(Adw.Application):
         self.settings_ready = True
 
     def preference_group(self, box, title: str) -> Adw.PreferencesGroup:
-        group = Adw.PreferencesGroup(title=title)
+        group = Adw.PreferencesGroup(title=GLib.markup_escape_text(title))
         box.append(group)
         return group
 
     def switch_row(self, group, title: str, hint: str, active: bool, on_toggle) -> Adw.SwitchRow:
-        row = Adw.SwitchRow(title=title, subtitle=hint, active=active)
+        row = Adw.SwitchRow(title=title, subtitle=hint, active=active, use_markup=False)
         row.connect("notify::active", lambda r, *_: self.settings_ready and on_toggle(r.get_active()))
         group.add(row)
         return row
@@ -5903,7 +5936,7 @@ class AgentsMap(Adw.Application):
         """A long explanation would squeeze the chosen value: its first sentence shows, all of it on hover."""
         first = re.split(r"(?<=[.;])\s", hint, maxsplit=1)[0].rstrip(".;") + "."
         short = first if len(hint) > 90 and len(first) < len(hint) else hint
-        row = Adw.ComboRow(title=title, subtitle=short, model=Gtk.StringList.new(labels))
+        row = Adw.ComboRow(title=title, subtitle=short, model=Gtk.StringList.new(labels), use_markup=False)
         if short != hint:
             row.set_tooltip_text(hint)
         row.set_selected(max(0, selected))
@@ -5912,7 +5945,7 @@ class AgentsMap(Adw.Application):
         return row
 
     def button_row(self, group, title: str, hint: str, label: str, on_click) -> Adw.ActionRow:
-        row = Adw.ActionRow(title=title, subtitle=hint)
+        row = Adw.ActionRow(title=title, subtitle=hint, use_markup=False)
         button = Gtk.Button(label=label, valign=Gtk.Align.CENTER)
         button.connect("clicked", lambda *_: on_click())
         row.add_suffix(button)
@@ -5922,7 +5955,7 @@ class AgentsMap(Adw.Application):
 
     def folder_row(self, group, title: str, hint: str, text: str, on_save) -> Adw.EntryRow:
         """A folder to type: Enter or the apply button saves it (on_save(row) marks errors)."""
-        row = Adw.EntryRow(title=title, text=text, show_apply_button=True)
+        row = Adw.EntryRow(title=title, text=text, show_apply_button=True, use_markup=False)
         row.set_tooltip_text(hint)
         row.connect("apply", lambda r: on_save(r))
         row.connect("entry-activated", lambda r: on_save(r))
@@ -6691,8 +6724,7 @@ class AgentsMap(Adw.Application):
         .am-line switch:checked {{ background: {accent_hex}; }}
         .am-empty-icon {{ color: {muted_hex}; opacity: 0.6; }}
         .am-empty-title {{ font-size: 14px; font-weight: 600; }}
-        .am-status-hero {{ background: alpha({fg_hex}, 0.04); border: 1px solid alpha({fg_hex}, 0.10);
-            border-radius: {radius}px; padding: 12px 14px; }}
+        .am-status-hero {{ border-radius: {radius}px; padding: 12px 14px; }}
         .am-status-mark {{ font-size: 22px; font-weight: 700; min-width: 30px; }}
         .am-status-title {{ font-size: 14px; font-weight: 600; }}
         .am-state-ok {{ color: {green_hex}; }}
@@ -6702,8 +6734,7 @@ class AgentsMap(Adw.Application):
         .am-check-mark {{ font-weight: 700; min-width: 14px; }}
         .am-check-step {{ font-size: 11px; }}
         .am-check-step.am-state-info {{ color: {dim_hex}; }}
-        .am-stat-tile {{ background: alpha({fg_hex}, 0.03); border: 1px solid alpha({fg_hex}, 0.08);
-            border-radius: {radius}px; padding: 8px 10px; }}
+        .am-stat-tile {{ border-radius: {radius}px; padding: 8px 10px; }}
         .am-command-line {{ background: alpha({fg_hex}, 0.06); border-radius: 6px; padding: 2px 4px 2px 10px;
             margin-top: 3px; }}
         .am-command {{ font-family: "JetBrainsMono Nerd Font", monospace; font-size: 12px; }}
@@ -6944,6 +6975,14 @@ class AgentsMap(Adw.Application):
             GLib.idle_add(self.open_settings)
         elif page == "reorganize":
             GLib.idle_add(self.open_reorganize)
+        elif page.startswith("agent:"):
+            agent = next((a for a in self.agent_list if a.command == page[6:]), None)
+            if agent is not None:
+                GLib.idle_add(lambda: self.open_agent_status(agent) and False)
+        elif page.startswith("runtime:"):
+            GLib.idle_add(lambda: self.open_runtime_status(page[8:]) and False)
+        elif page == "health":
+            GLib.idle_add(lambda: self.open_health() and False)
         elif page.startswith("models:"):
             rt = next((r for r in self.inventory.runtimes if r.key == page[7:] and r.installed), None)
             if rt is not None:
