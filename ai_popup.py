@@ -1341,7 +1341,7 @@ class AgentsMap(Gtk.Application):
         row.append(fix)
         outside = Gtk.Button(label=_("Start in a separate terminal"))
 
-        def start_outside(*_):
+        def start_outside(*_args):
             popover.popdown()
             ok = terminal_pane.open_outside(path, folder)
             if not ok:
@@ -4386,7 +4386,7 @@ class AgentsMap(Gtk.Application):
     def open_install(self, rt, mode: str):
         """mode: "install", "update", "models" (change the model folder) or "uninstall"."""
         inst = install_ctl.installer(rt.key)
-        if inst is None:
+        if inst is None or (mode in ("install", "update") and not inst.can_install):
             self.show_note(_("{0} cannot be installed from here yet.").format(rt.name))
             return
         self.installing = {"rt": rt, "inst": inst, "mode": mode, "release": None, "gpu": None,
@@ -4660,9 +4660,16 @@ class AgentsMap(Gtk.Application):
                                                       else _("not installed")), xalign=0)
         title.add_css_class("am-agent-name")
         box.append(title)
-        actions = [(_("Update…"), "update"), (_("Uninstall…"), "uninstall")] if ours else \
-            [] if agent.installed else [(_("Install…"), "install")]
-        if agent.installed and not ours:
+        update = [(_("Update…"), "update")] if inst.can_install else []
+        actions = update + [(_("Uninstall…"), "uninstall")] if ours else \
+            [] if agent.installed or not inst.can_install else [(_("Install…"), "install")]
+        if not inst.can_install:
+            note = Gtk.Label(label=_("{0} publishes no checksum for its download, so AI Agents Map does not "
+                                     "install or update it. Get it from {1}.").format(agent.name, inst.site),
+                             xalign=0, wrap=True, max_width_chars=36)
+            note.add_css_class("am-agent-detail")
+            box.append(note)
+        elif agent.installed and not ours:
             note = Gtk.Label(label=_("Installed by hand: update it the way you installed it."), xalign=0, wrap=True)
             note.add_css_class("am-agent-detail")
             box.append(note)
@@ -4702,13 +4709,19 @@ class AgentsMap(Gtk.Application):
         inst = install_ctl.installer(rt.key)
         ours = inst is not None and inst.installed_folder() is not None
         actions = []
-        if not rt.installed and inst is not None:
+        if not rt.installed and inst is not None and inst.can_install:
             actions.append((_("Install…"), "install"))
         elif ours:
-            actions += [(_("Update…"), "update")] + ([] if rt.key == "jan" else [(_("Model folder…"), "models")]) \
-                + [(_("Uninstall…"), "uninstall")]
+            actions += ([(_("Update…"), "update")] if inst.can_install else []) \
+                + ([] if rt.key == "jan" else [(_("Model folder…"), "models")]) + [(_("Uninstall…"), "uninstall")]
         if rt.installed and rt.key in ("ollama", "llamacpp", "lmstudio", "jan", "koboldcpp"):
             actions.insert(0, (_("Models…"), "download"))
+        if inst is not None and not inst.can_install and (ours or not rt.installed):
+            note = Gtk.Label(label=_("{0} publishes no checksum for its download, so AI Agents Map does not "
+                                     "install or update it. Get it from {1}.").format(rt.name, inst.site),
+                             xalign=0, wrap=True, max_width_chars=36)
+            note.add_css_class("am-agent-detail")
+            box.append(note)
         if actions:
             column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
             for label, mode in actions:

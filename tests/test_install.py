@@ -35,12 +35,13 @@ class InstallTest(unittest.TestCase):
         archive = self.home / "ollama-linux-amd64.tgz"
         with tarfile.open(archive, "w:gz") as tar:
             tar.add(src / "bin", arcname="bin")
-        return ic.Release("v9.9.9", [("ollama-linux-amd64.tgz", "https://example.invalid/x", archive.stat().st_size)]), archive
+        return ic.Release("v9.9.9", [("ollama-linux-amd64.tgz", "https://example.invalid/x", archive.stat().st_size)],
+                          {"ollama-linux-amd64.tgz": ic.sha256_of(archive)}), archive
 
     def install(self, folder, models):
         release, archive = self.fake_release()
 
-        def fake_download(url, target, size, progress, cancelled, done_before=0, total=0):
+        def fake_download(url, target, size, progress, cancelled, done_before=0, total=0, sha256=""):
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(archive.read_bytes())
 
@@ -109,9 +110,10 @@ class LlamaInstallTest(InstallTest):
         archive = self.home / "llama.tgz"
         with tarfile.open(archive, "w:gz") as tar:
             tar.add(src, arcname="llama-b1")
-        release = ic.Release("b1-vulkan", [("llama.tgz", "https://example.invalid/l", archive.stat().st_size)])
+        release = ic.Release("b1-vulkan", [("llama.tgz", "https://example.invalid/l", archive.stat().st_size)],
+                             {"llama.tgz": ic.sha256_of(archive)})
 
-        def fake_download(url, target, size, progress, cancelled, done_before=0, total=0):
+        def fake_download(url, target, size, progress, cancelled, done_before=0, total=0, sha256=""):
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(archive.read_bytes())
 
@@ -134,3 +136,82 @@ class LlamaInstallTest(InstallTest):
     def test_vllm_refuses_amd(self):
         with self.assertRaises(RuntimeError):
             ic.Vllm().latest(ic.Gpu("amd"))
+
+
+class FakeCurl:
+    """Stands in for curl: writes the given bytes to the -o file."""
+    def __init__(self, body: bytes):
+        self.body = body
+
+    def __call__(self, argv, **_kw):
+        Path(argv[argv.index("-o") + 1]).write_bytes(self.body)
+        proc = mock.Mock(returncode=0)
+        proc.poll.return_value = 0
+        return proc
+
+
+class IntegrityTest(unittest.TestCase):
+    """Every downloaded program is bound to the SHA-256 its release lists before
+    anything unpacks or runs it; without a checksum nothing is downloaded."""
+    GOOD = b"genuine release bytes"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.home = Path(self.tmp.name)
+        self.addCleanup(self.tmp.cleanup)
+        import hashlib
+        self.digest = hashlib.sha256(self.GOOD).hexdigest()
+
+    def fetch(self, body: bytes) -> Path:
+        target = self.home / "downloads/app.AppImage"
+        with mock.patch.object(ic.subprocess, "Popen", FakeCurl(body)):
+            ic.download("https://example.invalid/app", target, len(self.GOOD), lambda *a: None, lambda: False,
+                        sha256=self.digest)
+        return target
+
+    def test_matching_bytes_are_kept(self):
+        self.assertEqual(self.fetch(self.GOOD).read_bytes(), self.GOOD)
+
+    def test_substituted_same_size_download_is_refused(self):
+        evil = b"x" * len(self.GOOD)
+        with self.assertRaises(RuntimeError):
+            self.fetch(evil)
+        self.assertEqual(list((self.home / "downloads").iterdir()), [])   # neither the file nor the .part
+
+    def test_github_asset_needs_a_sha256(self):
+        asset = {"name": "Jan_1.0.0_amd64.AppImage", "browser_download_url": "https://github.com/x", "size": 5}
+        for digest in (None, "", "md5:abc", "sha256:" + "0" * 63, "sha256:" + "G" * 64):
+            with self.assertRaises(RuntimeError):
+                ic.github_asset({**asset, "digest": digest})
+        self.assertEqual(ic.github_asset({**asset, "digest": "sha256:" + self.digest})[3], self.digest)
+
+    def test_jan_and_kobold_releases_carry_digests(self):
+        jan = {"tag_name": "v1.0.0", "assets": [{"name": "Jan_1.0.0_amd64.AppImage", "size": 5,
+                                                 "browser_download_url": "https://github.com/j",
+                                                 "digest": "sha256:" + self.digest}]}
+        with mock.patch.object(ic, "_curl_json", return_value=jan):
+            release = ic.Jan().latest(ic.Gpu())
+        self.assertEqual(release.digests, {"Jan_1.0.0_amd64.AppImage": self.digest})
+        del jan["assets"][0]["digest"]
+        with mock.patch.object(ic, "_curl_json", return_value=jan), self.assertRaises(RuntimeError):
+            ic.Jan().latest(ic.Gpu())
+
+    def test_install_without_digest_downloads_and_runs_nothing(self):
+        release = ic.Release("v1.0.0", [("Jan_1.0.0_amd64.AppImage", "https://github.com/j", 5)])
+        with mock.patch.object(ic, "download") as download, mock.patch.object(ic.ai_core, "read_bounded_output") as run, \
+                self.assertRaises(RuntimeError):
+            ic.Jan().install(self.home / "jan", self.home / "data", False, False, ic.Gpu(), release,
+                             lambda *a: None, lambda: False)
+        download.assert_not_called()
+        run.assert_not_called()
+
+    def test_lm_studio_and_bionic_are_not_installed_from_here(self):
+        for inst in (ic.LmStudio(), ic.Bionic()):
+            self.assertFalse(inst.can_install)
+            with self.assertRaises(NotImplementedError):
+                inst.latest(ic.Gpu())
+            release = ic.Release("v1", [("a.AppImage", "https://installers.lmstudio.ai/a", 5)], {"a.AppImage": self.digest})
+            with mock.patch.object(ic, "download") as download, self.assertRaises(RuntimeError):
+                inst.install(self.home / inst.key, self.home / "m", False, False, ic.Gpu(), release,
+                             lambda *a: None, lambda: False)
+            download.assert_not_called()

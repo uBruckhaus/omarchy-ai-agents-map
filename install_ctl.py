@@ -17,6 +17,7 @@ Everything here is blocking; the popup runs it on a thread and passes a
 progress(fraction, text) callback and a cancelled() check.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -48,6 +49,7 @@ class Cancelled(Exception):
 class Release:
     version: str
     assets: list = field(default_factory=list)   # [(name, url, size)]
+    digests: dict = field(default_factory=dict)  # name -> SHA-256 (hex) the release lists for it
 
     @property
     def size(self) -> int:
@@ -151,8 +153,33 @@ def _curl_json(url: str) -> dict:
     return data
 
 
-def download(url: str, target: Path, size: int, progress, cancelled, done_before: int = 0, total: int = 0):
-    """curl into target, reporting how far along (of total bytes) it is."""
+def github_asset(asset: dict) -> tuple:
+    """(name, url, size, sha256) of a GitHub release asset. GitHub lists a SHA-256
+    for every asset ("digest": "sha256:<hex>"); without one nothing is downloaded."""
+    name = str(asset.get("name", ""))
+    match = re.fullmatch(r"sha256:([0-9a-f]{64})", str(asset.get("digest") or ""))
+    if not match:
+        raise RuntimeError(f"{name}: the release lists no SHA-256 checksum")
+    return name, asset["browser_download_url"], int(asset.get("size", 0)), match.group(1)
+
+
+def github_release(version: str, assets: list) -> Release:
+    picked = [github_asset(a) for a in assets]
+    return Release(version, [(n, u, s) for n, u, s, _d in picked], {n: d for n, _u, _s, d in picked})
+
+
+def sha256_of(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def download(url: str, target: Path, size: int, progress, cancelled, done_before: int = 0, total: int = 0,
+             sha256: str = ""):
+    """curl into target, reporting how far along (of total bytes) it is. With sha256
+    the file only becomes target when its bytes match it (else it is deleted)."""
     target.parent.mkdir(parents=True, exist_ok=True)
     partial = target.with_name(target.name + ".part")
     # The size from the release list caps the download (a wrong or endless body stops there).
@@ -182,6 +209,9 @@ def download(url: str, target: Path, size: int, progress, cancelled, done_before
         raise RuntimeError(f"download failed: {proc.stderr.read(400).decode('utf-8', 'replace').strip()}")
     if size and partial.stat().st_size != size:
         raise RuntimeError("download incomplete")
+    if sha256 and sha256_of(partial) != sha256:
+        partial.unlink(missing_ok=True)
+        raise RuntimeError(f"{target.name} does not match the release's SHA-256 checksum; nothing was installed")
     os.replace(partial, target)
 
 
@@ -270,6 +300,17 @@ def _curl_json_any(url: str):
         raise RuntimeError(str(error)) from error
 
 
+def unpack_appimage(archive: Path, folder: Path):
+    """An AppImage whose SHA-256 was checked against its release (Installer.install):
+    its own --appimage-extract, so FUSE is not needed."""
+    archive.chmod(0o755)
+    _out, ok = ai_core.read_bounded_output([str(archive), "--appimage-extract"], max_bytes=64 * 1024,
+                                           timeout=900, cwd=str(folder))
+    if not ok:
+        raise RuntimeError("unpacking the AppImage failed")
+    check_unpacked_size(folder)
+
+
 class Installer:
     """What all user-folder installs share: version folders, `current`, the
     command in ~/.local/bin, a settings file, a user service, uninstall
@@ -283,6 +324,7 @@ class Installer:
     login_default = False        # the install page's "Start at login" switch
     uses_models = True           # False: an agent (no model folder)
     builds: tuple = ()           # (key, label) choices, first = default for the card (see default_build)
+    can_install = True           # False: no checksummed release to install from (only Uninstall of an earlier install)
 
     @property
     def default_folder(self) -> Path:
@@ -342,6 +384,11 @@ class Installer:
 
     def install(self, folder: Path, models: Path, start_at_login: bool, start_now: bool, gpu: Gpu,
                 release: Release, progress, cancelled):
+        if not self.can_install:
+            raise RuntimeError(f"{self.name} is not installed from here; use its own installer")
+        missing = [name for name, _url, _size in release.assets if name not in release.digests]
+        if missing:
+            raise RuntimeError(f"{missing[0]}: no SHA-256 checksum to check it against; nothing was installed")
         folder.mkdir(parents=True, exist_ok=True)
         (folder / MARKER).write_text(json.dumps({"runtime": self.key}) + "\n")
         if models is not None and self.uses_models:
@@ -350,7 +397,8 @@ class Installer:
         done = 0
         for asset_name, url, size in release.assets:
             progress(done / max(1, release.size), f"download {asset_name}")
-            download(url, downloads / asset_name, size, progress, cancelled, done, release.size)
+            download(url, downloads / asset_name, size, progress, cancelled, done, release.size,
+                     sha256=release.digests[asset_name])
             done += size
         if cancelled():
             raise Cancelled()
@@ -472,7 +520,7 @@ class Ollama(Installer):
         assets = {a.get("name"): a for a in data.get("assets", []) if isinstance(a, dict)}
         if any(name not in assets for name in wanted):
             raise RuntimeError(f"{version} has no Linux build")
-        return Release(version, [(n, assets[n]["browser_download_url"], int(assets[n].get("size", 0))) for n in wanted])
+        return github_release(version, [assets[n] for n in wanted])
 
     def models_folder(self) -> str:
         return read_env(self.env_file).get("OLLAMA_MODELS", "")
@@ -544,7 +592,7 @@ class LlamaCpp(Installer):
                                                                     str(a.get("name")))), None)
                 if runtime:
                     picked.append(runtime)
-            return Release(f"{version}-{build}", [(a["name"], a["browser_download_url"], int(a.get("size", 0))) for a in picked])
+            return github_release(f"{version}-{build}", picked)
         raise RuntimeError(f"no {build} build for Linux found")
 
     def models_folder(self) -> str:
@@ -590,40 +638,16 @@ WantedBy=default.target
 
 
 class LmStudio(Installer):
-    """LM Studio's AppImage, unpacked (so FUSE is not needed), with a desktop
-    entry and `lm-studio` in ~/.local/bin. Its server is `lms server`."""
+    """LM Studio publishes no checksum or signature for its AppImage, so it is
+    not installed or updated from here (lmstudio.ai). Kept for a copy installed
+    by an earlier version: its model folder, desktop entry and Uninstall."""
     key, name, command, service = "lmstudio", "LM Studio", "lm-studio", ""
     bin_rel = "squashfs-root/AppRun"
     has_service = False
+    can_install = False
+    site = "https://lmstudio.ai/download"
     settings = HOME / ".lmstudio/settings.json"
     desktop = HOME / ".local/share/applications/lm-studio-ai-agents-map.desktop"
-
-    def latest(self, gpu: Gpu, build: str = "") -> Release:
-        try:
-            first = netfetch.fetch("https://lmstudio.ai/download/latest/linux/x64", head=True, redirects=0,
-                                   max_bytes=16384, timeout=API_TIMEOUT).decode("utf-8", "replace")
-        except netfetch.FetchError as error:
-            raise RuntimeError("could not find the latest LM Studio") from error
-        location = re.search(r"^location:\s*(https://installers\.lmstudio\.ai/linux/x64/([\w.-]+)/[\w.-]+\.AppImage)\s*$",
-                             first, re.MULTILINE | re.IGNORECASE)
-        if not location:
-            raise RuntimeError("could not find the latest LM Studio")
-        url, version = location.group(1), location.group(2)
-        try:
-            head = netfetch.fetch(url, head=True, redirects=0, max_bytes=16384,
-                                  timeout=API_TIMEOUT).decode("utf-8", "replace")
-        except netfetch.FetchError:
-            head = ""
-        sizes = re.findall(r"^content-length:\s*(\d+)", head, re.MULTILINE | re.IGNORECASE)
-        return Release(f"v{version}", [(Path(url).name, url, int(sizes[-1]) if sizes else 0)])
-
-    def unpack(self, archive: Path, folder: Path):
-        archive.chmod(0o755)        # our own download, from installers.lmstudio.ai
-        _out, ok = ai_core.read_bounded_output([str(archive), "--appimage-extract"], max_bytes=64 * 1024,
-                                               timeout=900, cwd=str(folder))
-        if not ok:
-            raise RuntimeError("unpacking the AppImage failed")
-        check_unpacked_size(folder)
 
     def models_folder(self) -> str:
         try:
@@ -755,7 +779,7 @@ class KoboldCpp(Installer):
         if wanted not in assets:
             raise RuntimeError(f"{version} has no Linux build")
         asset = assets[wanted]
-        return Release(f"{version}-{build}", [(wanted, asset["browser_download_url"], int(asset.get("size", 0)))])
+        return github_release(f"{version}-{build}", [asset])
 
     def unpack(self, archive: Path, folder: Path):
         """One program file: copied in as `koboldcpp`, made executable."""
@@ -849,10 +873,10 @@ class Jan(Installer):
         asset = next((a for a in data.get("assets", []) if isinstance(a, dict) and a.get("name") == wanted), None)
         if asset is None:
             raise RuntimeError(f"{version} has no Linux AppImage")
-        return Release(version, [(wanted, asset["browser_download_url"], int(asset.get("size", 0)))])
+        return github_release(version, [asset])
 
     def unpack(self, archive: Path, folder: Path):
-        LmStudio.unpack(self, archive, folder)
+        unpack_appimage(archive, folder)
 
     def models_folder(self) -> str:
         import inventory
@@ -924,36 +948,16 @@ Terminal=false
 
 
 class Bionic(Installer):
-    """LM Studio Bionic, LM Studio's agent app: its AppImage, unpacked (no FUSE
-    needed), with a desktop entry and `bionic` in ~/.local/bin. Not a local LLM:
-    it uses LM Studio for local models (LM Studio 0.4.26 or newer)."""
+    """LM Studio Bionic, LM Studio's agent app. Like LM Studio it has no
+    checksum or signature, so it is not installed or updated from here; kept
+    for a copy installed by an earlier version (desktop entry, Uninstall)."""
     key, name, command, service = "bionic", "LM Studio Bionic", "bionic", ""
     bin_rel = "squashfs-root/AppRun"
     has_service = False
     uses_models = False
+    can_install = False
+    site = "https://lmstudio.ai"
     desktop = HOME / ".local/share/applications/bionic-ai-agents-map.desktop"
-
-    def latest(self, gpu: Gpu, build: str = "") -> Release:
-        try:
-            first = netfetch.fetch("https://lmstudio.ai/download/bionic/latest/linux/x64", head=True, redirects=0,
-                                   max_bytes=16384, timeout=API_TIMEOUT).decode("utf-8", "replace")
-        except netfetch.FetchError as error:
-            raise RuntimeError("could not find the latest Bionic") from error
-        location = re.search(r"^location:\s*(https://bionic-installers\.lmstudio\.ai/linux/x64/([\w.-]+)/[\w.-]+\.AppImage)\s*$",
-                             first, re.MULTILINE | re.IGNORECASE)
-        if not location:
-            raise RuntimeError("could not find the latest Bionic")
-        url, version = location.group(1), location.group(2)
-        try:
-            head = netfetch.fetch(url, head=True, redirects=0, max_bytes=16384,
-                                  timeout=API_TIMEOUT).decode("utf-8", "replace")
-        except netfetch.FetchError:
-            head = ""
-        sizes = re.findall(r"^content-length:\s*(\d+)", head, re.MULTILINE | re.IGNORECASE)
-        return Release(f"v{version}", [(Path(url).name, url, int(sizes[-1]) if sizes else 0)])
-
-    def unpack(self, archive: Path, folder: Path):
-        LmStudio.unpack(self, archive, folder)
 
     def configure(self, models: Path):
         folder = self.installed_folder() or self.default_folder

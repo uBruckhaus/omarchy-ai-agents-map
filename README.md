@@ -225,14 +225,17 @@ into a program folder you choose (one folder per version, a `current` link, the 
 folder (the one your other local LLMs use is suggested) and whether it starts at login. Installed
 this way: **Update…** (new version folder, the previous one is kept as a fallback), **Model folder…**
 (change it later) and **Uninstall…** (program, command, service and settings; never the models).
-Installs made by hand are shown but never changed.
+Installs made by hand are shown but never changed. Every download must match the SHA-256 checksum
+its GitHub release lists before it is unpacked or run; a release without one, or a file that does
+not match, is not installed.
 
 - **Ollama**: the official release (with ROCm for AMD cards), user service `ollama`.
 - **llama.cpp**: the official build of your choice (Vulkan, preselected for AMD unless ROCm is
   installed; ROCm; CUDA; CPU), run as a model router (`llama-server` service: every GGUF in the model
   folder, one loaded at a time, per-model settings in `~/.config/llama.cpp/models.ini`).
-- **LM Studio**: its AppImage, unpacked (no FUSE needed), with a desktop entry; its download folder
-  is set to the model folder. Its server runs with `lms server`.
+- **LM Studio**: not installed or updated from here, since LM Studio publishes no checksum or
+  signature for its download; get it from lmstudio.ai. A copy installed by an earlier version of
+  AI Agents Map can still be uninstalled and its model folder changed. Its server runs with `lms server`.
 - **vLLM**: for NVIDIA cards, in its own Python environment (uv); on AMD cards vLLM needs ROCm
   containers, so it is not offered there.
 - **Jan**: its AppImage, unpacked (no FUSE needed), with a desktop entry (`jan-desktop`). For agents,
@@ -264,7 +267,8 @@ the map → **Install…**, **Update…**, **Uninstall…**; a version folder, t
   stays as written. dsh reads `~/.agents/skills` and `~/.dsh/skills` by itself. Only local LLMs
   are set up; DeepSeek's own API (a key) is set up in dsh. Its web server (`dsh web`) counts as
   the agent being open.
-- **LM Studio Bionic**: its AppImage, unpacked, with a desktop entry. Bionic runs local models
+- **LM Studio Bionic**: not installed or updated from here (no checksum or signature, as LM Studio);
+  get it from lmstudio.ai. A copy installed by an earlier version can still be uninstalled. Bionic runs local models
   itself with LM Studio's engine and models, so it is always linked to LM Studio and cannot be
   connected to another local LLM; the watcher never starts LM Studio for it, and stopping a hidden
   LM Studio never touches Bionic's processes. Its global skills live in `~/.lmstudio/skills`
@@ -323,8 +327,8 @@ the backup and Undo), and the agent is told the same context. A context you set 
   file exists (never opened) or an API-key variable is set (its name only); Cursor CLI is asked
   with its own `cursor-agent status`.
 - **Network** (each only on a click, except where noted): GitHub's release API and release
-  downloads for Ollama, llama.cpp, Jan and KoboldCpp, `lmstudio.ai`/`installers.lmstudio.ai` for LM Studio
-  (`bionic-installers.lmstudio.ai` for Bionic), the npm registry for DeepSeek Harness, PyPI
+  downloads for Ollama, llama.cpp, Jan and KoboldCpp (each checked against the release's SHA-256),
+  the npm registry for DeepSeek Harness, PyPI
   (and `uv`) for vLLM; `huggingface.co` for model search and downloads; the local Ollama on
   127.0.0.1 only after checking that the listening socket belongs to you; the same for each running
   local LLM's own API every 2 s while the window is open (which models are loaded) and for
@@ -336,8 +340,8 @@ the backup and Undo), and the agent is told the same context. A context you set 
   (none for skills and the registry), size and time limits, and request headers handed over on
   stdin, never on the command line.
 - **Starts**: `systemctl --user` start/stop/enable/disable/daemon-reload for the services it
-  installed or that start a local LLM (service-management); the installers' `curl`, `tar`, the LM
-  Studio, Jan and Bionic AppImages' `--appimage-extract`, `uv venv`/`uv pip install`,
+  installed or that start a local LLM (service-management); the installers' `curl`, `tar`, the Jan
+  AppImage's `--appimage-extract` (after its SHA-256 matched), `uv venv`/`uv pip install`,
   `npm install --ignore-scripts` for DeepSeek Harness (installer);
   the watcher service described above (service-management: `systemctl --user start/stop` of the
   connected LLMs' services, `lms server start/stop`, `lms daemon down`; a hidden LM Studio it
