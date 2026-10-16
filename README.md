@@ -292,6 +292,8 @@ Each installed model shows its context now and the best one for your graphics ca
 best 92k"), calculated from the model file's header: its size, and how much video memory every token
 of context takes (KV heads × key and value size × the cache type: f16, q8_0, q4_0). Sliding-window
 layers (Gemma) only keep their window and recurrent layers nothing, so those models get much more.
+The header is read as untrusted input: a file that claims more than 4096 layers, long per-layer
+lists or deeply nested values is skipped (default context) instead of being calculated.
 **Set** writes it: for llama.cpp `ctx-size` in the model's section of `~/.config/llama.cpp/models.ini`
 (backup and Undo, restart llama.cpp for it to take effect), for Ollama the model's `num_ctx`, for
 LM Studio `llm.load.contextLength` in the model's own defaults file

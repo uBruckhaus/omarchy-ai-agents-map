@@ -41,7 +41,9 @@ CACHE_BYTES = {"f16": 2.0, "bf16": 2.0, "f32": 4.0, "q8_0": 34 / 32, "q4_0": 18 
                "q5_0": 22 / 32, "q5_1": 24 / 32, "iq4_nl": 18 / 32}
 MODELS_INI = Path.home() / ".config/llama.cpp/models.ini"
 MAX_KV = 100_000
-MAX_ARRAY = 4096
+MAX_ARRAY = 4096            # entries of a kept per-layer array
+MAX_LAYERS = MAX_ARRAY     # block_count: real models have at most a few hundred layers
+MAX_DEPTH = 4              # arrays of arrays in skipped values
 
 
 @dataclass
@@ -76,7 +78,7 @@ def read_gguf(path: Path) -> dict:
         sizes = {0: ("<B", 1), 1: ("<b", 1), 2: ("<H", 2), 3: ("<h", 2), 4: ("<I", 4), 5: ("<i", 4),
                  6: ("<f", 4), 7: ("<?", 1), 10: ("<Q", 8), 11: ("<q", 8), 12: ("<d", 8)}
 
-        def value(kind, keep=True):
+        def value(kind, keep=True, depth=0):
             if kind in sizes:
                 fmt, size = sizes[kind]
                 return struct.unpack(fmt, f.read(size))[0]
@@ -84,11 +86,19 @@ def read_gguf(path: Path) -> dict:
                 return string()
             if kind == 9:
                 sub, length = struct.unpack("<I", f.read(4))[0], struct.unpack("<Q", f.read(8))[0]
-                if sub in sizes and not keep:
+                if keep:
+                    # The values kept are per-layer numbers: one flat array, one entry per layer.
+                    if sub not in sizes or length > MAX_ARRAY:
+                        raise ValueError("implausible array")
+                    return [value(sub) for _ in range(length)]
+                if sub in sizes:
                     f.seek(sizes[sub][1] * length, os.SEEK_CUR)     # skip big arrays (vocabularies)
                     return None
-                items = [value(sub, keep) for _ in range(length)]
-                return items[:MAX_ARRAY] if keep else None
+                if depth >= MAX_DEPTH:
+                    raise ValueError("implausible array")
+                for _ in range(length):                           # skipped one by one, nothing kept
+                    value(sub, False, depth + 1)
+                return None
             raise ValueError(f"unknown value type {kind}")
 
         wanted = (".context_length", ".block_count", ".head_count_kv", ".head_count", ".embedding_length",
@@ -111,7 +121,9 @@ def kv_layout(meta: dict, cache: str = "f16") -> tuple[int, int]:
     """(bytes per token of context, fixed bytes of the sliding-window layers)."""
     arch = meta.get("general.architecture", "")
     get = lambda key: meta.get(f"{arch}.{key}")   # noqa: E731
-    layers = int(get("block_count") or 0)
+    layers = get("block_count") or 0
+    if type(layers) is not int or not 0 <= layers <= MAX_LAYERS:   # untrusted: per-layer lists are this long
+        raise ValueError("implausible header")
     heads = get("attention.head_count")
     first = lambda v: (max(v) if v else 0) if isinstance(v, list) else v   # noqa: E731
     embed = int(get("embedding_length") or 0)
