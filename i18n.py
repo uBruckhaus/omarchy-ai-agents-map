@@ -167,6 +167,10 @@ STRINGS = {
    "1 Modell auf diesem PC, das {1} noch nicht hat. Hinzufügen macht keine zweite Kopie.",
    "{0} Modelle auf diesem PC, die {1} noch nicht hat. Hinzufügen macht keine zweite Kopie."
   ],
+  "\u00041 more you could set up": [
+   "1 weiteres, das du einrichten könntest",
+   "{0} weitere, die du einrichten könntest"
+  ],
   "\u00041 more is set up already.": [
    "1 weiteres ist schon eingerichtet.",
    "{0} weitere sind schon eingerichtet."
@@ -460,6 +464,7 @@ STRINGS = {
   "Look inside…": "Hineinsehen…",
   "Look up again on the web": "Noch einmal im Web nachsehen",
   "Look up new agents": "Neue Agenten nachschlagen",
+  "Drag to change the width of the cards; double-click for the default": "Ziehen ändert die Breite der Karten; Doppelklick für die Standardbreite",
   "{0} {1} is out now: start the update again": "{0} {1} ist jetzt erschienen: starte das Update neu",
   "Show what you could set up": "Zeigen, was du einrichten könntest",
   "In My setup, a hint below the cards: “{0}” (agents and local LLMs that are not installed, MCP servers no agent uses). + Available in the header shows them either way.": "In Meine Einrichtung ein Hinweis unter den Karten: „{0}“ (nicht installierte Agenten und lokale LLMs, MCP-Server, die kein Agent nutzt). + Verfügbar in der Kopfzeile zeigt sie in jedem Fall.",
@@ -1001,6 +1006,10 @@ STRINGS = {
    "1 modelo en este PC que {1} aún no tiene. Añadirlo no hace una segunda copia.",
    "{0} modelos en este PC que {1} aún no tiene. Añadirlos no hace una segunda copia."
   ],
+  "\u00041 more you could set up": [
+   "1 más que podrías configurar",
+   "{0} más que podrías configurar"
+  ],
   "\u00041 more is set up already.": [
    "1 más ya está configurado.",
    "{0} más ya están configurados."
@@ -1294,6 +1303,7 @@ STRINGS = {
   "Look inside…": "Mirar dentro…",
   "Look up again on the web": "Buscar de nuevo en la web",
   "Look up new agents": "Buscar agentes nuevos",
+  "Drag to change the width of the cards; double-click for the default": "Arrastra para cambiar el ancho de las tarjetas; doble clic para el ancho predeterminado",
   "{0} {1} is out now: start the update again": "{0} {1} ya está disponible: vuelve a iniciar la actualización",
   "Show what you could set up": "Mostrar lo que podrías configurar",
   "In My setup, a hint below the cards: “{0}” (agents and local LLMs that are not installed, MCP servers no agent uses). + Available in the header shows them either way.": "En Mi configuración, una pista bajo las tarjetas: «{0}» (agentes y LLM locales no instalados, servidores MCP que ningún agente usa). + Disponible en la cabecera los muestra de todos modos.",
@@ -1835,6 +1845,10 @@ STRINGS = {
    "1 modèle sur ce PC que {1} n’a pas encore. L’ajouter ne fait pas de seconde copie.",
    "{0} modèles sur ce PC que {1} n’a pas encore. Les ajouter ne fait pas de seconde copie."
   ],
+  "\u00041 more you could set up": [
+   "1 de plus que vous pourriez configurer",
+   "{0} de plus que vous pourriez configurer"
+  ],
   "\u00041 more is set up already.": [
    "1 autre est déjà configuré.",
    "{0} autres sont déjà configurés."
@@ -2128,6 +2142,7 @@ STRINGS = {
   "Look inside…": "Regarder dedans…",
   "Look up again on the web": "Rechercher à nouveau sur le web",
   "Look up new agents": "Rechercher les nouveaux agents",
+  "Drag to change the width of the cards; double-click for the default": "Faites glisser pour changer la largeur des cartes ; double-clic pour la largeur par défaut",
   "{0} {1} is out now: start the update again": "{0} {1} est sorti : relancez la mise à jour",
   "Show what you could set up": "Afficher ce que vous pourriez configurer",
   "In My setup, a hint below the cards: “{0}” (agents and local LLMs that are not installed, MCP servers no agent uses). + Available in the header shows them either way.": "Dans Ma configuration, une indication sous les cartes : « {0} » (agents et LLM locaux non installés, serveurs MCP qu’aucun agent n’utilise). + Disponible dans l’en-tête les affiche de toute façon.",
@@ -2669,6 +2684,10 @@ STRINGS = {
    "1 modello su questo PC che {1} non ha ancora. Aggiungerlo non fa una seconda copia.",
    "{0} modelli su questo PC che {1} non ha ancora. Aggiungerli non fa una seconda copia."
   ],
+  "\u00041 more you could set up": [
+   "1 altro che potresti configurare",
+   "altri {0} che potresti configurare"
+  ],
   "\u00041 more is set up already.": [
    "1 altro è già configurato.",
    "{0} altri sono già configurati."
@@ -2962,6 +2981,7 @@ STRINGS = {
   "Look inside…": "Guarda dentro…",
   "Look up again on the web": "Cerca di nuovo sul web",
   "Look up new agents": "Cerca i nuovi agenti",
+  "Drag to change the width of the cards; double-click for the default": "Trascina per cambiare la larghezza delle schede; doppio clic per quella predefinita",
   "{0} {1} is out now: start the update again": "{0} {1} è uscito: riavvia l’aggiornamento",
   "Show what you could set up": "Mostra cosa potresti configurare",
   "In My setup, a hint below the cards: “{0}” (agents and local LLMs that are not installed, MCP servers no agent uses). + Available in the header shows them either way.": "In La mia configurazione, un suggerimento sotto le schede: «{0}» (agenti e LLM locali non installati, server MCP che nessun agente usa). + Disponibili nell’intestazione li mostra comunque.",
@@ -3503,6 +3523,10 @@ STRINGS = {
    "1 model op deze pc dat {1} nog niet heeft. Toevoegen maakt geen tweede kopie.",
    "{0} modellen op deze pc die {1} nog niet heeft. Toevoegen maakt geen tweede kopie."
   ],
+  "\u00041 more you could set up": [
+   "nog 1 die je zou kunnen instellen",
+   "nog {0} die je zou kunnen instellen"
+  ],
   "\u00041 more is set up already.": [
    "Nog 1 is al ingesteld.",
    "Nog {0} zijn al ingesteld."
@@ -3796,6 +3820,7 @@ STRINGS = {
   "Look inside…": "Binnenin kijken…",
   "Look up again on the web": "Opnieuw op het web opzoeken",
   "Look up new agents": "Nieuwe agents opzoeken",
+  "Drag to change the width of the cards; double-click for the default": "Sleep om de breedte van de kaarten te wijzigen; dubbelklik voor de standaardbreedte",
   "{0} {1} is out now: start the update again": "{0} {1} is nu uit: start de update opnieuw",
   "Show what you could set up": "Tonen wat je zou kunnen instellen",
   "In My setup, a hint below the cards: “{0}” (agents and local LLMs that are not installed, MCP servers no agent uses). + Available in the header shows them either way.": "In Mijn opstelling een hint onder de kaarten: ‘{0}’ (niet-geïnstalleerde agents en lokale LLM’s, MCP-servers die geen agent gebruikt). + Beschikbaar in de kop toont ze hoe dan ook.",
@@ -4349,6 +4374,11 @@ STRINGS = {
    "{0} modele na tym komputerze, których {1} jeszcze nie ma. Dodanie nie robi drugiej kopii.",
    "{0} modeli na tym komputerze, których {1} jeszcze nie ma. Dodanie nie robi drugiej kopii."
   ],
+  "\u00041 more you could set up": [
+   "jeszcze 1, który możesz skonfigurować",
+   "jeszcze {0}, które możesz skonfigurować",
+   "jeszcze {0}, które możesz skonfigurować"
+  ],
   "\u00041 more is set up already.": [
    "Jeszcze 1 jest już skonfigurowany.",
    "Jeszcze {0} są już skonfigurowane.",
@@ -4659,6 +4689,7 @@ STRINGS = {
   "Look inside…": "Zajrzyj do środka…",
   "Look up again on the web": "Sprawdź ponownie w sieci",
   "Look up new agents": "Sprawdzaj nowe agenty",
+  "Drag to change the width of the cards; double-click for the default": "Przeciągnij, aby zmienić szerokość kart; dwuklik przywraca domyślną",
   "{0} {1} is out now: start the update again": "{0} {1} jest już dostępny: uruchom aktualizację ponownie",
   "Show what you could set up": "Pokazuj, co możesz skonfigurować",
   "In My setup, a hint below the cards: “{0}” (agents and local LLMs that are not installed, MCP servers no agent uses). + Available in the header shows them either way.": "W Mojej konfiguracji wskazówka pod kartami: „{0}” (niezainstalowane agenty i lokalne LLM, serwery MCP nieużywane przez żaden agent). + Dostępne w nagłówku i tak je pokazuje.",
@@ -5200,6 +5231,10 @@ STRINGS = {
    "1 modelo neste PC que o {1} ainda não tem. Adicioná-lo não faz uma segunda cópia.",
    "{0} modelos neste PC que o {1} ainda não tem. Adicioná-los não faz uma segunda cópia."
   ],
+  "\u00041 more you could set up": [
+   "mais 1 que você poderia configurar",
+   "mais {0} que você poderia configurar"
+  ],
   "\u00041 more is set up already.": [
    "Mais 1 já está configurado.",
    "Mais {0} já estão configurados."
@@ -5493,6 +5528,7 @@ STRINGS = {
   "Look inside…": "Ver por dentro…",
   "Look up again on the web": "Pesquisar de novo na web",
   "Look up new agents": "Pesquisar agentes novos",
+  "Drag to change the width of the cards; double-click for the default": "Arraste para mudar a largura dos cartões; duplo clique para a largura padrão",
   "{0} {1} is out now: start the update again": "{0} {1} já saiu: inicie a atualização novamente",
   "Show what you could set up": "Mostrar o que você poderia configurar",
   "In My setup, a hint below the cards: “{0}” (agents and local LLMs that are not installed, MCP servers no agent uses). + Available in the header shows them either way.": "Em Minha configuração, uma dica abaixo dos cartões: “{0}” (agentes e LLMs locais não instalados, servidores MCP que nenhum agente usa). + Disponível no cabeçalho os mostra de qualquer forma.",

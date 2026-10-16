@@ -84,6 +84,9 @@ WINDOW_SIZE = (1600, 960)   # first open; afterwards the size it was closed with
 AGENT_SPACING = 8
 SPLIT_WIDTH = 1300        # from this window width the overview shows the map beside the cards
 LIST_PANE_WIDTH = 440
+SIDEBAR_WIDTH = 360        # the cards beside the map (drag the line between them to change it)
+SIDEBAR_MIN = 280
+MAP_MIN = 600              # what dragging leaves the map at least
 RIGHT_PAGES = ("connect", "install", "models", "mcp", "addmcp", "addskills", "status", "health", "terminal")   # open beside the cards
 DETAIL_LABEL_WIDTH = 90   # the dim labels in an opened agent card
 
@@ -611,8 +614,28 @@ class AgentsMap(Gtk.Application):
         self.hint_area.add_css_class("am-hint-area")
         self.list_pane.append(self.hint_area)
         body.append(self.list_pane)
-        self.side_rule = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
-        self.side_rule.add_css_class("am-side-rule")
+        # The line between the cards and the map: drag it to make the cards wider or narrower,
+        # double-click for the default width.
+        rule = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
+        rule.add_css_class("am-side-rule")
+        self.side_rule = Gtk.Box()
+        self.side_rule.add_css_class("am-side-handle")
+        self.side_rule.append(rule)
+        self.side_rule.set_cursor_from_name("col-resize")
+        self.side_rule.set_tooltip_text(_("Drag to change the width of the cards; double-click for the default"))
+        # On the row behind it, which stays put (the line itself moves while it is dragged,
+        # so offsets measured on it would shrink); only a press on the line starts it.
+        drag = Gtk.GestureDrag()
+        drag.connect("drag-begin", self.sidebar_drag_begin)
+        drag.connect("drag-update", lambda _g, dx, _dy: self.drag_width is not None
+                     and self.set_sidebar_width(self.drag_width + dx))
+        drag.connect("drag-end", self.sidebar_drag_end)
+        body.add_controller(drag)
+        self.drag_width = None
+        reset = Gtk.GestureClick()
+        reset.connect("pressed", lambda _g, n, *_: n == 2 and (self.set_sidebar_width(SIDEBAR_WIDTH),
+                                                               self.save_setting(sidebar_width=SIDEBAR_WIDTH)))
+        self.side_rule.add_controller(reset)
         body.append(self.side_rule)
         # Wide: the map beside the cards; a click on a card selects it there.
         side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, hexpand=True)
@@ -972,19 +995,15 @@ class AgentsMap(Gtk.Application):
 
         for update in agent_updates.still_open(getattr(self, "updates", []), self.agent_list, inv.runtimes):
             self.hint_line(_("{0} {1} is available (you have {2})").format(update.name, update.available, update.current),
-                           [(_("Update…") if update.page else _("Update"), lambda u=update: self.run_update(u))])
+                           [(_("Update"), lambda u=update: self.run_update(u))])
 
         # My setup: what else could be added, one click away (Settings › Show what you could set up).
         more = self.scope_more() if ai_core.load_settings().get("show_more_hint", True) else 0
         if more:
-            button = Gtk.Button(label=ngettext("Show 1 more you could set up", "Show {0} more you could set up",
-                                               more).format(more), halign=Gtk.Align.START)
-            button.add_css_class("am-small-btn")
-            button.set_tooltip_text(_("Agents and local LLMs that are not installed, MCP servers no agent uses "
-                                      "(+ Available in the header)"))
-            button.connect("clicked", lambda *_: self.set_scope("all"))
-            self.hint_area.append(button)
-            self.hint_area.set_visible(True)
+            self.hint_line(ngettext("1 more you could set up", "{0} more you could set up", more).format(more),
+                           [(_("Show"), lambda: self.set_scope("all"))],
+                           tip=_("Agents and local LLMs that are not installed, MCP servers no agent uses "
+                                 "(+ Available in the header)"))
 
     def agent_names(self) -> dict:
         names = {a.command: a.name for a in self.agent_list}
@@ -1025,9 +1044,12 @@ class AgentsMap(Gtk.Application):
         self.refresh_overview()
         self.show_notice(_("Updating {0} in a terminal: {1}").format(update.name, " ".join(update.command)))
 
-    def hint_line(self, text: str, buttons=()):
-        """A hint in the area below the cards, with buttons that act on it."""
+    def hint_line(self, text: str, buttons=(), tip: str = ""):
+        """A hint in the area below the cards, with buttons that act on it: every line's
+        buttons in one column at the right edge, all of one width (hint_buttons)."""
         line = Gtk.Box(spacing=8)
+        if tip:
+            line.set_tooltip_text(tip)
         label = Gtk.Label(label=text, xalign=0, wrap=True, max_width_chars=1, hexpand=True)
         label.add_css_class("am-agent-detail")
         line.append(label)
@@ -6509,6 +6531,27 @@ class AgentsMap(Gtk.Application):
             self.sidebar_button.set_active(visible)
         self.update_header()
 
+    def sidebar_drag_begin(self, gesture, x, y):
+        ok, bounds = self.side_rule.compute_bounds(gesture.get_widget())
+        if not (self.side_rule.get_visible() and ok and bounds.origin.x <= x <= bounds.origin.x + bounds.size.width):
+            self.drag_width = None
+            gesture.set_state(Gtk.EventSequenceState.DENIED)
+            return
+        gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+        requested = self.list_pane.get_size_request()[0]     # what set_sidebar_width set (padding and border included)
+        self.drag_width = requested if requested > 0 else self.list_pane.get_width()
+
+    def sidebar_drag_end(self, *_):
+        if self.drag_width is not None:
+            self.drag_width = None
+            self.save_setting(sidebar_width=self.list_pane.get_size_request()[0])
+
+    def set_sidebar_width(self, width):
+        """The cards' width beside the map, kept between SIDEBAR_MIN and what leaves the map MAP_MIN."""
+        widest = max(SIDEBAR_MIN, (self.window.get_width() if self.window is not None and self.window.get_width()
+                                   else self.card_w) - MAP_MIN)
+        self.list_pane.set_size_request(int(max(SIDEBAR_MIN, min(widest, width))), -1)
+
     def fit(self):
         """As large as the screen allows (checked on every open: another monitor)."""
         self.card_w, self.list_h = self.size_limits()
@@ -6516,7 +6559,11 @@ class AgentsMap(Gtk.Application):
             # A very small screen keeps the cards alone.
             self.split = self.card_w >= SPLIT_WIDTH
             self.list_pane.set_hexpand(not self.split)
-            self.list_pane.set_size_request(LIST_PANE_WIDTH if self.split else -1, -1)
+            if self.split:
+                saved = ai_core.load_settings().get("sidebar_width")
+                self.set_sidebar_width(saved if isinstance(saved, int) else SIDEBAR_WIDTH)
+            else:
+                self.list_pane.set_size_request(-1, -1)
             self.set_sidebar(self.sidebar_visible)
         for scroller in self.scrollers:
             # The card fills the window's height; the scrollers only need a small minimum.
@@ -6725,7 +6772,9 @@ class AgentsMap(Gtk.Application):
         .am-category {{ background: alpha({fg_hex}, 0.03); border: 1px solid alpha({fg_hex}, 0.08);
             border-radius: {radius}px; padding: 8px 10px 10px 10px; }}
         .am-hint-area {{ border-top: 1px solid alpha({fg_hex}, 0.10); padding: 8px 2px 10px 2px; }}
-        .am-side-rule {{ margin: 0 14px; background: alpha({fg_hex}, 0.14); min-width: 1px; }}
+        .am-side-handle {{ padding: 0 13px; }}
+        .am-side-handle:hover .am-side-rule {{ background: {accent_hex}; }}
+        .am-side-rule {{ margin: 0; background: alpha({fg_hex}, 0.14); min-width: 1px; }}
         .am-segmented {{ border: 1px solid alpha({fg_hex}, 0.22); border-radius: 999px; padding: 2px; }}
         .am-card button.am-segment {{ font-size: 11px; min-height: 0; padding: 2px 12px; border-radius: 999px;
             border: none; background: none; box-shadow: none; color: {dim_hex}; }}

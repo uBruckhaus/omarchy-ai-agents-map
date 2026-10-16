@@ -45,8 +45,8 @@ cards it shows, a whole section or card by card, like the map's column lists.
 
 Below the cards, a hint area of its own (shown only when there is something to say): new programs
 or skills found on this PC (with **Add MCP server…** / **Add skills…**), **updates** for the
-installed agents and local LLMs (see below), and "Show N more you could set up" (Settings › **Show
-what you could set up** turns that one off).
+installed agents and local LLMs (see below), and "N more you could set up" with **Show** (Settings ›
+**Show what you could set up** turns that one off). Their buttons share one column and one width.
 
 **Health check** above the cards sums up how well the setup works ("1 thing to fix · 3 tips");
 **Open ›** lists by area (this PC, agents, local LLMs and models, tools) what is fine, tips and what
@@ -76,7 +76,8 @@ Nothing is installed or run by the check itself (except `mise outdated`); an upd
 with a click on **Update**.
 
 The cards are on the left, the map on the right (in a window narrower than about 1300 px, such as
-half the screen, only the cards; pages then open over them). The sidebar button left of the title (Ctrl+B) hides the cards so the map takes the whole
+half the screen, only the cards; pages then open over them). Drag the line between the cards and the map to make the cards wider or narrower (kept in the settings;
+double-click it for the default 360 px). The sidebar button left of the title (Ctrl+B) hides the cards so the map takes the whole
 width; every open shows them again. Pages opened from a card or from the map (ⓘ Details, adding
 MCP servers or skills, models, installing, connecting) open on the right in place of the map, so
 the cards stay beside them; **Back** brings the map back.
