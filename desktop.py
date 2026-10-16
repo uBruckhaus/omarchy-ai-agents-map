@@ -33,6 +33,10 @@ The interface (each implementation provides all of it):
     has_usage_collector(command) -> bool
     refresh_usage(command) -> bool                ask the desktop for fresh usage (blocking)
     install_command(package) -> str               the command that installs "vte4" or "xdg-terminal-exec" ("" unknown)
+    text(key) -> str              a translated text that says how something is done on this desktop:
+                                  install_agent, install_agent_first, install_agent_short,
+                                  install_coding_agent, install_terminal, widen_tip
+    launcher_entry() -> bool      whether the app offers its own app-launcher entry (Settings)
 """
 
 import os

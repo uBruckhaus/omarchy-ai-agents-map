@@ -21,7 +21,8 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
-from gi.repository import Gdk, Gio, GLib, Gtk, Pango
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango
 
 import atexit
 
@@ -223,7 +224,7 @@ class TokenChart(Gtk.DrawingArea):
         return False
 
 
-class AppWindow(Gtk.ApplicationWindow):
+class AppWindow(Adw.ApplicationWindow):
     """Tells when the compositor gives it another width (Hyprland tiles the window
     without touching GTK's default size; its content may be wider than the window
     while the cards and the map still sit side by side)."""
@@ -234,13 +235,13 @@ class AppWindow(Gtk.ApplicationWindow):
         self.last_width = 0
 
     def do_size_allocate(self, width, height, baseline):
-        Gtk.ApplicationWindow.do_size_allocate(self, width, height, baseline)
+        Adw.ApplicationWindow.do_size_allocate(self, width, height, baseline)
         if width != self.last_width:
             self.last_width = width
             GLib.idle_add(self.on_width, width)
 
 
-class AgentsMap(Gtk.Application):
+class AgentsMap(Adw.Application):
     def __init__(self):
         super().__init__(application_id="org.omarchy.aiagentsmap")
         self.window = None
@@ -275,7 +276,7 @@ class AgentsMap(Gtk.Application):
 
     def do_shutdown(self):
         cleanup_pid()
-        Gtk.Application.do_shutdown(self)
+        Adw.Application.do_shutdown(self)
 
     def do_activate(self):
         if self.window is None:
@@ -390,12 +391,24 @@ class AgentsMap(Gtk.Application):
         holder = Gtk.ScrolledWindow()
         holder.set_policy(Gtk.PolicyType.EXTERNAL, Gtk.PolicyType.NEVER)
         holder.set_child(frame)
-        window.set_child(holder)
         frame.add_overlay(self.build_undo_bar())
         self.card = card
         self.card_frame = frame
 
-        card.append(self.build_header())
+        header = self.build_header()
+        if desktop.decorated():
+            # Other desktops: the header row is the header bar's content, beside the window buttons.
+            bar = Adw.HeaderBar()
+            bar.add_css_class("am-headerbar")
+            header.set_hexpand(True)
+            bar.set_title_widget(header)
+            toolbar = Adw.ToolbarView()
+            toolbar.add_top_bar(bar)
+            toolbar.set_content(holder)
+            window.set_content(toolbar)
+        else:
+            window.set_content(holder)
+            card.append(header)
 
         stack = Gtk.Stack()
         stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
@@ -465,8 +478,7 @@ class AgentsMap(Gtk.Application):
         self.widen_hint.set_child(content)
         self.widen_hint.add_css_class("am-small-btn")
         self.widen_hint.add_css_class("am-widen-hint")
-        self.widen_hint.set_tooltip_text(_("Only the cards fit at this width. A click moves the window to a free "
-                                           "workspace, where it gets the whole width (or press Super + Alt + F)."))
+        self.widen_hint.set_tooltip_text(desktop.text("widen_tip"))
         self.widen_hint.connect("clicked", lambda *_: self.widen())
         header.append(self.widen_hint)
         # One view (the cards with the map beside them): no view switch any more.
@@ -1353,7 +1365,7 @@ class AgentsMap(Gtk.Application):
             rows.append(self.research_row(agent))
         if not agent.installed:
             rows.append((_("Status"), _("Not installed"),
-                         _("Install it from Omarchy's menu: Setup → Defaults → Agent.")))
+                         desktop.text("install_agent")))
         if not summary:
             rows.append((_("Plan"), info.plan, _("Your subscription, as Omarchy's usage data reports it.")))
         rows.append((_("Model"), info.model, _("The model set in the agent's settings.")))
@@ -5924,7 +5936,12 @@ class AgentsMap(Gtk.Application):
         box = self.settings_box
         while (child := box.get_first_child()) is not None:
             box.remove(child)
-        # First, so a "Not now" at the first start is easy to redo.
+        # First, so a "Not now" at the first start is easy to redo (only where the app offers an entry).
+        if desktop.launcher_entry():
+            self.fill_launcher_setting(box)
+        self.fill_general_settings(box)
+
+    def fill_launcher_setting(self, box):
         self.settings_heading(box, _("Omarchy app"))
         launcher = Gtk.Switch(active=ai_core.load_settings().get("launcher_entry") is True, valign=Gtk.Align.CENTER)
         launcher.connect("notify::active", lambda w, *_: self.settings_ready
@@ -5934,6 +5951,8 @@ class AgentsMap(Gtk.Application):
         note = Gtk.Label(label=launcher_hint, xalign=0, wrap=True, max_width_chars=1)
         note.add_css_class("am-agent-detail")
         box.append(note)
+
+    def fill_general_settings(self, box):
         self.settings_heading(box, _("General"))
         codes = ["auto"] + [code for code, _name in i18n.LANGUAGES]
         setting = i18n.language_setting()
@@ -6457,7 +6476,10 @@ class AgentsMap(Gtk.Application):
     # --- size ----------------------------------------------------------------------
 
     def launcher_entry_on_open(self):
-        """The launcher entry is opt-in: asked once, then kept as the setting says."""
+        """The launcher entry is opt-in: asked once, then kept as the setting says
+        (only on a desktop where the app offers its own entry)."""
+        if not desktop.launcher_entry():
+            return
         wanted = ai_core.load_settings().get("launcher_entry")
         if isinstance(wanted, bool):
             app_entry.ensure_entry(wanted)
@@ -6585,6 +6607,10 @@ class AgentsMap(Gtk.Application):
     def watch_theme(self):
         path = str(desktop.theme_dir() or "")
         if not path:
+            # Other desktops: the system's light/dark style and accent colour.
+            manager = Adw.StyleManager.get_default()
+            for signal in ("notify::dark", "notify::accent-color"):
+                manager.connect(signal, lambda *_: GLib.timeout_add(100, self.reload_theme))
             return
         self.theme_monitor = Gio.File.new_for_path(path).monitor(Gio.FileMonitorFlags.WATCH_MOVES, None)
         self.theme_monitor.connect("changed", lambda *_: GLib.timeout_add(300, self.reload_theme))
@@ -6596,6 +6622,39 @@ class AgentsMap(Gtk.Application):
         if self.theme.reload():
             self.apply_theme_css()
         return False
+
+    def apply_style_scheme(self, background: str):
+        """Omarchy: light or dark as its theme's background; other desktops: as the system."""
+        manager = Adw.StyleManager.get_default()
+        if desktop.NAME != "omarchy":
+            manager.set_color_scheme(Adw.ColorScheme.DEFAULT)
+            return
+        try:
+            r, g, b = (int(background.lstrip("#")[i:i + 2], 16) / 255 for i in (0, 2, 4))
+            light = 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.5
+        except (ValueError, IndexError):
+            light = False
+        manager.set_color_scheme(Adw.ColorScheme.FORCE_LIGHT if light else Adw.ColorScheme.FORCE_DARK)
+
+    def adw_colors_css(self, bg: str, fg: str, accent: str, red: str, green: str, yellow: str) -> str:
+        """libadwaita's named colours from the Omarchy theme (other desktops keep their own)."""
+        if desktop.NAME != "omarchy":
+            return ""
+        pairs = {"window-bg-color": bg, "window-fg-color": fg, "view-bg-color": bg, "view-fg-color": fg,
+                 "headerbar-bg-color": bg, "headerbar-fg-color": fg, "popover-bg-color": bg,
+                 "popover-fg-color": fg, "dialog-bg-color": bg, "dialog-fg-color": fg,
+                 "card-bg-color": f"color-mix(in srgb, {fg} 5%, {bg})", "card-fg-color": fg,
+                 "sidebar-bg-color": bg, "sidebar-fg-color": fg, "accent-color": accent,
+                 "accent-bg-color": accent, "accent-fg-color": bg, "destructive-color": red,
+                 "destructive-bg-color": red, "destructive-fg-color": bg, "success-color": green,
+                 "success-bg-color": green, "success-fg-color": bg, "warning-color": yellow,
+                 "warning-bg-color": yellow, "warning-fg-color": bg, "error-color": red,
+                 "error-bg-color": red, "error-fg-color": bg}
+        # Omarchy's look as before libadwaita: Hyprland rounds (or not) the window itself, and
+        # buttons keep the regular weight (libadwaita makes every button label bold).
+        omarchy_look = ("window#aiagentsmap-window { border-radius: 0; }\n"
+                        "window#aiagentsmap-window button { font-weight: normal; }\n")
+        return ":root { " + " ".join(f"--{k}: {v};" for k, v in pairs.items()) + " }\n" + omarchy_look
 
     def apply_theme_css(self):
         colors = self.theme.colors
@@ -6787,6 +6846,8 @@ class AgentsMap(Gtk.Application):
                 view.set_palette({"bg": bg_hex, "fg": fg_hex, "dim": dim_hex, "muted": muted_hex,
                                   "accent": accent_hex, "green": green_hex, "yellow": yellow_hex, "red": red_hex},
                                  radius)
+        self.apply_style_scheme(bg_hex)
+        css = self.adw_colors_css(bg_hex, fg_hex, accent_hex, red_hex, green_hex, yellow_hex) + css
         provider = Gtk.CssProvider()
         provider.load_from_string(css)
         Gtk.StyleContext.add_provider_for_display(display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)

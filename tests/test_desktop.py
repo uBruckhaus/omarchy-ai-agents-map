@@ -22,7 +22,7 @@ class DetectTest(unittest.TestCase):
 
     def test_both_implement_the_whole_interface(self):
         names = [line.split()[0].split("(")[0] for line in desktop.__doc__.split("The interface")[1].splitlines()
-                 if line.startswith("    ") and line.split()[0][0].islower()]
+                 if line.startswith("    ") and line.split()[0][0].islower() and "(" in line.split()[0]]
         self.assertGreaterEqual(len(names), 20)
         for module in (desktop_omarchy, g):
             missing = [n for n in names if not hasattr(module, n)]
@@ -33,13 +33,20 @@ class GenericTest(unittest.TestCase):
     def test_config_folder_is_asterism(self):
         self.assertEqual(g.CONFIG_DIR.name, "asterism")
 
+    def test_theme_from_the_style_manager(self):
+        with mock.patch.object(g, "_adw_style", return_value=(True, "#9141ac")):
+            colors = g.theme_colors()
+        self.assertEqual((colors["background"], colors["accent"]), (g.DARK["background"], "#9141ac"))
+
     def test_theme_follows_style_and_accent(self):
+        """Without a display (no style manager): gsettings."""
         answers = {"color-scheme": "prefer-dark", "accent-color": "purple"}
-        with mock.patch.object(g, "_gsetting", side_effect=lambda key: answers.get(key, "")):
+        with mock.patch.object(g, "_adw_style", return_value=None), \
+                mock.patch.object(g, "_gsetting", side_effect=lambda key: answers.get(key, "")):
             dark = g.theme_colors()
         self.assertEqual(dark["background"], g.DARK["background"])
         self.assertEqual(dark["accent"], g.ACCENTS["purple"])
-        with mock.patch.object(g, "_gsetting", return_value=""):
+        with mock.patch.object(g, "_adw_style", return_value=None), mock.patch.object(g, "_gsetting", return_value=""):
             light = g.theme_colors()
         self.assertEqual((light["background"], light["accent"]), (g.LIGHT["background"], g.ACCENTS["blue"]))
 
@@ -79,7 +86,10 @@ class GenericTest(unittest.TestCase):
             self.assertIsNone(g.is_maximized("x"))
 
     def test_no_usage_records_and_built_in_agents(self):
-        self.assertIsNone(g.agent_catalog())
+        import agents
+        catalog = g.agent_catalog()
+        self.assertEqual([c for c, *_rest in catalog], [c for c, *_rest in agents.FALLBACK])
+        self.assertFalse([c for c, _l, _i, font in catalog if font == "omarchy"])
         self.assertEqual(g.default_agent(), "")
         self.assertIsNone(g.usage_dir())
         self.assertFalse(g.refresh_usage("claude"))

@@ -17,6 +17,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import desktop
 from i18n import _
 
 HOME = Path.home()
@@ -66,13 +67,12 @@ ISSUE_KINDS = ("vte4", "terminal")
 
 def issue_text(kind: str) -> tuple[str, str, str]:
     """(what happened, what to do, the command that fixes it: the desktop's package manager)."""
-    import desktop
     return {
         "vte4": (_("The terminal inside the map needs the vte4 package, so it started in a separate terminal."),
                  _("Install it (it needs your password); the next Start then runs inside the map:"),
                  desktop.install_command("vte4")),
         "terminal": (_("No terminal was found to start it in."),
-                     _("Install the terminal launcher Omarchy uses:"), desktop.install_command("xdg-terminal-exec")),
+                     desktop.text("install_terminal"), desktop.install_command("xdg-terminal-exec")),
     }[kind]
 
 
@@ -379,7 +379,7 @@ def agent_checks(agent, info, record: dict, inventory, hints: dict, logged_in: b
     checks = []
     if not agent.installed:
         checks.append(Check("missing", _("Not installed"),
-                            step=_("Install it from Omarchy's menu: Setup → Defaults → Agent.")))
+                            step=desktop.text("install_agent")))
         return checks
     checks.append(Check("ok", _("Installed"), " · ".join(x for x in (agent.version,) if x)))
     if issue and issue.get("kind") in ISSUE_KINDS:

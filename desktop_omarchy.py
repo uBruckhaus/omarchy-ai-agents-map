@@ -256,6 +256,28 @@ def run_in_terminal(argv: list, env: dict | None = None) -> bool:
     return True
 
 
+# --- texts that name the desktop -------------------------------------------------------------------
+
+def text(key: str) -> str:
+    """A translated text that says how things are done on this desktop."""
+    from i18n import _
+    return {
+        "install_agent": _("Install it from Omarchy's menu: Setup → Defaults → Agent."),
+        "install_agent_first": _("Install one from Omarchy's menu: Setup → Defaults → Agent (Claude Code, "
+                                 "Codex or OpenCode to start with)."),
+        "install_agent_short": _("Omarchy's menu: Setup → Defaults → Agent."),
+        "install_coding_agent": _("Claude Code, Codex or OpenCode: Omarchy's menu → Setup → Defaults → Agent."),
+        "install_terminal": _("Install the terminal launcher Omarchy uses:"),
+        "widen_tip": _("Only the cards fit at this width. A click moves the window to a free "
+                       "workspace, where it gets the whole width (or press Super + Alt + F)."),
+    }[key]
+
+
+def launcher_entry() -> bool:
+    """The plugin offers its own entry in Omarchy's app launcher (Settings › Omarchy app)."""
+    return True
+
+
 # --- packages -------------------------------------------------------------------------------------
 
 def install_command(package: str) -> str:

@@ -2,8 +2,9 @@
 
 - own files: $XDG_CONFIG_HOME/asterism (~/.config/asterism)
 - theme: libadwaita's colours for the system's light or dark style and accent
-  colour (`gsettings`, org.gnome.desktop.interface color-scheme / accent-color;
-  light and blue when unknown); windows have libadwaita's 12 px corners
+  colour (Adw.StyleManager, else `gsettings` org.gnome.desktop.interface
+  color-scheme / accent-color; light and blue when unknown); windows have
+  libadwaita's 12 px corners
 - windows: GTK itself (the window is handed over with attach_window); the
   desktop draws the title bar
 - terminals: xdg-terminal-exec, $TERMINAL, then the usual ones (Console, Ptyxis,
@@ -79,10 +80,32 @@ def theme_colors(path=None) -> dict:
     if path is not None:
         import desktop_omarchy
         return desktop_omarchy.theme_colors(path)
-    dark = _gsetting("color-scheme") == "prefer-dark"
+    style = _adw_style()
+    if style is not None:
+        dark, accent = style
+    else:
+        dark = _gsetting("color-scheme") == "prefer-dark"
+        accent = ACCENTS.get(_gsetting("accent-color"), ACCENTS["blue"])
     colors = dict(DARK if dark else LIGHT)
-    colors["accent"] = ACCENTS.get(_gsetting("accent-color"), ACCENTS["blue"])
+    colors["accent"] = accent
     return colors
+
+
+def _adw_style():
+    """(dark, accent hex) from libadwaita's style manager (the system's style, also through
+    the desktop portal on KDE), or None before there is a display (tests, the watcher)."""
+    try:
+        import gi
+        gi.require_version("Adw", "1")
+        from gi.repository import Adw, Gdk
+        if Gdk.Display.get_default() is None:
+            return None
+        manager = Adw.StyleManager.get_default()
+        rgba = manager.get_accent_color_rgba()
+        accent = "#%02x%02x%02x" % tuple(round(c * 255) for c in (rgba.red, rgba.green, rgba.blue))
+        return manager.get_dark(), accent
+    except (ImportError, ValueError, AttributeError):
+        return None
 
 
 def window_rounding() -> int:
@@ -172,7 +195,10 @@ def run_in_terminal(argv: list, env: dict | None = None) -> bool:
 # --- agents ---------------------------------------------------------------------------------------
 
 def agent_catalog():
-    return None             # the built-in list
+    """The built-in list; glyphs from Omarchy's own font (not installed here) become the robot."""
+    import agents
+    return [(command, label, icon if font != "omarchy" else agents.ROBOT, "" if font == "omarchy" else font)
+            for command, label, icon, font in agents.FALLBACK]
 
 
 def default_agent() -> str:
@@ -188,6 +214,25 @@ def has_usage_collector(command: str) -> bool:
 
 
 def refresh_usage(command: str) -> bool:
+    return False
+
+
+# --- texts that name the desktop -------------------------------------------------------------------
+
+def text(key: str) -> str:
+    from i18n import _
+    return {
+        "install_agent": _("Install it with its own installer (see the agent's website)."),
+        "install_agent_first": _("Install one with its own installer (Claude Code, Codex or OpenCode to start with)."),
+        "install_agent_short": _("Each agent has its own installer (see its website)."),
+        "install_coding_agent": _("Claude Code, Codex or OpenCode, each with its own installer."),
+        "install_terminal": _("Install a terminal app (Console, Konsole, …):"),
+        "widen_tip": _("Only the cards fit at this width. A click maximizes the window, so it gets the whole width."),
+    }[key]
+
+
+def launcher_entry() -> bool:
+    """No entry of our own: an installed package brings its .desktop file."""
     return False
 
 

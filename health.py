@@ -21,6 +21,7 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import desktop
 from i18n import _, ngettext
 
 GiB = 1024 ** 3
@@ -202,8 +203,7 @@ def check(agent_list, details: dict, inventory, built, pc: PC, agent_checks: dic
     area = Area("agents", _("Agents"), "\U000f06a9")
     if not installed:
         area.findings.append(Finding("warn", _("No agent installed"),
-                                     _("Install one from Omarchy's menu: Setup → Defaults → Agent (Claude Code, "
-                                       "Codex or OpenCode to start with).")))
+                                     desktop.text("install_agent_first")))
     ready = []
     for agent in installed:
         checks = agent_checks.get(agent.command, [])
@@ -308,7 +308,7 @@ def check(agent_list, details: dict, inventory, built, pc: PC, agent_checks: dic
                   _("Ask questions, sort files, fix settings, explain errors."))
     use.have = [a.name for a in installed][:4] + matches(PC_TOOL, [m.name for m in inventory.mcp])[:3]
     if not installed:
-        use.steps.append(Finding("warn", _("Install an agent"), _("Omarchy's menu: Setup → Defaults → Agent.")))
+        use.steps.append(Finding("warn", _("Install an agent"), desktop.text("install_agent_short")))
     elif not runtimes:
         use.steps.append(Finding("hint", _("Quick answers offline"),
                                  _("A small local model (2–4 GB) answers simple questions without internet or costs."),
@@ -322,7 +322,7 @@ def check(agent_list, details: dict, inventory, built, pc: PC, agent_checks: dic
                                                 if skill_count else [])
     if not coding:
         use.steps.append(Finding("warn", _("Install a coding agent"),
-                                 _("Claude Code, Codex or OpenCode: Omarchy's menu → Setup → Defaults → Agent.")))
+                                 desktop.text("install_coding_agent")))
     if runtimes and not coder_models and pc.vram >= 6 * GiB:
         rt = runtimes[0]
         use.steps.append(Finding("hint", _("A coding model for {0}").format(rt.name),
