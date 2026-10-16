@@ -605,7 +605,7 @@ class AgentsMap(Adw.Application):
         self.health_report = None
         self.health_running = False
         body = Gtk.Box(spacing=0)
-        self.agents_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=AGENT_SPACING)
+        self.agents_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)   # between the groups
         self.agents_box.add_css_class("am-agents")
         scroller = self.page_scroller(self.agents_box)
         scroller.set_vexpand(True)
@@ -943,7 +943,7 @@ class AgentsMap(Adw.Application):
         if installed:
             group = self.section(_("Agents ({0})").format(len(installed)))
             for agent in installed:
-                group.append(self.agent_card(agent))
+                group.add(self.agent_card(agent))
 
         runtimes = [] if "local" in off else \
             [rt for rt in sorted(inv.runtimes, key=lambda r: not r.installed) if f"runtime:{rt.key}" not in hidden]
@@ -955,7 +955,7 @@ class AgentsMap(Adw.Application):
             state = {"running": _("running"), "stopped": _("installed, not running")}.get(status, _("not installed"))
             sub = state if not rt.installed else \
                 " · ".join([state, ngettext("1 model", "{0} models", len(rt.models)).format(len(rt.models))])
-            group.append(self.expandable_card(f"runtime:{rt.key}", "\U000F061A", "", rt.name, sub,
+            group.add(self.expandable_card(f"runtime:{rt.key}", "\U000F061A", "", rt.name, sub,
                                             lambda b, rt=rt: self.fill_runtime(b, rt, names),
                                             dim=not rt.installed, status=status))
 
@@ -965,15 +965,15 @@ class AgentsMap(Adw.Application):
             self.section_hint(_("No agent has an MCP server set up."))
         for server in servers:
             users = ", ".join(names.get(a, a) for a in server.agents) or _("not used by any agent")
-            group.append(self.expandable_card(f"mcp:{server.name}", "\U000F0337", "", server.name, users,
+            group.add(self.expandable_card(f"mcp:{server.name}", "\U000F0337", "", server.name, users,
                                  lambda b, s=server: self.fill_mcp(b, s, names)))
         new_mcp, new_skills = self.new_found()
         add = Gtk.Button(label=_("Add MCP server…") + (f" ({_('{0} new').format(len(new_mcp))})" if new_mcp else ""),
-                         halign=Gtk.Align.START)
+                         valign=Gtk.Align.CENTER)
         add.add_css_class("am-small-btn")
         add.set_tooltip_text(_("Found on this PC, from the web, or by hand"))
         add.connect("clicked", lambda *_: self.open_add_mcp())
-        group.append(add)
+        group.set_header_suffix(add)
 
         skill_sets = [s for s in inv.skill_sets if f"skills:{s.path}" not in hidden]
         group = self.section(_("Skills ({0})").format(sum(len(s.skills) for s in skill_sets)))
@@ -982,19 +982,19 @@ class AgentsMap(Adw.Application):
         for skill_set in skill_sets:
             sub = ngettext("1 skill", "{0} skills", len(skill_set.skills)).format(len(skill_set.skills)) \
                 + " · " + ", ".join(names.get(a, a) for a in skill_set.agents)
-            group.append(self.expandable_card(f"skills:{skill_set.path}", "\U000F0EB3", "", skill_set.path, sub,
+            group.add(self.expandable_card(f"skills:{skill_set.path}", "\U000F0EB3", "", skill_set.path, sub,
                                  lambda b, s=skill_set: self.fill_skills(b, s, names)))
         add = Gtk.Button(label=_("Add skills…") + (f" ({_('{0} new').format(len(new_skills))})" if new_skills else ""),
-                         halign=Gtk.Align.START)
+                         valign=Gtk.Align.CENTER)
         add.add_css_class("am-small-btn")
         add.set_tooltip_text(_("Found on this PC or from the web"))
         add.connect("clicked", lambda *_: self.open_add_skills())
-        group.append(add)
+        group.set_header_suffix(add)
 
         if missing:
             group = self.section(_("Not installed ({0})").format(len(missing)))
             for agent in missing:
-                group.append(self.agent_card(agent))
+                group.add(self.agent_card(agent))
 
         # The hint area: what was found on this PC, then what else could be set up.
         def listed(names, most):
@@ -1026,13 +1026,11 @@ class AgentsMap(Adw.Application):
         names["lmstudio"] = "LM Studio"
         return names
 
-    def section(self, title: str) -> Gtk.Box:
-        """A category card (heading, its cards, its Add button); returns the box to fill."""
-        group = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=AGENT_SPACING)
+    def section(self, title: str) -> Adw.PreferencesGroup:
+        """A category: a libadwaita group (title, its Add button in the header) whose cards are
+        the rows of its boxed list; returns the group to add() cards to."""
+        group = Adw.PreferencesGroup(title=title)
         group.add_css_class("am-category")
-        heading = Gtk.Label(label=title.upper(), xalign=0)
-        heading.add_css_class("am-group-heading")
-        group.append(heading)
         self.agents_box.append(group)
         return group
 
@@ -6808,8 +6806,9 @@ class AgentsMap(Adw.Application):
         .am-card button.am-chip:disabled {{ opacity: 0.4; }}
         .am-sidebar {{ background: alpha({fg_hex}, 0.03); border: 1px solid alpha({fg_hex}, 0.10);
             border-radius: {radius}px; padding: 10px 10px 0 10px; }}
-        .am-category {{ background: alpha({fg_hex}, 0.03); border: 1px solid alpha({fg_hex}, 0.08);
-            border-radius: {radius}px; padding: 8px 10px 10px 10px; }}
+        .boxed-list .am-agent {{ background: none; border: none; border-radius: 0; }}
+        .boxed-list .am-agent.am-agent-selected {{ background: alpha({accent_hex}, 0.18);
+            box-shadow: inset 3px 0 {accent_hex}; }}
         .am-hint-area {{ border-top: 1px solid alpha({fg_hex}, 0.10); padding: 8px 2px 10px 2px; }}
         .am-side-handle {{ padding: 0 13px; }}
         .am-side-handle:hover .am-side-rule {{ background: {accent_hex}; }}
