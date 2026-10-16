@@ -55,8 +55,12 @@ class UpdateTest(unittest.TestCase):
         old = self.program(self.home / "Applications/gridapp-0.6.1/usr/bin/gridapp-cli")
         image = self.program(self.home / "Applications/gridapp-0.7.0-linux-x86_64.AppImage", b"runtime")
         other = self.program(self.home / "Applications/otherapp-1.0-linux-x86_64.AppImage", b"runtime")
-        # Only the new version of an app known before is looked into without asking.
-        self.assertEqual(mcp_scan.updates_to_look_into(), [image])
+        # The new version of an app known before is named, never run (not even to look inside).
+        with mock.patch("ai_core.read_bounded_output") as run, mock.patch("subprocess.run") as sub, \
+                mock.patch("subprocess.Popen") as popen:
+            self.assertEqual(mcp_scan.new_versions_found(), [image])
+        for called in (run, sub, popen):
+            called.assert_not_called()
         self.assertIn(other, mcp_scan.not_looked_into())
         mcp_scan._cache()[mcp_scan._image_key(image)] = [("gridapp-cli", 1, "gridapp-cli mcp [--connect PORT]")]
         found = mcp_scan.scan({str(old): ["claude"]})

@@ -2501,10 +2501,11 @@ class AgentsMap(Gtk.Application):
                 except (OSError, ValueError):
                     pass
             try:
-                # New versions of apps looked into before: looked into again without asking.
-                mcp_scan.look_inside(mcp_scan.updates_to_look_into())
+                # New versions of apps looked into before: only named (nothing is run on open);
+                # looking inside them is the user's click on + MCP server.
+                versions = mcp_scan.new_versions_found()
             except OSError:
-                pass
+                versions = []
             try:
                 mcp = mcp_scan.scan(configured, commands)
             except OSError:
@@ -2513,11 +2514,16 @@ class AgentsMap(Gtk.Application):
                 skills = skills_scan.scan(known)
             except OSError:
                 skills = self.found_skills
-            GLib.idle_add(done, mcp, skills)
+            GLib.idle_add(done, mcp, skills, versions)
 
-        def done(mcp, skills):
+        def done(mcp, skills, versions):
             self.checking_new = False
             self.found_mcp, self.found_skills = mcp, skills
+            names = sorted(p.name for p in versions)
+            if names and names != getattr(self, "noted_versions", None):
+                self.noted_versions = names
+                self.show_note(_("New version found: {0} · + MCP server › Look inside… to use it").format(
+                    ", ".join(names[:3]) + ("…" if len(names) > 3 else "")))
             new_mcp, new_skills = self.new_found()
             if len(new_mcp) + len(new_skills) > len(before[0]) + len(before[1]):
                 names = [c.name for c in new_mcp] + [s.origin for s in new_skills]

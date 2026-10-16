@@ -262,9 +262,11 @@ def _looked_into_versions() -> dict:
     return found
 
 
-def updates_to_look_into() -> list[Path]:
-    """New versions of apps whose older version was looked into or unpacked
-    already: looked into without asking (the user trusted the app before)."""
+def new_versions_found() -> list[Path]:
+    """AppImages not looked into yet that are newer versions of apps looked into
+    or unpacked before. Only listed (file names and stat, nothing is run): a
+    newer file of the same name is not proof of an authentic update, so it is
+    looked into like any other AppImage, after the user's click (look_inside)."""
     known = _unpacked_versions()
     for app, versions in _looked_into_versions().items():
         known.setdefault(app, []).extend(versions)

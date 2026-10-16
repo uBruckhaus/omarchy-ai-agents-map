@@ -184,8 +184,9 @@ all ticked agents at once (one preview, one Undo). No agent is ticked unless you
   Adding a server that lives in an AppImage unpacks the AppImage into
   `~/Applications/<app>-<version>/` first. Servers already set up are not offered again.
   **App updates**: when a newer version of an app turns up (`gridcraft-0.7.0-….AppImage` next to
-  `~/Applications/gridcraft-0.6.1/`), only the newest is listed; its AppImage is looked into
-  without asking, because an earlier version was looked into or unpacked already. While agents,
+  `~/Applications/gridcraft-0.6.1/`), a note names it when the window opens; nothing in it runs
+  until you click **Look inside…** (a newer file name is no proof of a genuine update). Once looked
+  into, only the newest is listed. While agents,
   the list of MCP servers or a link in `~/.local/bin` still start the old version, it shows as
   **Update…**: one preview unpacks the new version, points every one of them at it and moves the
   old folder into the backup (deleted after 7 days; Undo within that time brings everything back).
