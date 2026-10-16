@@ -12,7 +12,9 @@ when its files are there (/usr/share/omarchy or $OMARCHY_PATH), else generic.
 
 The interface (each implementation provides all of it):
 
-    NAME                          "omarchy"
+    NAME                          "omarchy" or "generic"
+    app_name() -> str             "AI Agents Map" (the Omarchy plugin) or "Asterism"
+    app_id() -> str               the GTK application id, window class and icon name
     config_dir() -> Path          the app's own settings folder
     theme_dir() -> Path | None    a folder to watch for theme changes (None: none)
     theme_colors() -> dict        the theme's colours as a TOML-like dict ({} when unknown)

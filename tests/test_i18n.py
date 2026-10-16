@@ -37,5 +37,17 @@ class I18nTest(unittest.TestCase):
                                  (code, key))
 
 
+class RenameTest(unittest.TestCase):
+    def tearDown(self):
+        i18n.set_name("AI Agents Map", "AI Agents Map")
+
+    def test_texts_say_the_other_name(self):
+        i18n.set_name("AI Agents Map", "Asterism")
+        self.assertEqual(i18n._("AI Agents Map restarts in the new language."), "Asterism restarts in the new language.")
+        self.assertNotIn("AI Agents Map", i18n.ngettext("1 more you could set up", "{0} more you could set up", 2))
+        i18n.set_name("AI Agents Map", "AI Agents Map")
+        self.assertEqual(i18n._("AI Agents Map restarts in the new language."), "AI Agents Map restarts in the new language.")
+
+
 if __name__ == "__main__":
     unittest.main()

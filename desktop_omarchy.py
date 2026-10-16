@@ -27,6 +27,8 @@ import tomllib
 from pathlib import Path
 
 NAME = "omarchy"
+APP_NAME = "AI Agents Map"          # the Omarchy plugin's name
+APP_ID = "org.omarchy.aiagentsmap"
 HOME = Path.home()
 CONFIG_DIR = HOME / ".config/omarchy/ai-agents-map"
 THEME_DIR = HOME / ".local/state/omarchy/current/theme"
@@ -41,7 +43,15 @@ MAX_THEME_BYTES = 256 * 1024
 FLOATING_TERMINAL = "omarchy-launch-floating-terminal-with-presentation"
 
 
-# --- own files ------------------------------------------------------------------------------------
+# --- the app's name and own files ----------------------------------------------------------------
+
+def app_name() -> str:
+    return APP_NAME
+
+
+def app_id() -> str:
+    return APP_ID
+
 
 def config_dir() -> Path:
     return CONFIG_DIR

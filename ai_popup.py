@@ -243,7 +243,7 @@ class AppWindow(Adw.ApplicationWindow):
 
 class AgentsMap(Adw.Application):
     def __init__(self):
-        super().__init__(application_id="org.omarchy.aiagentsmap")
+        super().__init__(application_id=desktop.app_id())
         self.window = None
         self.theme = ThemePalette()
         self.style_provider = None
@@ -368,9 +368,9 @@ class AgentsMap(Adw.Application):
         window = AppWindow(self.width_changed, application=self)
         window.set_decorated(desktop.decorated())       # Omarchy: Hyprland draws the border, the header is our own
         desktop.attach_window(window)
-        window.set_title("AI Agents Map")
+        window.set_title(desktop.app_name())
         window.set_name("aiagentsmap-window")
-        window.set_icon_name(app_entry.ICON_NAME)
+        window.set_icon_name(desktop.app_id())
         size = ai_core.load_settings().get("window_size")
         if isinstance(size, list) and len(size) == 2 and all(isinstance(v, int) and 400 <= v <= 10000 for v in size):
             window.set_default_size(*size)
@@ -6569,7 +6569,7 @@ class AgentsMap(Adw.Application):
 
     def widen(self):
         work = desktop.maximize if self.widen_mode() == "maximize" else desktop.widen
-        threading.Thread(target=work, args=(app_entry.APP_ID,), daemon=True).start()
+        threading.Thread(target=work, args=(desktop.app_id(),), daemon=True).start()
 
     def update_widen_hint(self):
         """Shown while the map does not fit, unless the window is maximized already
@@ -6579,7 +6579,7 @@ class AgentsMap(Adw.Application):
             return
 
         def work():
-            state = desktop.is_maximized(app_entry.APP_ID)
+            state = desktop.is_maximized(desktop.app_id())
             GLib.idle_add(lambda: self.widen_hint.set_visible(not self.split and state is not True) and False)
 
         threading.Thread(target=work, daemon=True).start()
@@ -7000,7 +7000,7 @@ class AgentsMap(Adw.Application):
             self.close()
         else:
             self.window.present()
-            desktop.focus_window(app_entry.APP_ID)
+            desktop.focus_window(desktop.app_id())
 
     def open(self):
         self.sidebar_visible = True
@@ -7081,6 +7081,7 @@ class AgentsMap(Adw.Application):
 
 
 def main():
+    i18n.set_name("AI Agents Map", desktop.app_name())     # "Asterism" outside Omarchy
     app = AgentsMap()
     atexit.register(cleanup_pid)
     return app.run()

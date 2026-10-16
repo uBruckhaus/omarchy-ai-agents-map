@@ -26,6 +26,8 @@ import subprocess
 from pathlib import Path
 
 NAME = "generic"
+APP_NAME = "Asterism"               # the same app outside Omarchy
+APP_ID = "io.github.ubruckhaus.Asterism"
 HOME = Path.home()
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME") or HOME / ".config") / "asterism"
 RADIUS = 12          # libadwaita's window corners
@@ -53,7 +55,15 @@ MANAGERS = (("apt", "sudo apt install {0}"), ("dnf", "sudo dnf install {0}"), ("
 _window = None
 
 
-# --- own files ------------------------------------------------------------------------------------
+# --- the app's name and own files ----------------------------------------------------------------
+
+def app_name() -> str:
+    return APP_NAME
+
+
+def app_id() -> str:
+    return APP_ID
+
 
 def config_dir() -> Path:
     return CONFIG_DIR

@@ -28,7 +28,7 @@ _VTE = None
 
 # Agents that are programs with a window of their own, not a terminal program.
 NOT_CLI = {"bionic"}
-FONT = "JetBrainsMono Nerd Font 11"
+FONT = "JetBrainsMono Nerd Font, Symbols Nerd Font, monospace 11"
 # The 16 terminal colours: color0…color15 when the theme has them, else Omarchy's names.
 ANSI = (("dark_background", "#1e1e2e"), ("red", "#f38ba8"), ("green", "#a6e3a1"), ("yellow", "#f9e2af"),
         ("blue", "#89b4fa"), ("magenta", "#f5c2e7"), ("cyan", "#94e2d5"), ("light_foreground", "#bac2de"),

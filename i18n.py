@@ -89,8 +89,21 @@ def language_name(code):
     return dict(LANGUAGES).get(code, code)
 
 
+_RENAME = None   # (old name, new name): the same app under another name (set_name)
+
+
+def set_name(old, new):
+    """The same app under another name (AI Agents Map → Asterism): every text says the new one."""
+    global _RENAME
+    _RENAME = (old, new) if old and new and old != new else None
+
+
+def _named(text):
+    return text.replace(*_RENAME) if _RENAME else text
+
+
 def _(text):
-    return STRINGS.get(current(), {}).get(text, text)
+    return _named(STRINGS.get(current(), {}).get(text, text))
 
 
 def N_(text):
@@ -108,13 +121,13 @@ def ngettext(one, other, n):
     lang = current()
     forms = STRINGS.get(lang, {}).get(PLURAL_PREFIX + one)
     if not isinstance(forms, list):
-        return one if n == 1 else other
+        return _named(one if n == 1 else other)
     if lang == "pl" and len(forms) == 3:
         m10, m100 = n % 10, n % 100
-        return forms[0] if n == 1 else forms[1] if 2 <= m10 <= 4 and not 12 <= m100 <= 14 else forms[2]
+        return _named(forms[0] if n == 1 else forms[1] if 2 <= m10 <= 4 and not 12 <= m100 <= 14 else forms[2])
     if lang in ("fr", "pt"):
-        return forms[0] if n <= 1 else forms[-1]
-    return forms[0] if n == 1 else forms[-1]
+        return _named(forms[0] if n <= 1 else forms[-1])
+    return _named(forms[0] if n == 1 else forms[-1])
 
 
 STRINGS = {

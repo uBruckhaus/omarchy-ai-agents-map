@@ -896,7 +896,7 @@ class MapView(Gtk.DrawingArea):
                         cr.fill()
                     right = 14
             if node.icon:
-                family = "omarchy" if node.icon_font == "omarchy" else "JetBrainsMono Nerd Font"
+                family = "omarchy" if node.icon_font == "omarchy" else "JetBrainsMono Nerd Font, Symbols Nerd Font"
                 layout.set_font_description(Pango.FontDescription.from_string(f"{family} 13"))
                 layout.set_width(-1)
                 layout.set_text(node.icon, -1)
