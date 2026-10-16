@@ -27,15 +27,53 @@ vLLM); the MCP and skills search uses `curl`.
 
 ## One view: cards and the map beside them
 
+**My setup · + Available** in the header: My setup (the default, title "My AI Agents Map") shows
+only what is yours — installed agents and local LLMs, MCP servers an agent uses — in the cards and
+on the map. **+ Available** adds what you could set up: agents and local LLMs that are not
+installed and MCP servers no agent uses (also "Show N more you could set up" below the cards).
+Settings › **Start with** picks which one AI Agents Map opens with.
+
 **All · Online · Local LLMs** in the header picks the setup to show, in the cards and on the map
 alike: everything; only online providers (no local LLMs, their models or the GPU meters); or only
 local LLMs and the agents that can use them (the ones AI Agents Map connects, those tied to a
 local LLM, and any agent whose settings already have a local provider). Your own Show choices
 stay as they are underneath.
 
-The cards are a panel of their own beside the map. Its **Show ▾** list ticks the cards it shows,
-a whole section (Agents, Local LLMs, MCP servers, Skills, Not installed) or card by card, like
-the map's column lists.
+The cards are a panel of their own beside the map. Each section (Agents, Local LLMs, MCP servers,
+Skills, Not installed) is a card of its own with its Add button. Its **Show ▾** list ticks the
+cards it shows, a whole section or card by card, like the map's column lists.
+
+Below the cards, a hint area of its own (shown only when there is something to say): new programs
+or skills found on this PC (with **Add MCP server…** / **Add skills…**), **updates** for the
+installed agents and local LLMs (see below), and "Show N more you could set up" (Settings › **Show
+what you could set up** turns that one off).
+
+**Health check** above the cards sums up how well the setup works ("1 thing to fix · 3 tips");
+**Open ›** lists by area (this PC, agents, local LLMs and models, tools) what is fine, tips and what
+to fix, each with what to do and, where it can, a button that does it, and what the setup is good
+for (everyday help, vibe coding, images, voice, research and writing) with the next step. It only
+reads what the window has collected plus the graphics card, memory and free disk space; nothing is
+changed, started or sent.
+
+### Updates
+
+The hint area names an update when one is out, checked in the background when the window opens and
+at most every 6 hours (cached in `~/.cache/ai-agents-map/updates.json`, 0600), each the way it was
+installed, so **Update** installs what was named:
+
+- agents installed with mise (Claude Code, Codex, Copilot, Cursor CLI, Muse, OpenCode, …): one
+  `mise outdated --json`; **Update** runs `mise upgrade <tool>` in a terminal window of its own
+  (with `MISE_USE_VERSIONS_HOST=0`, so mise reads the tool's own releases: its version service can
+  lag behind a release for hours; aqua still checks the SHA-256);
+- Claude Code also by its own release channel (`autoUpdatesChannel` in `~/.claude/settings.json`,
+  from the npm registry's dist-tags), like its "Update available!" message; installed with its own
+  installer, **Update** runs `claude update`;
+- local LLMs and agents AI Agents Map installed: their latest release; **Update…** opens the
+  Update page (SHA-256 checked as on install);
+- system packages are left to the system's updates.
+
+Nothing is installed or run by the check itself (except `mise outdated`); an update starts only
+with a click on **Update**.
 
 The cards are on the left, the map on the right (in a window narrower than about 1300 px, such as
 half the screen, only the cards; pages then open over them). The sidebar button left of the title (Ctrl+B) hides the cards so the map takes the whole
@@ -171,6 +209,17 @@ Monitor. Each local LLM's box shows how much GPU memory it holds, and loaded mod
 
 ## Adding MCP servers and skills
 
+The three Add pages (MCP servers, skills, models) share one layout: **On this PC | From the web**
+at the top (the choice is kept per page), and on the web side **Search on**: the default site, or
+a site you add with **Add a site…** (kept in the settings until you remove it with the bin):
+
+- models: Hugging Face, or a site with the same API (a mirror such as `https://hf-mirror.com`);
+- MCP servers: the official MCP registry, or another registry with its API (`…/v0/servers`);
+- skills: skills.sh, a site with its API, or a GitHub repository with skills
+  (`https://github.com/owner/repo`: lists its folders with a `SKILL.md`; an empty search lists all).
+
+Only https addresses without user, query or `#`; a site you added is asked only when you search.
+
 **+ MCP server** (on the map or under the cards) opens a page with three sources that all fill the
 same form; you tick the agents that get it, **Test** asks the server for its tools, **Add** writes
 all ticked agents at once (one preview, one Undo). No agent is ticked unless you selected one.
@@ -278,13 +327,45 @@ the map → **Install…**, **Update…**, **Uninstall…**; a version folder, t
 ## Downloading models
 
 Right-click an installed local LLM → **Models…** (or click a folder's **+ Model** box): the installed models on the left; on the right
-search Hugging Face for GGUF models, pick one and a size (the one that fits your graphics card with
+**On this PC** lists GGUF files the local LLM does not read yet (the models folder, the other local
+LLMs' folders, `~/Downloads`, `~/Models`) and **Add** makes one its model without a second copy (a
+hard link on the same disk, else a symbolic one; LM Studio gets it as `local/<name>/` with its vision
+projector; Ollama imports it with `ollama create`, which keeps its own copy). **From the web**:
+search Hugging Face (or a site you added) for GGUF models, pick one and a size (the one that fits your graphics card with
 room for context is marked and preselected) and **Download** it into the model folder, with
 progress (Stop download stops it). LM Studio gets the folder layout it expects; a llama.cpp
 model folder that only holds links (a router folder) gets the file next to the originals and a link.
 For Ollama there is also a field for library names (qwen3:8b); a Hugging Face model is pulled as
 hf.co/<repo>:<size>, and Ollama is started for it if it is not running. Before anything is sent to
 Ollama on 127.0.0.1, AI Agents Map checks that the listening port belongs to you.
+
+Downloads and installs run in the background: they keep going when you leave the page and show
+in a strip at the top of the main page (progress, Stop). A broken connection is tried again after
+5 s … 2 min and the download resumes where it stopped. A download or install that was still running
+when AI Agents Map ended (closed, crashed, logged out) is listed as interrupted, with **Continue**
+or **Discard**; it is kept in `~/.local/state/ai-agents-map/jobs.json` (0600; what to download,
+never credentials). **Continue** asks the release again and uses its files and checksums, not the
+saved ones; files already downloaded are kept only when their SHA-256 matches.
+
+### One models folder, and Reorganize models
+
+Settings › **Models folder** (type it or **Choose…**) is one folder for every local LLM's models;
+**Reorganize models…** opens a preview of what would change, and nothing changes until you press
+**Reorganize**:
+
+- every GGUF a local LLM knows goes to `<folder>/<publisher>/<model>/` (LM Studio's layout), or
+  `local/<name>/` for a file without a publisher; Ollama's store goes to `ollama/`; llama.cpp and
+  KoboldCpp installed by AI Agents Map get `llama.cpp/`, a folder of links to every model;
+- the local LLMs are pointed there: LM Studio's `downloadsFolder`, and the model folder of those
+  AI Agents Map installed (they restart if they run; Ollama is stopped while its store moves). A
+  local LLM installed by hand keeps its folder: its links follow the moved files, and a file moved
+  out of its folder leaves a link behind;
+- **Keep old paths working** (on by default) leaves a link at every old place, for scripts and
+  programs that use a model's old path;
+- on one disk a move is a rename (instant); to another disk it is a copy with progress, the
+  original removed once the copy is complete (refused without enough free space);
+- every step is written to `~/.local/state/ai-agents-map/reorganize.json` (0600) first:
+  **Undo the last reorganize** puts files, links and settings back.
 
 ### Context size
 
@@ -337,7 +418,10 @@ the backup and Undo), and the agent is told the same context. A context you set 
   local LLM's own API every 2 s while the window is open (which models are loaded) and for
   **Free GPU memory** (unload); answers are capped at 1 MiB and only shown, never run;
   `registry.modelcontextprotocol.io`; `skills.sh`, `api.github.com` and
-  `raw.githubusercontent.com` for skills; an MCP server's own address when you click **Test**; and,
+  `raw.githubusercontent.com` for skills; the update check (automatic when the window opens, at
+  most every 6 h): the npm registry's dist-tags of `@anthropic-ai/claude-code`, the release API
+  of the local LLMs and agents AI Agents Map installed, and what `mise outdated` asks; a search site you added yourself (Add a site…: https
+  only, no redirects, only when you search on it); an MCP server's own address when you click **Test**; and,
   for a newly installed unknown agent (automatic, see above), whatever Claude Code or Codex
   searches. All web requests go through `curl` with https only, at most a few https redirects
   (none for skills and the registry), size and time limits, and request headers handed over on
@@ -350,6 +434,11 @@ the backup and Undo), and the agent is told the same context. A context you set 
   connected LLMs' services, `lms server start/stop`, `lms daemon down`; a hidden LM Studio it
   started is signalled through a pidfd taken when it is found, so a reused PID is never hit);
   `lms unload --all` for **Free GPU memory**;
+  `ollama create` when you add a GGUF from this PC to Ollama (the file's path must have no quotes,
+  backslashes or control characters);
+  `mise outdated --json` for the update check; on **Update** only, in a terminal window of its own
+  (`omarchy-launch-floating-terminal-with-presentation`, else `xdg-terminal-exec`): `mise upgrade
+  <tool>` or `claude update` (fixed words, the tool name checked against a strict pattern);
   `omarchy-agent-usage-update <agent>` when an agent card's usage is older than ten minutes; an MCP
   server's command when you click **Test** or ask for its tools, or right after you connect an agent
   to it (the check above; in its own process group, stopped afterwards); an AppImage's `--appimage-extract` only on **Look inside…**, when adding a server
@@ -363,12 +452,18 @@ the backup and Undo), and the agent is told the same context. A context you set 
   entries, Jan's `settings.json` (its data folder, only on install), `~/.config/llama.cpp/models.ini`,
   LM Studio's per-model defaults, Jan's `router.preset.ini` and `model.yml` (context sizes) and
   KoboldCpp's `.kcpps` files in `~/.config/koboldcpp/models`, and DeepSeek Harness's
-  `~/.dsh/profiles/web/cordis.patch.yml` (never its `.credentials.yaml`). Generated service files refuse paths with `%`,
+  `~/.dsh/profiles/web/cordis.patch.yml` (never its `.credentials.yaml`); model files and links
+  in the model folders (Add from this PC: hard or symbolic links; Reorganize models: moves, links
+  and the local LLMs' model folder settings, journalled for Undo in
+  `~/.local/state/ai-agents-map/reorganize.json`, 0600; only files owned by you are moved, and
+  copies to another disk create their file anew, never through an existing link). Generated
+  service files and the models folder refuse paths with `%`,
   quotes, `$`, backslashes or control characters. Own state: `~/.config/omarchy/ai-agents-map/`
   (settings, the MCP list, looked-up agents, `providers-with-agents.json` for the watcher,
   `failed-links.json` with the hints of failed connections; private files), the watcher's unit `~/.config/systemd/user/ai-agents-map-providers.service` and its state
   `~/.local/state/ai-agents-map/provider-watch.json`, `~/.local/state/ai-agents-map/backups/`
-  (0700), `~/.cache/ai-agents-map/` (scan results and tool lists).
+  (0700), `~/.local/state/ai-agents-map/jobs.json` (interrupted downloads and installs),
+  `~/.cache/ai-agents-map/` (scan results, tool lists, `updates.json`).
 - Text pasted into its fields is read with `wl-paste` (at most 8 KiB, 2 s deadline) instead of
   GTK's built-in paste, which buffers whatever another app offers with no limit; middle-click paste
   is off and the fields take no drops.
@@ -383,7 +478,8 @@ with **Start**. More of the manual will follow there.
 
 The gear (Ctrl+,) opens the settings: **Language** (system or one of English, Deutsch, Français,
 Español, Italiano, Português, Nederlands, Polski), **Corners** (like windows, rounded or square, as
-in App Manager and Theme Manager), **Look up new agents**, **Start local LLMs with their agents**, **Too narrow for the map** (what the header's "Maximize to see the map" does: move the window to a
+in App Manager and Theme Manager), **Look up new agents**, **Show what you could set up** (the "Show
+N more you could set up" hint below the cards), **Start local LLMs with their agents**, **Too narrow for the map** (what the header's "Maximize to see the map" does: move the window to a
 free workspace, maximize it where it is, or show no hint; with an animated preview), **In the app
 launcher** (the launcher entry; off removes it) and **Agents start in** (the folder for Start). Backspace or Esc goes back. Settings
 live in `~/.config/omarchy/ai-agents-map/settings.json`.

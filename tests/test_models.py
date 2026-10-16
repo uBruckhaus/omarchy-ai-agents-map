@@ -59,6 +59,20 @@ class ModelsTest(unittest.TestCase):
                          "hf.co/u/Model-GGUF:Q4_K_M")
 
 
+class OllamaCreateTest(unittest.TestCase):
+    def test_path_that_could_break_the_modelfile_is_refused_before_anything_runs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ('a"b.gguf', "a\\b.gguf", "a\nFROM x.gguf", "a\rb.gguf"):
+                path = Path(tmp) / name
+                path.write_bytes(b"GGUF")
+                with mock.patch.object(mc, "require_own_listener") as listener, \
+                        mock.patch("ai_core.read_bounded_output") as run:
+                    with self.assertRaises(ValueError):
+                        mc.ollama_create(path, "127.0.0.1:11434")
+                listener.assert_not_called()
+                run.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
 

@@ -162,6 +162,31 @@ class GraphTest(unittest.TestCase):
         g = graph.build([pi, claude], details, inv, running={"claude": ["anthropic/sonnet"]})
         self.assertEqual({n.id: n for n in g.nodes}["model:cloud:anthropic:sonnet"].status, "running")
 
+    def test_idle_folders_folded(self):
+        """A model folder none of whose models an agent uses or runs is idle (My setup folds
+        it behind one box); one whose model an open agent runs is not."""
+        pi = agents.Agent(command="pi", name="Pi", icon="p", installed=True)
+        details = {"pi": ad.Details(model="qwen (local)", providers=[ad.Provider("local", True, "llama.cpp", 2)])}
+        inv = invmod.Inventory(runtimes=[
+            invmod.Runtime("llamacpp", "llama.cpp", True, True, address="127.0.0.1:8080", models=["qwen"],
+                           models_dir="/m/llama"),
+            invmod.Runtime("ollama", "Ollama", True, False, address="127.0.0.1:11434", models=["gemma"],
+                           models_dir="/m/ollama")])
+        labels = {"folders": "+{0} folders".format}
+        g = graph.build([pi], details, inv, labels)
+        idle = graph.idle_folders(g)
+        self.assertEqual(idle, {"/m/ollama": {"model:runtime:ollama:gemma", "add:model:/m/ollama"}})
+        box = next(n for n in g.nodes if n.id == graph.FOLDERS_BOX)
+        self.assertEqual((box.label, box.column, box.kind), ("+1 folders", 3, "add-folders"))
+        self.assertNotIn(box, graph.listable(g, 3))
+        # An open Pi runs gemma from Ollama right now: nothing idle, no box.
+        details["pi"].providers.append(ad.Provider("ollama", True, "Ollama", 1))
+        g = graph.build([pi], details, inv, labels, running={"pi": ["gemma (ollama)"]})
+        self.assertEqual(graph.idle_folders(g), {})
+        self.assertNotIn(graph.FOLDERS_BOX, {n.id for n in g.nodes})
+        # Without the label (callers that do not fold) no box is added.
+        self.assertNotIn(graph.FOLDERS_BOX, {n.id for n in graph.build([pi], details, inv).nodes})
+
     def test_split_model(self):
         self.assertEqual(graph.split_model("qwen (llama-local)"), ("qwen", "llama-local"))
         self.assertEqual(graph.split_model("anthropic/claude-x"), ("claude-x", "anthropic"))

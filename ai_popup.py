@@ -26,6 +26,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 import atexit
 
 import agent_details
+import agent_updates
 import agent_profiles
 import agents
 import ai_core
@@ -62,8 +63,12 @@ import inventory
 import provider_watch
 import i18n
 import pidfile
-from i18n import _, ngettext
+from i18n import _, N_, ngettext
 import app_entry
+import model_layout
+import jobs
+import health
+import web_sources
 from map_view import MapView, Meter
 from gi.repository import PangoCairo  # noqa: E402  (map_view asked for its version)
 from palette import ThemePalette
@@ -79,7 +84,7 @@ WINDOW_SIZE = (1600, 960)   # first open; afterwards the size it was closed with
 AGENT_SPACING = 8
 SPLIT_WIDTH = 1300        # from this window width the overview shows the map beside the cards
 LIST_PANE_WIDTH = 440
-RIGHT_PAGES = ("connect", "install", "models", "mcp", "addmcp", "addskills", "status", "terminal")   # open beside the cards
+RIGHT_PAGES = ("connect", "install", "models", "mcp", "addmcp", "addskills", "status", "health", "terminal")   # open beside the cards
 DETAIL_LABEL_WIDTH = 90   # the dim labels in an opened agent card
 
 
@@ -258,6 +263,11 @@ class AgentsMap(Gtk.Application):
         self.split = False         # wide overview: cards left, map right
         self.sidebar_visible = True  # the cards beside the map (header toggle, Ctrl+B); shown on every open
         self.sessions = {}           # agent command -> terminal_pane.TerminalPane (an agent started here)
+        self.scope = self.start_scope()  # "mine": only what is installed and set up; "all": what could be added too
+        # Downloads and installs run on as background jobs when their page is left (jobs.py).
+        self.jobs = jobs.Jobs(lambda job: GLib.idle_add(self.job_changed, job))
+        self.job_rows = {}           # job id -> (row, detail label, progress bar)
+        self.job_layout = None       # (id, state) of the rows built last
 
     def do_shutdown(self):
         cleanup_pid()
@@ -391,6 +401,7 @@ class AgentsMap(Gtk.Application):
         stack.add_named(self.build_main_page(), "main")
         stack.add_named(self.build_settings_page(), "settings")
         stack.add_named(self.build_help_page(), "help")
+        stack.add_named(self.build_reorganize_page(), "reorganize")
         # Details and the pages that change something open right of the cards, where the map is.
         right = self.right_stack
         right.add_named(self.build_connect_page(), "connect")
@@ -400,6 +411,7 @@ class AgentsMap(Gtk.Application):
         right.add_named(self.build_add_mcp_page(), "addmcp")
         right.add_named(self.build_add_skills_page(), "addskills")
         right.add_named(self.build_status_page(), "status")
+        right.add_named(self.build_health_page(), "health")
         right.connect("notify::visible-child-name", lambda *_: self.update_header())
         self.guard_text_fields_in(window)
         stack.connect("notify::visible-child-name", lambda *_: self.update_header())
@@ -417,6 +429,7 @@ class AgentsMap(Gtk.Application):
         self.apply_theme_css()
         start, self.view = self.view, "main"
         self.show_view(start, save=False)
+        self.render_jobs()            # downloads a previous run left unfinished: Continue / Discard
 
     def build_header(self) -> Gtk.Widget:
         header = Gtk.Box(spacing=8)
@@ -432,7 +445,7 @@ class AgentsMap(Gtk.Application):
         sidebar_button.connect("toggled", lambda b: self.set_sidebar(b.get_active()))
         header.append(sidebar_button)
         self.sidebar_button = sidebar_button
-        title = Gtk.Label(label="AI Agents Map", xalign=0)
+        title = Gtk.Label(label=self.scope_title(), xalign=0)
         title.add_css_class("am-title")
         title.set_ellipsize(Pango.EllipsizeMode.END)
         title.set_max_width_chars(30)
@@ -453,6 +466,24 @@ class AgentsMap(Gtk.Application):
         header.append(self.widen_hint)
         # One view (the cards with the map beside them): no view switch any more.
         self.view_buttons = {}
+        # My setup (installed and set up) or also what could be added; Settings › Start with.
+        self.scope_switch = Gtk.Box(spacing=0, valign=Gtk.Align.CENTER)
+        self.scope_switch.add_css_class("am-segmented")
+        self.scope_buttons = {}
+        scope_tips = {"mine": _("Only your agents, local LLMs and MCP servers: installed and set up"),
+                      "all": _("Also what you could add: agents and local LLMs that are not installed, "
+                               "MCP servers no agent uses")}
+        group = None
+        for scope, label in (("mine", _("My setup")), ("all", _("+ Available"))):
+            button = Gtk.ToggleButton(label=label, group=group)
+            group = group or button
+            button.add_css_class("am-segment")
+            button.set_tooltip_text(scope_tips[scope])
+            button.connect("toggled", lambda b, s=scope: b.get_active() and self.set_scope(s))
+            self.scope_switch.append(button)
+            self.scope_buttons[scope] = button
+        self.scope_buttons[self.scope].set_active(True)
+        header.append(self.scope_switch)
         # Which setup to show, for the cards and the map alike: everything, only online
         # providers (no local LLMs), or only local LLMs (and the agents that can use them).
         self.view_switch = Gtk.Box(spacing=0, valign=Gtk.Align.CENTER)
@@ -527,6 +558,33 @@ class AgentsMap(Gtk.Application):
     def build_main_page(self) -> Gtk.Widget:
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         page.append(self.view_heading(_("AI setup")))
+        # Downloads and installs running in the background (or interrupted): one line each.
+        self.jobs_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.jobs_box.add_css_class("am-jobs")
+        self.jobs_box.set_visible(False)
+        page.append(self.jobs_box)
+        # The health check in one line: how things stand, and the page with the details.
+        self.health_line = Gtk.Button()
+        self.health_line.add_css_class("flat")
+        self.health_line.add_css_class("am-health-line")
+        line = Gtk.Box(spacing=8)
+        self.health_mark = Gtk.Label(label="♥")
+        self.health_mark.add_css_class("am-health-mark")
+        line.append(self.health_mark)
+        heading = Gtk.Label(label=_("Health check"))
+        heading.add_css_class("am-agent-name")
+        line.append(heading)
+        self.health_text = Gtk.Label(label=_("Looking…"), xalign=0, hexpand=True)
+        self.health_text.add_css_class("am-agent-detail")
+        self.health_text.set_ellipsize(Pango.EllipsizeMode.END)
+        line.append(self.health_text)
+        line.append(Gtk.Label(label=_("Open") + " ›"))
+        self.health_line.set_child(line)
+        self.health_line.set_tooltip_text(_("What works, what to fix, and what you can do with this setup"))
+        self.health_line.connect("clicked", lambda *_: self.open_health())
+        page.append(self.health_line)
+        self.health_report = None
+        self.health_running = False
         body = Gtk.Box(spacing=0)
         self.agents_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=AGENT_SPACING)
         self.agents_box.add_css_class("am-agents")
@@ -548,6 +606,10 @@ class AgentsMap(Gtk.Application):
         top.append(self.card_filter)
         self.list_pane.append(top)
         self.list_pane.append(scroller)
+        # Hints get their own place at the bottom, outside the category cards.
+        self.hint_area = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, visible=False)
+        self.hint_area.add_css_class("am-hint-area")
+        self.list_pane.append(self.hint_area)
         body.append(self.list_pane)
         self.side_rule = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
         self.side_rule.add_css_class("am-side-rule")
@@ -825,6 +887,10 @@ class AgentsMap(Gtk.Application):
         box = self.agents_box
         while (child := box.get_first_child()) is not None:
             box.remove(child)
+        while (child := self.hint_area.get_first_child()) is not None:
+            self.hint_area.remove(child)
+        self.hint_area.set_visible(False)
+        self.hint_buttons = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)   # one width for the hints' buttons
         self.detail_boxes = {}
         self.card_widgets = {}
         off, mode_hidden = self.mode_rules()
@@ -836,31 +902,31 @@ class AgentsMap(Gtk.Application):
         self.update_card_filter()
 
         if installed:
-            self.section(_("Agents ({0})").format(len(installed)))
-        for agent in installed:
-            box.append(self.agent_card(agent))
+            group = self.section(_("Agents ({0})").format(len(installed)))
+            for agent in installed:
+                group.append(self.agent_card(agent))
 
         runtimes = [] if "local" in off else \
             [rt for rt in sorted(inv.runtimes, key=lambda r: not r.installed) if f"runtime:{rt.key}" not in hidden]
         if runtimes:
-            self.section(_("Local LLMs ({0})").format(len([rt for rt in runtimes if rt.installed])))
+            group = self.section(_("Local LLMs ({0})").format(len([rt for rt in runtimes if rt.installed])))
         # Installed ones first; the others too, grey, as something to install and connect.
         for rt in runtimes:
             status = graph.runtime_status(rt)
             state = {"running": _("running"), "stopped": _("installed, not running")}.get(status, _("not installed"))
             sub = state if not rt.installed else \
                 " · ".join([state, ngettext("1 model", "{0} models", len(rt.models)).format(len(rt.models))])
-            box.append(self.expandable_card(f"runtime:{rt.key}", "\U000F061A", "", rt.name, sub,
+            group.append(self.expandable_card(f"runtime:{rt.key}", "\U000F061A", "", rt.name, sub,
                                             lambda b, rt=rt: self.fill_runtime(b, rt, names),
                                             dim=not rt.installed, status=status))
 
         servers = [m for m in inv.mcp if f"mcp:{m.name}" not in hidden]
-        self.section(_("MCP servers ({0})").format(len(servers)))
+        group = self.section(_("MCP servers ({0})").format(len(servers)))
         if not inv.mcp:
             self.section_hint(_("No agent has an MCP server set up."))
         for server in servers:
             users = ", ".join(names.get(a, a) for a in server.agents) or _("not used by any agent")
-            box.append(self.expandable_card(f"mcp:{server.name}", "\U000F0337", "", server.name, users,
+            group.append(self.expandable_card(f"mcp:{server.name}", "\U000F0337", "", server.name, users,
                                  lambda b, s=server: self.fill_mcp(b, s, names)))
         new_mcp, new_skills = self.new_found()
         add = Gtk.Button(label=_("Add MCP server…") + (f" ({_('{0} new').format(len(new_mcp))})" if new_mcp else ""),
@@ -868,43 +934,111 @@ class AgentsMap(Gtk.Application):
         add.add_css_class("am-small-btn")
         add.set_tooltip_text(_("Found on this PC, from the web, or by hand"))
         add.connect("clicked", lambda *_: self.open_add_mcp())
-        box.append(add)
+        group.append(add)
 
         skill_sets = [s for s in inv.skill_sets if f"skills:{s.path}" not in hidden]
-        self.section(_("Skills ({0})").format(sum(len(s.skills) for s in skill_sets)))
+        group = self.section(_("Skills ({0})").format(sum(len(s.skills) for s in skill_sets)))
         if not inv.skill_sets:
             self.section_hint(_("No skills found for the installed agents."))
         for skill_set in skill_sets:
             sub = ngettext("1 skill", "{0} skills", len(skill_set.skills)).format(len(skill_set.skills)) \
                 + " · " + ", ".join(names.get(a, a) for a in skill_set.agents)
-            box.append(self.expandable_card(f"skills:{skill_set.path}", "\U000F0EB3", "", skill_set.path, sub,
+            group.append(self.expandable_card(f"skills:{skill_set.path}", "\U000F0EB3", "", skill_set.path, sub,
                                  lambda b, s=skill_set: self.fill_skills(b, s, names)))
         add = Gtk.Button(label=_("Add skills…") + (f" ({_('{0} new').format(len(new_skills))})" if new_skills else ""),
                          halign=Gtk.Align.START)
         add.add_css_class("am-small-btn")
         add.set_tooltip_text(_("Found on this PC or from the web"))
         add.connect("clicked", lambda *_: self.open_add_skills())
-        box.append(add)
+        group.append(add)
 
         if missing:
-            self.section(_("Not installed ({0})").format(len(missing)))
+            group = self.section(_("Not installed ({0})").format(len(missing)))
             for agent in missing:
-                box.append(self.agent_card(agent))
+                group.append(self.agent_card(agent))
+
+        # The hint area: what was found on this PC, then what else could be set up.
+        def listed(names, most):
+            return ", ".join(names[:most]) + ("…" if len(names) > most else "")
+        if new_mcp or new_skills:
+            buttons = ([(_("Add MCP server…"), self.open_add_mcp)] if new_mcp else []) + \
+                      ([(_("Add skills…"), self.open_add_skills)] if new_skills else [])
+            self.hint_line(_("New on this PC: {0}").format(
+                listed([c.name for c in new_mcp] + [s.origin for s in new_skills], 5)), buttons)
+        versions = getattr(self, "new_versions", [])
+        if versions:
+            self.hint_line(_("New version found: {0} · + MCP server › Look inside… to use it").format(
+                listed(versions, 3)), [(_("Add MCP server…"), self.open_add_mcp)])
+
+        for update in agent_updates.still_open(getattr(self, "updates", []), self.agent_list, inv.runtimes):
+            self.hint_line(_("{0} {1} is available (you have {2})").format(update.name, update.available, update.current),
+                           [(_("Update…") if update.page else _("Update"), lambda u=update: self.run_update(u))])
+
+        # My setup: what else could be added, one click away (Settings › Show what you could set up).
+        more = self.scope_more() if ai_core.load_settings().get("show_more_hint", True) else 0
+        if more:
+            button = Gtk.Button(label=ngettext("Show 1 more you could set up", "Show {0} more you could set up",
+                                               more).format(more), halign=Gtk.Align.START)
+            button.add_css_class("am-small-btn")
+            button.set_tooltip_text(_("Agents and local LLMs that are not installed, MCP servers no agent uses "
+                                      "(+ Available in the header)"))
+            button.connect("clicked", lambda *_: self.set_scope("all"))
+            self.hint_area.append(button)
+            self.hint_area.set_visible(True)
 
     def agent_names(self) -> dict:
         names = {a.command: a.name for a in self.agent_list}
         names["lmstudio"] = "LM Studio"
         return names
 
-    def section(self, title: str):
+    def section(self, title: str) -> Gtk.Box:
+        """A category card (heading, its cards, its Add button); returns the box to fill."""
+        group = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=AGENT_SPACING)
+        group.add_css_class("am-category")
         heading = Gtk.Label(label=title.upper(), xalign=0)
         heading.add_css_class("am-group-heading")
-        self.agents_box.append(heading)
+        group.append(heading)
+        self.agents_box.append(group)
+        return group
 
     def section_hint(self, text: str):
+        """A hint goes to the area at the bottom of the cards, not between them."""
         hint = Gtk.Label(label=text, xalign=0, wrap=True, max_width_chars=1)
         hint.add_css_class("am-agent-detail")
-        self.agents_box.append(hint)
+        self.hint_area.append(hint)
+        self.hint_area.set_visible(True)
+
+    def run_update(self, update):
+        """An update from the hint area: ours on the Update page, the others in a terminal of their own
+        (the card shows the new version on the next open)."""
+        if update.page:
+            import types
+            target = next((rt for rt in self.inventory.runtimes if rt.key == update.key), None) \
+                or types.SimpleNamespace(key=update.key, name=update.name, installed=True)
+            self.open_install(target, "update")
+            return
+        if not agent_updates.run_in_terminal(update.command):
+            self.show_notice(_("No terminal found (xdg-terminal-exec)"))
+            return
+        self.updates = [u for u in getattr(self, "updates", []) if u is not update]
+        agent_updates.forget()
+        self.refresh_overview()
+        self.show_notice(_("Updating {0} in a terminal: {1}").format(update.name, " ".join(update.command)))
+
+    def hint_line(self, text: str, buttons=()):
+        """A hint in the area below the cards, with buttons that act on it."""
+        line = Gtk.Box(spacing=8)
+        label = Gtk.Label(label=text, xalign=0, wrap=True, max_width_chars=1, hexpand=True)
+        label.add_css_class("am-agent-detail")
+        line.append(label)
+        for title, action in buttons:
+            button = Gtk.Button(label=title, valign=Gtk.Align.CENTER)
+            button.add_css_class("am-small-btn")
+            button.connect("clicked", lambda *_a, act=action: act())
+            self.hint_buttons.add_widget(button)
+            line.append(button)
+        self.hint_area.append(line)
+        self.hint_area.set_visible(True)
 
     def expandable_card(self, key: str, icon: str, icon_font: str, title: str, subtitle: str, fill,
              dim: bool = False, badge: str = "", badge_tip: str = "", highlight: bool = False,
@@ -1889,7 +2023,12 @@ class AgentsMap(Gtk.Application):
         self.add_body = body
         page.append(self.add_scroller)
 
-        # Found on this PC.
+        # On this PC | From the web (as on the other Add pages).
+        local_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        web_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        body.append(self.where_switch("mcp", local_box, web_box))
+        body.append(local_box)
+        body.append(web_box)
         top = Gtk.Box(spacing=8)
         heading = Gtk.Label(label=_("Found on this PC").upper(), xalign=0, hexpand=True)
         heading.add_css_class("am-setting-heading")
@@ -1898,12 +2037,12 @@ class AgentsMap(Gtk.Application):
         rescan.add_css_class("am-small-btn")
         rescan.connect("clicked", lambda *_: self.scan_mcp(force=True))
         top.append(rescan)
-        body.append(top)
+        local_box.append(top)
         self.add_found_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1)
         self.add_found_status.add_css_class("am-agent-detail")
-        body.append(self.add_found_status)
+        local_box.append(self.add_found_status)
         self.add_found_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        body.append(self.add_found_list)
+        local_box.append(self.add_found_list)
         # AppImages are never run by the scan: looking inside them is the user's click.
         self.add_inside_row = Gtk.Box(spacing=8)
         self.add_inside_label = Gtk.Label(xalign=0, hexpand=True, wrap=True, max_width_chars=1)
@@ -1916,10 +2055,11 @@ class AgentsMap(Gtk.Application):
         self.add_inside.connect("clicked", lambda *_: self.look_inside_appimages())
         self.add_inside_row.append(self.add_inside)
         self.add_inside_row.set_visible(False)
-        body.append(self.add_inside_row)
+        local_box.append(self.add_inside_row)
 
-        # Search the web (the official MCP registry).
-        self.settings_heading(body, _("Search the web"))
+        # Search the web (the official MCP registry, or a registry the user added).
+        self.settings_heading(web_box, _("Search the web"))
+        web_box.append(self.source_picker("mcp"))
         line = Gtk.Box(spacing=8)
         self.add_query = Gtk.Entry(hexpand=True, placeholder_text=_("e.g. github, postgres, browser"))
         self.add_query.connect("activate", lambda *_: self.search_mcp())
@@ -1928,14 +2068,14 @@ class AgentsMap(Gtk.Application):
         search.add_css_class("am-small-btn")
         search.connect("clicked", lambda *_: self.search_mcp())
         line.append(search)
-        body.append(line)
+        web_box.append(line)
         self.add_web_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1,
                                         label=_("From the official MCP registry. Anyone can publish there: "
                                                 "check where a server comes from before adding it."))
         self.add_web_status.add_css_class("am-agent-detail")
-        body.append(self.add_web_status)
+        web_box.append(self.add_web_status)
         self.add_web_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        body.append(self.add_web_list)
+        web_box.append(self.add_web_list)
 
         # The server.
         self.add_form_heading = Gtk.Label(label=_("Server").upper(), xalign=0)
@@ -2204,10 +2344,11 @@ class AgentsMap(Gtk.Application):
         if not query:
             return
         self.add_web_status.set_label(_("Searching…"))
+        base = web_sources.chosen("mcp")
 
         def work():
             try:
-                result = mcp_registry.search(query)
+                result = mcp_registry.search(query, base=base if base != web_sources.DEFAULTS["mcp"] else "")
                 error = ""
             except (OSError, ValueError) as failure:
                 result, error = [], str(failure)
@@ -2489,7 +2630,7 @@ class AgentsMap(Gtk.Application):
         commands = [a.command for a in self.agent_list]
         known = [s.path for s in self.inventory.skill_sets] + \
             [str(p) for a in self.agent_list if a.installed for p in skills_ctl.skill_dirs(a.command)]
-        before = self.new_found()
+        agent_list, runtimes = list(self.agent_list), list(self.inventory.runtimes)
 
         def work():
             mcp_scan.cleanup_old_cache()
@@ -2514,21 +2655,18 @@ class AgentsMap(Gtk.Application):
                 skills = skills_scan.scan(known)
             except OSError:
                 skills = self.found_skills
-            GLib.idle_add(done, mcp, skills, versions)
+            try:
+                updates = agent_updates.check(agent_list, runtimes)     # cached, asked every 6 h at most
+            except (OSError, ValueError, RuntimeError):
+                updates = []
+            GLib.idle_add(done, mcp, skills, versions, updates)
 
-        def done(mcp, skills, versions):
+        def done(mcp, skills, versions, updates):
             self.checking_new = False
+            self.updates = updates
             self.found_mcp, self.found_skills = mcp, skills
-            names = sorted(p.name for p in versions)
-            if names and names != getattr(self, "noted_versions", None):
-                self.noted_versions = names
-                self.show_note(_("New version found: {0} · + MCP server › Look inside… to use it").format(
-                    ", ".join(names[:3]) + ("…" if len(names) > 3 else "")))
-            new_mcp, new_skills = self.new_found()
-            if len(new_mcp) + len(new_skills) > len(before[0]) + len(before[1]):
-                names = [c.name for c in new_mcp] + [s.origin for s in new_skills]
-                self.show_note(_("New on this PC: {0} · see + MCP server / + Skills").format(", ".join(names[:5])
-                                                                                          + ("…" if len(names) > 5 else "")))
+            # Shown in the hint area below the cards (refresh_overview), not as a note over them.
+            self.new_versions = sorted(p.name for p in versions)
             self.refresh_overview()
             self.refresh_map()
             page = self.page_name()
@@ -2590,14 +2728,20 @@ class AgentsMap(Gtk.Application):
         scroller_holder = [self.page_scroller(body)]
         page.append(scroller_holder[0])
 
-        self.settings_heading(body, _("Found on this PC"))
+        local_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        web_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        body.append(self.where_switch("skills", local_box, web_box))
+        body.append(local_box)
+        body.append(web_box)
+        self.settings_heading(local_box, _("Found on this PC"))
         self.skills_found_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1)
         self.skills_found_status.add_css_class("am-agent-detail")
-        body.append(self.skills_found_status)
+        local_box.append(self.skills_found_status)
         self.skills_found_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        body.append(self.skills_found_list)
+        local_box.append(self.skills_found_list)
 
-        self.settings_heading(body, _("Search the web"))
+        self.settings_heading(web_box, _("Search the web"))
+        web_box.append(self.source_picker("skills"))
         line = Gtk.Box(spacing=8)
         self.skills_query = Gtk.Entry(hexpand=True, placeholder_text=_("e.g. pdf, docker, testing"))
         self.skills_query.connect("activate", lambda *_: self.search_skills())
@@ -2606,15 +2750,15 @@ class AgentsMap(Gtk.Application):
         search.add_css_class("am-small-btn")
         search.connect("clicked", lambda *_: self.search_skills())
         line.append(search)
-        body.append(line)
+        web_box.append(line)
         self.skills_web_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1,
                                            label=_("From the skills.sh directory; the files come from the skill's "
                                                    "GitHub repository. Skills can hold scripts an agent may run: "
                                                    "check where one comes from before adding it."))
         self.skills_web_status.add_css_class("am-agent-detail")
-        body.append(self.skills_web_status)
+        web_box.append(self.skills_web_status)
         self.skills_web_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        body.append(self.skills_web_list)
+        web_box.append(self.skills_web_list)
 
         self.skills_selected_heading = Gtk.Label(label=_("Selected").upper(), xalign=0)
         self.skills_selected_heading.add_css_class("am-setting-heading")
@@ -2721,13 +2865,14 @@ class AgentsMap(Gtk.Application):
 
     def search_skills(self):
         query = self.skills_query.get_text().strip()
-        if not query:
-            return
+        base = web_sources.chosen("skills")
+        if not query and not web_sources.github_repo(base):
+            return                    # a repository lists all its skills without a search word
         self.skills_web_status.set_label(_("Searching…"))
 
         def work():
             try:
-                result, error = skills_web.search(query), ""
+                result, error = skills_web.search(query, base=base), ""
             except (OSError, ValueError) as failure:
                 result, error = [], str(failure)
             GLib.idle_add(done, result, error)
@@ -2740,8 +2885,8 @@ class AgentsMap(Gtk.Application):
                                              ngettext("1 skill found.", "{0} skills found.", len(result))
                                              .format(len(result)))
             for skill in result[:25]:
-                detail = f"github.com/{skill.repo} · " + ngettext("1 install", "{0} installs", skill.installs) \
-                    .format(f"{skill.installs:,}")
+                detail = f"github.com/{skill.repo}" + (" · " + ngettext("1 install", "{0} installs", skill.installs)
+                                                       .format(f"{skill.installs:,}") if skill.installs else "")
                 box.append(self.choice_row(skill.name, detail, lambda *_, k=skill: self.use_web_skill(k)))
             return False
 
@@ -2914,12 +3059,59 @@ class AgentsMap(Gtk.Application):
 
     def mode_rules(self, mode: str | None = None) -> tuple[set, set]:
         """(map categories left out, node ids left out) for a setup choice."""
+        off, hidden = self.mode_base(mode)
+        return off, hidden | self.scope_hidden()
+
+    def mode_base(self, mode: str | None = None) -> tuple[set, set]:
+        """mode_rules without My setup's filter."""
         mode = mode or self.setup_mode()
         if mode == "online":
             return {"local"}, set()
         if mode == "local":
             return {"online"}, {f"agent:{a.command}" for a in self.agent_list if not self.local_capable(a)}
         return set(), set()
+
+    # --- My setup · + Available (Settings › Start with is the choice on open) ------------------
+
+    def start_scope(self) -> str:
+        scope = ai_core.load_settings().get("start_scope", "mine")
+        return scope if scope in graph.SCOPES else "mine"
+
+    def scope_title(self) -> str:
+        return _("My AI Agents Map") if self.scope == "mine" else "AI Agents Map"
+
+    def scope_hidden(self) -> set:
+        """In My setup: agents and local LLMs that are not installed, MCP servers no agent uses."""
+        built = getattr(getattr(self, "side_map", None), "graph", None)
+        if getattr(self, "scope", "mine") != "mine":
+            return {graph.FOLDERS_BOX}
+        hidden = graph.scope_extras(self.agent_list, self.inventory)
+        if built is not None and not getattr(self, "folders_open", False):
+            # Model folders no agent uses a model from: folded behind one box.
+            for ids in graph.idle_folders(built).values():
+                hidden |= ids
+        return hidden
+
+    def scope_more(self) -> int:
+        """How many cards + Available would add (not those the setup choice or Show leaves out)."""
+        off, base = self.mode_base()
+        if getattr(self, "scope", "mine") != "mine":
+            return 0
+        ids = graph.scope_extras(self.agent_list, self.inventory) - base - self.card_hidden()
+        return len([i for i in ids if not ("local" in off and i.startswith("runtime:"))])
+
+    def set_scope(self, scope: str):
+        if scope not in graph.SCOPES or scope == self.scope:
+            return
+        self.scope = scope
+        button = getattr(self, "scope_buttons", {}).get(scope)
+        if button is not None and not button.get_active():
+            button.set_active(True)         # its toggled handler comes back here and returns
+        self.title_label.set_label(self.scope_title())
+        if getattr(self, "side_map", None) is None:
+            return
+        self.apply_setup_mode()
+        self.refresh_overview()
 
     def set_setup_mode(self, mode: str):
         if getattr(self, "side_map", None) is None:
@@ -2956,8 +3148,10 @@ class AgentsMap(Gtk.Application):
         groups = [(_("Agents"), [(f"agent:{a.command}", a.name) for a in agents])]
         if "local" not in off:
             groups.append((_("Local LLMs"), [(f"runtime:{rt.key}", rt.name) for rt in
-                                             sorted(inv.runtimes, key=lambda r: not r.installed)]))
-        groups.append((_("MCP servers"), [(f"mcp:{m.name}", m.name) for m in inv.mcp]))
+                                             sorted(inv.runtimes, key=lambda r: not r.installed)
+                                             if f"runtime:{rt.key}" not in mode_hidden]))
+        groups.append((_("MCP servers"), [(f"mcp:{m.name}", m.name) for m in inv.mcp
+                                          if f"mcp:{m.name}" not in mode_hidden]))
         groups.append((_("Skills"), [(f"skills:{s.path}", s.path) for s in inv.skill_sets]))
         missing = [a for a in self.agent_list if not a.installed and f"agent:{a.command}" not in mode_hidden]
         if missing:
@@ -3013,6 +3207,9 @@ class AgentsMap(Gtk.Application):
             self.open_add_mcp()
         elif kind == "skills":
             self.open_add_skills()
+        elif kind == "folders":
+            self.folders_open = not getattr(self, "folders_open", False)
+            self.refresh_map()
         elif kind == "model":
             runtimes = {f"runtime:{rt.key}": rt for rt in self.inventory.runtimes if rt.installed}
             owners = [runtimes[o] for o in node.owners if o in runtimes]
@@ -3209,6 +3406,8 @@ class AgentsMap(Gtk.Application):
         labels["add_mcp"] = _("+ MCP server") + (" · " + _("{0} new").format(len(new_mcp)) if new_mcp else "")
         labels["add_skills"] = _("+ Skills") + (" · " + _("{0} new").format(len(new_skills)) if new_skills else "")
         labels["add_model"] = _("+ Model")
+        labels["folders"] = (lambda n: _("− Fold unused folders")) if getattr(self, "folders_open", False) else \
+            (lambda n: ngettext("+ 1 folder with unused models", "+ {0} folders with unused models", n).format(n))
         built = graph.build(self.agent_list, details, self.inventory, labels, link_hints.load(), self.running)
         headers = [_("MCP servers · skills"), _("Agents"), _("LLM providers"), _("Models")]
         hidden = set(ai_core.hidden_nodes())
@@ -3254,10 +3453,11 @@ class AgentsMap(Gtk.Application):
 
     def update_header(self):
         page = self.page_name()
-        on_settings = page in ("settings", "help", "connect", "install", "models", "mcp", "addmcp", "addskills")
+        on_settings = page in ("settings", "help", "reorganize", "connect", "install", "models", "mcp", "addmcp",
+                               "addskills", "health")
         # Faded out rather than hidden: the header keeps its height, so the
         # card does not jump when the settings page opens.
-        for widget in (self.settings_button, self.help_button, self.view_switch):
+        for widget in (self.settings_button, self.help_button, self.view_switch, self.scope_switch):
             widget.set_opacity(0 if on_settings else 1)
             widget.set_can_target(not on_settings)
             widget.set_can_focus(not on_settings)
@@ -3906,9 +4106,28 @@ class AgentsMap(Gtk.Application):
         body.append(left)
         # Right: get more.
         right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, hexpand=True)
-        heading = Gtk.Label(label=_("Download").upper(), xalign=0)
-        heading.add_css_class("am-group-heading")
-        right.append(heading)
+        local_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, vexpand=True)
+        web_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, vexpand=True)
+        right.append(self.where_switch("models", local_box, web_box, self.update_model_buttons))
+        right.append(local_box)
+        right.append(web_box)
+        # On this PC: GGUF files the local LLM does not have yet (other LLMs' folders, Downloads, …).
+        top = Gtk.Box(spacing=8)
+        self.models_local_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1, hexpand=True)
+        self.models_local_status.add_css_class("am-agent-detail")
+        top.append(self.models_local_status)
+        rescan = Gtk.Button(label=_("Scan again"), valign=Gtk.Align.START)
+        rescan.add_css_class("am-small-btn")
+        rescan.connect("clicked", lambda *_: self.scan_local_models())
+        top.append(rescan)
+        local_box.append(top)
+        self.models_local = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
+        self.models_local.add_css_class("am-list")
+        self.models_local.connect("row-selected", lambda *_: self.update_model_buttons())
+        local_scroller = Gtk.ScrolledWindow(hexpand=True, vexpand=True)
+        local_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        local_scroller.set_child(self.models_local)
+        local_box.append(local_scroller)
         self.models_pull_row = Gtk.Box(spacing=8)
         self.models_pull_entry = Gtk.Entry(hexpand=True, max_length=200,
                                            placeholder_text=_("Ollama library name, e.g. qwen3:8b or gemma3:12b"))
@@ -3919,10 +4138,11 @@ class AgentsMap(Gtk.Application):
         pull.add_css_class("am-small-btn")
         pull.connect("clicked", lambda *_: self.start_model_download(pull=True))
         self.models_pull_row.append(pull)
-        right.append(self.models_pull_row)
+        web_box.append(self.models_pull_row)
+        web_box.append(self.source_picker("models"))
         search_row = Gtk.Box(spacing=8)
         self.models_search = Gtk.Entry(hexpand=True, max_length=100,
-                                       placeholder_text=_("Search Hugging Face (GGUF), e.g. qwen3 coder"))
+                                       placeholder_text=_("Search GGUF models, e.g. qwen3 coder"))
         self.models_search.add_css_class("am-path")
         self.models_search.connect("activate", lambda *_: self.search_models())
         search_row.append(self.models_search)
@@ -3930,7 +4150,7 @@ class AgentsMap(Gtk.Application):
         find.add_css_class("am-small-btn")
         find.connect("clicked", lambda *_: self.search_models())
         search_row.append(find)
-        right.append(search_row)
+        web_box.append(search_row)
         lists = Gtk.Box(spacing=12, vexpand=True)
         self.models_repos = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
         self.models_repos.add_css_class("am-list")
@@ -3946,7 +4166,7 @@ class AgentsMap(Gtk.Application):
         file_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         file_scroller.set_child(self.models_files)
         lists.append(file_scroller)
-        right.append(lists)
+        web_box.append(lists)
         self.models_bar = Gtk.ProgressBar()
         self.models_bar.add_css_class("am-progress")
         right.append(self.models_bar)
@@ -3971,12 +4191,16 @@ class AgentsMap(Gtk.Application):
 
     def open_models(self, rt):
         self.models_state = {"rt": rt, "busy": False, "cancel": False, "from": self.view, "repo": None,
-                             "vram": install_ctl.detect_gpu().vram}
+                             "vram": install_ctl.detect_gpu().vram, "scanned": False, "scanning": False}
+        while (row := self.models_local.get_first_child()) is not None:
+            self.models_local.remove(row)
+        self.models_local_status.set_label("")
         self.models_title.set_label(_("Models of {0}").format(rt.name).upper())
         folder = rt.models_dir or "—"
         self.models_intro.set_label(
-            _("Model folder: {0}. Pick a model on Hugging Face, then a size: the one marked fits your graphics "
-              "card with room for context.").format(folder) +
+            _("Model folder: {0}. From the web: pick a model, then a size: the one marked fits your graphics "
+              "card with room for context. On this PC: a GGUF file another local LLM or Downloads has.")
+            .format(folder) +
             (" " + _("Ollama is started for a download if it is not running.") if rt.key == "ollama" else
              " " + _("Jan adds models in its own app (Hub); here you set their context.") if rt.key == "jan" else ""))
         self.models_pull_row.set_visible(rt.key == "ollama")
@@ -4160,10 +4384,11 @@ class AgentsMap(Gtk.Application):
         if state is None or not query:
             return
         self.models_status.set_label(_("Searching…"))
+        state["base"] = base = web_sources.chosen("models")
 
         def work():
             try:
-                result, error = models_ctl.search(query), None
+                result, error = models_ctl.search(query, base=base), None
             except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as problem:
                 result, error = [], str(problem)
             GLib.idle_add(done, result, error)
@@ -4191,7 +4416,7 @@ class AgentsMap(Gtk.Application):
 
         def work():
             try:
-                result, error = models_ctl.files(repo, state["vram"]), None
+                result, error = models_ctl.files(repo, state["vram"], base=state.get("base") or models_ctl.HF), None
             except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as problem:
                 result, error = [], str(problem)
             GLib.idle_add(done, result, error)
@@ -4220,17 +4445,33 @@ class AgentsMap(Gtk.Application):
 
         threading.Thread(target=work, daemon=True).start()
 
+    def model_job(self, state) -> "jobs.Job | None":
+        """The download running for the models page's local LLM (started here or earlier)."""
+        if state is None:
+            return None
+        found = [j for j in self.jobs.active(f"runtime:{state['rt'].key}") if j.kind in ("model", "pull")]
+        return found[-1] if found else None
+
     def update_model_buttons(self):
         state = self.models_state
-        busy = bool(state and state["busy"])
-        row = self.models_files.get_selected_row()
+        job = self.model_job(state)
+        busy = bool(state and (state["busy"] or job is not None))
+        local = getattr(self, "where_models", lambda: "web")() == "local"
+        row = (self.models_local if local else self.models_files).get_selected_row()
+        self.models_get.set_label(_("Add") if local else _("Download"))
         self.models_get.set_sensitive(not busy and row is not None and state is not None
                                       and state["rt"].key in ("ollama", "llamacpp", "lmstudio", "koboldcpp"))
+        if local and state is not None and self.models_local.get_first_child() is None \
+                and not state.get("scanned") and not state.get("scanning"):
+            GLib.idle_add(lambda: self.scan_local_models() and False)
         self.models_cancel.set_label(_("Stop download") if busy else _("Back"))
 
     def start_model_download(self, pull: bool):
         state = self.models_state
-        if state is None or state["busy"]:
+        if state is None or state["busy"] or self.model_job(state) is not None:
+            return
+        if not pull and getattr(self, "where_models", lambda: "web")() == "local":
+            self.add_local_model()
             return
         rt = state["rt"]
         entry = None
@@ -4244,44 +4485,183 @@ class AgentsMap(Gtk.Application):
                 return
             entry = row.entry
             name = models_ctl.ollama_name_for(state["repo"], entry) if rt.key == "ollama" else ""
+            if rt.key == "ollama" and (state.get("base") or models_ctl.HF) != models_ctl.HF:
+                self.models_status.set_label(_("Ollama downloads Hugging Face models only from huggingface.co."))
+                return
         if rt.key != "ollama" and not rt.models_dir:
             self.models_status.set_label(_("{0} has no model folder yet.").format(rt.name))
             return
-        state["busy"], state["cancel"] = True, False
+        spec = {"kind": "pull" if rt.key == "ollama" else "model", "runtime": rt.key, "name": name,
+                "repo": state["repo"] or "", "base": state.get("base") or models_ctl.HF,
+                "entry": {"name": entry.name, "paths": list(entry.paths), "size": entry.size} if entry else None}
+        job = self.start_model_job(spec)
+        if job is not None:
+            state["job"] = job.id
         self.update_model_buttons()
 
-        def progress(fraction, text):
-            GLib.idle_add(show, fraction, text)
+    def start_model_job(self, spec: dict, replaces: str = ""):
+        """A model download (Hugging Face file or Ollama pull) as a background job.
+        spec is plain JSON, kept by jobs.py so an interrupted download can continue."""
+        rt = next((r for r in self.inventory.runtimes if r.key == spec.get("runtime") and r.installed), None)
+        entry = None
+        try:
+            if rt is None:
+                raise ValueError(_("{0} is not installed any more").format(spec.get("runtime")))
+            if spec.get("entry"):
+                raw = spec["entry"]
+                paths = [str(p) for p in raw.get("paths", [])][:64]
+                if not models_ctl.REPO_RE.fullmatch(str(spec.get("repo"))) or not paths \
+                        or any(".." in p.split("/") or p.startswith("/") for p in paths) \
+                        or str(spec.get("base", "")) not in web_sources.sources("models"):
+                    raise ValueError(_("this download cannot be continued"))
+                entry = models_ctl.GgufFile(str(raw.get("name", ""))[:200], paths, int(raw.get("size", 0)))
+            elif not str(spec.get("name", "")).strip():
+                raise ValueError(_("this download cannot be continued"))
+        except (ValueError, TypeError, AttributeError) as error:
+            self.show_note(_("Not downloaded: {0}").format(error))
+            if replaces:
+                self.jobs.discard(replaces)
+                self.render_jobs()
+            return None
+        label = entry.name if entry is not None else spec["name"]
+        models_dir = Path(os.path.expanduser(rt.models_dir)) if rt.models_dir else None
 
-        def show(fraction, text):
-            self.models_bar.set_fraction(max(0.0, min(1.0, fraction)))
-            if text:
-                self.models_status.set_label(text)
-            elif entry is not None:
-                self.models_status.set_label(_("{0}: {1} of {2}").format(
-                    entry.name, size_text(int(fraction * entry.size)), size_text(entry.size)))
+        def work(progress, cancelled):
+            def show(fraction, text=None):
+                if not text and entry is not None and entry.size:
+                    text = _("{0} of {1}").format(size_text(int(fraction * entry.size)), size_text(entry.size))
+                progress(fraction, text)
+
+            if rt.key == "ollama":
+                if not models_ctl.loopback_listeners(int(rt.address.rsplit(":", 1)[-1])):
+                    show(0.0, _("Starting Ollama…"))
+                    runtime_ctl.start(rt)
+                    for _attempt in range(40):
+                        if models_ctl.loopback_listeners(int(rt.address.rsplit(":", 1)[-1])):
+                            break
+                        time.sleep(0.5)
+                models_ctl.ollama_pull(spec["name"], rt.address, show, cancelled)
+            else:
+                if models_dir is None:
+                    raise RuntimeError(_("{0} has no model folder yet.").format(rt.name))
+                models_ctl.download_gguf(rt.key, models_dir, spec["repo"], entry, show, cancelled,
+                                         base=spec["base"])
+                if rt.key == "koboldcpp":
+                    # The new model becomes a .kcpps: an id the router answers to.
+                    install_ctl.installer("koboldcpp").sync(models_dir)
+
+        return self.jobs.start(spec["kind"], f"{label} · {rt.name}", work, spec, f"runtime:{rt.key}",
+                               on_end=lambda job: GLib.idle_add(self.model_job_ended, job, rt.key, label),
+                               replaces=replaces)
+
+    def model_job_ended(self, job, key: str, label: str):
+        state = self.models_state
+        here = state is not None and state["rt"].key == key and state.get("job") == job.id
+        if job.state == "done":
+            self.collect()
+            self.refresh_overview()
+            self.refresh_map()
+            self.show_note(_("Downloaded: {0}").format(label))
+            GLib.timeout_add_seconds(10, self.dismiss_done_job, job.id)
+            self.run_health()
+            if here:
+                fresh = next((r for r in self.inventory.runtimes if r.key == key), state["rt"])
+                state["rt"] = fresh
+                self.models_bar.set_fraction(1.0)
+                self.models_status.set_label(_("Downloaded: {0}").format(label))
+                self.fill_model_list(fresh)
+        elif job.state == "failed":
+            if here:
+                self.models_status.set_label(_("Not downloaded: {0}").format(job.error))
+            else:
+                self.show_note(_("Not downloaded: {0}").format(job.error))
+        elif here:
+            self.models_status.set_label(_("Not downloaded: {0}").format(_("stopped")))
+        if state is not None:
+            self.update_model_buttons()
+        self.render_jobs()
+        return False
+
+    def scan_local_models(self):
+        """On this PC: GGUF files in the other local LLMs' folders, the models folder and
+        Downloads that this one does not read yet (in the background; walk_gguf is capped
+        in depth and number of files)."""
+        state = self.models_state
+        if state is None or state.get("scanning"):
+            return
+        rt = state["rt"]
+        state["scanning"] = True
+        while (row := self.models_local.get_first_child()) is not None:
+            self.models_local.remove(row)
+        self.models_local_status.set_label(_("Looking for GGUF models on this PC…"))
+        own = Path(os.path.expanduser(rt.models_dir)) if rt.models_dir else None
+        roots = [Path(os.path.expanduser(r.models_dir)) for r in self.inventory.runtimes
+                 if r.installed and r.models_dir and r.key != rt.key]
+        roots += [Path(os.path.expanduser(self.models_root())), Path.home() / "Downloads"]
+        roots = [r for r in dict.fromkeys(Path(os.path.realpath(r)) for r in roots) if r != own and r.is_dir()]
+
+        def work():
+            try:
+                have = models_ctl.seen_by(rt.key, own) if own is not None and own.is_dir() else set()
+                found = models_ctl.local_ggufs(roots, have)
+            except OSError:
+                found = []
+            GLib.idle_add(done, found)
+
+        def done(found):
+            if self.models_state is not state:
+                return False
+            state["scanning"], state["scanned"] = False, True
+            for item in found[:500]:
+                row = Gtk.ListBoxRow()
+                row.local = item
+                line = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+                name = Gtk.Label(label=item.path.name, xalign=0)
+                name.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+                name.set_max_width_chars(1)
+                line.append(name)
+                where = Gtk.Label(label=f"{size_text(item.size)} · {inventory.tilde(str(item.path.parent))}", xalign=0)
+                where.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+                where.set_max_width_chars(1)
+                where.add_css_class("am-agent-detail")
+                line.append(where)
+                row.set_child(line)
+                self.models_local.append(row)
+            if found:
+                self.models_local_status.set_label(ngettext(
+                    "1 model on this PC that {1} does not have yet. Adding it makes no second copy.",
+                    "{0} models on this PC that {1} does not have yet. Adding it makes no second copy.",
+                    len(found)).format(len(found), rt.name))
+            else:
+                self.models_local_status.set_label(_("No other GGUF models on this PC (looked in: {0}).").format(
+                    ", ".join(inventory.tilde(str(r)) for r in roots) or "—"))
+            self.update_model_buttons()
             return False
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def add_local_model(self):
+        state = self.models_state
+        row = self.models_local.get_selected_row()
+        if state is None or row is None:
+            return
+        rt, item = state["rt"], row.local
+        if rt.key != "ollama" and not rt.models_dir:
+            self.models_status.set_label(_("{0} has no model folder yet.").format(rt.name))
+            return
+        state["busy"] = True
+        self.update_model_buttons()
+        self.models_status.set_label(_("Adding {0}…").format(item.path.name))
 
         def work():
             try:
                 if rt.key == "ollama":
-                    if not rt.running:
-                        progress(0.0, _("Starting Ollama…"))
-                        runtime_ctl.start(rt)
-                        for _attempt in range(40):
-                            if models_ctl.loopback_listeners(int(rt.address.rsplit(":", 1)[-1])):
-                                break
-                            time.sleep(0.5)
-                    models_ctl.ollama_pull(name, rt.address, progress, lambda: state["cancel"])
+                    models_ctl.ollama_create(item.path, rt.address)
                 else:
-                    models_ctl.download_gguf(rt.key, Path(os.path.expanduser(rt.models_dir)), state["repo"],
-                                             entry, progress, lambda: state["cancel"])
+                    models_ctl.add_local(rt.key, Path(os.path.expanduser(rt.models_dir)), item.path)
                     if rt.key == "koboldcpp":
-                        # The new model becomes a .kcpps: an id the router answers to.
                         install_ctl.installer("koboldcpp").sync(Path(os.path.expanduser(rt.models_dir)))
                 error = None
-            except install_ctl.Cancelled:
-                error = _("stopped")
             except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as problem:
                 error = str(problem)
             GLib.idle_add(finished, error)
@@ -4290,14 +4670,15 @@ class AgentsMap(Gtk.Application):
             state["busy"] = False
             self.update_model_buttons()
             if error:
-                self.models_status.set_label(_("Not downloaded: {0}").format(error))
+                self.models_status.set_label(_("Not added: {0}").format(error))
                 return False
-            self.models_bar.set_fraction(1.0)
-            self.models_status.set_label(_("Downloaded: {0}").format(entry.name if entry else name))
+            self.models_status.set_label(_("Added: {0}").format(item.path.name))
             self.collect()
             fresh = next((r for r in self.inventory.runtimes if r.key == rt.key), rt)
             state["rt"] = fresh
             self.fill_model_list(fresh)
+            state["scanned"] = False
+            self.scan_local_models()
             self.refresh_overview()
             self.refresh_map()
             return False
@@ -4305,18 +4686,352 @@ class AgentsMap(Gtk.Application):
         threading.Thread(target=work, daemon=True).start()
 
     def cancel_model_download(self):
-        state = self.models_state
-        if state is not None and state["busy"]:
-            state["cancel"] = True
+        job = self.model_job(self.models_state)
+        if job is not None:
+            self.jobs.stop(job.id)
             return
         self.close_models()
 
     def close_models(self):
+        """Back: a download keeps running in the background (the main page shows it)."""
         state = self.models_state
-        if state is not None and state["busy"]:
-            return                     # downloading: "Stop download" first
         self.models_state = None
         self.show_view(state["from"] if state else self.view, save=False)
+
+    # --- health check: what works, what to fix, what this setup is good for --------------------------
+
+    def build_health_page(self) -> Gtk.Widget:
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        header = Gtk.Box(spacing=8)
+        back = Gtk.Button()
+        back.add_css_class("flat")
+        back.add_css_class("am-header-btn")
+        back.add_css_class("am-back-bordered")
+        back_box = Gtk.Box(spacing=6)
+        back_box.append(Gtk.Image.new_from_icon_name("go-previous-symbolic"))
+        back_box.append(Gtk.Label(label=_("Back")))
+        back_box.append(Gtk.Label(label="· ⌫"))
+        back.set_child(back_box)
+        back.set_tooltip_text(_("Back (Backspace, Esc)"))
+        back.connect("clicked", lambda *_: self.close_health())
+        header.append(back)
+        title = Gtk.Label(label=_("Health check").upper(), xalign=0, hexpand=True)
+        title.add_css_class("am-section-title")
+        header.append(title)
+        again = Gtk.Button(label=_("Check again"))
+        again.add_css_class("am-small-btn")
+        again.connect("clicked", lambda *_: self.run_health(show=True))
+        header.append(again)
+        page.append(header)
+        rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        rule.add_css_class("am-settings-rule")
+        page.append(rule)
+        self.health_body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        self.health_body.add_css_class("am-settings")
+        page.append(self.page_scroller(self.health_body))
+        return page
+
+    def open_health(self):
+        self.health_from = self.view
+        self.show_page("health")
+        self.update_header()
+        if self.health_report is not None:
+            self.fill_health(self.health_report)
+        self.run_health(show=True)
+
+    def close_health(self):
+        self.show_view("main", save=False)
+
+    def run_health(self, show: bool = False):
+        """In the background: the agents' and local LLMs' own setup checks, the PC, then health.check."""
+        if self.health_running:
+            return
+        self.health_running = True
+        if show and self.health_report is None:
+            while (child := self.health_body.get_first_child()) is not None:
+                self.health_body.remove(child)
+            self.note(self.health_body, _("Looking at the setup…"))
+        agent_list, inv = list(self.agent_list), self.inventory
+        built = self.side_map.graph
+
+        def work():
+            hints = link_hints.load()
+            names = {a.command: a.name for a in agent_list}
+            details, agent_checks, runtime_checks = {}, {}, {}
+            for agent in agent_list:
+                if not agent.installed:
+                    continue
+                try:
+                    details[agent.command] = agent_details.details_for(agent.command)
+                    agent_checks[agent.command] = agent_status.agent_checks(
+                        agent, details[agent.command], agent_details.usage_record(agent.command), inv, hints,
+                        agent_status.login_state(agent.command), issue=agent_status.load_issues().get(agent.command))
+                except Exception:          # one agent's odd settings must not stop the check
+                    pass
+            for rt in inv.runtimes:
+                if rt.installed:
+                    try:
+                        runtime_checks[rt.key] = agent_status.runtime_checks(rt, hints, names, None)
+                    except Exception:
+                        pass
+            pc = health.pc_info([rt.models_dir for rt in inv.runtimes if rt.installed and rt.models_dir])
+            report = health.check(agent_list, details, inv, built, pc, agent_checks, runtime_checks, hints)
+            GLib.idle_add(done, report)
+
+        def done(report):
+            self.health_running = False
+            self.health_report = report
+            self.health_mark.set_label({"ok": "✓", "hint": "♥", "warn": "!"}[report.level])
+            for level in ("ok", "hint", "warn"):
+                self.health_mark.remove_css_class(f"am-health-{level}")
+            self.health_mark.add_css_class(f"am-health-{report.level}")
+            self.health_text.set_label(report.summary())
+            if self.page_name() == "health":
+                self.fill_health(report)
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def fill_health(self, report):
+        body = self.health_body
+        while (child := body.get_first_child()) is not None:
+            body.remove(child)
+        state = {"ok": "ok", "hint": "warn", "warn": "missing"}[report.level]
+        sentence = {"ok": _("Your AI setup is in good shape."),
+                    "hint": _("Your AI setup works. A few tips make it better."),
+                    "warn": _("Something needs fixing.")}[report.level]
+        body.append(self.status_hero(state, sentence, report.summary()))
+
+        # What you can do with it: one tile per use.
+        self.section_in(body, _("What you can do with it"))
+        tiles = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=3, min_children_per_line=1,
+                            column_spacing=10, row_spacing=10, homogeneous=True)
+        for use in report.uses:
+            tiles.append(self.use_tile(use))
+        body.append(tiles)
+
+        for area in report.areas:
+            self.section_in(body, area.title)
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            for finding in sorted(area.findings, key=lambda f: {"warn": 0, "hint": 1, "ok": 2}[f.level]):
+                box.append(self.finding_row(finding))
+            body.append(box)
+
+    def section_in(self, body, title: str):
+        label = Gtk.Label(label=title.upper(), xalign=0)
+        label.add_css_class("am-group-heading")
+        body.append(label)
+
+    def use_tile(self, use) -> Gtk.Widget:
+        tile = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        tile.add_css_class("am-use-tile")
+        top = Gtk.Box(spacing=8)
+        icon = Gtk.Label(label=use.icon)
+        icon.add_css_class("am-use-icon")
+        top.append(icon)
+        title = Gtk.Label(label=use.title, xalign=0, hexpand=True, wrap=True, max_width_chars=1)
+        title.add_css_class("am-agent-name")
+        top.append(title)
+        pill = Gtk.Label(label={"ready": _("Ready"), "almost": _("Almost"), "missing": _("Not yet")}[use.level])
+        pill.add_css_class("am-use-pill")
+        pill.add_css_class(f"am-use-{use.level}")
+        pill.set_valign(Gtk.Align.START)
+        top.append(pill)
+        tile.append(top)
+        blurb = Gtk.Label(label=use.blurb, xalign=0, wrap=True, max_width_chars=1)
+        blurb.add_css_class("am-agent-detail")
+        tile.append(blurb)
+        if use.have:
+            have = Gtk.Label(label="✓ " + ", ".join(use.have[:5]), xalign=0, wrap=True, max_width_chars=1)
+            have.add_css_class("am-use-have")
+            tile.append(have)
+        for step in use.steps[:2]:
+            tile.append(self.finding_row(step, compact=True))
+        return tile
+
+    def finding_row(self, finding, compact: bool = False) -> Gtk.Widget:
+        row = Gtk.Box(spacing=10)
+        row.add_css_class("am-finding")
+        mark = Gtk.Label(label={"ok": "✓", "hint": "→", "warn": "!"}[finding.level])
+        mark.add_css_class("am-finding-mark")
+        mark.add_css_class({"ok": "am-state-ok", "hint": "am-state-hint", "warn": "am-state-missing"}[finding.level])
+        mark.set_valign(Gtk.Align.START)
+        row.append(mark)
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1, hexpand=True)
+        title = Gtk.Label(label=finding.title, xalign=0, wrap=True, max_width_chars=1)
+        title.add_css_class("am-finding-title")
+        text.append(title)
+        if finding.text:
+            detail = Gtk.Label(label=finding.text, xalign=0, wrap=True, max_width_chars=1)
+            detail.add_css_class("am-agent-detail")
+            text.append(detail)
+        row.append(text)
+        label = self.health_action_label(finding.action)
+        if label:
+            button = Gtk.Button(label=label, valign=Gtk.Align.CENTER)
+            button.add_css_class("am-small-btn")
+            button.connect("clicked", lambda *_, a=finding.action: self.health_action(a))
+            row.append(button)
+        return row
+
+    def health_action_label(self, action) -> str:
+        if not action:
+            return ""
+        kind = action[0]
+        if kind in ("models", "runtime", "install"):
+            rt = next((r for r in self.inventory.runtimes if r.key == action[1]), None)
+            if rt is None or (kind == "install" and rt.installed) or (kind == "models" and not rt.installed):
+                return ""
+        return {"details": _("Details"), "runtime": _("Details"), "models": _("Models…"), "install": _("Install…"),
+                "addmcp": _("+ MCP server"), "addskills": _("+ Skills"), "reorganize": _("Tidy up…")}.get(kind, "")
+
+    def health_action(self, action):
+        kind = action[0]
+        if kind == "details":
+            agent = next((a for a in self.agent_list if a.command == action[1]), None)
+            if agent is not None:
+                self.open_agent_status(agent)
+        elif kind == "runtime":
+            self.open_runtime_status(action[1])
+        elif kind in ("models", "install"):
+            rt = next((r for r in self.inventory.runtimes if r.key == action[1]), None)
+            if rt is None:
+                return
+            if kind == "install":
+                self.open_install(rt, "install")
+                return
+            self.open_models(rt)
+            if len(action) > 2 and action[2]:
+                self.models_search.set_text(action[2])
+                self.search_models()
+        elif kind == "addmcp":
+            self.open_add_mcp()
+            if len(action) > 1 and action[1]:
+                self.add_query.set_text(action[1])
+        elif kind == "addskills":
+            self.open_add_skills()
+        elif kind == "reorganize":
+            self.open_reorganize()
+
+    # --- background jobs: downloads and installs go on when their page is left ------------------------
+
+    def job_detail(self, job) -> str:
+        percent = f"{round(job.fraction * 100)} %"
+        if job.state == "running":
+            return " · ".join(part for part in (percent, job.text) if part)
+        if job.state == "waiting":
+            return _("Connection lost · trying again in {0} s (it goes on where it stopped)").format(job.retry_in)
+        if job.state == "interrupted":
+            return _("Interrupted at {0} · Continue goes on where it stopped").format(percent)
+        if job.state == "failed":
+            return _("Failed: {0}").format(job.error)
+        if job.state == "stopped":
+            return _("Stopped at {0}").format(percent)
+        return _("Done")
+
+    def job_changed(self, job):
+        """A job moved on (from its thread, through the main loop)."""
+        if getattr(self, "jobs_box", None) is None:
+            return False
+        self.render_jobs()
+        state = self.models_state
+        if state is not None and state.get("job") == job.id and self.page_name() == "models":
+            self.models_bar.set_fraction(job.fraction)
+            self.models_status.set_label(self.job_detail(job))
+            self.update_model_buttons()
+        info = self.installing
+        if info is not None and info.get("job") == job.id:
+            self.install_bar.set_fraction(job.fraction)
+            self.install_status.set_label(self.job_detail(job))
+        return False
+
+    def render_jobs(self):
+        """The main page's job lines: rebuilt when a job comes, goes or changes state,
+        otherwise only their text and bar move."""
+        shown = self.jobs.shown()
+        layout = [(j.id, j.state) for j in shown]
+        if layout != self.job_layout:
+            self.job_layout = layout
+            while (child := self.jobs_box.get_first_child()) is not None:
+                self.jobs_box.remove(child)
+            self.job_rows = {}
+            for job in shown:
+                self.jobs_box.append(self.job_row(job))
+        for job in shown:
+            row = self.job_rows.get(job.id)
+            if row is not None:
+                row[1].set_label(self.job_detail(job))
+                row[2].set_fraction(job.fraction)
+        self.jobs_box.set_visible(bool(shown))
+
+    def job_row(self, job) -> Gtk.Widget:
+        row = Gtk.Box(spacing=10)
+        row.add_css_class("am-job")
+        row.add_css_class(f"am-job-{job.state}")
+        icons = {"running": "⬇" if job.kind != "install" else "⚙", "waiting": "⟳", "interrupted": "⏸",
+                 "failed": "⚠", "stopped": "⏹", "done": "✓"}
+        mark = Gtk.Label(label=icons.get(job.state, "•"))
+        mark.add_css_class("am-job-mark")
+        row.append(mark)
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, hexpand=True)
+        title = Gtk.Label(label=job.title, xalign=0)
+        title.add_css_class("am-agent-name")
+        title.set_ellipsize(Pango.EllipsizeMode.END)
+        text.append(title)
+        detail = Gtk.Label(label=self.job_detail(job), xalign=0)
+        detail.add_css_class("am-agent-detail")
+        detail.set_ellipsize(Pango.EllipsizeMode.END)
+        text.append(detail)
+        bar = Gtk.ProgressBar(fraction=job.fraction)
+        bar.add_css_class("am-progress")
+        bar.set_visible(job.state in ("running", "waiting", "interrupted", "stopped"))
+        text.append(bar)
+        row.append(text)
+        buttons = []
+        if job.active:
+            if job.kind in ("model", "pull") and job.target.startswith("runtime:"):
+                buttons.append((_("Show"), lambda j=job: self.show_job(j)))
+            buttons.append((_("Stop"), lambda j=job: self.jobs.stop(j.id)))
+        else:
+            if job.spec is not None and job.state in ("interrupted", "failed", "stopped"):
+                buttons.append((_("Continue") if job.state == "interrupted" else _("Try again"),
+                                lambda j=job: self.continue_job(j)))
+            buttons.append((_("Discard") if job.state == "interrupted" else _("Dismiss"),
+                            lambda j=job: (self.jobs.discard(j.id), self.render_jobs())))
+        for label, action in buttons:
+            button = Gtk.Button(label=label, valign=Gtk.Align.CENTER)
+            button.add_css_class("am-small-btn")
+            button.connect("clicked", lambda _b, a=action: a())
+            row.append(button)
+        self.job_rows[job.id] = (row, detail, bar)
+        return row
+
+    def continue_job(self, job):
+        if self.jobs.active(job.target):
+            self.show_note(_("Something else runs for it right now; try again when it is done."))
+            return
+        if job.kind in ("model", "pull"):
+            self.start_model_job(job.spec, replaces=job.id)
+        else:
+            self.start_install_job(job.spec, replaces=job.id)
+        self.render_jobs()
+
+    def show_job(self, job):
+        """Show: the models page of its local LLM, following the download."""
+        rt = next((r for r in self.inventory.runtimes if f"runtime:{r.key}" == job.target), None)
+        if rt is None:
+            return
+        self.open_models(rt)
+        if self.models_state is not None:
+            self.models_state["job"] = job.id
+            self.job_changed(job)
+
+    def dismiss_done_job(self, job_id: str):
+        job = self.jobs.find(job_id)
+        if job is not None and job.state == "done":
+            self.jobs.discard(job_id)
+            self.render_jobs()
+        return False
 
     # --- installing local LLMs (right-click → Install… / Update… / Model folder… / Uninstall…) --------
 
@@ -4394,6 +5109,9 @@ class AgentsMap(Gtk.Application):
         inst = install_ctl.installer(rt.key)
         if inst is None or (mode in ("install", "update") and not inst.can_install):
             self.show_note(_("{0} cannot be installed from here yet.").format(rt.name))
+            return
+        if self.jobs.active(self.install_target(rt.key)):
+            self.show_note(_("{0} is busy: see the top of the main page.").format(rt.name))
             return
         self.installing = {"rt": rt, "inst": inst, "mode": mode, "release": None, "gpu": None,
                            "cancel": False, "busy": False, "from": self.view, "build": ""}
@@ -4568,81 +5286,132 @@ class AgentsMap(Gtk.Application):
         ready = not problems and (info["mode"] in ("models", "uninstall") or release is not None)
         self.install_ok.set_sensitive(ready)
 
+    @staticmethod
+    def install_target(key: str) -> str:
+        return f"agent:{key}" if key in install_ctl.AGENT_INSTALLERS else f"runtime:{key}"
+
     def run_install(self):
         info = self.installing
         if info is None or info["busy"]:
             return
         inst, mode = info["inst"], info["mode"]
-        info["busy"] = True
-        info["cancel"] = False
+        try:
+            folder = install_ctl.check_folder(self.install_folder.get_text()) if self.install_folder else None
+            models = install_ctl.check_folder(self.install_models.get_text()) if self.install_models else None
+        except ValueError as error:
+            self.install_status.set_label(str(error))
+            return
+        params = {"key": inst.key, "name": info["rt"].name, "mode": mode,
+                  "folder": str(folder) if folder else "", "models": str(models) if models else "",
+                  "login": self.install_login.get_active() if self.install_login else False,
+                  "start_now": self.install_start.get_active() if self.install_start else False,
+                  "build": info.get("build", ""),
+                  "release": info["release"].to_json() if info.get("release") is not None else None}
+        job = self.start_install_job(params)
+        if job is None:
+            return
+        info["busy"], info["job"] = True, job.id
         self.install_ok.set_sensitive(False)
         for widget in (self.install_folder, self.install_models, self.install_login, self.install_start,
                        getattr(self, "install_build", None)):
             if widget is not None:
                 widget.set_sensitive(False)
-        folder = install_ctl.check_folder(self.install_folder.get_text()) if self.install_folder else None
-        models = install_ctl.check_folder(self.install_models.get_text()) if self.install_models else None
-        login = self.install_login.get_active() if self.install_login else False
-        start_now = self.install_start.get_active() if self.install_start else False
+        self.install_cancel.set_label(_("Stop"))
 
-        def progress(fraction, text):
-            GLib.idle_add(show_progress, fraction, text)
+    def start_install_job(self, params: dict, replaces: str = ""):
+        """Install, update, model folder or uninstall as a background job. An install or
+        update is kept by jobs.py (its release with the checksums) to continue after an
+        interruption; the files it already downloaded and checked are not fetched again."""
+        inst = install_ctl.installer(str(params.get("key")))
+        mode = params.get("mode")
+        try:
+            if inst is None or mode not in ("install", "update", "models", "uninstall"):
+                raise ValueError(_("this install cannot be continued"))
+            release = install_ctl.Release.from_json(params["release"]) if params.get("release") else None
+            if mode in ("install", "update") and (release is None or not inst.can_install):
+                raise ValueError(_("this install cannot be continued"))
+            build = str(params.get("build") or "")
+            if build and build not in dict(inst.builds):
+                raise ValueError(_("this install cannot be continued"))
+            folder = install_ctl.check_folder(params["folder"]) if params.get("folder") else None
+            models = install_ctl.check_folder(params["models"]) if params.get("models") else None
+            if mode == "install" and folder is None:
+                raise ValueError(_("this install cannot be continued"))
+        except (ValueError, TypeError, KeyError, IndexError) as error:
+            self.show_note(_("Not done: {0}").format(error))
+            if replaces:
+                self.jobs.discard(replaces)
+                self.render_jobs()
+            return None
+        name = str(params.get("name") or inst.name)[:80]
+        login, start_now = bool(params.get("login")), bool(params.get("start_now"))
 
-        def show_progress(fraction, text):
-            self.install_bar.set_fraction(max(0.0, min(1.0, fraction)))
-            if text:
-                self.install_status.set_label(text)
-            return False
+        def work(progress, cancelled):
+            nonlocal release
+            gpu = install_ctl.detect_gpu()
+            if replaces and release is not None:
+                # Continued from jobs.json: the assets and checksums come from the release again,
+                # not from the file (it only names the version that was being installed).
+                fresh = inst.latest(gpu, build)
+                if fresh.version != release.version:
+                    raise ValueError(_("{0} {1} is out now: start the update again").format(inst.name, fresh.version))
+                release = fresh
+            if mode == "install":
+                inst.install(folder, models, login, start_now, gpu, release, progress, cancelled)
+            elif mode == "update":
+                inst.update(release, gpu, progress, cancelled)
+            elif mode == "models":
+                inst.set_models_folder(models)
+            else:
+                inst.uninstall()
 
-        def work():
-            try:
-                if mode == "install":
-                    inst.install(folder, models, login, start_now, info["gpu"], info["release"], progress,
-                                 lambda: info["cancel"])
-                elif mode == "update":
-                    inst.update(info["release"], info["gpu"], progress, lambda: info["cancel"])
-                elif mode == "models":
-                    inst.set_models_folder(models)
-                else:
-                    inst.uninstall()
-                error = None
-            except install_ctl.Cancelled:
-                error = _("cancelled")
-            except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as problem:
-                error = str(problem)
-            GLib.idle_add(finished, error)
+        titles = {"install": _("Installing {0}"), "update": _("Updating {0}"),
+                  "models": _("Moving the model folder of {0}"), "uninstall": _("Uninstalling {0}")}
+        spec = dict(params, kind="install") if mode in ("install", "update") else None
+        return self.jobs.start("install", titles[mode].format(name), work, spec, self.install_target(inst.key),
+                               on_end=lambda job: GLib.idle_add(self.install_job_ended, job, mode, name),
+                               replaces=replaces)
 
-        def finished(error):
+    def install_job_ended(self, job, mode: str, name: str):
+        info = self.installing
+        here = info is not None and info.get("job") == job.id
+        if here:
             info["busy"] = False
-            if error:
+            self.install_cancel.set_label(_("Cancel"))
+        if job.state == "done":
+            messages = {"install": _("{0} installed"), "update": _("{0} updated"),
+                        "models": _("{0}: model folder changed"), "uninstall": _("{0} uninstalled")}
+            if here:
+                self.close_install()
+            self.collect()
+            self.refresh_overview()
+            self.refresh_map()
+            self.show_note(messages[mode].format(name))
+            GLib.timeout_add_seconds(10, self.dismiss_done_job, job.id)
+            self.run_health()
+        else:
+            error = job.error if job.state == "failed" else _("cancelled")
+            if here:
                 self.install_status.set_label(_("Not done: {0}").format(error))
                 self.install_ok.set_sensitive(True)
                 for widget in (self.install_folder, self.install_models, self.install_login, self.install_start):
                     if widget is not None:
                         widget.set_sensitive(True)
-                return False
-            messages = {"install": _("{0} installed"), "update": _("{0} updated"),
-                        "models": _("{0}: model folder changed"), "uninstall": _("{0} uninstalled")}
-            self.close_install()
-            self.collect()
-            self.refresh_overview()
-            self.refresh_map()
-            self.show_note(messages[mode].format(info["rt"].name))
-            return False
-
-        threading.Thread(target=work, daemon=True).start()
+            elif job.state == "failed":
+                self.show_note(_("Not done: {0}").format(error))
+        self.render_jobs()
+        return False
 
     def cancel_install(self):
         info = self.installing
-        if info is not None and info["busy"]:
-            info["cancel"] = True          # the download stops; the page stays to show it
+        if info is not None and info["busy"] and info.get("job"):
+            self.jobs.stop(info["job"])      # the download stops; the page stays to show it
             return
         self.close_install()
 
     def close_install(self):
+        """Back: a running install goes on in the background (the main page shows it)."""
         info = self.installing
-        if info is not None and info["busy"]:
-            return                         # still working: stay (Cancel stops it)
         self.installing = None
         self.show_view(info["from"] if info else self.view, save=False)
 
@@ -4979,6 +5748,141 @@ class AgentsMap(Gtk.Application):
         box.append(row)
         return row
 
+    # --- the Add pages' shared parts: On this PC | From the web, and the site to search ---------
+
+    WHERE_DEFAULT = {"models": "web", "mcp": "local", "skills": "local"}
+
+    def where(self, kind: str) -> str:
+        value = ai_core.load_settings().get("add_where", {})
+        value = value.get(kind) if isinstance(value, dict) else None
+        return value if value in ("local", "web") else self.WHERE_DEFAULT[kind]
+
+    def where_switch(self, kind: str, local_box, web_box, on_change=None) -> Gtk.Widget:
+        """The segmented switch at the top of an Add page; the choice is kept per page."""
+        switch = Gtk.Box(spacing=0, halign=Gtk.Align.START)
+        switch.add_css_class("am-segmented")
+        buttons = {}
+
+        def show(where: str, save: bool):
+            local_box.set_visible(where == "local")
+            web_box.set_visible(where == "web")
+            if not save:
+                return                       # while the page is built
+            stored = ai_core.load_settings().get("add_where", {})
+            self.save_setting(add_where={**(stored if isinstance(stored, dict) else {}), kind: where})
+            if on_change is not None:
+                on_change()
+
+        group = None
+        for where, label in (("local", _("On this PC")), ("web", _("From the web"))):
+            button = Gtk.ToggleButton(label=label, group=group)
+            group = group or button
+            button.add_css_class("am-segment")
+            switch.append(button)
+            buttons[where] = button
+        start = self.where(kind)
+        buttons[start].set_active(True)
+        show(start, False)
+        for where, button in buttons.items():
+            button.connect("toggled", lambda b, w=where: b.get_active() and show(w, True))
+        setattr(self, f"where_{kind}", lambda: "local" if buttons["local"].get_active() else "web")
+        return switch
+
+    SOURCE_HINTS = {
+        "models": N_("Hugging Face, or a site with the same API (a mirror such as hf-mirror.com)."),
+        "mcp": N_("The official MCP registry, or another registry with its API (…/v0/servers)."),
+        "skills": N_("skills.sh, a site with its API, or a GitHub repository with skills "
+                     "(https://github.com/owner/repo: lists its folders with a SKILL.md)."),
+    }
+
+    def source_picker(self, kind: str) -> Gtk.Widget:
+        """Which site to search: the default or one the user added (kept in the settings)."""
+        column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        row = Gtk.Box(spacing=8)
+        row.add_css_class("am-line")         # compact dropdown, as on the settings page
+        label = Gtk.Label(label=_("Search on"), xalign=0)
+        label.add_css_class("am-agent-detail")
+        row.append(label)
+        drop = Gtk.DropDown.new_from_strings([""])
+        drop.set_hexpand(True)
+        row.append(drop)
+        add = Gtk.Button(label=_("Add a site…"))
+        add.add_css_class("am-small-btn")
+        row.append(add)
+        remove = Gtk.Button(icon_name="user-trash-symbolic")
+        remove.add_css_class("am-small-btn")
+        remove.set_tooltip_text(_("Remove this site"))
+        row.append(remove)
+        column.append(row)
+        adder = Gtk.Box(spacing=8, visible=False)
+        entry = Gtk.Entry(hexpand=True, max_length=300, placeholder_text="https://")
+        entry.add_css_class("am-path")
+        self.guard_text_field(entry)
+        adder.append(entry)
+        save = Gtk.Button(label=_("Save"))
+        save.add_css_class("am-small-btn")
+        save.add_css_class("am-primary")
+        adder.append(save)
+        column.append(adder)
+        hint = Gtk.Label(label=_(self.SOURCE_HINTS[kind]), xalign=0, wrap=True, max_width_chars=1, visible=False)
+        hint.add_css_class("am-agent-detail")
+        column.append(hint)
+        state = {"urls": [], "filling": False}
+
+        def fill():
+            state["filling"] = True
+            state["urls"] = web_sources.sources(kind)
+            labels = [web_sources.label(u) + (" · " + _("default") if i == 0 else "")
+                      for i, u in enumerate(state["urls"])]
+            drop.set_model(Gtk.StringList.new(labels))
+            picked = web_sources.chosen(kind)
+            drop.set_selected(state["urls"].index(picked))
+            remove.set_sensitive(picked != web_sources.DEFAULTS[kind])
+            state["filling"] = False
+
+        def picked(*_):
+            if state["filling"]:
+                return
+            index = drop.get_selected()
+            if 0 <= index < len(state["urls"]):
+                web_sources.choose(kind, state["urls"][index])
+                remove.set_sensitive(index > 0)
+
+        def toggle_adder(*_):
+            showing = not adder.get_visible()
+            adder.set_visible(showing)
+            hint.set_visible(showing)
+            entry.remove_css_class("error")
+            if showing:
+                entry.grab_focus()
+
+        def save_site(*_args):
+            try:
+                web_sources.add(kind, entry.get_text())
+            except (ValueError, OSError) as error:
+                entry.add_css_class("error")
+                hint.set_label(_(self.SOURCE_HINTS[kind]) + " " + _("Not added: {0}").format(error))
+                return
+            entry.set_text("")
+            hint.set_label(_(self.SOURCE_HINTS[kind]))
+            adder.set_visible(False)
+            hint.set_visible(False)
+            fill()
+
+        def remove_site(*_):
+            index = drop.get_selected()
+            if 0 < index < len(state["urls"]):
+                web_sources.remove(kind, state["urls"][index])
+                fill()
+
+        drop.connect("notify::selected", picked)
+        add.connect("clicked", toggle_adder)
+        entry.connect("activate", save_site)
+        save.connect("clicked", save_site)
+        remove.connect("clicked", remove_site)
+        fill()
+        return column
+
     @staticmethod
     def settings_heading(box, text: str):
         label = Gtk.Label(label=text.upper(), xalign=0)
@@ -4996,6 +5900,17 @@ class AgentsMap(Gtk.Application):
         box = self.settings_box
         while (child := box.get_first_child()) is not None:
             box.remove(child)
+        # First, so a "Not now" at the first start is easy to redo.
+        self.settings_heading(box, _("Omarchy app"))
+        launcher = Gtk.Switch(active=ai_core.load_settings().get("launcher_entry") is True, valign=Gtk.Align.CENTER)
+        launcher.connect("notify::active", lambda w, *_: self.settings_ready
+                         and (self.save_setting(launcher_entry=w.get_active()), app_entry.ensure_entry(w.get_active())))
+        launcher_hint = _("AI Agents Map as an app in Omarchy's launcher (Super + Space), besides the bar icon.")
+        self.setting_line(box, _("In the app launcher"), launcher_hint, launcher)
+        note = Gtk.Label(label=launcher_hint, xalign=0, wrap=True, max_width_chars=1)
+        note.add_css_class("am-agent-detail")
+        box.append(note)
+        self.settings_heading(box, _("General"))
         codes = ["auto"] + [code for code, _name in i18n.LANGUAGES]
         setting = i18n.language_setting()
         self.setting_line(box, _("Language"), _("AI Agents Map restarts in the new language."),
@@ -5003,6 +5918,13 @@ class AgentsMap(Gtk.Application):
                                         + [name for _code, name in i18n.LANGUAGES],
                                         codes.index(setting) if setting in codes else 0,
                                         lambda i: self.set_language(codes[i])))
+        self.setting_line(box, _("Start with"),
+                          _("What the cards and the map show when AI Agents Map opens; My setup and + Available "
+                            "in the header switch for the moment."),
+                          self.dropdown([_("My setup: installed and set up"), _("Everything you could add too")],
+                                        graph.SCOPES.index(self.start_scope()),
+                                        lambda i: (self.save_setting(start_scope=graph.SCOPES[i]),
+                                                                           self.set_scope(graph.SCOPES[i]))))
         self.window_rounding = ai_core.hyprland_rounding()
         like = _("Like windows ({0} px)").format(self.window_rounding) if self.window_rounding is not None \
             else _("Like windows")
@@ -5018,6 +5940,14 @@ class AgentsMap(Gtk.Application):
         self.setting_line(box, _("Look up new agents"),
                           _("When a new agent is installed, Claude Code or Codex finds out on the web where it keeps "
                             "MCP servers and skills (once, a few minutes in the background)."), look_up)
+        more_hint = Gtk.Switch(active=ai_core.load_settings().get("show_more_hint", True), valign=Gtk.Align.CENTER)
+        more_hint.connect("notify::active", lambda w, *_: self.settings_ready
+                          and (self.save_setting(show_more_hint=w.get_active()), self.refresh_overview()))
+        self.setting_line(box, _("Show what you could set up"),
+                          _("In My setup, a hint below the cards: “{0}” (agents and local LLMs that are not "
+                            "installed, MCP servers no agent uses). + Available in the header shows them either "
+                            "way.").format(ngettext("Show 1 more you could set up", "Show {0} more you could set up",
+                                                    2).format("N")), more_hint)
         with_agents = Gtk.Switch(active=ai_core.load_settings().get("providers_with_agents", True),
                                  valign=Gtk.Align.CENTER)
         with_agents.connect("notify::active", lambda w, *_: self.settings_ready
@@ -5046,14 +5976,31 @@ class AgentsMap(Gtk.Application):
         preview.set_halign(Gtk.Align.START)
         preview.append(previews.WidenSketch(lambda: self.theme.colors, self.widen_mode))
         box.append(preview)
-        launcher = Gtk.Switch(active=ai_core.load_settings().get("launcher_entry") is True, valign=Gtk.Align.CENTER)
-        launcher.connect("notify::active", lambda w, *_: self.settings_ready
-                         and (self.save_setting(launcher_entry=w.get_active()), app_entry.ensure_entry(w.get_active())))
-        self.setting_line(box, _("In the app launcher"),
-                          _("AI Agents Map as an app in Omarchy's launcher (Super + Space), besides the bar icon."),
-                          launcher)
         self.setting_line(box, _("Agents start in"),
                           _("The folder an agent started here (Start on its card) works in. Enter saves it."), folder)
+        self.settings_heading(box, _("Models"))
+        models = Gtk.Entry(text=self.models_root(), hexpand=True, max_length=1024)
+        models.add_css_class("am-path")
+        self.guard_text_fields_in(models)
+        models.connect("activate", self.save_models_root)
+        leave = Gtk.EventControllerFocus()
+        leave.connect("leave", lambda *_: self.save_models_root(models))
+        models.add_controller(leave)
+        choose = Gtk.Button(label=_("Choose…"))
+        choose.add_css_class("am-small-btn")
+        choose.connect("clicked", lambda *_: self.choose_models_root(models))
+        line = Gtk.Box(spacing=8, hexpand=True)
+        line.append(models)
+        line.append(choose)
+        self.setting_line(box, _("Models folder"),
+                          _("One folder for the models of every local LLM. On this PC (Add models) looks here too."),
+                          line)
+        reorganize = Gtk.Button(label=_("Reorganize models…"), halign=Gtk.Align.START)
+        reorganize.add_css_class("am-small-btn")
+        reorganize.connect("clicked", lambda *_: (self.save_models_root(models), self.open_reorganize()))
+        self.setting_line(box, _("Tidy up"),
+                          _("Moves every local LLM's models into this folder in one layout and points the local LLMs "
+                            "there. Shows a preview first; Undo puts everything back."), reorganize)
         self.settings_ready = True
 
     def save_agent_folder(self, entry):
@@ -5102,6 +6049,317 @@ class AgentsMap(Gtk.Application):
     def open_settings(self):
         self.fill_settings()
         self.show_page("settings")
+
+    # --- one models folder, and Reorganize (a preview first) ---------------------------------------
+
+    def models_root(self) -> str:
+        """The setting, else where the local LLMs keep models now (LM Studio's folder first)."""
+        value = ai_core.load_settings().get("models_root")
+        if isinstance(value, str) and value.startswith(("/", "~")):
+            return value
+        folders = {r.key: r.models_dir for r in self.inventory.runtimes if r.installed and r.models_dir}
+        return folders.get("lmstudio") or folders.get("ollama") or next(iter(folders.values()), "~/Models")
+
+    def save_models_root(self, entry):
+        text = entry.get_text().strip()
+        path = os.path.realpath(os.path.expanduser(text)) if text else ""
+        try:
+            install_ctl.check_folder(path)      # the local LLMs' settings get it (no quotes, $, control characters)
+        except ValueError as error:
+            entry.add_css_class("error")
+            entry.set_tooltip_text(str(error))
+            return
+        if os.path.exists(path) and not os.path.isdir(path):
+            entry.add_css_class("error")
+            return
+        entry.set_tooltip_text(None)
+        entry.remove_css_class("error")
+        self.save_setting(models_root=inventory.tilde(path))
+
+    def choose_models_root(self, entry):
+        dialog = Gtk.FileDialog(title=_("Models folder"), modal=True)
+        current = Path(os.path.expanduser(entry.get_text().strip() or "~"))
+        if current.is_dir():
+            dialog.set_initial_folder(Gio.File.new_for_path(str(current)))
+
+        def done(source, result):
+            try:
+                folder = source.select_folder_finish(result)
+            except GLib.Error:
+                return                     # cancelled
+            if folder is not None and folder.get_path():
+                entry.set_text(inventory.tilde(folder.get_path()))
+                self.save_models_root(entry)
+        dialog.select_folder(self.window, None, done)
+
+    def layout_providers(self) -> list:
+        found = []
+        for rt in self.inventory.runtimes:
+            if not rt.installed or rt.key not in ("llamacpp", "lmstudio", "ollama", "koboldcpp"):
+                continue
+            inst = install_ctl.installer(rt.key)
+            ours = inst is not None and inst.installed_folder() is not None
+            folder = Path(os.path.expanduser(rt.models_dir)) if rt.models_dir else None
+            found.append(model_layout.Provider(rt.key, rt.name, folder, ours, rt.running))
+        return found
+
+    def set_provider_folder(self, key: str, path: Path):
+        """The back reflection: a local LLM's own model folder setting (restarts it when it runs)."""
+        inst = install_ctl.installer(key)
+        if inst is None:
+            raise RuntimeError(f"{key}: no settings to change")
+        inst.set_models_folder(path)
+
+    def build_reorganize_page(self) -> Gtk.Widget:
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        header = Gtk.Box(spacing=8)
+        back = Gtk.Button()
+        back.add_css_class("flat")
+        back.add_css_class("am-header-btn")
+        back.add_css_class("am-back-bordered")
+        back_box = Gtk.Box(spacing=6)
+        back_box.append(Gtk.Image.new_from_icon_name("go-previous-symbolic"))
+        back_box.append(Gtk.Label(label=_("Back")))
+        back_box.append(Gtk.Label(label="· Esc"))
+        back.set_child(back_box)
+        back.set_tooltip_text(_("Back without changing anything (Esc)"))
+        back.connect("clicked", lambda *_: self.close_reorganize())
+        header.append(back)
+        title = Gtk.Label(label=_("Reorganize models").upper(), xalign=0, hexpand=True)
+        title.add_css_class("am-section-title")
+        header.append(title)
+        page.append(header)
+        rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        rule.add_css_class("am-settings-rule")
+        page.append(rule)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        body.add_css_class("am-settings")
+        self.reorg_intro = Gtk.Label(xalign=0, wrap=True, max_width_chars=1)
+        self.reorg_intro.add_css_class("am-detail-value")
+        body.append(self.reorg_intro)
+        self.reorg_keep = Gtk.Switch(active=True, valign=Gtk.Align.CENTER)
+        self.reorg_keep.connect("notify::active", lambda *_: self.reorg_ready and self.plan_reorganize())
+        self.setting_line(body, _("Keep old paths working"),
+                          _("A link at each old place, so scripts and programs that use a model's old path keep "
+                            "working. Inside a hand-installed local LLM's folder there is always one."),
+                          self.reorg_keep)
+        self.reorg_problems = Gtk.Label(xalign=0, wrap=True, max_width_chars=1, visible=False)
+        self.reorg_problems.add_css_class("am-state-warn")
+        body.append(self.reorg_problems)
+        heading = Gtk.Label(label=_("Preview").upper(), xalign=0)
+        heading.add_css_class("am-group-heading")
+        body.append(heading)
+        self.reorg_preview = Gtk.TextView(editable=False, cursor_visible=False, monospace=True)
+        self.reorg_preview.add_css_class("am-diff")
+        self.reorg_preview.set_wrap_mode(Gtk.WrapMode.CHAR)
+        body.append(self.reorg_preview)
+        self.reorg_bar = Gtk.ProgressBar(visible=False)
+        self.reorg_bar.add_css_class("am-progress")
+        body.append(self.reorg_bar)
+        self.reorg_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1)
+        self.reorg_status.add_css_class("am-agent-detail")
+        body.append(self.reorg_status)
+        buttons = Gtk.Box(spacing=8, halign=Gtk.Align.END)
+        self.reorg_undo = Gtk.Button(label=_("Undo the last reorganize"))
+        self.reorg_undo.add_css_class("am-small-btn")
+        self.reorg_undo.connect("clicked", lambda *_: self.undo_reorganize())
+        buttons.append(self.reorg_undo)
+        self.reorg_apply = Gtk.Button(label=_("Reorganize"))
+        self.reorg_apply.add_css_class("am-small-btn")
+        self.reorg_apply.add_css_class("am-primary")
+        self.reorg_apply.connect("clicked", lambda *_: self.apply_reorganize())
+        buttons.append(self.reorg_apply)
+        body.append(buttons)
+        page.append(self.page_scroller(body))
+        self.reorg_plan = None
+        self.reorg_busy = False
+        self.reorg_ready = False
+        return page
+
+    def open_reorganize(self):
+        self.reorg_ready = True
+        self.show_page("reorganize")
+        self.update_header()
+        self.plan_reorganize()
+
+    def close_reorganize(self):
+        if self.reorg_busy:
+            return                          # moving files: stays until done
+        self.open_settings()
+
+    def plan_reorganize(self):
+        root = Path(os.path.expanduser(self.models_root()))
+        keep = self.reorg_keep.get_active()
+        providers = self.layout_providers()
+        self.reorg_plan = None
+        self.reorg_apply.set_sensitive(False)
+        self.reorg_undo.set_visible(bool(model_layout.load_journal()))
+        self.reorg_intro.set_label(_("Everything goes into {0}: <publisher>/<model>/ (LM Studio's layout), local/<name>/ "
+                                     "for files without a publisher, ollama/ for Ollama's store, llama.cpp/ with "
+                                     "links to every model for llama.cpp and KoboldCpp installed here.")
+                                   .format(inventory.tilde(root)))
+        self.reorg_status.set_label(_("Working out what would change…"))
+        self.reorg_preview.get_buffer().set_text("")
+
+        def work():
+            try:
+                plan, error = model_layout.plan(root, providers, keep), ""
+            except OSError as problem:
+                plan, error = None, str(problem)
+            GLib.idle_add(done, plan, error)
+
+        def done(plan, error):
+            if self.page_name() != "reorganize" or self.reorg_busy:
+                return False
+            self.reorg_plan = plan
+            if plan is None:
+                self.reorg_status.set_label(_("Could not plan it: {0}").format(error))
+                return False
+            self.reorg_preview.get_buffer().set_text(self.reorg_text(plan))
+            problems = [self.reorg_problem_text(p) for p in plan.problems[:8]]
+            self.reorg_problems.set_label("\n".join(problems))
+            self.reorg_problems.set_visible(bool(problems))
+            self.reorg_apply.set_sensitive(not plan.problems and not plan.empty)
+            self.reorg_status.set_label(_("Nothing to do: the models are already in place.") if plan.empty else
+                                        _("Nothing changes until you press Reorganize."))
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def reorg_problem_text(self, problem: str) -> str:
+        if problem == "root":
+            return _("Pick a models folder of its own (not / or your home folder).")
+        if problem == "space":
+            return _("Not enough free space for the copies to another disk.")
+        if problem == "lmstudio-running":
+            return _("Quit LM Studio first: it writes its settings when it closes.")
+        if problem.startswith("conflict:"):
+            return _("Already there, a different file: {0}").format(inventory.tilde(problem[9:]))
+        return problem
+
+    def reorg_text(self, plan) -> str:
+        root = str(plan.root)
+        short = lambda path: path[len(root) + 1:] if path.startswith(root + "/") else inventory.tilde(path)
+        names = {r.key: r.name for r in self.inventory.runtimes}
+        lines = []
+        moves = [st for st in plan.steps if st.kind == "move"]
+        if moves:
+            copies = [st for st in moves if st.copy]
+            lines.append(_("Move ({0})").format(len(moves)).upper() + " " +
+                         (_("· {0} to copy to another disk").format(size_text(plan.copy_bytes)) if copies
+                          else _("· same disk, no copying")))
+            lines += [f"  {short(st.source)}\n    → {short(st.target)}" for st in moves]
+        relinks = [st for st in plan.steps if st.kind == "relink"]
+        if relinks:
+            lines += ["", _("Links follow ({0})").format(len(relinks)).upper()]
+            lines += [f"  {short(st.source)} → {short(st.target)}" for st in relinks]
+        old = [st for st in plan.steps if st.kind == "link" and not st.source.startswith(root + "/llama.cpp/")]
+        if old:
+            lines += ["", _("Old paths keep working ({0} links)").format(len(old)).upper()]
+            lines += [f"  {short(st.source)}" for st in old]
+        flat = [st for st in plan.steps if st.kind == "link" and st.source.startswith(root + "/llama.cpp/")]
+        if flat:
+            lines += ["", _("llama.cpp/ links ({0})").format(len(flat)).upper()]
+            lines += [f"  {Path(st.source).name}" for st in flat]
+        folders = [st for st in plan.steps if st.kind == "folder"]
+        if folders:
+            lines += ["", _("Local LLM settings").upper()]
+            for st in folders:
+                lines.append("  " + _("{0}: model folder {1} → {2} (restarts it if it runs)").format(
+                    names.get(st.provider, st.provider), inventory.tilde(st.old), inventory.tilde(st.target)))
+        notes = [st for st in plan.steps if st.kind == "note"]
+        if notes:
+            lines += ["", _("Not changed").upper()]
+            for st in notes:
+                lines.append("  " + _("{0} (installed by hand) keeps its folder {1}; its links follow the moved "
+                                      "files.").format(names.get(st.provider, st.provider), inventory.tilde(st.source)))
+        return "\n".join(lines) if lines else _("Nothing to do.")
+
+    def apply_reorganize(self):
+        plan = self.reorg_plan
+        if plan is None or plan.problems or plan.empty or self.reorg_busy:
+            return
+        self.reorg_busy = True
+        self.reorg_apply.set_sensitive(False)
+        self.reorg_undo.set_visible(False)
+        self.reorg_bar.set_visible(True)
+        self.reorg_bar.set_fraction(0)
+        self.reorg_status.set_label(_("Reorganizing…"))
+        stop_ollama = any(st.kind == "folder" and st.provider == "ollama" for st in plan.steps)
+
+        def progress(fraction, text):
+            GLib.idle_add(lambda: (self.reorg_bar.set_fraction(max(0.0, min(1.0, fraction))),
+                                   self.reorg_status.set_label(text or "")) and False)
+
+        def work():
+            ran = False
+            try:
+                if stop_ollama:
+                    ran = install_ctl._systemctl("is-active", "--quiet", "ollama.service")[0]
+                    install_ctl._systemctl("stop", "ollama.service")
+                done = model_layout.apply(plan, self.set_provider_folder, progress)
+                error = ""
+            except (OSError, ValueError, RuntimeError, model_layout.Cancelled) as problem:
+                done, error = [], str(problem)
+            finally:
+                if stop_ollama and ran:
+                    install_ctl._systemctl("start", "ollama.service")
+            GLib.idle_add(finished, done, error)
+
+        def finished(done, error):
+            self.reorg_busy = False
+            self.reorg_bar.set_visible(False)
+            self.collect()
+            self.refresh_overview()
+            self.refresh_map()
+            if error:
+                self.reorg_status.set_label(_("Stopped: {0}. What was done is in the journal: Undo puts it back.")
+                                            .format(error))
+                self.reorg_undo.set_visible(True)
+                return False
+            self.reorg_preview.get_buffer().set_text(self.reorg_text(plan))
+            self.reorg_status.set_label(ngettext("Done: 1 step.", "Done: {0} steps.", len(done)).format(len(done)))
+            self.reorg_undo.set_visible(True)
+            self.show_notice(_("Models reorganized. Undo is on the Reorganize page."))
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def undo_reorganize(self):
+        if self.reorg_busy:
+            return
+        self.reorg_busy = True
+        self.reorg_undo.set_sensitive(False)
+        self.reorg_apply.set_sensitive(False)
+        self.reorg_status.set_label(_("Putting everything back…"))
+        stop_ollama = any(st.kind == "folder" and st.provider == "ollama" for st in model_layout.load_journal())
+
+        def work():
+            ran = stop_ollama and install_ctl._systemctl("is-active", "--quiet", "ollama.service")[0]
+            if stop_ollama:
+                install_ctl._systemctl("stop", "ollama.service")
+            try:
+                problems = model_layout.undo(self.set_provider_folder)
+            except (OSError, RuntimeError) as error:
+                problems = [str(error)]
+            if ran:
+                install_ctl._systemctl("start", "ollama.service")
+            GLib.idle_add(finished, problems)
+
+        def finished(problems):
+            self.reorg_busy = False
+            self.reorg_undo.set_sensitive(True)
+            self.collect()
+            self.refresh_overview()
+            self.refresh_map()
+            self.reorg_status.set_label(_("Everything is back.") if not problems else
+                                        _("Back, but not all: {0}").format("; ".join(problems[:3])))
+            self.plan_reorganize()
+            if not problems:
+                self.reorg_status.set_label(_("Everything is back."))
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
 
     # --- help: the manual (for now: setting up by drawing) ---------------------------------------
 
@@ -5193,6 +6451,8 @@ class AgentsMap(Gtk.Application):
         def answer(on: bool):
             self.save_setting(launcher_entry=on)
             app_entry.ensure_entry(on)
+            if not on:
+                self.show_notice(_("You can add it later in Settings › Omarchy app."))
         GLib.timeout_add(1500, lambda: self.show_offer(
             _("Add AI Agents Map to Omarchy's app launcher (Super + Space)?"), _("Add"), _("Not now"),
             lambda: answer(True), lambda: answer(False)) or False)
@@ -5400,6 +6660,30 @@ class AgentsMap(Gtk.Application):
         .am-provider-list checkbutton.am-list-group label {{ font-size: 11px; font-weight: 700; color: {dim_hex}; }}
         .am-card entry.am-path {{ font-family: monospace; font-size: 12px; min-height: 0; padding: 3px 8px; }}
         .am-card entry.am-path.error {{ border-color: {red_hex}; }}
+        button.am-health-line {{ padding: 6px 10px; border-radius: {radius}px; background: alpha({fg_hex}, 0.04);
+                                 border: 1px solid alpha({fg_hex}, 0.10); }}
+        .am-health-mark {{ font-size: 15px; font-weight: 700; min-width: 18px; }}
+        .am-health-ok {{ color: {green_hex}; }}
+        .am-health-hint {{ color: {accent_hex}; }}
+        .am-health-warn {{ color: {yellow_hex}; }}
+        .am-use-tile {{ padding: 12px; border-radius: {radius}px; background: alpha({fg_hex}, 0.04);
+                        border: 1px solid alpha({fg_hex}, 0.10); }}
+        .am-use-icon {{ font-family: "JetBrainsMono Nerd Font", "Symbols Nerd Font", monospace; font-size: 20px;
+                        color: {accent_hex}; min-width: 26px; }}
+        .am-use-pill {{ font-size: 10px; font-weight: 700; padding: 1px 8px; border-radius: 9px; }}
+        .am-use-ready {{ color: {green_hex}; background: alpha({green_hex}, 0.14); }}
+        .am-use-almost {{ color: {accent_hex}; background: alpha({accent_hex}, 0.14); }}
+        .am-use-missing {{ color: {yellow_hex}; background: alpha({yellow_hex}, 0.14); }}
+        .am-use-have {{ font-size: 11px; color: {green_hex}; }}
+        .am-finding-mark {{ font-size: 13px; font-weight: 700; min-width: 16px; }}
+        .am-finding-title {{ font-size: 12px; font-weight: 600; }}
+        .am-state-hint {{ color: {accent_hex}; }}
+        .am-job {{ padding: 6px 10px; border-radius: {radius}px; background: alpha({fg_hex}, 0.04);
+                   border: 1px solid alpha({fg_hex}, 0.10); }}
+        .am-job-mark {{ font-size: 16px; min-width: 22px; color: {accent_hex}; }}
+        .am-job-waiting .am-job-mark, .am-job-interrupted .am-job-mark, .am-job-stopped .am-job-mark {{ color: {yellow_hex}; }}
+        .am-job-failed .am-job-mark {{ color: {red_hex}; }}
+        .am-job-done .am-job-mark {{ color: {green_hex}; }}
         progressbar.am-progress trough {{ min-height: 6px; background: alpha({fg_hex}, 0.10); border-radius: 3px; }}
         progressbar.am-progress progress {{ min-height: 6px; background: {accent_hex}; border-radius: 3px; }}
         .am-card button.am-menu-item {{ padding: 3px 8px; font-size: 12px; }}
@@ -5438,6 +6722,9 @@ class AgentsMap(Gtk.Application):
         .am-card button.am-chip:disabled {{ opacity: 0.4; }}
         .am-sidebar {{ background: alpha({fg_hex}, 0.03); border: 1px solid alpha({fg_hex}, 0.10);
             border-radius: {radius}px; padding: 10px 10px 0 10px; }}
+        .am-category {{ background: alpha({fg_hex}, 0.03); border: 1px solid alpha({fg_hex}, 0.08);
+            border-radius: {radius}px; padding: 8px 10px 10px 10px; }}
+        .am-hint-area {{ border-top: 1px solid alpha({fg_hex}, 0.10); padding: 8px 2px 10px 2px; }}
         .am-side-rule {{ margin: 0 14px; background: alpha({fg_hex}, 0.14); min-width: 1px; }}
         .am-segmented {{ border: 1px solid alpha({fg_hex}, 0.22); border-radius: 999px; padding: 2px; }}
         .am-card button.am-segment {{ font-size: 11px; min-height: 0; padding: 2px 12px; border-radius: 999px;
@@ -5481,19 +6768,24 @@ class AgentsMap(Gtk.Application):
         if page == "help" and keyval in (Gdk.KEY_Escape, Gdk.KEY_BackSpace):
             self.close_help()
             return True
+        if page == "reorganize" and keyval == Gdk.KEY_Escape:
+            self.close_reorganize()
+            return True
         if keyval == Gdk.KEY_Escape:
             if page == "settings":
                 self.close_settings()
             elif page == "connect":
                 self.close_connect()
             elif page == "install":
-                self.cancel_install()
+                self.close_install()       # a running install goes on in the background
             elif page == "models":
                 self.close_models()
             elif page == "mcp":
                 self.close_mcp_details()
             elif page == "status":
                 self.close_status()
+            elif page == "health":
+                self.close_health()
             elif page == "addmcp":
                 self.close_add_mcp()
             elif page == "addskills":
@@ -5509,11 +6801,11 @@ class AgentsMap(Gtk.Application):
                 self.close_add_mcp() if page == "addmcp" else self.close_add_skills()
                 return True
             return False          # typing in the search fields
-        if page in ("settings", "connect", "install", "mcp", "status"):
+        if page in ("settings", "connect", "install", "mcp", "status", "health"):
             if keyval == Gdk.KEY_BackSpace:
                 {"settings": self.close_settings, "connect": self.close_connect,
                  "install": self.close_install, "mcp": self.close_mcp_details,
-                 "status": self.close_status}[page]()
+                 "status": self.close_status, "health": self.close_health}[page]()
                 return True
             return False          # Tab and arrows move between the controls
         if ctrl and keyval == Gdk.KEY_comma:
@@ -5552,6 +6844,7 @@ class AgentsMap(Gtk.Application):
         self.start_gpu_poll()
         self.research_new_agents()
         self.check_new_apps()
+        self.run_health()
         self.launcher_entry_on_open()
         # Restarted after a language change: back on the settings page.
         view = os.environ.pop("AI_AGENTS_MAP_VIEW", "")
@@ -5560,6 +6853,12 @@ class AgentsMap(Gtk.Application):
         page = os.environ.pop("AI_AGENTS_MAP_PAGE", "")
         if page == "settings":
             GLib.idle_add(self.open_settings)
+        elif page == "reorganize":
+            GLib.idle_add(self.open_reorganize)
+        elif page.startswith("models:"):
+            rt = next((r for r in self.inventory.runtimes if r.key == page[7:] and r.installed), None)
+            if rt is not None:
+                GLib.idle_add(lambda: self.open_models(rt) and False)
         elif page in ("help", "help:play"):
             GLib.idle_add(self.open_help)
             if page == "help:play":
@@ -5591,8 +6890,8 @@ class AgentsMap(Gtk.Application):
             self.close_settings()   # never reopen onto the settings page
         elif self.page_name() == "connect":
             self.close_connect()    # nor onto a half-made connection
-        elif self.page_name() == "install" and not (self.installing or {}).get("busy"):
-            self.close_install()
+        elif self.page_name() == "install":
+            self.close_install()    # a running install goes on in the background
         self.window.hide()
 
 

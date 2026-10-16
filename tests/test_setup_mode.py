@@ -36,6 +36,17 @@ class SetupModeTest(unittest.TestCase):
         view.mode_off, view.mode_hidden = set(), set()                  # back to All: everything again
         self.assertEqual(view.hidden(), set())
 
+    def test_my_setup_leaves_out_what_is_not_installed_or_unused(self):
+        from types import SimpleNamespace as NS
+        agents = [NS(command="claude", installed=True), NS(command="gemini", installed=False)]
+        inv = NS(runtimes=[NS(key="ollama", installed=True), NS(key="jan", installed=False)],
+                 mcp=[NS(name="github", agents=["claude"]), NS(name="old", agents=[])])
+        self.assertEqual(graph.scope_extras(agents, inv), {"agent:gemini", "runtime:jan", "mcp:old"})
+        view = Hidden(sample())
+        view.mode_hidden = {"runtime:llamacpp"}                          # My setup: not installed
+        self.assertIn("runtime:llamacpp", view.hidden())
+        self.assertNotIn("agent:hermes", view.hidden())
+
 
 if __name__ == "__main__":
     unittest.main()

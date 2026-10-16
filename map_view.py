@@ -172,6 +172,8 @@ class MapView(Gtk.DrawingArea):
 
     def group_title(self, nodes) -> str:
         first = nodes[0]
+        if first.kind == "add-folders":
+            return ""                  # the folded-away folders' box: no heading of its own
         if first.column == 3:
             return first.group or self.group_titles.get("online", "").upper()
         kind = {"add-mcp": "mcp", "add-skills": "skills"}.get(first.kind, first.kind)

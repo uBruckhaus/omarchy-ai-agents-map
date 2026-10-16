@@ -27,7 +27,8 @@ MAX_MODELS_PER_PROVIDER = 10
 # Categories the map can show or hide, in toolbar order, and what each needs.
 LAYERS = ("agents", "online", "local", "models", "mcp", "skills")
 LAYER_OF = {"agent": "agents", "cloud": "online", "runtime": "local", "model": "models", "more": "models",
-            "mcp": "mcp", "add-mcp": "mcp", "skills": "skills", "add-skills": "skills", "add-model": "models"}
+            "mcp": "mcp", "add-mcp": "mcp", "skills": "skills", "add-skills": "skills", "add-model": "models",
+            "add-folders": "models"}
 REQUIRES = {"models": ("online", "local"), "mcp": ("agents",), "skills": ("agents",)}   # any one of them
 
 
@@ -58,6 +59,31 @@ def hidden_by_layers(graph, enabled, hidden_ids=()) -> set:
     return hidden
 
 
+SCOPES = ("mine", "all")    # My setup · + Available
+
+
+def scope_extras(agent_list, inventory) -> set:
+    """Card and box ids "My setup" leaves out: agents and local LLMs that are not
+    installed, MCP servers no agent uses (all of them stay one click away)."""
+    return ({f"agent:{a.command}" for a in agent_list if not a.installed}
+            | {f"runtime:{rt.key}" for rt in inventory.runtimes if not rt.installed}
+            | {f"mcp:{m.name}" for m in inventory.mcp if not m.agents})
+
+
+FOLDERS_BOX = "add:folders"
+
+
+def idle_folders(graph) -> dict:
+    """Model folders (of local LLMs) none of whose models an agent uses or runs:
+    {folder: ids of its boxes, "+ Model" and "+n more" included}."""
+    folders = {}
+    for node in graph.column(3):
+        if node.group and node.kind in ("model", "more", "add-model"):
+            folders.setdefault(node.group, []).append(node)
+    return {folder: {n.id for n in nodes} for folder, nodes in folders.items()
+            if not any(n.active for n in nodes)}
+
+
 def listable(graph, column: int) -> list:
     """The boxes a column's heading list can tick: everything but the "+" boxes."""
     return [n for n in graph.column(column) if not n.kind.startswith("add-")]
@@ -76,6 +102,7 @@ class Node:
     status: str = ""         # local runtimes: "running", "stopped" (installed) or "missing"
     group: str = ""          # models: the folder they live in ("" = an online provider's)
     owners: tuple = ()       # "+ Model" boxes: the local LLM node ids using that folder
+    active: bool = False     # models: an agent's model, or one an open agent runs
 
 
 @dataclass
@@ -256,6 +283,13 @@ def build(agent_list, details: dict, inventory, labels: dict | None = None, fail
         if node.id in live:
             node.status = "running"
             node.detail = labels["in_use"](", ".join(live[node.id]))
+    chosen = {e.target for e in graph.edges if e.kind == "default"}
+    for node in graph.nodes:
+        node.active = node.kind == "model" and (node.id in chosen or node.id in live)
+    idle = idle_folders(graph)
+    if idle and "folders" in labels:
+        # My setup folds these away behind one box (ai_popup.scope_hidden); a click unfolds them.
+        graph.add(Node(FOLDERS_BOX, 3, labels["folders"](len(idle)), "", "add-folders", dim=True, group=FOLDERS_BOX))
 
     # A default model that points at a model the runtime does not list: drop the link.
     ids = {n.id for n in graph.nodes}

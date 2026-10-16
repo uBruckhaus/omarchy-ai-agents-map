@@ -45,6 +45,10 @@ class Cancelled(Exception):
     pass
 
 
+class DownloadError(RuntimeError):
+    """The connection broke off: trying again resumes the download (jobs.retryable)."""
+
+
 @dataclass
 class Release:
     version: str
@@ -54,6 +58,25 @@ class Release:
     @property
     def size(self) -> int:
         return sum(size for _name, _url, size in self.assets)
+
+    def to_json(self) -> dict:
+        return {"version": self.version, "assets": [list(a) for a in self.assets], "digests": dict(self.digests)}
+
+    @classmethod
+    def from_json(cls, data: dict) -> "Release":
+        """A release kept by jobs.py (own 0600 file): checked again before use."""
+        version = str(data.get("version", ""))
+        if not NAME_RE.fullmatch(version):
+            raise ValueError("bad release")
+        assets = []
+        for item in data.get("assets", [])[:8]:
+            name, url, size = str(item[0]), str(item[1]), int(item[2])
+            if not NAME_RE.fullmatch(name) or not url.startswith("https://") or size < 0:
+                raise ValueError("bad release")
+            assets.append((name, url, size))
+        digests = {str(k): str(v) for k, v in (data.get("digests") or {}).items()
+                   if re.fullmatch(r"[0-9a-f]{64}", str(v))}
+        return cls(version, assets, digests)
 
 
 @dataclass
@@ -206,9 +229,9 @@ def download(url: str, target: Path, size: int, progress, cancelled, done_before
         if proc.poll() is None:
             proc.kill()
     if proc.returncode != 0:
-        raise RuntimeError(f"download failed: {proc.stderr.read(400).decode('utf-8', 'replace').strip()}")
+        raise DownloadError(f"download failed: {proc.stderr.read(400).decode('utf-8', 'replace').strip()}")
     if size and partial.stat().st_size != size:
-        raise RuntimeError("download incomplete")
+        raise DownloadError("download incomplete")
     if sha256 and sha256_of(partial) != sha256:
         partial.unlink(missing_ok=True)
         raise RuntimeError(f"{target.name} does not match the release's SHA-256 checksum; nothing was installed")
@@ -397,8 +420,11 @@ class Installer:
         done = 0
         for asset_name, url, size in release.assets:
             progress(done / max(1, release.size), f"download {asset_name}")
-            download(url, downloads / asset_name, size, progress, cancelled, done, release.size,
-                     sha256=release.digests[asset_name])
+            target = downloads / asset_name
+            # Continued after an interruption: a file already downloaded and checked is kept.
+            if not (target.is_file() and not target.is_symlink() and sha256_of(target) == release.digests[asset_name]):
+                download(url, target, size, progress, cancelled, done, release.size,
+                         sha256=release.digests[asset_name])
             done += size
         if cancelled():
             raise Cancelled()
@@ -459,6 +485,7 @@ class Installer:
             shutil.rmtree(folder / old, ignore_errors=True)
 
     def set_models_folder(self, models: Path):
+        models = check_folder(str(models))      # it goes into the unit's environment file and settings
         models.mkdir(parents=True, exist_ok=True)
         self.set_models_folder_value(models)
         if self.has_service and _systemctl("is-active", "--quiet", f"{self.service}.service")[0]:

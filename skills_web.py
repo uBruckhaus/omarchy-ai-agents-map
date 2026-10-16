@@ -38,11 +38,13 @@ class Skill:
     installs: int = 0
 
 
-def _get(url: str, limit: int, accept: str = "application/json") -> bytes:
-    """Only the three fixed hosts; no redirects (raw files and the API answer directly)."""
+def _get(url: str, limit: int, accept: str = "application/json", site: str = "") -> bytes:
+    """Only the three fixed hosts (and a site the user added, web_sources); no redirects."""
     import netfetch
-    if not url.startswith(("https://skills.sh/api/", "https://api.github.com/repos/",
-                           "https://raw.githubusercontent.com/")):
+    allowed = ("https://skills.sh/api/", "https://api.github.com/repos/", "https://raw.githubusercontent.com/")
+    if site:
+        allowed += (site.rstrip("/") + "/api/",)
+    if not url.startswith(allowed):
         raise ValueError("not an address this page fetches")
     try:
         return netfetch.fetch(url, max_bytes=limit, timeout=TIMEOUT, redirects=0, headers={"Accept": accept})
@@ -62,9 +64,40 @@ def parse_search(data: dict) -> list[Skill]:
     return found
 
 
-def search(query: str, limit: int = 30) -> list[Skill]:
+def search(query: str, limit: int = 30, base: str = "") -> list[Skill]:
+    """base: a site with skills.sh's API, or a GitHub repository (web_sources)."""
+    import web_sources
+    repo = web_sources.github_repo(base)
+    if repo:
+        return repo_skills(repo, query, limit)
     params = urllib.parse.urlencode({"q": query.strip()[:100], "limit": limit})
+    if base and base != "https://skills.sh":
+        return parse_search(json.loads(_get(f"{base}/api/search?{params}", 2 * 1024 * 1024, site=base)))
     return parse_search(json.loads(_get(f"{SEARCH}?{params}", 2 * 1024 * 1024)))
+
+
+def skills_in_tree(tree: dict, repo: str, query: str = "", limit: int = 30) -> list[Skill]:
+    """The skills of a repository's file list: each folder with a SKILL.md (an
+    empty query lists them all)."""
+    entries = tree.get("tree") if isinstance(tree, dict) else None
+    found, words = [], query.lower().split()
+    for entry in entries if isinstance(entries, list) else []:
+        path = entry.get("path") if isinstance(entry, dict) else None
+        if not isinstance(path, str) or entry.get("type") != "blob" or not path.endswith("SKILL.md"):
+            continue
+        skill_id = path.rsplit("/", 2)[-2] if "/" in path else repo.split("/")[1]
+        if not _ID.match(skill_id) or not all(w in path.lower() for w in words):
+            continue
+        if all(s.skill_id != skill_id for s in found):
+            found.append(Skill(skill_id, skill_id, repo))
+    return found[:limit]
+
+
+def repo_skills(repo: str, query: str = "", limit: int = 30) -> list[Skill]:
+    if not _REPO.match(repo):
+        raise ValueError("not a GitHub repository")
+    tree = json.loads(_get(TREE.format(repo=repo), 8 * 1024 * 1024, "application/vnd.github+json"))
+    return skills_in_tree(tree, repo, query, limit)
 
 
 def files_of(tree: dict, skill_id: str) -> tuple[str, list]:

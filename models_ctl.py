@@ -49,11 +49,12 @@ class GgufFile:
 
 # --- Hugging Face ---------------------------------------------------------------------------
 
-def search(query: str, limit: int = 20) -> list[Repo]:
+def search(query: str, limit: int = 20, base: str = HF) -> list[Repo]:
+    """base: Hugging Face or a site with its API (web_sources)."""
     query = (query or "").strip()[:100]
     if not query:
         return []
-    url = (f"{HF}/api/models?search={urllib.parse.quote(query)}&filter=gguf&sort=downloads&direction=-1"
+    url = (f"{base}/api/models?search={urllib.parse.quote(query)}&filter=gguf&sort=downloads&direction=-1"
            f"&limit={int(limit)}")
     data = _json_list(url)
     repos = []
@@ -64,12 +65,12 @@ def search(query: str, limit: int = 20) -> list[Repo]:
     return repos
 
 
-def files(repo: str, vram: int = 0) -> list[GgufFile]:
+def files(repo: str, vram: int = 0, base: str = HF) -> list[GgufFile]:
     """The GGUF files of a repository, split files as one entry; the best one
     for the card marked recommended (Q4_K_M if it fits, else the largest that fits)."""
     if not REPO_RE.fullmatch(repo):
         raise ValueError("not a Hugging Face model name")
-    data = _json_list(f"{HF}/api/models/{repo}/tree/main?recursive=1")
+    data = _json_list(f"{base}/api/models/{repo}/tree/main?recursive=1")
     groups: dict[str, GgufFile] = {}
     for item in data[:2000]:
         if not isinstance(item, dict) or item.get("type") != "file":
@@ -103,9 +104,9 @@ def _json_list(url: str) -> list:
     try:
         data = netfetch.fetch_json(url, max_bytes=5_000_000, timeout=20)
     except netfetch.FetchError as error:
-        raise RuntimeError("Hugging Face did not answer") from error
+        raise RuntimeError(f"{urllib.parse.urlsplit(url).hostname} did not answer") from error
     if not isinstance(data, list):
-        raise RuntimeError("unexpected answer from Hugging Face")
+        raise RuntimeError(f"unexpected answer from {urllib.parse.urlsplit(url).hostname}")
     return data
 
 
@@ -131,17 +132,18 @@ def gguf_target(runtime_key: str, models_dir: Path, repo: str) -> tuple[Path, Pa
     return models_dir, None
 
 
-def download_gguf(runtime_key: str, models_dir: Path, repo: str, entry: GgufFile, progress, cancelled) -> Path:
+def download_gguf(runtime_key: str, models_dir: Path, repo: str, entry: GgufFile, progress, cancelled,
+                  base: str = HF) -> Path:
     folder, link_dir = gguf_target(runtime_key, models_dir, repo)
     folder.mkdir(parents=True, exist_ok=True)
     done = 0
     first = None
-    sizes = _part_sizes(repo, entry)
+    sizes = _part_sizes(repo, entry, base)
     for path, size in zip(entry.paths, sizes):
         target = folder / Path(path).name
         first = first or target
         if not (target.exists() and target.stat().st_size == size):
-            install_ctl.download(f"{HF}/{repo}/resolve/main/{urllib.parse.quote(path)}", target, size,
+            install_ctl.download(f"{base}/{repo}/resolve/main/{urllib.parse.quote(path)}", target, size,
                                  progress, cancelled, done, entry.size)
         done += size
     if link_dir is not None:
@@ -152,14 +154,107 @@ def download_gguf(runtime_key: str, models_dir: Path, repo: str, entry: GgufFile
     return first
 
 
-def _part_sizes(repo: str, entry: GgufFile) -> list[int]:
+def _part_sizes(repo: str, entry: GgufFile, base: str = HF) -> list[int]:
     """Sizes of the parts of a split file (one total size is known; ask again for the parts)."""
     if len(entry.paths) == 1:
         return [entry.size]
-    data = _json_list(f"{HF}/api/models/{repo}/tree/main?recursive=1")
+    data = _json_list(f"{base}/api/models/{repo}/tree/main?recursive=1")
     sizes = {i.get("path"): int((i.get("lfs") or {}).get("size") or i.get("size") or 0)
              for i in data if isinstance(i, dict)}
     return [sizes.get(p, 0) for p in entry.paths]
+
+
+# --- On this PC: GGUF files a local LLM does not have yet ----------------------------------
+
+@dataclass
+class LocalFile:
+    path: Path
+    size: int
+    where: str               # the folder it was found in, for the list
+
+
+def _identity(path: Path):
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return st.st_dev, st.st_ino
+
+
+def seen_by(runtime_key: str, folder: Path) -> set:
+    """The files a local LLM reads from its folder (as (device, inode)): LM Studio
+    those at least two folders down (<publisher>/<model>/…), Ollama its blobs
+    (hard links count), llama.cpp and KoboldCpp the folder and one level below."""
+    folder = Path(folder)
+    if runtime_key == "lmstudio":
+        paths = folder.glob("*/*/**/*.gguf")
+    elif runtime_key == "ollama":
+        paths = (folder / "blobs").glob("sha256-*")
+    else:
+        paths = [*folder.glob("*.gguf"), *folder.glob("*/*.gguf")]
+    found = set()
+    for count, path in enumerate(paths):
+        if count > 5000:
+            break
+        found.add(_identity(path))
+    return found - {None}
+
+
+def local_ggufs(roots: list, have: set) -> list[LocalFile]:
+    """GGUF models under roots (real files and what links point at) that the local
+    LLM does not read yet (have = seen_by(...): same file = same inode, so hard
+    links and symlinks count as had). No vision projectors, a split model by its
+    first part."""
+    import model_layout
+    had = set(have)
+    found, seen = [], set()
+    for root in roots:
+        root = Path(root)
+        if not root.is_dir():
+            continue
+        files, links = model_layout.walk_gguf(root, set())
+        for path in files + [Path(os.path.realpath(l)) for l in links]:
+            name = path.name.lower()
+            ident = _identity(path)
+            if ident is None or ident in had or ident in seen or "mmproj" in name or not path.is_file():
+                continue
+            split = SPLIT_RE.match(path.name)
+            if split and split.group(2) != "00001":
+                continue
+            seen.add(ident)
+            found.append(LocalFile(Path(os.path.realpath(path)), path.stat().st_size, str(root)))
+    return sorted(found, key=lambda f: f.path.name.lower())
+
+
+def add_local(runtime_key: str, models_dir: Path, file: Path) -> Path:
+    """Make a GGUF on this PC a model of a local LLM without a second copy: LM
+    Studio gets it as <folder>/local/<name>/ (with its vision projector), the
+    others a link in their folder. A hard link on the same disk (every program
+    reads it), else a symbolic one."""
+    import model_layout
+    file = Path(os.path.realpath(file))
+    if not file.is_file() or not file.name.lower().endswith(".gguf"):
+        raise ValueError("not a GGUF file")
+    parts = [file]
+    split = SPLIT_RE.match(file.name)
+    if split:
+        parts = sorted(file.parent.glob(f"{split.group(1)}-*-of-{split.group(3)}.gguf"))
+    if runtime_key == "lmstudio":
+        folder = models_dir / model_layout.LOCAL / model_layout.model_dir_name(file.name)
+        parts += [p for p in file.parent.glob("*.gguf") if "mmproj" in p.name.lower()]
+    else:
+        folder, link_dir = gguf_target(runtime_key, models_dir, "local/x")
+        folder = link_dir or folder
+    folder.mkdir(parents=True, exist_ok=True)
+    for part in parts:
+        target = folder / part.name
+        if target.exists() or target.is_symlink():
+            continue
+        try:
+            os.link(part, target)
+        except OSError:
+            target.symlink_to(part)
+    return folder / file.name
 
 
 # --- Ollama --------------------------------------------------------------------------------
@@ -196,6 +291,37 @@ def require_own_listener(port: int):
         raise ConnectionError("not running")
     if any(uid != os.getuid() for uid in owners):
         raise PermissionError(f"port {port} belongs to another user account")
+
+
+def ollama_create(file: Path, address: str) -> str:
+    """A GGUF on this PC as an Ollama model (`ollama create`; Ollama keeps its own
+    copy in its store). The name: the file's, lower case."""
+    import shutil
+    import subprocess
+    import tempfile
+    import ai_core
+    file = Path(os.path.realpath(file))
+    if not file.is_file() or not file.name.lower().endswith(".gguf"):
+        raise ValueError("not a GGUF file")
+    # The path goes into the Modelfile's FROM line: nothing that could end the quoted value or the line.
+    if re.search(r'["\\\x00-\x1f\x7f]', str(file)):
+        raise ValueError("the file's path has quotes, backslashes or control characters; rename it first")
+    name = re.sub(r"[^a-z0-9._-]+", "-", SPLIT_RE.sub(r"\1", file.name).lower().removesuffix(".gguf")).strip("-._")
+    name = (name or "model")[:100]
+    host, _sep, port = address.rpartition(":")
+    require_own_listener(int(port or 11434))
+    binary = shutil.which("ollama")
+    if binary is None:
+        raise RuntimeError("ollama is not installed")
+    with tempfile.TemporaryDirectory(prefix="ai-agents-map-") as tmp:
+        modelfile = Path(tmp) / "Modelfile"
+        modelfile.write_text(f"FROM {json.dumps(str(file))}\n", encoding="utf-8")
+        out, ok = ai_core.read_bounded_output([binary, "create", name, "-f", str(modelfile)], max_bytes=64 * 1024,
+                                              timeout=3600, merge_stderr=True,
+                                              env={**os.environ, "OLLAMA_HOST": f"127.0.0.1:{int(port or 11434)}"})
+    if not ok:
+        raise RuntimeError(out.decode("utf-8", "replace").strip()[-300:] or "ollama create failed")
+    return name
 
 
 def ollama_name_for(repo: str, entry: GgufFile) -> str:
@@ -245,4 +371,4 @@ def ollama_pull(name: str, address: str, progress, cancelled):
             progress(fraction if fraction is not None else 0.0, str(line.get("status", ""))[:120])
             if line.get("status") == "success":
                 return
-    raise RuntimeError("the download stopped before it was finished")
+    raise install_ctl.DownloadError("the download stopped before it was finished")

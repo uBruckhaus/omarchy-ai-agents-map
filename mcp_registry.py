@@ -147,11 +147,13 @@ def parse(data: dict) -> list[Server]:
     return servers
 
 
-def search(query: str, limit: int = 30) -> list[Server]:
+def search(query: str, limit: int = 30, base: str = "") -> list[Server]:
+    """base: another registry with the same API (web_sources), else the official one."""
     params = urllib.parse.urlencode({"search": query.strip()[:100], "limit": limit, "version": "latest"})
     import netfetch
+    api = f"{base}/v0/servers" if base else API
     try:
-        data = netfetch.fetch_json(f"{API}?{params}", max_bytes=MAX_BYTES, timeout=TIMEOUT, redirects=0,
+        data = netfetch.fetch_json(f"{api}?{params}", max_bytes=MAX_BYTES, timeout=TIMEOUT, redirects=0,
                                    headers={"Accept": "application/json"})
     except netfetch.FetchError as error:
         raise ValueError(str(error)) from error
