@@ -16,6 +16,11 @@ set it up. Clicking an agent's line to a local LLM or MCP server selects
 it (a handle at the far end); dragging it to another LLM calls
 on_relink(agent, old, new), onto empty space on_relink(agent, old, None).
 Right-click on a box calls on_context(node id, box rectangle).
+The pin at a box's top right corner (shown on hover, filled when pinned)
+keeps that box's connections lit: while anything is pinned, hovering other
+boxes changes nothing.
+Dragging a model box onto another model folder (a group in the models column)
+calls on_move(model id, folder, rectangle) when move_target_ok(model id, folder) agrees.
 Zoom (set_zoom, Ctrl+scroll): the drawing is scaled; boxes, lines and
 clicks stay in map units (x / zoom), rectangles handed out are in pixels.
 Each agent's active path (agent → provider in use → its model) is drawn
@@ -46,6 +51,8 @@ COLUMN_GAP_MIN = 56
 COLUMN_GAP_MAX = 300
 NODE_W_MAX = 260
 NODE_W_MIN = 120
+PIN_W = 14               # the pin's square at a box's top right
+PIN, PIN_OUTLINE = "\U000F0403", "\U000F0931"   # Nerd Font pin, pin-outline
 # The categories whose boxes each column holds (a column with none of them on is gone).
 COLUMN_LAYERS = {0: {"mcp", "skills"}, 1: {"agents"}, 2: {"online", "local"}, 3: {"models"}}
 # Categories: selecting in one hides that category's other boxes.
@@ -82,6 +89,12 @@ class MapView(Gtk.DrawingArea):
         self.on_context = None   # callback(node id, (x, y, w, h)) for a right-click
         self.on_pick_model = None  # callback(agent id, runtime id, model name): a model clicked
         self.selected_edge = None  # (agent id, runtime id) of the clicked line
+        self.pinned = []         # node ids whose connections stay lit, whatever the pointer is over
+        self.pin_rects = {}      # node id -> rectangle of its pin, for clicks
+        self.pin_tips = ("Pin", "Unpin")   # tooltips (pin, unpin), translated by the window
+        self.group_rects = {}    # model folder -> rectangle of its group in the models column
+        self.move_target_ok = None  # callback(model id, folder) -> bool: may the model go there
+        self.on_move = None      # callback(model id, folder, (x, y, w, h)): a model dropped on a folder
         self.on_failed_edge = None # callback((agent id, target id), (x, y, w, h)): a line with hints clicked
         self.marker_points = []    # ((source, target), x, y) of the "!" on failed lines, for clicks
         self.shift = False       # Shift held: hidden boxes come back to be added
@@ -152,6 +165,7 @@ class MapView(Gtk.DrawingArea):
         if any(i not in ids for i in self.selected):
             self.selected = [i for i in self.selected if i in ids]
             self.selection_changed()
+        self.pinned = [i for i in self.pinned if i in ids]
         self.set_content_height(int(self.needed_height() * self.zoom))
         self.queue_draw()
 
@@ -219,6 +233,7 @@ class MapView(Gtk.DrawingArea):
         left = PAD + max(0, (width - 2 * PAD - used) // 2)
         self.column_x = {}
         self.group_labels = []
+        self.group_rects = {}
         for slot, column in enumerate(active):
             y = self.column_top(self.column_height(column), height)
             x = left + slot * (node_w + gap)
@@ -230,9 +245,12 @@ class MapView(Gtk.DrawingArea):
                         y += GROUP_GAP - NODE_GAP
                     self.group_labels.append((x, y, self.group_title(nodes), column))
                     y += GROUP_LABEL_H
+                top = y - (GROUP_LABEL_H if titled else 0)
                 for node in nodes:
                     self.boxes[node.id] = (x, y, node_w, NODE_H)
                     y += NODE_H + NODE_GAP
+                if column == 3 and nodes[0].group:
+                    self.group_rects[nodes[0].group] = (x, top, node_w, y - NODE_GAP - top)
         return node_w, gap
 
     def hidden(self) -> set:
@@ -471,6 +489,11 @@ class MapView(Gtk.DrawingArea):
                          "drawing": False}
             return
         node_id = self.node_at(x, y)
+        if node_id is not None and self.kind_of(node_id) == "model" and self.move_target_ok is not None \
+                and any(self.move_target_ok(node_id, f) for f in self.group_rects):
+            self.link = {"from": node_id, "move": True, "start": (x, y), "x": x, "y": y, "target": None,
+                         "drawing": False}
+            return
         if node_id is None or self.kind_of(node_id) not in ("agent", "runtime", "mcp", "skills"):
             gesture.set_state(Gtk.EventSequenceState.DENIED)
             self.link = None
@@ -489,14 +512,29 @@ class MapView(Gtk.DrawingArea):
             self.set_cursor_from_name("crosshair")
         x0, y0 = self.link["start"]
         self.link["x"], self.link["y"] = x0 + dx, y0 + dy
+        if self.link.get("move"):
+            self.link["target"] = self.folder_at(self.link["x"], self.link["y"], self.link["from"])
+            self.queue_draw()
+            return
         target = self.node_at(self.link["x"], self.link["y"])
         self.link["target"] = target if target and self.link_target_ok(self.link["from"], target) else None
         self.queue_draw()
+
+    def folder_at(self, x, y, model_id):
+        """The model folder whose group is at (x, y), when the model may go there."""
+        for folder, (gx, gy, gw, gh) in self.group_rects.items():
+            if gx - 6 <= x <= gx + gw + 6 and gy - 6 <= y <= gy + gh + 6:
+                return folder if self.move_target_ok(model_id, folder) else None
+        return None
 
     def on_link_end(self, _gesture, _dx, _dy):
         link, self.link = self.link, None
         self.set_cursor_from_name(None)
         self.queue_draw()
+        if link and link.get("move"):
+            if link["drawing"] and link["target"] and self.on_move is not None:
+                self.on_move(link["from"], link["target"], self.to_pixels(self.group_rects[link["target"]]))
+            return
         if link and link.get("relink") and link["drawing"] and self.on_relink is not None:
             # Let go on another local LLM: move the line. Anywhere else: remove it.
             if link["target"]:
@@ -513,6 +551,9 @@ class MapView(Gtk.DrawingArea):
         """The line being drawn, and the boxes it may end on."""
         link = self.link
         if not link or not link["drawing"] or link["from"] not in self.boxes:
+            return
+        if link.get("move"):
+            self.draw_move(cr, link)
             return
         for node in self.graph.nodes:
             if node.id in self.boxes and self.link_target_ok(link["from"], node.id):
@@ -538,6 +579,41 @@ class MapView(Gtk.DrawingArea):
         cr.arc(x2, y2, 4, 0, 2 * math.pi)
         cr.fill()
 
+    def draw_move(self, cr, link):
+        """A model being moved: the folders it may go to framed, the box following the pointer."""
+        for folder, (gx, gy, gw, gh) in self.group_rects.items():
+            if not self.move_target_ok(link["from"], folder):
+                continue
+            target = folder == link["target"]
+            self.rounded(cr, gx - 5, gy - 5, gw + 10, gh + 10, self.radius + 3)
+            if target:
+                cr.set_source_rgba(*self.color("accent", 0.10))
+                cr.fill_preserve()
+            cr.set_source_rgba(*self.color("accent", 0.9 if target else 0.4))
+            cr.set_line_width(2.2 if target else 1.2)
+            cr.set_dash([] if target else [4, 3])
+            cr.stroke()
+            cr.set_dash([])
+        _sx, _sy, sw, sh = self.boxes[link["from"]]
+        x, y = link["x"] - sw / 2, link["y"] - sh / 2
+        self.rounded(cr, x, y, sw, sh, self.radius)
+        cr.set_source_rgba(*self.color("bg", 0.9))
+        cr.fill_preserve()
+        cr.set_source_rgba(*self.color("accent", 0.9))
+        cr.set_line_width(1.5)
+        cr.set_dash([5, 3])
+        cr.stroke()
+        cr.set_dash([])
+        node = next(n for n in self.graph.nodes if n.id == link["from"])
+        layout = PangoCairo.create_layout(cr)
+        layout.set_font_description(Pango.FontDescription.from_string("Sans 9"))
+        layout.set_width(int((sw - 20) * Pango.SCALE))
+        layout.set_ellipsize(Pango.EllipsizeMode.END)
+        layout.set_text(node.label, -1)
+        cr.set_source_rgba(*self.color("fg"))
+        cr.move_to(x + 10, y + (sh - layout.get_pixel_size()[1]) / 2)
+        PangoCairo.show_layout(cr, layout)
+
     def on_motion(self, controller, x, y):
         x, y = x / self.zoom, y / self.zoom
         self.set_shift(bool(controller.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK))
@@ -545,6 +621,27 @@ class MapView(Gtk.DrawingArea):
         on_heading = any(hx <= x <= hx + hw and hy <= y <= hy + hh for hx, hy, hw, hh in self.header_rects.values())
         self.set_cursor_from_name("pointer" if found or on_heading else None)
         self.set_hover(found)
+        pin = self.pin_at(x, y)
+        if pin is not None:
+            self.set_tooltip_text(self.pin_tips[1 if pin in self.pinned else 0])
+
+    def pin_at(self, x, y):
+        """The node whose pin is at (x, y) in map units, or None."""
+        for node_id, (px, py, pw, ph) in self.pin_rects.items():
+            if px <= x <= px + pw and py <= y <= py + ph:
+                return node_id
+        return None
+
+    def toggle_pin(self, node_id):
+        if node_id in self.pinned:
+            self.pinned.remove(node_id)
+        else:
+            self.pinned.append(node_id)
+        self.queue_draw()
+
+    def focus(self):
+        """The hovered box the lights follow; none while something is pinned."""
+        return None if self.pinned else self.hover
 
     def set_hover(self, node_id):
         if node_id == self.hover:
@@ -555,10 +652,10 @@ class MapView(Gtk.DrawingArea):
         self.queue_draw()
 
     def lit(self):
-        """Nodes and edges joined to the hovered node."""
-        if self.hover is None or self.graph is None:
+        """Nodes and edges joined to the hovered node (none while something is pinned)."""
+        if self.focus() is None or self.graph is None:
             return None, None
-        return self.related(self.hover)
+        return self.related(self.focus())
 
     def related(self, start: str):
         """The node, what it is joined to, and for an agent also its providers' models."""
@@ -586,13 +683,14 @@ class MapView(Gtk.DrawingArea):
 
     def highlighted(self):
         """(node ids, edge indexes) to light: the hovered box's, else the
-        selected boxes' together; (None, None) when nothing is picked."""
-        if self.hover is not None:
+        selected and pinned boxes' together; (None, None) when nothing is picked."""
+        if self.focus() is not None:
             return self.lit()
-        if not self.selected or self.graph is None:
+        picked = list(dict.fromkeys(self.selected + self.pinned))
+        if not picked or self.graph is None:
             return None, None
         nodes, edges = set(), set()
-        for node_id in self.selected:
+        for node_id in picked:
             more_nodes, more_edges = self.related(node_id)
             nodes |= more_nodes
             edges |= more_edges
@@ -605,8 +703,13 @@ class MapView(Gtk.DrawingArea):
         return None
 
     def on_click(self, gesture, _count, x, y):
-        """Click: select this box only (again: none). Shift+click: add or remove it."""
+        """Click: select this box only (again: none). Shift+click: add or remove it.
+        A click on a box's pin pins or unpins it."""
         x, y = x / self.zoom, y / self.zoom
+        pin = self.pin_at(x, y)
+        if pin is not None:
+            self.toggle_pin(pin)
+            return
         for column, (hx, hy, hw, hh) in self.header_rects.items():
             if hx <= x <= hx + hw and hy <= y <= hy + hh and self.on_header is not None:
                 self.on_header(column, self.to_pixels((hx, hy, hw, hh)))
@@ -681,10 +784,10 @@ class MapView(Gtk.DrawingArea):
     def active_now(self, lit_edges):
         """(edge indexes, model ids) of the active paths to draw bold: the hovered
         agent's, else the selected agents', else every agent's; never outside the lit lines."""
-        if self.hover is not None and self.hover.startswith("agent:"):
-            agents = [self.hover]
+        if self.focus() is not None and self.focus().startswith("agent:"):
+            agents = [self.focus()]
         else:
-            agents = [i for i in self.selected if i.startswith("agent:")] or list(self.active)
+            agents = [i for i in self.selected + self.pinned if i.startswith("agent:")] or list(self.active)
         edges = set().union(*(self.active.get(a, set()) for a in agents)) if agents else set()
         if lit_edges is not None:
             edges &= lit_edges
@@ -830,8 +933,8 @@ class MapView(Gtk.DrawingArea):
         width, height = width / zoom, height / zoom
         node_w, _gap = self.layout(width, height)
         lit_nodes, lit_edges = self.highlighted()
-        # Hover only fades the rest; a selection draws nothing but its own connections.
-        only_lit = self.hover is None and lit_edges is not None
+        # Hover and pins only fade the rest; a selection draws nothing but its own connections.
+        only_lit = self.focus() is None and lit_edges is not None and bool(self.selected)
         layout = PangoCairo.create_layout(cr)
 
         # Column headings.
@@ -924,6 +1027,7 @@ class MapView(Gtk.DrawingArea):
             self.flow_layer.update(self.flow_paths(active_edges, drawn, running_only=False) if allowed else [],
                                    self.running_agents() if allowed else set())
 
+        self.pin_rects = {}
         for node in self.graph.nodes:
             if node.id not in self.boxes:
                 continue
@@ -968,8 +1072,9 @@ class MapView(Gtk.DrawingArea):
                 layout.set_text("✓", -1)
                 cr.set_source_rgba(*self.color("accent"))
                 text_w, text_h = layout.get_pixel_size()
-                cr.move_to(x + w - text_w - 8, y + (h - text_h) / 2)
+                cr.move_to(x + w - text_w - PIN_W - 6, y + (h - text_h) / 2)
                 PangoCairo.show_layout(cr, layout)
+            self.draw_pin(cr, layout, node.id, x, y, w, faded)
 
             text_x = x + 10
             use = self.runtime_use(node)
@@ -995,7 +1100,7 @@ class MapView(Gtk.DrawingArea):
                 state = use.models.get(node.label.lower())
                 if state:
                     # Loaded (green), loading (yellow), asleep (a grey ring: listed, GPU memory free).
-                    cx, cy = x + w - (34 if node.id in self.selected else 12), y + h / 2
+                    cx, cy = x + w - PIN_W - (30 if node.id in self.selected else 8), y + h / 2
                     if state == "sleeping":
                         cr.set_source_rgba(*self.color("muted", 0.35 if faded else 1.0))
                         cr.set_line_width(1.5)
@@ -1016,7 +1121,8 @@ class MapView(Gtk.DrawingArea):
                 cr.move_to(text_x, y + (h - layout.get_pixel_size()[1]) / 2)
                 PangoCairo.show_layout(cr, layout)
                 text_x += 24
-            layout.set_width(int((x + w - (26 if node.id in self.selected else 8) - right - text_x) * Pango.SCALE))
+            layout.set_width(int((x + w - PIN_W - (24 if node.id in self.selected else 4) - right - text_x)
+                                 * Pango.SCALE))
             layout.set_ellipsize(Pango.EllipsizeMode.END)
             if detail:
                 layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 9"))
@@ -1038,6 +1144,20 @@ class MapView(Gtk.DrawingArea):
                 PangoCairo.show_layout(cr, layout)
 
         self.draw_link(cr)
+
+    def draw_pin(self, cr, layout, node_id, x, y, w, faded):
+        """The pin at the top right: filled when pinned, an outline while the box is hovered."""
+        pinned = node_id in self.pinned
+        self.pin_rects[node_id] = (x + w - PIN_W - 2, y + 1, PIN_W, PIN_W)
+        if not pinned and node_id != self.hover:
+            return
+        layout.set_font_description(Pango.FontDescription.from_string("JetBrainsMono Nerd Font, Symbols Nerd Font 9"))
+        layout.set_width(-1)
+        layout.set_text(PIN if pinned else PIN_OUTLINE, -1)
+        cr.set_source_rgba(*self.color("accent" if pinned else "dim", 0.4 if faded and not pinned else 1.0))
+        text_w, _text_h = layout.get_pixel_size()
+        cr.move_to(x + w - PIN_W - 2 + (PIN_W - text_w) / 2, y + 2)
+        PangoCairo.show_layout(cr, layout)
 
     @staticmethod
     def rounded_top(cr, x, y, w, h, r):

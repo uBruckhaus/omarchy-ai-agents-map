@@ -1070,5 +1070,29 @@
  "Leave {0} out of My setup (+ Available › Hidden shows it)": "{0} uit Mijn setup halen (+ Beschikbaar › Verborgen toont het)",
  "{0} uses a model of {1}: hide that agent first, or disconnect it": "{0} gebruikt een model van {1}: verberg eerst die agent of koppel hem los",
  "Online provider": "Online aanbieder",
- "Local LLM": "Lokale LLM"
+ "Local LLM": "Lokale LLM",
+ "Pin: keep its connections lit while the pointer moves over other boxes": "Vastpinnen: de verbindingen blijven gemarkeerd terwijl de aanwijzer over andere vakken gaat",
+ "Unpin": "Losmaken",
+ "Click the pin at a box's corner: its lines stay lit while you move over other boxes.": "Klik op de punaise in de hoek van een vak: de lijnen blijven gemarkeerd terwijl je over andere vakken gaat.",
+ "Right-click a box for what its card offers: start an agent here, in a terminal, or open its details.": "Klik met rechts op een vak voor wat de kaart biedt: een agent hier of in een terminal starten, of de details openen.",
+ "{0} uses {1}: hide that agent first, or choose another model": "{0} gebruikt {1}: verberg eerst die agent of kies een ander model",
+ "Moving {0}…": "{0} wordt verplaatst…",
+ "Moving {0}… {1} %": "{0} wordt verplaatst… {1} %",
+ "Not moved: {0}": "Niet verplaatst: {0}",
+ "{0} uses it through {1}: choose another model for it afterwards.": "{0} gebruikt het via {1}: kies daarna een ander model.",
+ "Delete…": "Verwijderen…",
+ "Move {0}?": "{0} verplaatsen?",
+ "Delete {0}?": "{0} verwijderen?",
+ "Move to…": "Verplaatsen naar…",
+ "Undo did not work: {0}": "Ongedaan maken is mislukt: {0}",
+ "Cannot move it: {0}": "Kan het niet verplaatsen: {0}",
+ "{0} moved to {1}": "{0} verplaatst naar {1}",
+ "Into the model folder of another local LLM; or drag the box onto that folder": "Naar de modelmap van een andere lokale LLM; of sleep het vak naar die map",
+ "{0} is back": "{0} is terug",
+ "Move {0} to": "{0} verplaatsen naar",
+ "That folder is on another disk: copied first, then removed here.": "Die map staat op een andere schijf: eerst gekopieerd, dan hier verwijderd.",
+ "\u0004{0} in 1 file goes to {2}; {3} lists it there.": [
+  "{0} in 1 bestand gaat naar {2}; {3} toont het daar.",
+  "{0} in {1} bestanden gaan naar {2}; {3} toont het daar."
+ ]
 }

@@ -1107,5 +1107,30 @@
  "Leave {0} out of My setup (+ Available › Hidden shows it)": "Usuń {0} z Mojej konfiguracji (+ Dostępne › Ukryte go pokazuje)",
  "{0} uses a model of {1}: hide that agent first, or disconnect it": "{0} używa modelu z {1}: najpierw ukryj tego agenta lub go odłącz",
  "Online provider": "Dostawca online",
- "Local LLM": "Lokalny LLM"
+ "Local LLM": "Lokalny LLM",
+ "Pin: keep its connections lit while the pointer moves over other boxes": "Przypnij: jego połączenia pozostają podświetlone, gdy wskaźnik przesuwa się nad innymi polami",
+ "Unpin": "Odepnij",
+ "Click the pin at a box's corner: its lines stay lit while you move over other boxes.": "Kliknij pinezkę w rogu pola: jego linie pozostają podświetlone, gdy przesuwasz się nad innymi polami.",
+ "Right-click a box for what its card offers: start an agent here, in a terminal, or open its details.": "Kliknij prawym przyciskiem pole, aby zobaczyć to, co oferuje jego karta: uruchomić agenta tutaj, w terminalu, lub otworzyć szczegóły.",
+ "{0} uses {1}: hide that agent first, or choose another model": "{0} używa {1}: najpierw ukryj tego agenta lub wybierz inny model",
+ "Moving {0}…": "Przenoszenie {0}…",
+ "Moving {0}… {1} %": "Przenoszenie {0}… {1} %",
+ "Not moved: {0}": "Nie przeniesiono: {0}",
+ "{0} uses it through {1}: choose another model for it afterwards.": "{0} używa go przez {1}: potem wybierz dla niego inny model.",
+ "Delete…": "Usuń…",
+ "Move {0}?": "Przenieść {0}?",
+ "Delete {0}?": "Usunąć {0}?",
+ "Move to…": "Przenieś do…",
+ "Undo did not work: {0}": "Cofnięcie nie powiodło się: {0}",
+ "Cannot move it: {0}": "Nie można przenieść: {0}",
+ "{0} moved to {1}": "{0} przeniesiono do {1}",
+ "Into the model folder of another local LLM; or drag the box onto that folder": "Do folderu modeli innego lokalnego LLM; lub przeciągnij pole na ten folder",
+ "{0} is back": "{0} wrócił",
+ "Move {0} to": "Przenieś {0} do",
+ "That folder is on another disk: copied first, then removed here.": "Ten folder jest na innym dysku: najpierw kopiowany, potem usuwany stąd.",
+ "\u0004{0} in 1 file goes to {2}; {3} lists it there.": [
+  "{0} w 1 pliku trafia do {2}; {3} pokazuje go tam.",
+  "{0} w {1} plikach trafia do {2}; {3} pokazuje go tam.",
+  "{0} w {1} plikach trafia do {2}; {3} pokazuje go tam."
+ ]
 }

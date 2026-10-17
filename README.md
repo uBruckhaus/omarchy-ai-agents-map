@@ -51,6 +51,15 @@ or skills found on this PC (with **Add MCP server…** / **Add skills…**), **u
 installed agents and local LLMs (see below), and "N more you could set up" with **Show** (Settings ›
 **Show what you could set up** turns that one off). Their buttons share one column and one width.
 
+**On the map**, moving the pointer over a box lights it and what it is joined to. The **pin** at a
+box's top right corner (shown on hover) keeps that box's connections lit: while anything is pinned,
+moving over other boxes changes nothing; click the pin again to let go. **Right-click** a box for
+what its card offers, in one framed menu: an agent's **Start here** / **Start in terminal** (or
+**Show terminal** / **Stop** while it runs here) and **Details**; a local LLM's install, models,
+start and stop and **Details**; an MCP server's **Details** and **Remove**; a skill folder's
+**Details**; then **Hide** for agents, providers and models. A model an agent uses cannot be hidden;
+hidden ones are listed under **+ Available › Hidden** with **Show again**.
+
 **Health check** above the cards sums up how well the setup works ("1 thing to fix · 3 tips");
 **Open ›** lists by area (this PC, agents, local LLMs and models, tools) what is fine, tips and what
 to fix, each with what to do and, where it can, a button that does it, and what the setup is good
@@ -392,6 +401,19 @@ when AI Agents Map ended (closed, crashed, logged out) is listed as interrupted,
 or **Discard**; it is kept in `~/.local/state/ai-agents-map/jobs.json` (0600; what to download,
 never credentials). **Continue** asks the release again and uses its files and checksums, not the
 saved ones; files already downloaded are kept only when their SHA-256 matches.
+
+### Moving and deleting a model on the map
+
+Right-click a model of llama.cpp, KoboldCpp or LM Studio → **Move to…** and pick another of these
+local LLMs, or drag the model box onto that local LLM's folder (the folders it may go to are
+framed). First it says what happens: how much moves, whether the folder is on another disk (then
+the files are copied and the originals removed once the copy is complete) and which agent uses the
+model. Only your own regular files inside the model folder move, never a link, and nothing at the
+target is overwritten: on one disk the file gets a hard link at the new place before the old name
+goes, a copy is written to a new `.part` file and linked into place, and a name that already exists
+there stops the move. Undo, in the bar that follows, moves the files back. **Delete…** (at the
+bottom of the menu, after a line) asks first and moves the files to the desktop's trash, as
+**Remove** on the Installed tab does.
 
 ### One models folder, and Reorganize models
 

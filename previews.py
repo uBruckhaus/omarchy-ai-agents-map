@@ -3,7 +3,9 @@
 - WidenSketch (Settings): a screen with a terminal and this window tiled narrow,
   a click on "Maximize to see the map", then what the chosen option does.
 - SetupSketch (Help): how the AI setup is made by drawing on the map, with dummy
-  boxes: agent → provider, a click on a model, agent → MCP server, agent → skills.
+  boxes: agent → provider, a click on a model, agent → MCP server, agent → skills;
+  then the agent's pin (its lines stay lit while the pointer moves on) and its
+  right-click menu, whose Start here opens it in a terminal beside the map.
   It plays once when started and stays on its last picture.
 
 The timelines and geometry are plain functions, testable without a display.
@@ -246,8 +248,22 @@ STEPS = (
     (8.6, 9.4, "pause", None, None, 3),
     (9.4, 10.0, "move", "mcp", "agent", 4),
     (10.0, 11.8, "drag", "agent", "skills", 4),
-    (11.8, 14.5, "pause", None, None, 5),
+    (11.8, 12.6, "move", "skills", "pin", 5),
+    (12.6, 13.0, "pin", None, "pin", 5),
+    (13.0, 14.2, "move", "pin", "online", 5),
+    (14.2, 15.0, "pause", None, None, 5),
+    (15.0, 15.8, "move", "online", "agent", 6),
+    (15.8, 16.2, "menu", None, "agent", 6),
+    (16.2, 17.0, "move", "agent", "start", 6),
+    (17.0, 17.3, "choose", None, "start", 6),
+    (17.3, 17.9, "terminal", None, None, 6),
+    (17.9, 19.4, "pause", None, None, 6),
+    (19.4, 21.8, "pause", None, None, 7),
 )
+# Where the pointer goes: the boxes, the agent's pin and the menu's Start here.
+POINTS = set(BOXES) | {"pin", "start"}
+MENU = ("m_start", "m_terminal", "m_details", "m_hide")   # the agent's right-click menu
+MENU_ROW = 14
 DURATION = STEPS[-1][1]
 
 
@@ -255,7 +271,8 @@ def setup_state(t: float) -> dict:
     """At time t: the finished lines, a line being drawn (from, progress), the pointer's
     box and progress, a click, and the caption number (0: not started)."""
     done = []
-    state = {"done": done, "drawing": None, "pointer": ("agent", "agent", 0.0), "click": None, "caption": 0}
+    state = {"done": done, "drawing": None, "pointer": ("agent", "agent", 0.0), "click": None, "caption": 0,
+             "pinned": False, "hover": None, "menu": False, "terminal": 0.0}
     if t <= 0:
         return state
     for start, end, what, src, dst, caption in STEPS:
@@ -265,6 +282,23 @@ def setup_state(t: float) -> dict:
         state["caption"] = caption
         if what in ("move", "drag"):
             state["pointer"] = (src or dst, dst, ease(progress))
+            state["hover"] = dst if progress >= 1 and dst in BOXES else None
+        if what == "pin":
+            state["pointer"] = (dst, dst, 1.0)
+            if progress < 1:
+                state["click"] = dst
+            state["pinned"] = progress >= 0.5
+        if what == "menu":
+            state["pointer"] = (dst, dst, 1.0)
+            if progress < 0.6:
+                state["click"] = dst
+            state["menu"] = True
+        if what == "choose":
+            state["pointer"] = (dst, dst, 1.0)
+            state["click"] = dst if progress < 1 else None
+            state["menu"] = progress < 1
+        if what == "terminal":
+            state["terminal"] = ease(progress)
         if what == "drag":
             if progress < 1:
                 state["drawing"] = (src, dst, ease(progress))
@@ -338,7 +372,14 @@ class SetupSketch(Sketch):
             cr.set_source_rgba(*rgba(c.get("background"), 1))
             cr.fill_preserve()
             active = key in lit or key == "agent"
-            cr.set_source_rgba(*rgba(c.get("accent") if active else c.get("foreground"), 0.9 if active else 0.25))
+            if s["pinned"] and key == s["hover"] and not active:
+                # Hovered while the agent is pinned: only its own frame, the lit lines stay.
+                cr.set_source_rgba(*rgba(c.get("foreground"), 0.03))
+                cr.fill_preserve()
+                cr.set_source_rgba(*rgba(c.get("accent"), 0.5))
+            else:
+                cr.set_source_rgba(*rgba(c.get("accent") if active else c.get("foreground"),
+                                         0.9 if active else 0.12 if s["pinned"] else 0.25))
             cr.set_line_width(2 if key == "model_b" and ("local", "model_b") in s["done"] else 1)
             cr.stroke()
             if key in ("local",):
@@ -346,7 +387,13 @@ class SetupSketch(Sketch):
                 cr.set_source_rgba(*rgba(c.get("green"), 1))
                 cr.fill()
             text(cr, x + (18 if key == "local" else 9), y + 8, self.labels[BOXES[key][2]], 8,
-                 rgba(c.get("foreground"), 1), bold=key in ("agent", "online", "local"), width=w - 20)
+                 rgba(c.get("foreground"), 0.4 if s["pinned"] and key not in lit and key != "agent" else 1),
+                 bold=key in ("agent", "online", "local"), width=w - 20)
+            if key == "agent" and (s["pinned"] or s["pointer"][1] == "pin"):
+                self.pin(cr, c, x + w - 10, y + 8, s["pinned"])
+        self.terminal(cr, c, s["terminal"], width)
+        if s["menu"]:
+            self.menu(cr, c, width, height)
         # The pointer.
         frm, to, progress = s["pointer"]
         (x1, y1), (x2, y2) = self.anchor(frm, width, height), self.anchor(to, width, height)
@@ -357,12 +404,79 @@ class SetupSketch(Sketch):
         rounded(cr, 16, height - 44, width - 32, 34, 6)
         cr.set_source_rgba(*rgba(c.get("foreground"), 0.06))
         cr.fill()
-        number = f"{s['caption']}  " if 0 < s["caption"] < 5 else ""
+        number = f"{s['caption']}  " if 0 < s["caption"] < 7 else ""  # 7: the closing sentence
         text(cr, 28, height - 36, number + caption, 9, rgba(c.get("foreground"), 1), width=width - 56)
 
+    def menu_origin(self, width, height):
+        """The menu's top left: where the right-click was, as on the map."""
+        x, y, w, h = self.box_rect("agent", width, height)
+        return x + w * 0.55, y + h * 0.6
+
+    def menu(self, cr, c, width, height):
+        x, y = self.menu_origin(width, height)
+        w, h = 112, len(MENU) * MENU_ROW + 8
+        rounded(cr, x, y, w, h, 5)
+        cr.set_source_rgba(*rgba(c.get("background"), 1))
+        cr.fill_preserve()
+        cr.set_source_rgba(*rgba(c.get("foreground"), 0.3))
+        cr.set_line_width(1)
+        cr.stroke()
+        for row, key in enumerate(MENU):
+            text(cr, x + 9, y + 4 + row * MENU_ROW, self.labels[key], 7,
+                 rgba(c.get("accent") if row == 0 else c.get("foreground"), 1), bold=row == 0, width=w - 14)
+
     def anchor(self, key, width, height):
+        if key == "start":
+            x, y = self.menu_origin(width, height)
+            return x + 30, y + 4 + MENU_ROW / 2
+        if key == "pin":
+            x, y, w, _h = self.box_rect("agent", width, height)
+            return x + w - 10, y + 9
         x, y, w, h = self.box_rect(key, width, height)
         return x + w * 0.55, y + h * 0.6
+
+    @staticmethod
+    def pin(cr, c, x, y, pinned):
+        """A small pin, head at (x, y): filled when pinned, an outline before."""
+        cr.set_source_rgba(*rgba(c.get("accent") if pinned else c.get("foreground"), 1 if pinned else 0.6))
+        cr.set_line_width(1.4)
+        cr.move_to(x - 1, y + 2)
+        cr.line_to(x - 5, y + 8)            # the needle
+        cr.stroke()
+        cr.arc(x, y, 3.2, 0, 2 * math.pi)
+        if pinned:
+            cr.fill()
+        else:
+            cr.stroke()
+
+    def terminal(self, cr, c, shown, width):
+        """The agent's terminal sliding in over the right of the map (after the double-click)."""
+        if shown <= 0:
+            return
+        left = 20 + 2 * (width - 40) / 4 - 6
+        x, y, w, h = lerp(width, left, shown), 24, width - 16 - left, 112
+        rounded(cr, x, y, w, h, 5)
+        cr.set_source_rgba(*rgba(c.get("background"), 1))
+        cr.fill_preserve()
+        cr.set_source_rgba(*rgba(c.get("foreground"), 0.08))
+        cr.fill_preserve()
+        cr.set_source_rgba(*rgba(c.get("accent"), 0.9))
+        cr.set_line_width(1.2)
+        cr.stroke()
+        cr.arc(x + 12, y + 12, 3.5, 0, 2 * math.pi)
+        cr.set_source_rgba(*rgba(c.get("green"), 1))
+        cr.fill()
+        text(cr, x + 22, y + 5, self.labels["agent"], 8, rgba(c.get("foreground"), 1), bold=True, width=w - 30)
+        cr.move_to(x + 1, y + 24)
+        cr.line_to(x + w - 1, y + 24)
+        cr.set_source_rgba(*rgba(c.get("foreground"), 0.15))
+        cr.set_line_width(1)
+        cr.stroke()
+        _tw, _th = text(cr, x + 10, y + 32, "›", 9, rgba(c.get("accent"), 1), bold=True)
+        if int(time.monotonic() * 2) % 2 == 0 or not self.playing:
+            cr.rectangle(x + 22, y + 34, 6, 11)       # the blinking cursor
+            cr.set_source_rgba(*rgba(c.get("foreground"), 0.8))
+            cr.fill()
 
     def line(self, cr, c, src, dst, width, height, progress, solid):
         sx, sy, sw, sh = self.box_rect(src, width, height)

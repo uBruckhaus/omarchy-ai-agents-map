@@ -1070,5 +1070,29 @@
  "Leave {0} out of My setup (+ Available › Hidden shows it)": "Tirar {0} de «A minha configuração» (+ Disponível › Ocultos mostra-o)",
  "{0} uses a model of {1}: hide that agent first, or disconnect it": "{0} usa um modelo de {1}: oculte primeiro esse agente ou desligue-o",
  "Online provider": "Fornecedor online",
- "Local LLM": "LLM local"
+ "Local LLM": "LLM local",
+ "Pin: keep its connections lit while the pointer moves over other boxes": "Fixar: as suas ligações ficam destacadas enquanto o ponteiro passa por outras caixas",
+ "Unpin": "Desafixar",
+ "Click the pin at a box's corner: its lines stay lit while you move over other boxes.": "Clique no pionés no canto de uma caixa: as suas linhas ficam destacadas enquanto passa por outras caixas.",
+ "Right-click a box for what its card offers: start an agent here, in a terminal, or open its details.": "Clique com o botão direito numa caixa para o que o seu cartão oferece: iniciar um agente aqui, num terminal, ou abrir os detalhes.",
+ "{0} uses {1}: hide that agent first, or choose another model": "{0} usa {1}: oculte primeiro esse agente ou escolha outro modelo",
+ "Moving {0}…": "A mover {0}…",
+ "Moving {0}… {1} %": "A mover {0}… {1} %",
+ "Not moved: {0}": "Não movido: {0}",
+ "{0} uses it through {1}: choose another model for it afterwards.": "{0} usa-o através de {1}: escolha depois outro modelo.",
+ "Delete…": "Eliminar…",
+ "Move {0}?": "Mover {0}?",
+ "Delete {0}?": "Eliminar {0}?",
+ "Move to…": "Mover para…",
+ "Undo did not work: {0}": "Não foi possível anular: {0}",
+ "Cannot move it: {0}": "Não é possível mover: {0}",
+ "{0} moved to {1}": "{0} movido para {1}",
+ "Into the model folder of another local LLM; or drag the box onto that folder": "Para a pasta de modelos de outro LLM local; ou arraste a caixa para essa pasta",
+ "{0} is back": "{0} voltou",
+ "Move {0} to": "Mover {0} para",
+ "That folder is on another disk: copied first, then removed here.": "Essa pasta está noutro disco: primeiro copiado, depois removido daqui.",
+ "\u0004{0} in 1 file goes to {2}; {3} lists it there.": [
+  "{0} em 1 ficheiro vão para {2}; {3} lista-o lá.",
+  "{0} em {1} ficheiros vão para {2}; {3} lista-o lá."
+ ]
 }

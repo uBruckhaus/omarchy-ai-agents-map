@@ -1070,5 +1070,29 @@
  "Leave {0} out of My setup (+ Available › Hidden shows it)": "{0} aus Mein Setup herausnehmen (+ Verfügbar › Ausgeblendet zeigt es)",
  "{0} uses a model of {1}: hide that agent first, or disconnect it": "{0} nutzt ein Modell von {1}: zuerst diesen Agenten ausblenden oder trennen",
  "Online provider": "Online-Anbieter",
- "Local LLM": "Lokales LLM"
+ "Local LLM": "Lokales LLM",
+ "Pin: keep its connections lit while the pointer moves over other boxes": "Anheften: seine Verbindungen bleiben hervorgehoben, auch wenn der Zeiger über andere Kästen fährt",
+ "Unpin": "Lösen",
+ "Click the pin at a box's corner: its lines stay lit while you move over other boxes.": "Klicke auf die Nadel in der Ecke eines Kastens: seine Linien bleiben hervorgehoben, während du über andere Kästen fährst.",
+ "Right-click a box for what its card offers: start an agent here, in a terminal, or open its details.": "Rechtsklick auf einen Kasten zeigt, was seine Karte bietet: einen Agenten hier oder in einem Terminal starten oder seine Details öffnen.",
+ "{0} uses {1}: hide that agent first, or choose another model": "{0} verwendet {1}: blende zuerst diesen Agenten aus oder wähle ein anderes Modell",
+ "Moving {0}…": "{0} wird verschoben…",
+ "Moving {0}… {1} %": "{0} wird verschoben… {1} %",
+ "Not moved: {0}": "Nicht verschoben: {0}",
+ "{0} uses it through {1}: choose another model for it afterwards.": "{0} nutzt es über {1}: wähle danach ein anderes Modell dafür.",
+ "Delete…": "Löschen…",
+ "Move {0}?": "{0} verschieben?",
+ "Delete {0}?": "{0} löschen?",
+ "Move to…": "Verschieben nach…",
+ "Undo did not work: {0}": "Rückgängig hat nicht geklappt: {0}",
+ "Cannot move it: {0}": "Kann es nicht verschieben: {0}",
+ "{0} moved to {1}": "{0} nach {1} verschoben",
+ "Into the model folder of another local LLM; or drag the box onto that folder": "In den Modellordner eines anderen lokalen LLMs; oder zieh den Kasten auf diesen Ordner",
+ "{0} is back": "{0} ist zurück",
+ "Move {0} to": "{0} verschieben nach",
+ "That folder is on another disk: copied first, then removed here.": "Dieser Ordner liegt auf einem anderen Laufwerk: erst kopiert, dann hier entfernt.",
+ "\u0004{0} in 1 file goes to {2}; {3} lists it there.": [
+  "{0} in 1 Datei gehen nach {2}; {3} führt es dort.",
+  "{0} in {1} Dateien gehen nach {2}; {3} führt es dort."
+ ]
 }

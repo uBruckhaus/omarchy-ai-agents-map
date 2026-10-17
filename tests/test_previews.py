@@ -28,14 +28,23 @@ class SetupTest(unittest.TestCase):
         end = previews.setup_state(previews.DURATION)
         self.assertEqual(end["done"], [("agent", "local"), ("local", "model_b"), ("agent", "mcp"),
                                        ("agent", "skills")])
-        self.assertEqual(end["caption"], 5)
+        self.assertEqual(end["caption"], 7)
+        self.assertTrue(end["pinned"])
+        self.assertEqual(end["terminal"], 1.0)
+        self.assertFalse(previews.setup_state(12.0)["pinned"])
+        self.assertTrue(previews.setup_state(13.5)["pinned"])
+        self.assertEqual(previews.setup_state(14.5)["hover"], "online")
+        self.assertTrue(previews.setup_state(16.5)["menu"])
+        self.assertEqual(previews.setup_state(16.9)["terminal"], 0.0)
+        self.assertFalse(previews.setup_state(17.5)["menu"])
+        self.assertGreater(previews.setup_state(17.5)["terminal"], 0.0)
         captions = [previews.setup_state(t / 2)["caption"] for t in range(int(previews.DURATION * 2) + 1)]
         self.assertEqual(captions, sorted(captions))          # the captions only move forward
 
     def test_every_box_known(self):
         for _s, _e, _what, src, dst, _c in previews.STEPS:
             for key in (src, dst):
-                self.assertTrue(key is None or key in previews.BOXES)
+                self.assertTrue(key is None or key in previews.POINTS)
 
 
 if __name__ == "__main__":

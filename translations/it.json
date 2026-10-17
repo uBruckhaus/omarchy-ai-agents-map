@@ -1070,5 +1070,29 @@
  "Leave {0} out of My setup (+ Available › Hidden shows it)": "Togli {0} da «Il mio setup» (+ Disponibili › Nascosti lo mostra)",
  "{0} uses a model of {1}: hide that agent first, or disconnect it": "{0} usa un modello di {1}: prima nascondi quell'agente o scollegalo",
  "Online provider": "Fornitore online",
- "Local LLM": "LLM locale"
+ "Local LLM": "LLM locale",
+ "Pin: keep its connections lit while the pointer moves over other boxes": "Fissa: i suoi collegamenti restano evidenziati mentre il puntatore passa su altri riquadri",
+ "Unpin": "Sblocca",
+ "Click the pin at a box's corner: its lines stay lit while you move over other boxes.": "Fai clic sulla puntina nell’angolo di un riquadro: le sue linee restano evidenziate mentre passi su altri riquadri.",
+ "Right-click a box for what its card offers: start an agent here, in a terminal, or open its details.": "Fai clic destro su un riquadro per ciò che offre la sua scheda: avviare un agente qui, in un terminale, o aprirne i dettagli.",
+ "{0} uses {1}: hide that agent first, or choose another model": "{0} usa {1}: nascondi prima quell’agente o scegli un altro modello",
+ "Moving {0}…": "Spostamento di {0}…",
+ "Moving {0}… {1} %": "Spostamento di {0}… {1} %",
+ "Not moved: {0}": "Non spostato: {0}",
+ "{0} uses it through {1}: choose another model for it afterwards.": "{0} lo usa tramite {1}: scegli poi un altro modello.",
+ "Delete…": "Elimina…",
+ "Move {0}?": "Spostare {0}?",
+ "Delete {0}?": "Eliminare {0}?",
+ "Move to…": "Sposta in…",
+ "Undo did not work: {0}": "Annullamento non riuscito: {0}",
+ "Cannot move it: {0}": "Impossibile spostarlo: {0}",
+ "{0} moved to {1}": "{0} spostato in {1}",
+ "Into the model folder of another local LLM; or drag the box onto that folder": "Nella cartella modelli di un altro LLM locale; oppure trascina il riquadro su quella cartella",
+ "{0} is back": "{0} è tornato",
+ "Move {0} to": "Sposta {0} in",
+ "That folder is on another disk: copied first, then removed here.": "Quella cartella è su un altro disco: prima copiato, poi rimosso qui.",
+ "\u0004{0} in 1 file goes to {2}; {3} lists it there.": [
+  "{0} in 1 file vanno in {2}; {3} lo elenca lì.",
+  "{0} in {1} file vanno in {2}; {3} lo elenca lì."
+ ]
 }

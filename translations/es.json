@@ -1070,5 +1070,29 @@
  "Leave {0} out of My setup (+ Available › Hidden shows it)": "Quitar {0} de Mi configuración (+ Disponible › Ocultos lo muestra)",
  "{0} uses a model of {1}: hide that agent first, or disconnect it": "{0} usa un modelo de {1}: oculta antes ese agente o desconéctalo",
  "Online provider": "Proveedor en línea",
- "Local LLM": "LLM local"
+ "Local LLM": "LLM local",
+ "Pin: keep its connections lit while the pointer moves over other boxes": "Fijar: sus conexiones siguen resaltadas aunque el puntero pase por otras cajas",
+ "Unpin": "Soltar",
+ "Click the pin at a box's corner: its lines stay lit while you move over other boxes.": "Haz clic en la chincheta de la esquina de una caja: sus líneas siguen resaltadas mientras pasas por otras cajas.",
+ "Right-click a box for what its card offers: start an agent here, in a terminal, or open its details.": "Haz clic derecho en una caja para ver lo que ofrece su tarjeta: iniciar un agente aquí, en un terminal, o abrir sus detalles.",
+ "{0} uses {1}: hide that agent first, or choose another model": "{0} usa {1}: oculta primero ese agente o elige otro modelo",
+ "Moving {0}…": "Moviendo {0}…",
+ "Moving {0}… {1} %": "Moviendo {0}… {1} %",
+ "Not moved: {0}": "No se movió: {0}",
+ "{0} uses it through {1}: choose another model for it afterwards.": "{0} lo usa a través de {1}: elige después otro modelo para él.",
+ "Delete…": "Eliminar…",
+ "Move {0}?": "¿Mover {0}?",
+ "Delete {0}?": "¿Eliminar {0}?",
+ "Move to…": "Mover a…",
+ "Undo did not work: {0}": "No se pudo deshacer: {0}",
+ "Cannot move it: {0}": "No se puede mover: {0}",
+ "{0} moved to {1}": "{0} movido a {1}",
+ "Into the model folder of another local LLM; or drag the box onto that folder": "A la carpeta de modelos de otro LLM local; o arrastra la caja a esa carpeta",
+ "{0} is back": "{0} ha vuelto",
+ "Move {0} to": "Mover {0} a",
+ "That folder is on another disk: copied first, then removed here.": "Esa carpeta está en otro disco: primero se copia y luego se quita de aquí.",
+ "\u0004{0} in 1 file goes to {2}; {3} lists it there.": [
+  "{0} en 1 archivo van a {2}; {3} lo lista allí.",
+  "{0} en {1} archivos van a {2}; {3} lo lista allí."
+ ]
 }
