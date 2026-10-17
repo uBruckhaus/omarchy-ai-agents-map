@@ -7,14 +7,15 @@ with connect.plan's machinery: diff preview, backup, Undo. Values of env and
 headers never show in the preview (connect.Plan.secrets).
 
 Claude Code keeps its MCP servers in ~/.claude.json, which running sessions
-rewrite all the time: it is changed through `claude mcp add-json/remove
---scope user` instead (Undo runs the opposite command).
+rewrite all the time: it is edited directly as one planned change (preview,
+backup, Undo; refused if Claude wrote the file in the meantime). Never through
+`claude mcp add-json`: its argv (command, args, url with a token in it) would
+be readable by other accounts in /proc/<pid>/cmdline.
 """
 
 import json
 import os
 import re
-import shutil
 from pathlib import Path
 
 import agent_profiles
@@ -378,7 +379,18 @@ def check_entry(entry: dict) -> dict:
 
 
 def _secrets(entry: dict) -> list:
-    return [v for v in list(entry["env"].values()) + list(entry["headers"].values()) if len(v) >= 4]
+    """Values the preview masks: env and headers, and credentials in the url
+    (user-info password, query values)."""
+    values = list(entry["env"].values()) + list(entry["headers"].values())
+    if entry.get("url"):
+        from urllib.parse import parse_qsl, urlsplit
+        try:
+            parts = urlsplit(entry["url"])
+            values += [parts.username or "", parts.password or ""]
+            values += [v for _k, v in parse_qsl(parts.query, keep_blank_values=True)]
+        except ValueError:
+            pass
+    return [v for v in values if len(v) >= 4]
 
 
 def plan(agent: str, name: str, sources=(), remove: bool = False, entry: dict | None = None) -> connect.Plan:
@@ -406,25 +418,9 @@ def plan(agent: str, name: str, sources=(), remove: bool = False, entry: dict | 
         result.secrets = _secrets(entry)
         result.source = _source
     if agent == "claude":
-        claude = shutil.which("claude") or str(HOME / ".local/bin/claude")
-        old = normal(raw_entries("claude").get(name))
-        if (entry and (entry["env"] or entry["headers"])) or (old and (old["env"] or old["headers"])):
-            # Keys in env or headers never go into argv (other accounts can read
-            # /proc/<pid>/cmdline): ~/.claude.json is edited directly instead, as
-            # one planned change (preview, backup, Undo; refused if Claude wrote
-            # the file in the meantime).
-            result.changes = _claude_json_change(name, None if remove else native("claude", entry))
-            return result
-        remove_cmd = [claude, "mcp", "remove", "--scope", "user", name]
-        add = lambda e: [claude, "mcp", "add-json", "--scope", "user", name,   # noqa: E731
-                         json.dumps(native("claude", e), ensure_ascii=False)]
-        if remove:
-            if old is None:
-                return result
-            result.commands, result.undo_commands = [remove_cmd], [add(old)]
-        else:
-            result.commands = ([remove_cmd] if old else []) + [add(entry)]
-            result.undo_commands = [remove_cmd] + ([add(old)] if old else [])
+        # Never through `claude mcp add-json`: other accounts can read argv in
+        # /proc/<pid>/cmdline, and keys hide in env, headers, args and the url.
+        result.changes = _claude_json_change(name, None if remove else native("claude", entry))
         return result
     path = paths_for(agent)[0]
     old_text = connect._read(path)

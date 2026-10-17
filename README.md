@@ -141,10 +141,9 @@ the old file in `~/.local/state/ai-agents-map/backups/`, and can be undone from 
   (`~/.hermes/config.yaml`), Pi (`~/.pi/agent/`) and OpenCode (`~/.config/opencode/opencode.json`).
 - **Agent ↔ MCP server**: the server's settings are copied from an agent (or the list) that has it
   into the other agent's own format, for Claude Code, Codex, Copilot, Crush, Cursor, Gemini, Grok,
-  Hermes, Muse, Oh My Pi, OpenClaw, OpenCode and Pi. Claude Code is changed with
-  `claude mcp add-json/remove --scope user`, except for servers with environment variables or
-  headers (they may hold keys): those are written into `~/.claude.json` directly, so no key ever
-  appears in a command line.
+  Hermes, Muse, Oh My Pi, OpenClaw, OpenCode and Pi. Claude Code's servers are
+  written into `~/.claude.json` directly (never with `claude mcp add-json`), so no key from
+  env, headers, args or the URL ever appears in a command line.
 - **Agent ↔ skill folder**: Pi and Hermes get the folder in their settings list; every other agent
   gets one link per skill in its own skills folder. A folder an agent reads by itself (most read
   `~/.agents/skills`) cannot be taken from that one agent; the page says so.
@@ -445,7 +444,7 @@ the backup and Undo), and the agent is told the same context. A context you set 
   `omarchy-agent-usage-update <agent>` when an agent card's usage is older than ten minutes; an MCP
   server's command when you click **Test** or ask for its tools, or right after you connect an agent
   to it (the check above; in its own process group, stopped afterwards); an AppImage's `--appimage-extract` only on **Look inside…**, when adding a server
-  from it, or for a newer version of an app looked into before; `claude mcp add-json/remove`; `claude -p` or `codex exec` for a new agent; `wl-paste`,
+  from it, or for a newer version of an app looked into before; `claude -p` or `codex exec` for a new agent; `wl-paste`,
   `lspci`, `hyprctl`.
 - **Writes**, each only after you confirm it with its preview (except AI Agents Map's own state):
   the agents' settings files named above (always written owner-only, 0600, since they may hold API keys or MCP secrets), links in the

@@ -14,6 +14,7 @@ PI = {"mcpServers": {
     "photocraft": {"command": "/home/u/.local/bin/photocraft-cli", "args": ["mcp", "--root", "/home/u/Pictures"]},
     "search": {"url": "https://mcp.example.com/mcp", "headers": {"Authorization": "Bearer s3cret-token"}},
     "tools": {"command": "npx", "args": ["-y", "tools-mcp"], "env": {"API_KEY": "abcd-1234"}},
+    "keyed": {"url": "https://bob:pa55word@mcp.example.com/mcp?api_key=qwer-5678&x=1"},
 }}
 HERMES = "model:\n  default: x\nagent:\n  y: 1\n"
 
@@ -101,16 +102,34 @@ class McpTest(unittest.TestCase):
             for change in result.changes:
                 self.assertEqual(stat.S_IMODE(change.path.stat().st_mode), 0o600, change.path)
 
-    def test_claude_through_its_cli(self):
-        result = mcp_ctl.plan("claude", "photocraft", ["pi"])
-        self.assertEqual(result.changes, [])
-        self.assertEqual(result.commands[-1][1:6], ["mcp", "add-json", "--scope", "user", "photocraft"])
-        self.assertEqual(json.loads(result.commands[-1][6])["type"], "stdio")
-        self.assertEqual(result.undo_commands[0][1:], ["mcp", "remove", "--scope", "user", "photocraft"])
+    def test_claude_edits_its_json_and_never_runs_its_cli(self):
+        (self.home / ".claude.json").write_text(json.dumps({"numStartups": 3}, indent=2) + "\n")
         with mock.patch.object(connect, "_run") as run:
-            backup = connect.apply(result, self.home / "backups")
+            for name in ("photocraft", "search", "tools", "keyed"):
+                result = mcp_ctl.plan("claude", name, ["pi"])
+                self.assertEqual((result.commands, result.undo_commands), ([], []))
+                connect.apply(result, self.home / "backups")
+            data = json.loads((self.home / ".claude.json").read_text())
+            self.assertEqual(data["numStartups"], 3)
+            self.assertEqual(set(data["mcpServers"]), {"photocraft", "search", "tools", "keyed"})
+            self.assertEqual(data["mcpServers"]["photocraft"]["type"], "stdio")
+            backup = connect.apply(mcp_ctl.plan("claude", "photocraft", remove=True), self.home / "backups")
+            self.assertNotIn("photocraft", json.loads((self.home / ".claude.json").read_text())["mcpServers"])
             connect.undo(backup)
-        self.assertEqual([c.args[0] for c in run.call_args_list], result.commands + result.undo_commands)
+            self.assertIn("photocraft", json.loads((self.home / ".claude.json").read_text())["mcpServers"])
+        run.assert_not_called()
+
+    def test_url_credentials_never_in_argv_or_preview(self):
+        result = mcp_ctl.plan("claude", "keyed", ["pi"])     # no env, no headers: the url has them
+        self.assertEqual(result.commands, [])
+        for secret in ("pa55word", "qwer-5678"):
+            self.assertIn(secret, result.secrets)
+            self.assertNotIn(secret, result.diff())
+        connect.apply(result, self.home / "b")
+        self.assertIn("qwer-5678", (self.home / ".claude.json").read_text())
+        removed = mcp_ctl.plan("claude", "keyed", remove=True)
+        self.assertNotIn("qwer-5678", removed.diff())
+        self.assertNotIn("pa55word", mcp_ctl.plan("codex", "keyed", ["pi"]).diff())
 
     def test_muse_gets_schema_version_and_openclaw_json5_refused(self):
         self.add("muse", "tools")
