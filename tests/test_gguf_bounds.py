@@ -73,6 +73,29 @@ class GgufBoundsTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             context_ctl.read_gguf(path)
 
+    def test_many_matching_string_values_not_kept(self):
+        big = "x" * (1 << 20)
+        path = self._llama(*(_kv(f"k{i}.block_count", 8, _str(big)) for i in range(64)))
+        tracemalloc.start()
+        try:
+            meta = context_ctl.read_gguf(path)
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+        self.assertEqual(meta, {"general.architecture": "llama"})
+        self.assertLess(peak, 4 * 2 ** 20)
+
+    def test_too_many_matching_values_refused(self):
+        path = self._llama(*(_kv(f"k{i}.block_count", 4, struct.pack("<I", 32))
+                             for i in range(context_ctl.MAX_KEPT + 1)))
+        with self.assertRaises(ValueError):
+            context_ctl.read_gguf(path)
+
+    def test_long_architecture_refused(self):
+        path = self._write(gguf(_kv("general.architecture", 8, _str("x" * (context_ctl.MAX_ARCH + 1)))))
+        with self.assertRaises(ValueError):
+            context_ctl.read_gguf(path)
+
     def test_plausible_header_still_fits(self):
         layers = 32
         path = self._llama(_kv("llama.block_count", 4, struct.pack("<I", layers)),

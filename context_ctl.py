@@ -44,6 +44,8 @@ MAX_KV = 100_000
 MAX_ARRAY = 4096            # entries of a kept per-layer array
 MAX_LAYERS = MAX_ARRAY     # block_count: real models have at most a few hundred layers
 MAX_DEPTH = 4              # arrays of arrays in skipped values
+MAX_KEPT = 32              # header values kept: a real model has about a dozen that matter here
+MAX_ARCH = 256             # bytes of general.architecture
 
 
 @dataclass
@@ -69,10 +71,13 @@ def read_gguf(path: Path) -> dict:
         if count > MAX_KV:
             raise ValueError("implausible header")
 
-        def string():
+        def string(keep=True, limit=1 << 20):
             (length,) = struct.unpack("<Q", f.read(8))
-            if length > 1 << 20:
+            if length > limit:
                 raise ValueError("implausible string")
+            if not keep:
+                f.seek(length, os.SEEK_CUR)
+                return None
             return f.read(length).decode("utf-8", "replace")
 
         sizes = {0: ("<B", 1), 1: ("<b", 1), 2: ("<H", 2), 3: ("<h", 2), 4: ("<I", 4), 5: ("<i", 4),
@@ -83,7 +88,7 @@ def read_gguf(path: Path) -> dict:
                 fmt, size = sizes[kind]
                 return struct.unpack(fmt, f.read(size))[0]
             if kind == 8:
-                return string()
+                return string(False)      # the only string kept is the architecture, read below
             if kind == 9:
                 sub, length = struct.unpack("<I", f.read(4))[0], struct.unpack("<Q", f.read(8))[0]
                 if keep:
@@ -107,9 +112,16 @@ def read_gguf(path: Path) -> dict:
         for _ in range(count):
             key = string()
             kind = struct.unpack("<I", f.read(4))[0]
-            keep = key == "general.architecture" or key.endswith(wanted)
+            if key == "general.architecture" and kind == 8:
+                meta[key] = string(limit=MAX_ARCH)
+                continue
+            # Only numbers and per-layer number arrays are kept, and only a few of them: a header
+            # full of matching keys with big string values must not fill the memory.
+            keep = key.endswith(wanted) and (kind in sizes or kind == 9)
             result = value(kind, keep)
             if keep:
+                if len(meta) >= MAX_KEPT:
+                    raise ValueError("implausible header")
                 meta[key] = result
     return meta
 
