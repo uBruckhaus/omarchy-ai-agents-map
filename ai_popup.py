@@ -620,6 +620,7 @@ class AgentsMap(Adw.Application):
         self.agents_box.add_css_class("am-agents")
         scroller = self.page_scroller(self.agents_box)
         scroller.set_vexpand(True)
+        self.agents_scroller = scroller
         # The cards as a panel of their own: a heading line with its filter, a frame,
         # and a rule between it and the map.
         self.list_pane = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, hexpand=True)
@@ -962,7 +963,12 @@ class AgentsMap(Adw.Application):
             return ""
         configured = graph.split_model(agent_details.details_for(agent.command).model)[0]
         names = sorted({graph.split_model(m)[0] if m else configured for m in models} - {""})
-        state = _("running") if len(models) == 1 else _("{0} running").format(len(models))
+        pane = getattr(self, "sessions", {}).get(agent.command)
+        here = pane is not None and pane.running and pane.pid
+        if len(models) == 1:
+            state = _("running here") if here else _("running")
+        else:
+            state = _("{0} running").format(len(models)) + (" · " + _("one here") if here else "")
         return " · ".join([state] + names)
 
     def sync_provider_watch(self):
@@ -1295,13 +1301,18 @@ class AgentsMap(Adw.Application):
             line.append(label)
             row.set_activatable(False)
         else:
-            dot = Gtk.Label(label="●")
-            dot.add_css_class("am-tree-dot")
-            dot.add_css_class({"running": "am-state-ok", "stopped": "am-state-warn"}.get(node.status, "am-tree-dot-off"))
-            line.append(dot)
-            if node.icon:
+            if not node.icon:
+                dot = Gtk.Label(label="●")
+                dot.add_css_class("am-tree-dot")
+                dot.add_css_class({"running": "am-state-ok", "stopped": "am-state-warn"}.get(node.status,
+                                                                                            "am-tree-dot-off"))
+                line.append(dot)
+            else:
+                # As on the cards: the icon itself turns green (running) or yellow (installed, not running).
                 icon = Gtk.Label(label=node.icon)
                 icon.add_css_class("am-agent-icon")
+                if node.status in ("running", "stopped"):
+                    icon.add_css_class(f"am-status-{node.status}")
                 if node.icon_font == "omarchy":
                     icon.add_css_class("am-agent-icon-omarchy")
                 icon.add_css_class("am-tree-icon")
@@ -1375,6 +1386,42 @@ class AgentsMap(Adw.Application):
             self.expanded.add(node_id)
             self.toggle_card_hook(node_id)
         self.fill_tree(focus=node_id)
+        if node_id in self.tree_open():
+            self.keep_tree_node_visible(node_id)
+
+    def keep_tree_node_visible(self, node_id: str):
+        """An opened node with all it holds in view (the rows below it that are deeper)."""
+        rows = list(self.tree_rows)
+        index = next((i for i, r in enumerate(rows) if r.node.id == node_id), None)
+        if index is None:
+            return
+        end = index
+        while end + 1 < len(rows) and rows[end + 1].depth > rows[index].depth:
+            end += 1
+        first, last = self.tree_list.get_row_at_index(index), self.tree_list.get_row_at_index(end)
+        if first is not None:
+            self.keep_visible(first, last)
+
+    def keep_visible(self, first, last=None, seconds: float = 1.0):
+        """Scroll the sidebar so first…last is all in view (first at the top when it is taller),
+        following it while it opens (the slide, details filled a moment later)."""
+        scroller, box, last = self.agents_scroller, self.agents_box, last or first
+        until = GLib.get_monotonic_time() + int(seconds * 1_000_000)
+
+        def tick():
+            top = first.translate_coordinates(box, 0, 0) if first.get_mapped() else None
+            bottom = last.translate_coordinates(box, 0, 0) if last.get_mapped() else None
+            if top is None or bottom is None:
+                return GLib.SOURCE_REMOVE
+            adjustment = scroller.get_vadjustment()
+            value, page = adjustment.get_value(), adjustment.get_page_size()
+            target = max(value, bottom[1] + last.get_height() + 8 - page)
+            target = max(0, min(target, top[1] - 8, adjustment.get_upper() - page))
+            if abs(target - value) > 0.5:
+                adjustment.set_value(target)
+            return GLib.get_monotonic_time() < until
+
+        GLib.timeout_add(30, tick)       # a timer, not a frame callback: it also runs before the first frame
 
     def on_tree_activate(self, row):
         node = row.node
@@ -1607,6 +1654,8 @@ class AgentsMap(Adw.Application):
         revealer.set_reveal_child(True)
         chevron.set_from_icon_name("pan-up-symbolic")
         self.toggle_card_hook(key)
+        if key in self.card_widgets:
+            self.keep_visible(self.card_widgets[key][0])
 
     def fill_card(self, key: str):
         entry = self.detail_boxes.get(key)
@@ -1682,7 +1731,8 @@ class AgentsMap(Adw.Application):
         card = self.expandable_card(key, agent.icon, agent.icon_font, agent.name, subtitle,
                          lambda b, a=agent: self.fill_agent(b, a), dim=not agent.installed,
                          badge=_("Default") if agent.default else "", badge_tip=_("Omarchy's default agent"),
-                         highlight=agent.default)
+                         highlight=agent.default,
+                         status="running" if agent.installed and self.running.get(agent.command) else "")
         if key in self.expanded and agent.installed and agent_details.usage_is_stale(agent.command):
             self.refresh_usage(agent)
         return card
@@ -4887,7 +4937,8 @@ class AgentsMap(Adw.Application):
         self.models_status.add_css_class("am-agent-detail")
         bottom.append(self.models_status)
         self.models_cancel = Gtk.Button(label=_("Cancel"))
-        self.models_cancel.add_css_class("am-small-btn")
+        self.models_cancel.add_css_class("am-action-btn")
+        self.models_cancel.set_valign(Gtk.Align.START)
         self.models_cancel.connect("clicked", lambda *_: self.cancel_model_download())
         bottom.append(self.models_cancel)
         page.append(bottom)
@@ -5570,6 +5621,7 @@ class AgentsMap(Adw.Application):
                 and not state.get("scanned") and not state.get("scanning"):
             GLib.idle_add(lambda: self.scan_local_models() and False)
         self.models_cancel.set_label(_("Stop download") if busy else _("Back"))
+        (self.models_cancel.add_css_class if busy else self.models_cancel.remove_css_class)("am-danger")
 
     def start_model_download(self, pull: bool):
         state = self.models_state
@@ -6184,18 +6236,19 @@ class AgentsMap(Adw.Application):
         self.install_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1)
         self.install_status.add_css_class("am-agent-detail")
         page.append(self.install_status)
-        page.append(Gtk.Box(vexpand=True))
-        buttons = Gtk.Box(spacing=8, halign=Gtk.Align.END)
+        # The choices right under the progress, on the right: Cancel (Stop while it runs), then the action.
+        buttons = Gtk.Box(spacing=10, halign=Gtk.Align.END, margin_top=4)
         self.install_cancel = Gtk.Button(label=_("Cancel"))
-        self.install_cancel.add_css_class("am-small-btn")
+        self.install_cancel.add_css_class("am-action-btn")
         self.install_cancel.connect("clicked", lambda *_: self.cancel_install())
         buttons.append(self.install_cancel)
         self.install_ok = Gtk.Button()
-        self.install_ok.add_css_class("am-small-btn")
+        self.install_ok.add_css_class("am-action-btn")
         self.install_ok.add_css_class("am-primary")
         self.install_ok.connect("clicked", lambda *_: self.run_install())
         buttons.append(self.install_ok)
         page.append(buttons)
+        page.append(Gtk.Box(vexpand=True))
         self.installing = None
         return page
 
@@ -6241,6 +6294,7 @@ class AgentsMap(Adw.Application):
         self.install_bar.set_visible(mode in ("install", "update"))
         self.install_status.set_label("")
         self.install_cancel.set_label(_("Cancel"))
+        self.install_cancel.remove_css_class("am-danger")
         self.install_ok.remove_css_class("am-danger")
         self.install_ok.set_sensitive(True)
         self.install_ok.set_visible(True)
@@ -6432,6 +6486,7 @@ class AgentsMap(Adw.Application):
             if widget is not None:
                 widget.set_sensitive(False)
         self.install_cancel.set_label(_("Stop"))
+        self.install_cancel.add_css_class("am-danger")
 
     def start_install_job(self, params: dict, replaces: str = ""):
         """Install, update, model folder or uninstall as a background job. An install or
@@ -6493,6 +6548,7 @@ class AgentsMap(Adw.Application):
         if here:
             info["busy"] = False
             self.install_cancel.set_label(_("Cancel"))
+            self.install_cancel.remove_css_class("am-danger")
         if job.state == "done":
             messages = {"install": _("{0} installed"), "update": _("{0} updated"),
                         "models": _("{0}: model folder changed"), "uninstall": _("{0} uninstalled")}
@@ -7219,7 +7275,27 @@ class AgentsMap(Adw.Application):
         sys.stderr.flush()
         os.execv(sys.executable, [sys.executable, *sys.argv])
 
+    def remember_page(self):
+        """The page right of the cards before Settings or Help opened (a terminal, details…)."""
+        inner = self.right_stack.get_visible_child_name() if self.stack.get_visible_child_name() == "main" else None
+        self.return_page = inner if inner and inner != "map" else None
+
+    def back_to_last_page(self):
+        page = getattr(self, "return_page", None)
+        self.return_page = None
+        self.show_view(self.view, save=False)
+        if page and self.right_stack.get_child_by_name(page) is not None:
+            self.stack.set_visible_child_name("main")
+            self.right_stack.set_visible_child_name(page)
+            self.place_panes()
+            self.update_header()
+            command = page[5:] if page.startswith("term:") else ""
+            if command in getattr(self, "sessions", {}):
+                GLib.idle_add(lambda: self.sessions[command].terminal.grab_focus() and False)
+
     def open_settings(self):
+        if self.page_name() not in ("settings", "help"):
+            self.remember_page()
         self.fill_settings()
         self.show_page("settings")
 
@@ -7657,13 +7733,15 @@ class AgentsMap(Adw.Application):
         return card
 
     def open_help(self):
+        if self.page_name() not in ("settings", "help"):
+            self.remember_page()
         self.show_page("help")
 
     def close_help(self):
-        self.show_view(self.view, save=False)
+        self.back_to_last_page()
 
     def close_settings(self):
-        self.show_view(self.view, save=False)
+        self.back_to_last_page()
 
     # --- size ----------------------------------------------------------------------
 
@@ -8054,6 +8132,9 @@ class AgentsMap(Adw.Application):
         levelbar.am-limit block.empty {{ background: transparent; }}
         .am-card button.am-small-btn {{ font-size: 11px; min-height: 0; padding: 1px 10px;
             border: 1px solid alpha({fg_hex}, 0.35); border-radius: {radius}px; }}
+        .am-card button.am-action-btn {{ font-size: 13px; font-weight: 600; min-height: 34px; min-width: 120px;
+            padding: 4px 22px; border: 1px solid alpha({fg_hex}, 0.35); border-radius: {radius}px; }}
+        .am-card button.am-action-btn:disabled {{ opacity: 0.45; }}
         .am-card button.am-chip {{ font-size: 11px; min-height: 0; padding: 1px 10px; border-radius: 999px;
             border: 1px solid alpha({fg_hex}, 0.25); background: transparent; color: {dim_hex}; }}
         .am-card button.am-chip:checked {{ background: alpha({accent_hex}, 0.18); border-color: {accent_hex};
@@ -8292,6 +8373,7 @@ class AgentsMap(Adw.Application):
 
 
 def main():
+    ai_core.drop_agent_session_vars()       # started from an agent's terminal: nothing here inherits its session
     i18n.set_name("AI Agents Map", desktop.app_name())     # "Asterism" outside Omarchy
     app = AgentsMap()
     atexit.register(cleanup_pid)

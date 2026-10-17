@@ -19,6 +19,27 @@ MIN_WINDOW_SIZE = (420, 320)   # the card's width and its page height, logical p
 VIEWS = ("main",)    # one view since the Map view went (its map is beside the cards); the rest are sub-pages
 
 
+# Variables an agent session sets for what runs inside it (Claude Code: CLAUDECODE, CLAUDE_CODE_*
+# such as CLAUDE_CODE_CHILD_SESSION, CLAUDE_PID, CLAUDE_EFFORT). When AI Agents Map was started from
+# inside such a session (a restart from an agent's terminal), agents started here would inherit them
+# and believe they run inside that session: Claude Code then stops saving its transcripts.
+AGENT_SESSION_EXACT = {"CLAUDECODE", "CLAUDE_PID", "CLAUDE_EFFORT", "AI_AGENTS_MAP_NO_PROVIDERS"}
+AGENT_SESSION_PREFIXES = ("CLAUDE_CODE_",)
+
+
+def is_agent_session_var(name: str) -> bool:
+    return name in AGENT_SESSION_EXACT or name.startswith(AGENT_SESSION_PREFIXES)
+
+
+def drop_agent_session_vars(environ=None) -> list:
+    """Remove those variables (from os.environ by default); returns the names removed."""
+    environ = os.environ if environ is None else environ
+    names = [k for k in list(environ) if is_agent_session_var(k)]
+    for name in names:
+        del environ[name]
+    return names
+
+
 def settings_file() -> Path:
     import desktop
     return desktop.config_dir() / "settings.json"

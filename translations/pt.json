@@ -1031,5 +1031,7 @@
  "{3} → {0} ({1} download) for {2}. The settings and models stay.": "{3} → {0} ({1} para descarregar) para {2}. As definições e os modelos ficam.",
  "· same disk, no copying": "· mesmo disco, sem cópias",
  "· {0} to copy to another disk": "· {0} para copiar para outro disco",
- "− Fold unused folders": "− Recolher pastas não usadas"
+ "− Fold unused folders": "− Recolher pastas não usadas",
+ "running here": "em execução aqui",
+ "one here": "um aqui"
 }

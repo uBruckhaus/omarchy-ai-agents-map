@@ -1068,5 +1068,7 @@
  "{3} → {0} ({1} download) for {2}. The settings and models stay.": "{3} → {0} ({1} do pobrania) dla {2}. Ustawienia i modele zostają.",
  "· same disk, no copying": "· ten sam dysk, bez kopiowania",
  "· {0} to copy to another disk": "· {0} do skopiowania na inny dysk",
- "− Fold unused folders": "− Zwiń nieużywane foldery"
+ "− Fold unused folders": "− Zwiń nieużywane foldery",
+ "running here": "działa tutaj",
+ "one here": "jeden tutaj"
 }

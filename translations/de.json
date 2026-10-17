@@ -1031,5 +1031,7 @@
  "{3} → {0} ({1} download) for {2}. The settings and models stay.": "{3} → {0} ({1} Download) für {2}. Einstellungen und Modelle bleiben.",
  "· same disk, no copying": "· dieselbe Platte, nichts wird kopiert",
  "· {0} to copy to another disk": "· {0} auf eine andere Platte zu kopieren",
- "− Fold unused folders": "− Ungenutzte Ordner einklappen"
+ "− Fold unused folders": "− Ungenutzte Ordner einklappen",
+ "running here": "läuft hier",
+ "one here": "einer hier"
 }

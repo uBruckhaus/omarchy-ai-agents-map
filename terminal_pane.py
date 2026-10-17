@@ -67,7 +67,9 @@ def program(command: str) -> str | None:
 
 
 def child_env(environ=None) -> list[str]:
+    import ai_core
     env = dict(os.environ if environ is None else environ)
+    ai_core.drop_agent_session_vars(env)      # an agent here is a session of its own, not a child of another
     env.update({"TERM": "xterm-256color", "COLORTERM": "truecolor"})
     env.pop("AI_AGENTS_MAP_PAGE", None)
     env.pop("AI_AGENTS_MAP_VIEW", None)
