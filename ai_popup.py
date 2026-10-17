@@ -389,6 +389,11 @@ class AgentsMap(Adw.Application):
         window.set_size_request(ai_core.MIN_WINDOW_SIZE[0], ai_core.MIN_WINDOW_SIZE[1] + 200)
         # Closing hides it: the process stays, with any agent running in it.
         window.connect("close-request", lambda *_: (self.close(), True)[1])
+        # A click on the bar icon can take the focus just before the toggle arrives: remember
+        # when the window was last in front, so that click still hides it.
+        self.left_front = 0.0
+        window.connect("notify::is-active", lambda w, _p: not w.is_active()
+                       and setattr(self, "left_front", time.monotonic()))
         self.window = window
 
         # The cards beside the map need room: the card follows its own width.
@@ -695,6 +700,7 @@ class AgentsMap(Adw.Application):
         # Wide: the map beside the cards; a click on a card selects it there.
         side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, hexpand=True)
         side.add_css_class("am-map-pane")
+        side.append(self.build_terminal_tabs())
         self.gpu_line = self.build_gpu_line()
         side.append(self.gpu_line)
         side.append(self.build_layer_toggles())
@@ -795,6 +801,71 @@ class AgentsMap(Adw.Application):
             self.list_pane.set_visible(not on_right)
             self.side_rule.set_visible(False)
 
+    # --- the terminals started here, as tabs above the map ---------------------------------------
+
+    def build_terminal_tabs(self) -> Gtk.Widget:
+        """Above the map, only while an agent has a terminal here: a legend (as in App Manager)
+        over one tab per terminal with a dot: working, running or ended. A click shows it."""
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_bottom(12)
+        top = Gtk.Box(spacing=10)
+        heading = Gtk.Label(label=_("Terminals").upper(), xalign=0, hexpand=True)
+        heading.add_css_class("am-section-title")
+        top.append(heading)
+        for state, text in (("working", _("working")), ("running", _("running")), ("ended", _("ended"))):
+            item = Gtk.Label(label="● " + text)
+            item.add_css_class("am-tab-legend")
+            item.add_css_class(f"am-tab-{state}")
+            top.append(item)
+        box.append(top)
+        self.terminal_tab_row = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=False,
+                                            column_spacing=6, row_spacing=6, max_children_per_line=50)
+        box.append(self.terminal_tab_row)
+        box.set_visible(False)
+        self.terminal_tabs = box
+        self.working_agents = set()
+        return box
+
+    def update_terminal_tabs(self):
+        row = self.terminal_tab_row
+        while (child := row.get_first_child()) is not None:
+            row.remove(child)
+        for command, pane in self.sessions.items():
+            state = ("working" if command in self.working_agents else "running") if pane.running else "ended"
+            tab = Gtk.Box(spacing=0)
+            tab.add_css_class("am-term-tab")
+            button = Gtk.Button()
+            button.add_css_class("flat")
+            content = Gtk.Box(spacing=6)
+            dot = Gtk.Label(label="●")
+            dot.add_css_class("am-tab-dot")
+            dot.add_css_class(f"am-tab-{state}")
+            content.append(dot)
+            content.append(Gtk.Label(label=pane.agent.name))
+            button.set_child(content)
+            button.set_tooltip_text(pane.state_label.get_label())
+            button.connect("clicked", lambda _b, c=command: self.show_terminal(c))
+            tab.append(button)
+            if not pane.running:
+                close = Gtk.Button(icon_name="window-close-symbolic")
+                close.add_css_class("flat")
+                close.set_tooltip_text(_("Close this terminal"))
+                close.connect("clicked", lambda _b, c=command: self.close_terminal(c))
+                tab.append(close)
+            row.append(tab)
+        self.terminal_tabs.set_visible(bool(self.sessions)
+                                       and ai_core.load_settings().get("terminal_tabs", True) is not False)
+
+    def close_terminal(self, command: str):
+        """An ended agent's terminal: its tab and the terminal go away."""
+        pane = self.sessions.get(command)
+        if pane is None or pane.running:
+            return
+        del self.sessions[command]
+        self.right_stack.remove(pane)
+        self.update_terminal_tabs()
+        self.refresh_overview()
+
     # --- GPU memory and activity (as LLM Monitor shows them) --------------------------------------
 
     def build_gpu_line(self) -> Gtk.Widget:
@@ -890,6 +961,9 @@ class AgentsMap(Adw.Application):
         def done(usage, running, working):
             self.gpu_reading = False
             self.side_map.set_working(working)
+            if working != self.working_agents:
+                self.working_agents = set(working)
+                self.update_terminal_tabs()
             if usage is not None and self.window.is_visible():
                 self.show_gpu(usage, runtimes)
             if running != self.running and self.window.is_visible():
@@ -2082,6 +2156,7 @@ class AgentsMap(Adw.Application):
                 except OSError:
                     pass
         self.running = self.running_now()
+        self.update_terminal_tabs()
         self.refresh_overview()
         self.refresh_map()
         return False
@@ -7240,6 +7315,11 @@ class AgentsMap(Adw.Application):
                           "the lines stay still. Also off when the system turns animations off."),
                         settings.get("animate_lines", True) is not False,
                         lambda on: (self.save_setting(animate_lines=on), self.side_map.set_animate(on)))
+        self.switch_row(group, _("Terminal tabs above the map"),
+                        _("While agents run in terminals here: a tab for each, with a dot for working, running "
+                          "or ended. A click shows the terminal."),
+                        settings.get("terminal_tabs", True) is not False,
+                        lambda on: (self.save_setting(terminal_tabs=on), self.update_terminal_tabs()))
         self.switch_row(group, _("Start local LLMs with their agents"),
                         _("When an agent connected to a local LLM starts, its LLM starts too; when the last such "
                           "agent closes, the LLM stops and its GPU memory is free again. Works with this window "
@@ -8020,6 +8100,13 @@ class AgentsMap(Adw.Application):
         .am-card button.am-back-bordered {{ border: 1px solid alpha({fg_hex}, 0.35); border-radius: {radius}px;
             padding: 4px 10px; }}
         .am-section-title {{ font-size: 11px; font-weight: 700; letter-spacing: 1px; }}
+        .am-tab-legend {{ font-size: 10px; }}
+        .am-card .am-tab-working {{ color: {accent_hex}; }}
+        .am-card .am-tab-running {{ color: {green_hex}; }}
+        .am-card .am-tab-ended {{ color: {muted_hex}; }}
+        .am-term-tab {{ border: 1px solid alpha({fg_hex}, 0.2); border-radius: {radius}px; }}
+        .am-term-tab button {{ padding: 2px 8px; min-height: 0; min-width: 0; }}
+        .am-tab-dot {{ font-size: 10px; }}
         separator.am-settings-rule {{ background-color: alpha({fg_hex}, 0.12); background-image: none;
             min-height: 1px; margin: 0; }}
         .am-card label.am-line-label {{ font-size: 11px; color: {dim_hex}; }}
@@ -8298,7 +8385,7 @@ class AgentsMap(Adw.Application):
         """The bar icon: open it, bring it to the front, or (already in front) hide it."""
         if not self.window.is_visible():
             self.open()
-        elif self.window.is_active():
+        elif self.window.is_active() or time.monotonic() - self.left_front < 1.0:
             self.hide_window()          # the bar icon only hides: agents running here go on
         else:
             self.window.present()

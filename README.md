@@ -129,6 +129,9 @@ what is missing (install, models, an agent to connect).
   has **Start here** (a terminal beside the cards) and **Start in terminal** (a window of its own);
   while it runs here, **Show terminal** and **Stop** (it ends the agent and what it started, such as
   its MCP servers).
+- **Terminal tabs**: while agents have terminals here, a tab line above the map (legend on top) has a
+  tab for each with a dot for working, running or ended; a click shows that terminal, × closes an
+  ended one (Settings › **Terminal tabs above the map**, on by default).
 - **Working now**: while an agent is working (herdr shows it working, its process uses the CPU, its
   session files were written in the last seconds, or its local LLM is generating), light runs along
   its line to its provider and model on the map (Settings › **Animate active lines**; off when the
@@ -539,7 +542,7 @@ marketplace page and its install command with a copy button).
 
 The gear (Ctrl+,) opens the settings: **Language** (system or one of English, Deutsch, Français,
 Español, Italiano, Português, Nederlands, Polski), **Look** (the colours from the Omarchy theme,
-or GNOME's Adwaita with the system's light/dark and accent colour), **Sidebar** (cards or tree), **Animate active lines**, **Corners** (like windows, rounded or square, as
+or GNOME's Adwaita with the system's light/dark and accent colour), **Sidebar** (cards or tree), **Animate active lines**, **Terminal tabs above the map**, **Corners** (like windows, rounded or square, as
 in App Manager and Theme Manager), **Look up new agents**, **Show what you could set up** (the "Show
 N more you could set up" hint below the cards), **Start local LLMs with their agents**, **Too narrow for the map** (what the header's "Maximize to see the map" does: move the window to a
 free workspace, maximize it where it is, or show no hint; with an animated preview), **In the app

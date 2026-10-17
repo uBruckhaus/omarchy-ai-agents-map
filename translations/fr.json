@@ -1036,5 +1036,10 @@
  "one here": "un ici",
  "Hide until the next start": "Masquer jusqu'au prochain démarrage",
  "Health check line": "Ligne du bilan de santé",
- "On the main page when something needs fixing (× hides it until the next start).": "Sur la page principale quand quelque chose est à corriger (× la masque jusqu'au prochain démarrage)."
+ "On the main page when something needs fixing (× hides it until the next start).": "Sur la page principale quand quelque chose est à corriger (× la masque jusqu'au prochain démarrage).",
+ "Terminals": "Terminaux",
+ "working": "au travail",
+ "Close this terminal": "Fermer ce terminal",
+ "Terminal tabs above the map": "Onglets de terminal au-dessus de la carte",
+ "While agents run in terminals here: a tab for each, with a dot for working, running or ended. A click shows the terminal.": "Tant que des agents tournent ici dans des terminaux : un onglet pour chacun, avec un point pour au travail, en cours ou terminé. Un clic affiche le terminal."
 }
