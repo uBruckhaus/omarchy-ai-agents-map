@@ -41,6 +41,7 @@ import agents
 import ai_core
 import connect
 import corners
+import mcp_catalog
 import mcp_ctl
 import mcp_library
 import mcp_registry
@@ -66,6 +67,7 @@ import struct
 import shutil
 import subprocess
 from pathlib import Path
+import urllib.parse
 import graph
 import gpu_usage
 import agent_status
@@ -755,6 +757,8 @@ class AgentsMap(Adw.Application):
         # Hints get their own place at the bottom, outside the category cards.
         self.hint_area = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, visible=False)
         self.hint_area.add_css_class("am-hint-area")
+        # Its buttons end where the cards' Add buttons end (the cards keep room for the scroll bar).
+        self.hint_area.set_margin_end(12)
         self.list_pane.append(self.hint_area)
         body.append(self.list_pane)
         # The line between the cards and the map: drag it to make the cards wider or narrower,
@@ -1231,10 +1235,13 @@ class AgentsMap(Adw.Application):
             group.add(self.expandable_card(f"mcp:{server.name}", "\U000F0337", "", server.name, users,
                                  lambda b, s=server: self.fill_mcp(b, s, names)))
         new_mcp, new_skills = self.new_found()
+        add_sizes = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)    # both Add buttons one width
         add = Gtk.Button(label=_("Add MCP server…") + (f" ({_('{0} new').format(len(new_mcp))})" if new_mcp else ""),
                          valign=Gtk.Align.CENTER)
         add.add_css_class("am-small-btn")
-        add.set_tooltip_text(_("Found on this PC, from the web, or by hand"))
+        add.add_css_class("am-quiet-btn")
+        add.set_tooltip_text(_("Recommended servers, the MCP registry, programs on this PC, or by hand"))
+        add_sizes.add_widget(add)
         add.connect("clicked", lambda *_: self.open_add_mcp())
         group.set_header_suffix(add)
 
@@ -1249,7 +1256,9 @@ class AgentsMap(Adw.Application):
         add = Gtk.Button(label=_("Add skills…") + (f" ({_('{0} new').format(len(new_skills))})" if new_skills else ""),
                          valign=Gtk.Align.CENTER)
         add.add_css_class("am-small-btn")
+        add.add_css_class("am-quiet-btn")
         add.set_tooltip_text(_("Found on this PC or from the web"))
+        add_sizes.add_widget(add)
         add.connect("clicked", lambda *_: self.open_add_skills())
         group.set_header_suffix(add)
 
@@ -1733,6 +1742,7 @@ class AgentsMap(Adw.Application):
         for title, action in buttons:
             button = Gtk.Button(label=title, valign=Gtk.Align.CENTER)
             button.add_css_class("am-small-btn")
+            button.add_css_class("am-quiet-btn")
             button.connect("clicked", lambda *_a, act=action: act())
             self.hint_buttons.add_widget(button)
             line.append(button)
@@ -2768,6 +2778,7 @@ class AgentsMap(Adw.Application):
 
     def build_mcp_page(self) -> Gtk.Widget:
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        page.add_css_class("am-add-page")       # one text scale (see the CSS)
         header = Gtk.Box(spacing=8)
         back = Gtk.Button()
         back.add_css_class("flat")
@@ -2803,16 +2814,21 @@ class AgentsMap(Adw.Application):
         body = self.mcp_body
         while (child := body.get_first_child()) is not None:
             body.remove(child)
+        self.intro_card(body, _("An MCP server gives agents tools."), [
+            _("The agents below have this server: each starts or calls it when a task needs its tools (listed at "
+              "the end). You do not call it yourself; ask the agent for the task. To give it to another agent, "
+              "draw a line on the map from that agent to the server."),
+        ])
         names = {a.command: a.name for a in self.agent_list}
         names["lmstudio"] = "LM Studio"
         for command in server.agents:
-            self.settings_heading(body, names.get(command, command))
+            self.section_heading(body, names.get(command, command))
             entry = mcp_ctl.normal(mcp_ctl.raw_entries(command).get(name))
             self.detail_grid(body, self.mcp_rows(command, entry))
         missing = [a.name for a in self.agent_list
                    if a.installed and a.command not in server.agents and mcp_ctl.supported(a.command)]
         if missing:
-            self.settings_heading(body, _("Not set up"))
+            self.section_heading(body, _("Not set up"))
             self.note(body, ", ".join(missing) + " · "
                       + _("draw a line from the agent to this box on the map to add it."))
         self.mcp_tools_section(body, server)
@@ -2859,6 +2875,11 @@ class AgentsMap(Adw.Application):
         body = self.mcp_body
         while (child := body.get_first_child()) is not None:
             body.remove(child)
+        self.intro_card(body, _("Skills teach your agents how to do a task."), [
+            _("The agents below read this folder. Each one uses a skill from it when a task fits: you just "
+              "ask for the task. To give the folder to another agent, draw a line on the map from that agent "
+              "to it."),
+        ])
         names = {a.command: a.name for a in self.agent_list}
         ways = {"native": _("reads the folder by itself"), "listed": _("the folder is in its settings"),
                 "links": _("links in its own folder ({0})")}
@@ -2869,15 +2890,15 @@ class AgentsMap(Adw.Application):
             if way == "links":
                 text = text.format(skills_ctl.own_dir(command) or "")
             rows.append((names.get(command, command), text, ""))
-        self.settings_heading(body, _("Used by"))
+        self.section_heading(body, _("Used by"))
         self.detail_grid(body, rows)
         missing = [a.name for a in self.agent_list
                    if a.installed and a.command not in skill_set.agents and skills_ctl.own_dir(a.command)]
         if missing:
-            self.settings_heading(body, _("Not set up"))
+            self.section_heading(body, _("Not set up"))
             self.note(body, ", ".join(missing) + " · "
                       + _("draw a line from the agent to this box on the map to add it."))
-        self.settings_heading(body, ngettext("1 skill", "{0} skills", len(skill_set.skills))
+        self.section_heading(body, ngettext("1 skill", "{0} skills", len(skill_set.skills))
                               .format(len(skill_set.skills)))
         folder = skills_ctl.expand(path)
         located = {p.name: p for p in skills_ctl.skills_of(folder)}
@@ -2888,7 +2909,7 @@ class AgentsMap(Adw.Application):
 
     def mcp_tools_section(self, body, server):
         """The tools (and prompts) the server offers: asked on request, kept with the date."""
-        self.settings_heading(body, _("Tools"))
+        self.section_heading(body, _("Tools"))
         name = server.name
         known = mcp_tools.cached(name)
         line = Gtk.Box(spacing=10)
@@ -2917,7 +2938,7 @@ class AgentsMap(Adw.Application):
         if known and known.get("status") == "ok":
             self.detail_grid(body, [(t["name"], t["description"] or "—", "") for t in known.get("tools", [])])
             if known.get("prompts"):
-                self.settings_heading(body, _("Prompts"))
+                self.section_heading(body, _("Prompts"))
                 self.detail_grid(body, [(t["name"], t["description"] or "—", "") for t in known["prompts"]])
 
     def ask_mcp_tools(self, server):
@@ -2948,8 +2969,48 @@ class AgentsMap(Adw.Application):
 
     # --- add a new MCP server: found on this PC, from the web, or by hand -----------------------
 
+    ADD_MCP_TABS = (("picks", N_("Recommended")), ("web", N_("MCP registry")), ("local", N_("On this PC")),
+                    ("hand", N_("By hand")))
+    RUN_TEXT = {
+        "npm": N_("Runs on this PC with Node.js. npx downloads {0} on its first start and keeps it in its cache."),
+        "pypi": N_("Runs on this PC with uv. uvx downloads {0} on its first start into an environment of its own."),
+        "oci": N_("Runs on this PC in a Docker container ({0}), apart from your files unless you share a folder."),
+        "remote": N_("Runs at {0}. Nothing is installed; what the agents send to it leaves your PC."),
+    }
+    RUN_KIND = {"npm": N_("Program · npm"), "pypi": N_("Program · Python"), "oci": N_("Program · Docker"),
+                "remote": N_("Web service")}
+    RUNNERS = {"npx": N_("Node.js (npx) is not installed yet: sudo pacman -S nodejs npm"),
+               "uvx": N_("uv (uvx) is not installed yet: sudo pacman -S uv"),
+               "docker": N_("Docker is not installed yet: sudo pacman -S docker")}
+
+    @staticmethod
+    def section_heading(box, text: str):
+        """A section heading of the Add pages and the MCP / skills pages: one style for all."""
+        label = Gtk.Label(label=text.upper(), xalign=0, margin_top=6)
+        label.add_css_class("am-section-heading")
+        box.append(label)
+        return label
+
+    def intro_card(self, box, title: str, lines):
+        """A short explanation at the top of a page: what this is and how it is used."""
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        card.add_css_class("am-model-card")
+        head = Gtk.Label(label=title, xalign=0, wrap=True, max_width_chars=1)
+        head.add_css_class("am-intro-title")
+        card.append(head)
+        for line in lines:
+            text = Gtk.Label(label=line, xalign=0, wrap=True, max_width_chars=1)
+            text.add_css_class("am-agent-detail")
+            card.append(text)
+        box.append(card)
+        return card
+
     def build_add_mcp_page(self) -> Gtk.Widget:
+        """Laid out like the models page: what MCP is, tabs (Recommended, the MCP registry, On this
+        PC, By hand), a list on the left and the chosen server's page on the right, with how it
+        runs, what it needs and the agents that get it."""
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        page.add_css_class("am-add-page")       # one text scale (see the CSS)
         header = Gtk.Box(spacing=8)
         back = Gtk.Button()
         back.add_css_class("flat")
@@ -2970,33 +3031,82 @@ class AgentsMap(Adw.Application):
         rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         rule.add_css_class("am-settings-rule")
         page.append(rule)
+        self.intro_card(page, _("MCP servers give your agents new tools."), [
+            _("A server can read your files, open web pages, drive a browser or work with GitHub. It is a small "
+              "program on this PC or a service on the web; the agents start or call it when a task needs it."),
+            _("Pick a server, fill in what it needs (a folder, a key), tick the agents, then Test and Add. "
+              "To give it to more agents later, draw a line on the map from the agent to the server."),
+        ])
 
-        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        body.add_css_class("am-settings")
-        self.add_scroller = self.page_scroller(body)
-        self.add_body = body
-        page.append(self.add_scroller)
+        switch = Gtk.Box(spacing=0, halign=Gtk.Align.START)
+        switch.add_css_class("am-segmented")
+        self.add_tab_buttons = {}
+        group = None
+        for key, label in self.ADD_MCP_TABS:
+            button = Gtk.ToggleButton(label=_(label), group=group)
+            group = group or button
+            button.add_css_class("am-segment")
+            button.connect("toggled", lambda b, k=key: b.get_active() and self.show_add_tab(k, save=True))
+            switch.append(button)
+            self.add_tab_buttons[key] = button
+        page.append(switch)
+        self.add_stack = Gtk.Stack(vexpand=True, transition_type=Gtk.StackTransitionType.CROSSFADE)
+        page.append(self.add_stack)
+        self.add_details = {}
 
-        # On this PC | From the web (as on the other Add pages).
-        local_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        web_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        body.append(self.where_switch("mcp", local_box, web_box))
-        body.append(local_box)
-        body.append(web_box)
+        def two_panes(key, left):
+            pane = Gtk.Box(spacing=18)
+            left.set_size_request(MODEL_LIST_WIDTH, -1)
+            pane.append(Adw.Clamp(maximum_size=MODEL_LIST_WIDTH, child=left, unit=Adw.LengthUnit.PX,
+                                  halign=Gtk.Align.START, hexpand=False))
+            detail = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+            scroller = self.scrolled(detail, hexpand=True)
+            pane.append(scroller)
+            self.add_details[key] = (scroller, detail)
+            self.add_stack.add_named(pane, key)
+
+        # Recommended: the reference servers and official ones of well-known makers.
+        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.add_picks = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
+        self.add_picks.add_css_class("am-list")
+        self.add_picks.add_css_class("boxed-list")
+        self.add_picks.connect("row-selected", lambda _l, row: row is not None and self.show_pick(row.pick))
+        left.append(self.scrolled(self.add_picks))
+        two_panes("picks", left)
+
+        # The MCP registry (or a registry the user added).
+        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        left.append(self.source_picker("mcp"))
+        self.add_query = Gtk.SearchEntry(hexpand=True, placeholder_text=_("Search servers, e.g. postgres, notion"))
+        self.add_query.connect("activate", lambda *_: self.search_mcp())
+        left.append(self.add_query)
+        self.add_web_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1,
+                                        label=_("Type what a server should work with, e.g. postgres, notion, slack, "
+                                                "home assistant. Anyone can publish to the registry: each server's "
+                                                "page says who published it and where it runs."))
+        self.add_web_status.add_css_class("am-agent-detail")
+        left.append(self.add_web_status)
+        self.add_web_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
+        self.add_web_list.add_css_class("am-list")
+        self.add_web_list.add_css_class("boxed-list")
+        self.add_web_list.connect("row-selected",
+                                  lambda _l, row: row is not None and self.show_registry_server(row.server))
+        left.append(self.scrolled(self.add_web_list))
+        two_panes("web", left)
+
+        # On this PC: programs that offer an MCP server and are not set up yet.
+        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         top = Gtk.Box(spacing=8)
-        heading = Gtk.Label(label=_("Found on this PC").upper(), xalign=0, hexpand=True)
-        heading.add_css_class("am-setting-heading")
-        top.append(heading)
-        rescan = Gtk.Button(label=_("Scan again"))
+        self.add_found_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1, hexpand=True)
+        self.add_found_status.add_css_class("am-agent-detail")
+        top.append(self.add_found_status)
+        rescan = Gtk.Button(label=_("Scan again"), valign=Gtk.Align.START)
         rescan.add_css_class("am-small-btn")
         rescan.connect("clicked", lambda *_: self.scan_mcp(force=True))
         top.append(rescan)
-        local_box.append(top)
-        self.add_found_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1)
-        self.add_found_status.add_css_class("am-agent-detail")
-        local_box.append(self.add_found_status)
+        left.append(top)
         self.add_found_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        local_box.append(self.add_found_list)
+        left.append(self.scrolled(self.add_found_list))
         # AppImages are never run by the scan: looking inside them is the user's click.
         self.add_inside_row = Gtk.Box(spacing=8)
         self.add_inside_label = Gtk.Label(xalign=0, hexpand=True, wrap=True, max_width_chars=1)
@@ -3009,38 +3119,37 @@ class AgentsMap(Adw.Application):
         self.add_inside.connect("clicked", lambda *_: self.look_inside_appimages())
         self.add_inside_row.append(self.add_inside)
         self.add_inside_row.set_visible(False)
-        local_box.append(self.add_inside_row)
+        left.append(self.add_inside_row)
+        two_panes("local", left)
 
-        # Search the web (the official MCP registry, or a registry the user added).
-        self.settings_heading(web_box, _("Search the web"))
-        web_box.append(self.source_picker("mcp"))
-        line = Gtk.Box(spacing=8)
-        self.add_query = Gtk.Entry(hexpand=True, placeholder_text=_("e.g. github, postgres, browser"))
-        self.add_query.connect("activate", lambda *_: self.search_mcp())
-        line.append(self.add_query)
-        search = Gtk.Button(label=_("Search"))
-        search.add_css_class("am-small-btn")
-        search.connect("clicked", lambda *_: self.search_mcp())
-        line.append(search)
-        web_box.append(line)
-        self.add_web_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1,
-                                        label=_("From the official MCP registry. Anyone can publish there: "
-                                                "check where a server comes from before adding it."))
-        self.add_web_status.add_css_class("am-agent-detail")
-        web_box.append(self.add_web_status)
-        self.add_web_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        web_box.append(self.add_web_list)
+        # By hand: only the form.
+        hand = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.note(hand, _("For a server you know the command or address of, e.g. from its README."))
+        hand_scroller = self.scrolled(hand, hexpand=True)
+        self.add_details["hand"] = (hand_scroller, hand)
+        self.add_stack.add_named(hand_scroller, "hand")
 
-        # The server.
-        self.add_form_heading = Gtk.Label(label=_("Server").upper(), xalign=0)
-        self.add_form_heading.add_css_class("am-setting-heading")
-        body.append(self.add_form_heading)
-        self.add_form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        body.append(self.add_form)
+        # The setup, moved to the page shown: what it needs, the agents, the command, Test / Add.
+        self.add_setup = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.add_form_heading = self.section_heading(self.add_setup, _("Set it up"))
+        self.add_needs = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.add_setup.append(self.add_needs)
+        self.add_key_link = Gtk.LinkButton(label=_("Where do I get it?"), halign=Gtk.Align.START, visible=False)
+        self.add_setup.append(self.add_key_link)
+        self.add_agents = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=4,
+                                      column_spacing=8, row_spacing=4)
+        self.setting_line(self.add_setup, _("For"),
+                          _("The agents that get it. More later: draw lines on the map."), self.add_agents)
+        self.add_agents.set_halign(Gtk.Align.FILL)
         self.add_name = Gtk.Entry(placeholder_text="my-server")
         self.add_name.connect("changed", lambda *_: self.add_changed())
-        self.setting_line(self.add_form, _("Name"), _("Letters, digits, - _ . (the agents know it by this name)"),
+        self.setting_line(self.add_setup, _("Name"), _("Letters, digits, - _ . (the agents know it by this name)"),
                           self.add_name)
+        self.add_name.set_halign(Gtk.Align.FILL)
+        self.add_form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.add_advanced = Gtk.Expander(label=_("Command and settings"))
+        self.add_advanced.set_child(self.add_form)
+        self.add_setup.append(self.add_advanced)
         self.add_kind = Gtk.DropDown.new_from_strings([_("Program (stdio)"), _("Remote (HTTP)"),
                                                        _("Remote (SSE)")])
         self.add_kind.connect("notify::selected", lambda *_: self.add_kind_changed())
@@ -3061,44 +3170,103 @@ class AgentsMap(Adw.Application):
                                                _("One per line: NAME=value"), self.add_pairs)
         for wide in (self.add_command, self.add_url, self.add_pairs):
             wide.set_halign(Gtk.Align.FILL)     # setting_line puts controls at the start
-        self.add_needs = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        self.add_form.append(self.add_needs)
         self.add_source = Gtk.Label(xalign=0, wrap=True, max_width_chars=1)
         self.add_source.add_css_class("am-agent-detail")
         self.add_form.append(self.add_source)
-        self.add_agents = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=4,
-                                      column_spacing=8, row_spacing=4)
-        self.setting_line(self.add_form, _("For"), _("The agents that get it. More later: draw lines on the map."),
-                          self.add_agents)
-        self.add_agents.set_halign(Gtk.Align.FILL)
 
-        buttons = Gtk.Box(spacing=8, halign=Gtk.Align.END)
-        self.add_test = Gtk.Button(label=_("Test"))
+        buttons = Gtk.Box(spacing=10)
+        self.add_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1, hexpand=True)
+        self.add_status.add_css_class("am-agent-detail")
+        buttons.append(self.add_status)
+        self.add_test = Gtk.Button(label=_("Test"), valign=Gtk.Align.CENTER)
         self.add_test.add_css_class("am-small-btn")
         self.add_test.set_tooltip_text(_("Start it once and ask for its tools"))
         self.add_test.connect("clicked", lambda *_: self.test_new_mcp())
         buttons.append(self.add_test)
-        self.add_ok = Gtk.Button(label=_("Add"))
-        self.add_ok.add_css_class("am-small-btn")
+        self.add_ok = Gtk.Button(label=_("Add"), valign=Gtk.Align.CENTER)
         self.add_ok.add_css_class("am-primary")
+        self.add_ok.add_css_class("am-download-btn")
         self.add_ok.connect("clicked", lambda *_: self.apply_new_mcp())
         buttons.append(self.add_ok)
-        body.append(buttons)
-        self.add_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1)
-        self.add_status.add_css_class("am-agent-detail")
-        body.append(self.add_status)
-        heading = Gtk.Label(label=_("What changes").upper(), xalign=0)
-        heading.add_css_class("am-group-heading")
-        body.append(heading)
+        self.add_setup.append(buttons)
+        self.section_heading(self.add_setup, _("What changes"))
         self.add_preview = Gtk.TextView(editable=False, cursor_visible=False, monospace=True)
         self.add_preview.add_css_class("am-diff")
         self.add_preview.set_wrap_mode(Gtk.WrapMode.CHAR)
-        body.append(self.add_preview)
+        self.add_setup.append(self.add_preview)
         self.add_from = None       # {"appimage": path} or {"registry": Option} behind the form
+        self.add_server = None     # the registry Server shown, its options in add_options
+        self.add_options = None
         self.add_checks = {}
         self.add_need_entries = {}
         self.add_timer = 0
+        self.add_tab = "picks"
+        self.add_pages = {}        # tab -> (Server, Pick or None) shown on its right
+        self.fill_picks()
         return page
+
+    def add_where(self) -> str:
+        stored = ai_core.load_settings().get("add_where", {})
+        value = stored.get("mcp") if isinstance(stored, dict) else None
+        return value if value in self.add_tab_buttons else "picks"
+
+    def show_add_tab(self, key: str, save: bool = False):
+        self.add_tab = key
+        self.add_stack.set_visible_child_name(key)
+        if save:
+            stored = ai_core.load_settings().get("add_where", {})
+            self.save_setting(add_where={**(stored if isinstance(stored, dict) else {}), "mcp": key})
+        if key == "hand":
+            if self.add_from is not None:          # a server picked elsewhere: start empty here
+                self.fill_add_form("", 0, "", "", "", [], "")
+            self.add_from = self.add_server = None
+            self.place_setup("hand")
+            self.add_advanced.set_expanded(True)
+            self.add_key_link.set_visible(False)
+            self.add_source.set_label("")
+            self.add_status.set_label("")
+        elif key in self.add_pages:
+            self.server_page(key, *self.add_pages[key])     # its setup comes back under it
+        elif key == "web":
+            GLib.idle_add(lambda: self.add_query.grab_focus() and False)
+        elif key == "local":
+            if self.found_mcp is None:
+                self.scan_mcp()
+            else:
+                self.show_found_mcp()
+                self.mark_seen("mcp")
+        self.add_changed()
+
+    def place_setup(self, key: str):
+        """The setup goes under the page of the tab shown."""
+        box = self.add_details[key][1]
+        if self.add_setup.get_parent() is not box:
+            if self.add_setup.get_parent() is not None:
+                self.add_setup.get_parent().remove(self.add_setup)
+            box.append(self.add_setup)
+
+    def add_empty(self, key: str, text: str):
+        _scroller, box = self.add_details[key]
+        if self.add_setup.get_parent() is box:
+            box.remove(self.add_setup)
+        self.clear_box(box)
+        box.append(self.models_empty(text))
+
+    def fill_picks(self):
+        box = self.add_picks
+        self.clear_box(box)
+        names = {m.name for m in getattr(self, "inventory", None) and self.inventory.mcp or []}
+        for group, label in mcp_catalog.GROUPS:
+            heading = Gtk.ListBoxRow(selectable=False, activatable=False)
+            text = Gtk.Label(label=_(label).upper(), xalign=0, margin_start=10, margin_top=8, margin_bottom=2)
+            text.add_css_class("am-section-heading")
+            heading.set_child(text)
+            box.append(heading)
+            for pick in (p for p in mcp_catalog.PICKS if p.group == group):
+                maker = _("set up") if pick.key in names else pick.maker
+                row = self.model_row(pick.title, _(pick.about), right=maker)
+                row.pick = pick
+                box.append(row)
 
     def open_add_mcp(self):
         if self.page_name() != "addmcp":
@@ -3116,18 +3284,195 @@ class AgentsMap(Adw.Application):
                 check.connect("toggled", lambda *_: self.add_changed())
                 flow.append(check)
                 self.add_checks[agent.command] = check
-        self.add_kind_changed()
+        self.fill_picks()
+        for key in ("picks", "web", "local"):
+            if self.add_setup.get_parent() is not self.add_details[key][1]:
+                if not self.add_details[key][1].get_first_child():
+                    self.add_empty(key, {
+                        "picks": _("Pick a server on the left to see what it does, what it needs and how it runs."),
+                        "web": _("Pick a server on the left to see who published it, what it needs and how "
+                                 "it runs."),
+                        "local": _("Programs on this PC that offer an MCP server are listed on the left.")}[key])
         self.show_page("addmcp")
         self.update_header()
+        start = self.add_where()
+        if self.add_tab_buttons[start].get_active():
+            self.show_add_tab(start)
+        else:
+            self.add_tab_buttons[start].set_active(True)
         if self.found_mcp is None:
             self.scan_mcp()
-        else:
-            self.show_found_mcp()
-            self.mark_seen("mcp")
-        self.add_changed()
+        self.add_kind_changed()
 
     def close_add_mcp(self):
         self.show_view(getattr(self, "add_return", self.view), save=False)
+
+    # A server's page ------------------------------------------------------------------------------
+
+    def show_pick(self, pick):
+        key = "picks"
+        _scroller, box = self.add_details[key]
+        if self.add_setup.get_parent() is box:
+            box.remove(self.add_setup)
+        self.clear_box(box)
+        title = Gtk.Label(label=pick.title, xalign=0, wrap=True, max_width_chars=1)
+        title.add_css_class("am-model-title")
+        box.append(title)
+        loading = Gtk.Label(label=_("Asking for the newest version…"), xalign=0)
+        loading.add_css_class("am-agent-detail")
+        box.append(loading)
+        self.add_showing = pick.key
+
+        def work():
+            try:
+                server = mcp_catalog.resolve(pick)
+            except (OSError, ValueError, IndexError):
+                server = None
+            GLib.idle_add(done, server)
+
+        def done(server):
+            if getattr(self, "add_showing", None) != pick.key or server is None:
+                if server is None:
+                    loading.set_label(_("This server cannot be shown."))
+                return False
+            self.server_page(key, server, pick)
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def show_registry_server(self, server):
+        self.add_showing = server.name
+        self.server_page("web", server, None)
+
+    def server_page(self, key: str, server, pick):
+        """What it is, who made it, how it runs (the options), what it needs, and the setup."""
+        _scroller, box = self.add_details[key]
+        if self.add_setup.get_parent() is box:
+            box.remove(self.add_setup)
+        self.clear_box(box)
+        title = Gtk.Label(label=server.title or server.short, xalign=0, wrap=True, max_width_chars=1,
+                          selectable=True)
+        title.add_css_class("am-model-title")
+        box.append(title)
+        # Who made it, and how much that is checked.
+        trust = Gtk.Box(spacing=8)
+        if pick is not None:
+            chip = Gtk.Label(label=_(mcp_catalog.TRUST[pick.trust]).format(pick.maker))
+            chip.set_tooltip_text(_(mcp_catalog.TRUST_HINTS[pick.trust]))
+        else:
+            kind, who = mcp_registry.publisher(server.name)
+            chip = Gtk.Label(label={"github": _("GitHub account {0}"), "domain": _("Domain {0}")}
+                             .get(kind, "{0}").format(who or server.name))
+            chip.set_tooltip_text({"github": _("The registry checked that the publisher owns this GitHub account."),
+                                   "domain": _("The registry checked that the publisher owns this domain.")}
+                                  .get(kind, ""))
+        chip.add_css_class("am-agent-badge")
+        trust.append(chip)
+        stats = [server.version and _("version {0}").format(server.version),
+                 server.updated and _("updated {0}").format(self.age_text(self.iso_time(server.updated)))]
+        for text in stats:
+            if text:
+                label = Gtk.Label(label=text)
+                label.add_css_class("am-agent-detail")
+                trust.append(label)
+        box.append(trust)
+        links = Gtk.Box(spacing=4)
+        for uri, label in ((server.repository, _("Repository")), (server.website, _("Website"))):
+            if uri.startswith("https://"):
+                link = Gtk.LinkButton(uri=uri, label=label)
+                link.set_tooltip_text(uri)
+                links.append(link)
+        if links.get_first_child() is not None:
+            box.append(links)
+        if pick is None:
+            note = Gtk.Label(label=_("Anyone can publish to the registry. Look at the repository before you add a "
+                                     "server: a program from it runs with your rights."),
+                             xalign=0, wrap=True, max_width_chars=1)
+            note.add_css_class("am-agent-detail")
+            box.append(note)
+        if server.status and server.status != "active":
+            warn = Gtk.Label(label=_("The publisher marked it {0}.").format(server.status), xalign=0)
+            warn.add_css_class("am-warning-text")
+            box.append(warn)
+
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        card.add_css_class("am-model-card")
+        about = Gtk.Label(label=_(pick.about) if pick else server.description or _("No description."),
+                          xalign=0, wrap=True, max_width_chars=1, selectable=True)
+        about.add_css_class("am-detail-value")
+        card.append(about)
+        kinds = list(dict.fromkeys(_(self.RUN_KIND[o.kind]) for o in server.options))
+        needs = sorted({n.name for o in server.options for n in o.needs if n.required})
+        for key_text, value in ((_("Runs as"), " | ".join(kinds)),
+                                (_("Needs"), _(pick.needs) if pick else
+                                 (", ".join(needs) if needs else _("nothing to fill in")))):
+            line = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            key_label = Gtk.Label(label=key_text.upper(), xalign=0)
+            key_label.add_css_class("am-fact-key")
+            line.append(key_label)
+            value_label = Gtk.Label(label=value, xalign=0, wrap=True, max_width_chars=1, selectable=True)
+            value_label.add_css_class("am-detail-value")
+            line.append(value_label)
+            card.append(line)
+        if pick is not None and pick.tries:
+            tries = Gtk.Label(label=_("Then ask an agent, e.g.:") + "\n" + "\n".join(
+                "“" + _(t) + "”" for t in pick.tries), xalign=0, wrap=True, max_width_chars=1, selectable=True)
+            tries.add_css_class("am-agent-detail")
+            card.append(tries)
+        box.append(card)
+
+        # How it runs: one row per way, the best one chosen.
+        self.section_heading(box, _("How it runs"))
+        options = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
+        options.add_css_class("am-list")
+        options.add_css_class("boxed-list")
+        best = None
+        for option in server.options[:6]:
+            row = self.run_option_row(option, server)
+            options.append(row)
+            if best is None and option.runnable:
+                best = row
+        box.append(options)
+        self.add_server, self.add_options = server, options
+        self.add_pages[key] = (server, pick)
+        options.connect("row-selected", lambda _l, row: row is not None and self.use_registry(
+            server, row.option, pick=pick))
+        self.place_setup(key)
+        self.add_advanced.set_expanded(False)
+        options.select_row(best or options.get_row_at_index(0))
+
+    def run_option_row(self, option, server) -> Gtk.ListBoxRow:
+        row = Gtk.ListBoxRow()
+        column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3, margin_start=10, margin_end=10,
+                         margin_top=6, margin_bottom=6)
+        top = Gtk.Box(spacing=10)
+        kind = Gtk.Label(label=_(self.RUN_KIND[option.kind]), xalign=0, hexpand=True)
+        kind.add_css_class("am-model-name")
+        top.append(kind)
+        if option.kind != "remote":
+            ident = option.label.split(" · ", 1)[-1]
+            what = Gtk.Label(label=ident, xalign=1)
+            what.set_ellipsize(Pango.EllipsizeMode.START)
+            what.set_max_width_chars(36)
+            what.add_css_class("am-agent-detail")
+            top.append(what)
+        column.append(top)
+        if option.kind == "remote":
+            text = _(self.RUN_TEXT["remote"]).format(urllib.parse.urlsplit(option.entry["url"]).hostname or "")
+        else:
+            text = _(self.RUN_TEXT[option.kind]).format(option.label.split(" · ", 1)[-1])
+        explain = Gtk.Label(label=text, xalign=0, wrap=True, max_width_chars=1)
+        explain.add_css_class("am-agent-detail")
+        column.append(explain)
+        if not option.runnable:
+            missing = Gtk.Label(label=_(self.RUNNERS.get(option.entry["command"], N_("Needs {0}, not installed")))
+                                .format(option.entry["command"]), xalign=0, wrap=True, max_width_chars=1,
+                                selectable=True)
+            missing.add_css_class("am-warning-text")
+            column.append(missing)
+        row.set_child(column)
+        row.option = option
+        return row
 
     # The three sources -------------------------------------------------------------------------
 
@@ -3290,6 +3635,23 @@ class AgentsMap(Adw.Application):
                 Path(candidate.appimage).name, skills_ctl.tilde(folder))
         if candidate.usage:
             source += "\n" + _("Its usage: {0}").format(candidate.usage)
+        key = "local"
+        _scroller, box = self.add_details[key]
+        if self.add_setup.get_parent() is box:
+            box.remove(self.add_setup)
+        self.clear_box(box)
+        title = Gtk.Label(label=candidate.name, xalign=0, wrap=True, max_width_chars=1)
+        title.add_css_class("am-model-title")
+        box.append(title)
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        card.add_css_class("am-model-card")
+        self.note(card, _("A program on this PC that offers an MCP server. It runs with your rights, like the "
+                          "program itself."))
+        self.note(card, source)
+        box.append(card)
+        self.place_setup(key)
+        self.add_advanced.set_expanded(True)
+        self.add_key_link.set_visible(False)
         self.add_from = {"appimage": candidate.appimage, "inner": candidate.inner} if candidate.appimage else None
         self.fill_add_form(candidate.name, 0, " ".join(shlex.quote(c) for c in command), "", "", [], source)
 
@@ -3297,7 +3659,7 @@ class AgentsMap(Adw.Application):
         query = self.add_query.get_text().strip()
         if not query:
             return
-        self.add_web_status.set_label(_("Searching…"))
+        self.add_web_status.set_label(_("Searching… The registry often takes 10 seconds or more."))
         base = web_sources.chosen("mcp")
 
         def work():
@@ -3310,37 +3672,49 @@ class AgentsMap(Adw.Application):
 
         def done(result, error):
             box = self.add_web_list
-            while (child := box.get_first_child()) is not None:
-                box.remove(child)
-            self.add_web_status.set_label(_("Search failed: {0}").format(error) if error else
-                                          ngettext("1 server found.", "{0} servers found.", len(result))
-                                          .format(len(result)))
-            for server in result[:20]:
-                for option in server.options[:3]:
-                    detail = " · ".join(x for x in (option.label, server.description) if x)
-                    if not option.runnable:
-                        detail += " · " + _("needs {0}, not installed").format(option.entry["command"])
-                    box.append(self.choice_row(server.title or server.short, detail,
-                                               lambda *_, s=server, o=option: self.use_registry(s, o)))
+            self.clear_box(box)
+            result = [s for s in result if s.status in ("", "active")] or result
+            if self.add_query.get_text().strip() != query:
+                return False                 # a newer search runs
+            if error:
+                self.add_web_status.set_label(_("Search failed: {0}").format(error))
+            else:
+                self.add_web_status.set_label(ngettext("1 server found.", "{0} servers found.", len(result))
+                                              .format(len(result)))
+            for server in result[:30]:
+                kind, who = mcp_registry.publisher(server.name)
+                kinds = " | ".join(dict.fromkeys(_(self.RUN_KIND[o.kind]) for o in server.options))
+                row = self.model_row(server.title or server.short, server.description or server.name,
+                                     right=kinds)
+                row.set_tooltip_text(server.name)
+                row.server = server
+                box.append(row)
             return False
 
         threading.Thread(target=work, daemon=True).start()
 
-    def use_registry(self, server, option):
+    def use_registry(self, server, option, pick=None):
         import shlex
         entry = option.entry
-        source = _("From the MCP registry: {0}").format(server.name)
-        if server.repository:
-            source += " · " + server.repository
+        if pick is not None:
+            source = _("Recommended: {0}").format(pick.repository)
+        else:
+            source = _("From the MCP registry: {0}").format(server.name)
+            if server.repository:
+                source += " · " + server.repository
         self.add_from = {"registry": option}
         if entry["transport"] == "stdio":
             command = " ".join(shlex.quote(c) for c in [entry["command"], *entry["args"]])
             pairs = "\n".join(f"{k}={v}" for k, v in entry["env"].items() if not v.startswith("{"))
             self.fill_add_form(server.short, 0, command, "", pairs, option.needs, source)
         else:
-            pairs = "\n".join(f"{k}: {v}" for k, v in entry["headers"].items() if not v.startswith("{"))
+            pairs = "\n".join(f"{k}: {v}" for k, v in entry["headers"].items() if "{" not in v)
             self.fill_add_form(server.short, 1 if entry["transport"] == "http" else 2, "", entry["url"], pairs,
                                option.needs, source)
+        url = pick.key_url if pick is not None else ""
+        self.add_key_link.set_visible(bool(url))
+        if url:
+            self.add_key_link.set_uri(url)
 
     def fill_add_form(self, name, kind, command, url, pairs, needs, source):
         self.add_filling = True
@@ -3355,20 +3729,22 @@ class AgentsMap(Adw.Application):
         self.add_need_entries = {}
         for need in needs:
             entry = Gtk.Entry(hexpand=True, text=need.value or "", visibility=not need.secret,
-                              placeholder_text=_("needed") if need.required else _("optional"))
+                              placeholder_text=need.hint or (_("needed") if need.required else _("optional")))
             entry.connect("changed", lambda *_: self.add_changed())
             self.guard_text_field(entry)
-            label = need.description if need.name.startswith("arg:") else need.name
-            self.setting_line(box, label[:40], need.description, entry)
+            label = _(need.description) if need.name.startswith("arg:") else need.name
+            hint = _(need.description) if need.description and not need.name.startswith("arg:") else ""
+            hint = (hint + " · " if hint else "") + (_("needed") if need.required else _("optional"))
+            self.setting_line(box, label[:40], hint, entry)
             entry.set_halign(Gtk.Align.FILL)
             self.add_need_entries[need.name] = (entry, need)
         self.add_source.set_label(source)
         self.add_filling = False
         self.add_kind_changed()
-        self.add_status.set_label(_("Filled in below: tick the agents, then Test or Add."))
+        self.add_status.set_label(_("Fill in what it needs, tick the agents, then Test or Add.") if needs else
+                                  _("Tick the agents, then Test or Add."))
         self.add_timer and GLib.source_remove(self.add_timer)
         self.add_timer = GLib.timeout_add(1500, self.update_add_preview)    # the hint first, then why Add is off
-        GLib.idle_add(self.scroll_to, self.add_scroller, self.add_body, self.add_form_heading, self.add_ok)
 
     # The form ------------------------------------------------------------------------------------
 
@@ -3395,7 +3771,11 @@ class AgentsMap(Adw.Application):
         import shlex
         buffer = self.add_pairs.get_buffer()
         text = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), False)
-        values = {name: entry.get_text().strip() for name, (entry, _need) in self.add_need_entries.items()}
+        values = {name: os.path.expanduser(v) if (v := entry.get_text().strip()).startswith("~/") else v
+                  for name, (entry, _need) in self.add_need_entries.items()}
+        optional = [name for name, (_entry, need) in self.add_need_entries.items()
+                    if not need.required and not values[name]]
+        values = {k: v for k, v in values.items() if v}
         missing = [need.description if name.startswith("arg:") else name
                    for name, (entry, need) in self.add_need_entries.items() if need.required and not values[name]]
         if missing:
@@ -3428,7 +3808,7 @@ class AgentsMap(Adw.Application):
             option = (self.add_from or {}).get("registry")
             if option is not None:
                 entry["headers"] = {**option.entry["headers"], **pairs}
-        entry = mcp_registry.fill(entry, values)
+        entry = mcp_registry.drop_unfilled(mcp_registry.fill(entry, values), optional)
         # Optional fields left empty: their {placeholders} go.
         entry["env"] = {k: v for k, v in entry["env"].items() if not re.fullmatch(r"\{[^}]+\}", v)}
         entry["headers"] = {k: v for k, v in entry["headers"].items() if not re.fullmatch(r"\{[^}]+\}", v)}
@@ -3657,6 +4037,7 @@ class AgentsMap(Adw.Application):
 
     def build_add_skills_page(self) -> Gtk.Widget:
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        page.add_css_class("am-add-page")       # one text scale (see the CSS)
         header = Gtk.Box(spacing=8)
         back = Gtk.Button()
         back.add_css_class("flat")
@@ -3677,6 +4058,13 @@ class AgentsMap(Adw.Application):
         rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         rule.add_css_class("am-settings-rule")
         page.append(rule)
+        self.intro_card(page, _("Skills teach your agents how to do a task."), [
+            _("A skill is a folder with a SKILL.md: instructions, sometimes with scripts or templates, for one kind "
+              "of work, e.g. making a PDF or releasing your app. An agent reads it only when a task fits, so many "
+              "skills cost little."),
+            _("Skills live in a folder; every agent that reads the folder has them at once. Pick skills from this "
+              "PC or the web, choose the folder, then Add. Then just ask for the task: the agent finds the skill."),
+        ])
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         body.add_css_class("am-settings")
         scroller_holder = [self.page_scroller(body)]
@@ -3687,14 +4075,14 @@ class AgentsMap(Adw.Application):
         body.append(self.where_switch("skills", local_box, web_box))
         body.append(local_box)
         body.append(web_box)
-        self.settings_heading(local_box, _("Found on this PC"))
+        self.section_heading(local_box, _("Found on this PC"))
         self.skills_found_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1)
         self.skills_found_status.add_css_class("am-agent-detail")
         local_box.append(self.skills_found_status)
         self.skills_found_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         local_box.append(self.skills_found_list)
 
-        self.settings_heading(web_box, _("Search the web"))
+        self.section_heading(web_box, _("Search the web"))
         web_box.append(self.source_picker("skills"))
         line = Gtk.Box(spacing=8)
         self.skills_query = Gtk.Entry(hexpand=True, placeholder_text=_("e.g. pdf, docker, testing"))
@@ -3715,7 +4103,7 @@ class AgentsMap(Adw.Application):
         web_box.append(self.skills_web_list)
 
         self.skills_selected_heading = Gtk.Label(label=_("Selected").upper(), xalign=0)
-        self.skills_selected_heading.add_css_class("am-setting-heading")
+        self.skills_selected_heading.add_css_class("am-section-heading")
         body.append(self.skills_selected_heading)
         self.skills_selected = Gtk.Label(xalign=0, wrap=True, max_width_chars=1, label=_("Nothing selected yet."))
         self.skills_selected.add_css_class("am-detail-value")
@@ -3729,21 +4117,19 @@ class AgentsMap(Adw.Application):
         self.setting_line(body, _("Also for"), _("Agents that do not read this folder yet get it too."),
                           self.skills_agents)
         self.skills_agents.set_halign(Gtk.Align.FILL)
-        buttons = Gtk.Box(spacing=8, halign=Gtk.Align.END)
-        self.skills_ok = Gtk.Button(label=_("Add"))
-        self.skills_ok.add_css_class("am-small-btn")
+        buttons = Gtk.Box(spacing=10)
+        self.skills_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1, hexpand=True)
+        self.skills_status.add_css_class("am-agent-detail")
+        buttons.append(self.skills_status)
+        self.skills_ok = Gtk.Button(label=_("Add"), valign=Gtk.Align.CENTER)
         self.skills_ok.add_css_class("am-primary")
+        self.skills_ok.add_css_class("am-download-btn")
         self.skills_ok.connect("clicked", lambda *_: self.apply_skills())
         self.skills_scroller = scroller_holder[0]
         self.skills_body = body
         buttons.append(self.skills_ok)
         body.append(buttons)
-        self.skills_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1)
-        self.skills_status.add_css_class("am-agent-detail")
-        body.append(self.skills_status)
-        heading = Gtk.Label(label=_("What changes").upper(), xalign=0)
-        heading.add_css_class("am-group-heading")
-        body.append(heading)
+        self.section_heading(body, _("What changes"))
         self.skills_preview = Gtk.TextView(editable=False, cursor_visible=False, monospace=True)
         self.skills_preview.add_css_class("am-diff")
         self.skills_preview.set_wrap_mode(Gtk.WrapMode.CHAR)
@@ -5391,6 +5777,14 @@ class AgentsMap(Adw.Application):
         return f"{n / 1e9:.1f} B".replace(".0 B", " B") if n >= 1e9 else f"{n / 1e6:.0f} M" if n else ""
 
     @staticmethod
+    def iso_time(text: str) -> float:
+        """Epoch seconds of an ISO time such as 2025-09-14T15:20:36.371442Z (0 if it is none)."""
+        try:
+            return dt.datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+        except (ValueError, AttributeError):
+            return 0
+
+    @staticmethod
     def age_text(epoch: float) -> str:
         if not epoch:
             return ""
@@ -6439,7 +6833,9 @@ class AgentsMap(Adw.Application):
         elif kind == "addmcp":
             self.open_add_mcp()
             if len(action) > 1 and action[1]:
+                self.add_tab_buttons["web"].set_active(True)
                 self.add_query.set_text(action[1])
+                self.search_mcp()
         elif kind == "addskills":
             self.open_add_skills()
         elif kind == "reorganize":
@@ -7532,8 +7928,9 @@ class AgentsMap(Adw.Application):
         label.add_css_class("am-agent-detail")
         row.append(label)
         drop = Gtk.DropDown.new_from_strings([""])
-        drop.set_hexpand(True)
+        drop.set_hexpand(False)
         row.append(drop)
+        row.append(Gtk.Box(hexpand=True))
         add = Gtk.Button(label=_("Add a site…"))
         add.add_css_class("am-small-btn")
         row.append(add)
@@ -8654,6 +9051,31 @@ class AgentsMap(Adw.Application):
         .am-cap-mtp {{ color: {orange_hex}; border-color: alpha({orange_hex}, 0.5); }}
         .am-name-part {{ font-family: monospace; font-weight: 700; color: {accent_hex}; }}
         .am-readme {{ font-size: 12px; color: alpha({fg_hex}, 0.85); }}
+        /* Add pages, MCP and skills pages: five sizes only. Section heading 11 bold capitals (dim),
+           the chosen thing's name 15 bold, names and titles 13 semibold, text and fields 12, hints 11 (dim). */
+        /* Add MCP server… / Add skills… (in a bold section header) and the hint area's Update / Show:
+           one size, normal weight, grey until hovered. */
+        button.am-small-btn.am-quiet-btn {{ font-size: 11px; font-weight: 400; min-height: 0; padding: 2px 10px;
+            color: {dim_hex}; }}
+        button.am-small-btn.am-quiet-btn label {{ font-size: 11px; font-weight: 400; color: {dim_hex}; }}
+        button.am-small-btn.am-quiet-btn:hover, button.am-small-btn.am-quiet-btn:hover label {{ color: {fg_hex}; }}
+        .am-section-heading {{ font-size: 11px; font-weight: 700; letter-spacing: 1px; color: {dim_hex}; }}
+        .am-add-page .am-model-title {{ font-size: 15px; font-weight: 700; }}
+        .am-add-page label.am-model-name, .am-add-page .am-intro-title,
+        .am-add-page .am-choice label.am-detail-value {{ font-size: 13px; font-weight: 600; }}
+        .am-add-page label.am-detail-value, .am-add-page row .title, .am-add-page entry, .am-add-page text,
+        .am-add-page checkbutton label, .am-add-page dropdown label, .am-add-page expander title label,
+        .am-add-page button.link label, .am-add-page textview {{ font-size: 12px; }}
+        .am-add-page .am-agent-detail, .am-add-page row .subtitle {{ font-size: 11px; }}
+        /* The tabs (Recommended | MCP registry | On this PC | By hand): the page's main choice, so a step bigger. */
+        .am-add-page .am-segmented button.am-segment {{ font-size: 13px; padding: 5px 16px; }}
+        .am-add-page .am-segmented button.am-segment:checked {{ font-weight: 600; }}
+        /* "Search on": a quiet setting, as small as its row (and its open list) */
+        .am-add-page .am-line dropdown label, .am-add-page .am-line dropdown popover label {{ font-size: 11px; }}
+        .am-add-page .am-line dropdown > button {{ padding: 0 6px; min-height: 0; }}
+        .am-add-page .am-line dropdown > button label {{ color: {dim_hex}; }}
+        .am-add-page row .subtitle {{ color: {dim_hex}; }}
+        .am-add-page button.link {{ padding: 0 4px; min-height: 0; }}
         .am-warning-text {{ color: {yellow_hex}; }}
         row.am-fit-fits .am-agent-detail {{ color: {green_hex}; }}
         row.am-fit-partly .am-agent-detail {{ color: {yellow_hex}; }}

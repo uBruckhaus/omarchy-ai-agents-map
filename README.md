@@ -244,8 +244,8 @@ Monitor. Each local LLM's box shows how much GPU memory it holds, and loaded mod
 
 ## Adding MCP servers and skills
 
-The three Add pages (MCP servers, skills, models) share one layout: **On this PC | From the web**
-at the top (the choice is kept per page), and on the web side **Search on**: the default site, or
+The Add pages share one layout: a short explanation of what MCP servers or skills are and how they
+are used, tabs at the top (the choice is kept per page), and on the web side **Search on**: the default site, or
 a site you add with **Add a site…** (kept in the settings until you remove it with the bin):
 
 - models: Hugging Face, or a site with the same API (a mirror such as `https://hf-mirror.com`);
@@ -255,11 +255,21 @@ a site you add with **Add a site…** (kept in the settings until you remove it 
 
 Only https addresses without user, query or `#`; a site you added is asked only when you search.
 
-**+ MCP server** (on the map or under the cards) opens a page with three sources that all fill the
-same form; you tick the agents that get it, **Test** asks the server for its tools, **Add** writes
-all ticked agents at once (one preview, one Undo). No agent is ticked unless you selected one.
+**+ MCP server** (on the map or under the cards) opens a page laid out like the models page: a list
+on the left, the chosen server's page on the right. The page says who made it and how much that is
+checked, what it does (with things to ask an agent once it has it), how it runs (each way as a row:
+a program through npx, uvx or Docker on this PC, or a web service, with what that means and whether
+the program it needs is installed), and what it needs (a folder, an API key, with a link to where
+you get the key). Below it, **Set it up**: the fields it needs, the agents that get it, its name,
+**Command and settings** (folded), **Test** (asks the server for its tools) and **Add** (writes all
+ticked agents at once: one preview, one Undo). No agent is ticked unless you selected one.
 
-- **Found on this PC**: programs that offer an MCP server, found by reading the files (nothing is
+- **Recommended**: the reference servers of the MCP project (github.com/modelcontextprotocol/servers:
+  Filesystem, Fetch, Git, Memory, Sequential Thinking, Time, Everything) and the official servers of
+  well-known makers (GitHub, Playwright, Chrome DevTools, Brave Search, Context7), grouped by what
+  they are for. Each package is pinned to its newest version on npm or PyPI when you open it
+  (`npx -y pkg@1.2.3`, `uvx pkg==1.2.3`); offline it stays unpinned.
+- **On this PC**: programs that offer an MCP server, found by reading the files (nothing is
   started): your own programs (`~/.local/bin`, `~/bin`, extracted apps in `~/Applications`, `/opt`)
   and anything on PATH with "mcp" in its name. A program counts when its own usage text has an
   `mcp` mode (`x-cli mcp [--automation-read-root DIR]`) or it holds the MCP protocol's words; read
@@ -274,9 +284,13 @@ all ticked agents at once (one preview, one Undo). No agent is ticked unless you
   the list of MCP servers or a link in `~/.local/bin` still start the old version, it shows as
   **Update…**: one preview unpacks the new version, points every one of them at it and moves the
   old folder into the backup (deleted after 7 days; Undo within that time brings everything back).
-- **Search the web**: the official MCP registry (`registry.modelcontextprotocol.io`). npm packages
-  run with `npx`, PyPI packages with `uvx`, images with `docker`, remote servers by their https
-  address; the variables a server needs (API keys, folders) become fields.
+- **MCP registry**: a search of the official MCP registry (`registry.modelcontextprotocol.io`; its
+  search often takes 10 seconds or more). Each result names its publisher as the registry checked it
+  (a GitHub account for `io.github.<user>/…`, a domain for `com.example/…`). npm packages run with
+  `npx`, PyPI packages with `uvx`, images with `docker` (with the image's own `docker run`
+  arguments), remote servers by their https address; the variables a server needs (API keys,
+  folders, also inside a value such as `Bearer {api_key}`) become fields, and optional ones left
+  empty are left out.
 - **By hand**: a command line, or an address with headers.
 
 **+ Skills** opens the same kind of page: skill folders that apps brought along and no agent reads

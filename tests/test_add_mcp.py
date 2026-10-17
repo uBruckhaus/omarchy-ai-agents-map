@@ -9,6 +9,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import connect  # noqa: E402
 import mcp_ctl  # noqa: E402
+import mcp_catalog  # noqa: E402
 import mcp_registry  # noqa: E402
 import mcp_scan  # noqa: E402
 
@@ -37,13 +38,75 @@ class RegistryTest(unittest.TestCase):
         npm, remote = server.options
         self.assertEqual(npm.entry["command"], "npx")
         self.assertEqual(npm.entry["args"], ["-y", "@acme/notes-mcp@1.2.0", "--root", "{arg:0}"])
-        self.assertEqual(npm.entry["env"], {"NOTES_KEY": "{NOTES_KEY}"})
+        self.assertEqual(npm.entry["env"], {"NOTES_KEY": "{NOTES_KEY}", "NOTES_LOG": "{NOTES_LOG}"})
+        # An optional variable left empty goes again; one filled in stays.
+        optional = [n.name for n in npm.needs if not n.required]
+        self.assertEqual(mcp_registry.drop_unfilled(npm.entry, optional)["env"], {"NOTES_KEY": "{NOTES_KEY}"})
+        self.assertEqual(mcp_registry.drop_unfilled(mcp_registry.fill(npm.entry, {"NOTES_LOG": "1"}), optional)
+                         ["env"]["NOTES_LOG"], "1")
         self.assertEqual([n.name for n in npm.needs if n.required], ["NOTES_KEY", "arg:0"])
         filled = mcp_registry.fill(npm.entry, {"NOTES_KEY": "k-123", "arg:0": "/home/u/Notes"})
         self.assertEqual(filled["args"][-1], "/home/u/Notes")
-        self.assertEqual(mcp_registry.unfilled(filled), [])
+        self.assertEqual(mcp_registry.unfilled(mcp_registry.drop_unfilled(filled, ["NOTES_LOG"])), [])
         self.assertEqual(remote.entry["transport"], "http")
         self.assertEqual(mcp_registry.unfilled(remote.entry), ["Authorization"])
+
+
+class CatalogTest(unittest.TestCase):
+    def pick(self, key):
+        return next(p for p in mcp_catalog.PICKS if p.key == key)
+
+    def test_packages_pinned_or_unpinned_offline(self):
+        server = mcp_catalog.resolve(self.pick("filesystem"), ask=lambda kind, name: "1.2.3")
+        option = server.options[0]
+        self.assertEqual(option.entry["args"], ["-y", "@modelcontextprotocol/server-filesystem@1.2.3", "{arg:0}"])
+        self.assertEqual([(n.name, n.required, n.hint) for n in option.needs], [("arg:0", True, "~/Documents")])
+        offline = mcp_catalog.resolve(self.pick("git"), ask=lambda kind, name: "")
+        self.assertEqual(offline.options[0].entry["args"], ["mcp-server-git"])
+
+    def test_placeholder_inside_a_header(self):
+        remote = mcp_catalog.resolve(self.pick("github"), ask=lambda *_: "").options[0]
+        self.assertEqual([(n.name, n.required, n.secret) for n in remote.needs], [("GITHUB_TOKEN", True, True)])
+        filled = mcp_registry.fill(remote.entry, {"GITHUB_TOKEN": "ghp_x"})
+        self.assertEqual(filled["headers"], {"Authorization": "Bearer ghp_x"})
+        self.assertEqual(mcp_registry.unfilled(filled), [])
+
+    def test_optional_key_left_empty_goes(self):
+        for option in mcp_catalog.resolve(self.pick("context7"), ask=lambda *_: "4.0.0").options:
+            entry = mcp_registry.drop_unfilled(option.entry, ["CONTEXT7_API_KEY"])
+            self.assertEqual((entry["env"], entry["headers"]), ({}, {}))
+            self.assertEqual(mcp_registry.unfilled(entry), [])
+
+    def test_every_pick_resolves(self):
+        for pick in mcp_catalog.PICKS:
+            server = mcp_catalog.resolve(pick, ask=lambda *_: "")
+            self.assertTrue(server.options, pick.key)
+            self.assertIn(pick.group, dict(mcp_catalog.GROUPS))
+
+    def test_docker_runtime_arguments_and_optional_flag(self):
+        package = {"registryType": "oci", "identifier": "ghcr.io/acme/srv:2.0", "transport": {"type": "stdio"},
+                   "runtimeArguments": [{"type": "named", "name": "-e", "value": "TOKEN={token}",
+                                         "variables": {"token": {"isSecret": True}}},
+                                        # a registry entry must not reach into this PC through docker:
+                                        {"type": "named", "name": "-v", "value": "/:/host"},
+                                        {"type": "positional", "value": "--privileged"},
+                                        {"type": "named", "name": "--network", "value": "host"},
+                                        {"type": "named", "name": "-e", "value": "X=1 --privileged\n"}]}
+        option = mcp_registry.option_from_package(package)
+        self.assertEqual(option.entry["args"], ["run", "-i", "--rm", "-e", "TOKEN={token}", "ghcr.io/acme/srv:2.0"])
+        self.assertEqual([(n.name, n.required) for n in option.needs], [("token", False)])
+        self.assertEqual(mcp_registry.drop_unfilled(option.entry, ["token"])["args"],
+                         ["run", "-i", "--rm", "ghcr.io/acme/srv:2.0"])
+
+    def test_option_like_identifier_refused(self):
+        for ident in ("--registry=https://evil.example", "-p"):
+            self.assertIsNone(mcp_registry.option_from_package(
+                {"registryType": "npm", "identifier": ident, "transport": {"type": "stdio"}}))
+
+    def test_publisher(self):
+        self.assertEqual(mcp_registry.publisher("io.github.acme/notes"), ("github", "acme"))
+        self.assertEqual(mcp_registry.publisher("com.microsoft/playwright"), ("domain", "microsoft.com"))
+        self.assertEqual(mcp_registry.publisher("weird name/x"), ("", ""))
 
 
 class ScanTest(unittest.TestCase):
