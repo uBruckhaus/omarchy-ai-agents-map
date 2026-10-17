@@ -227,9 +227,10 @@ def running_agents(names, proc: str = "/proc") -> tuple[set, set]:
     return set(instances), background
 
 
-def agent_instances(names, proc: str = "/proc") -> dict:
-    """{agent: [the arguments of each open instance]} (background servers left out)."""
-    return _scan_agents(names, proc)[0]
+def agent_instances(names, proc: str = "/proc", pids: dict | None = None) -> dict:
+    """{agent: [the arguments of each open instance]} (background servers left out);
+    with pids, also {agent: [their process ids]} into it."""
+    return _scan_agents(names, proc, pids)[0]
 
 
 # Options that name the model an instance runs with ("-m" only where it means the model).
@@ -249,7 +250,7 @@ def instance_model(agent: str, args) -> str:
     return ""
 
 
-def _scan_agents(names, proc: str = "/proc") -> tuple[dict, set]:
+def _scan_agents(names, proc: str = "/proc", pids_out: dict | None = None) -> tuple[dict, set]:
     names = set(names)
     found, background, uid = {}, set(), os.getuid()
     try:
@@ -279,6 +280,8 @@ def _scan_agents(names, proc: str = "/proc") -> tuple[dict, set]:
             background.add(int(pid))
         elif NO_PROVIDERS_ENV not in _read(f"{proc}/{pid}/environ", 256 * 1024).split(b"\0"):
             found.setdefault(name, []).append(args)
+            if pids_out is not None:
+                pids_out.setdefault(name, []).append(int(pid))
     return found, background
 
 

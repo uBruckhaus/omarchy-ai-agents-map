@@ -18,11 +18,14 @@ Omarchy's app launcher (Super + Space); nothing is written there unless you say 
 It is a normal app window: Hyprland tiles or floats it like any other, Alt+Tab and workspaces work,
 and it stays open while you work in other windows. The bar button opens it, brings it to the front
 (also from another workspace), or hides it when it is already in front. Closing the window hides it:
-the program keeps running in the background, with any agent started in it, and opens again at once.
+the program keeps running in the background and opens again at once. While an agent runs inside it,
+closing (Super + Q) asks first: **Stop and close** (its local LLM then stops too and frees the
+graphics card's memory) or **Keep running**. When AI Agents Map ends, the agents running in it end
+with it.
 
 Requires Python with PyGObject, GTK4 and libadwaita in an Omarchy/Hyprland session; all come with a
-standard Omarchy install (libadwaita with Nautilus). Running agents inside the window (Start on an agent's card) needs VTE for GTK4
-(`sudo pacman -S vte4`); without it, Start opens the agent in your normal terminal. Installing local LLMs uses `curl` and `tar` (and `uv` for
+standard Omarchy install (libadwaita with Nautilus). Running agents inside the window (**Start here** on an agent's card) needs VTE for GTK4
+(`sudo pacman -S vte4`); **Start in terminal** opens it in a terminal window of its own. Installing local LLMs uses `curl` and `tar` (and `uv` for
 vLLM); the MCP and skills search uses `curl`.
 
 ## One view: cards and the map beside them
@@ -120,6 +123,16 @@ what is missing (install, models, an agent to connect).
   you are working on (models need a provider category, MCP servers and skills need Agents); the
   choice is remembered. **− 100 % +** (Ctrl+scroll, Ctrl+plus/minus/0) zooms the map. Columns
   that fit stay in the middle of what you see while you scroll a long one.
+- **Cards or tree**: the buttons beside **Show ▾** (or Settings › **Sidebar**) show the same
+  categories as cards or as a compact tree with guide lines; an opened entry shows its facts and
+  its buttons, and the arrow keys open, close and move as in a file tree. An agent's card or entry
+  has **Start here** (a terminal beside the cards) and **Start in terminal** (a window of its own);
+  while it runs here, **Show terminal** and **Stop** (it ends the agent and what it started, such as
+  its MCP servers).
+- **Working now**: while an agent is working (herdr shows it working, its process uses the CPU, its
+  session files were written in the last seconds, or its local LLM is generating), light runs along
+  its line to its provider and model on the map (Settings › **Animate active lines**; off when the
+  desktop turns animations off).
 - **Running now**: an agent with an open instance gets a green dot and "running" (or "2 running"),
   its card says which model, and the model box it runs with says "in use · <agent>": the model
   given with `--model` when it was started, else the one in its settings (a model switched inside
@@ -309,7 +322,7 @@ not match, is not installed.
 
 ### Agents AI Agents Map installs
 
-Two agents Omarchy's menu does not offer are installed the same way (right-click the agent on
+Three agents Omarchy's menu does not offer are installed the same way (right-click the agent on
 the map → **Install…**, **Update…**, **Uninstall…**; a version folder, the command in
 `~/.local/bin`):
 
@@ -322,6 +335,10 @@ the map → **Install…**, **Update…**, **Uninstall…**; a version folder, t
   stays as written. dsh reads `~/.agents/skills` and `~/.dsh/skills` by itself. Only local LLMs
   are set up; DeepSeek's own API (a key) is set up in dsh. Its web server (`dsh web`) counts as
   the agent being open.
+- **Antigravity CLI** (`agy`, Google): the release Google's own install script would take, from
+  its release manifest (version, a tarball on `storage.googleapis.com` and its SHA-512); only that
+  bucket and a full SHA-512 are accepted, and the tarball is checked before anything is unpacked.
+  Google's script itself is not run (its last step only adds `~/.local/bin` to shell profiles).
 - **LM Studio Bionic**: not installed or updated from here (no checksum or signature, as LM Studio);
   get it from lmstudio.ai. A copy installed by an earlier version can still be uninstalled. Bionic runs local models
   itself with LM Studio's engine and models, so it is always linked to LM Studio and cannot be
@@ -331,15 +348,31 @@ the map → **Install…**, **Update…**, **Uninstall…**; a version folder, t
 
 ## Downloading models
 
-Right-click an installed local LLM → **Models…** (or click a folder's **+ Model** box): the installed models on the left; on the right
-**On this PC** lists GGUF files the local LLM does not read yet (the models folder, the other local
-LLMs' folders, `~/Downloads`, `~/Models`) and **Add** makes one its model without a second copy (a
-hard link on the same disk, else a symbolic one; LM Studio gets it as `local/<name>/` with its vision
-projector; Ollama imports it with `ollama create`, which keeps its own copy). **From the web**:
-search Hugging Face (or a site you added) for GGUF models, pick one and a size (the one that fits your graphics card with
-room for context is marked and preselected) and **Download** it into the model folder, with
-progress (Stop download stops it). LM Studio gets the folder layout it expects; a llama.cpp
-model folder that only holds links (a router folder) gets the file next to the originals and a link.
+Right-click an installed local LLM → **Models…** (or click a folder's **+ Model** box). The page is
+laid out as LM Studio's model search: a list on the left, the chosen model's page on the right, in
+three tabs.
+
+- **Get from Hugging Face**: the trending GGUF chat models, or a search (Hugging Face, or a site you
+  added with the same API). Each result shows its author, size, downloads, likes, age and what it
+  can do (Vision, Tools, Reasoning, MTP: from its task, tags and chat template, only read). The
+  model's page shows its numbers, license, parameters (and active parameters for a mixture of
+  experts), architecture, context, base model and its model card as plain text; **What the name
+  means** explains the parts of its name (35B-A3B, Q4_K_M, IQ4_XS, UD, MTP, QAT, …). **Download
+  options** lists every size with how it fits: in the graphics card, partly in system memory
+  (works, slower) or likely too large; the one that fits best is chosen, and **Download** gets it
+  into the model folder, with progress (Stop download stops it). LM Studio gets the folder layout
+  it expects; a llama.cpp model folder that only holds links (a router folder) gets the file next
+  to the originals and a link.
+- **Installed**: each model with its size, file, context (now, best for your card, trained for;
+  **Set context**) and what its name means. **Remove** asks first and moves the model's files to
+  the desktop's trash (restorable); a model that is only a link loses only the link, and it says
+  when another local LLM reads the same file through a link. Ollama removes its own models (it has
+  no trash), after the same check that the port belongs to you.
+- **On this PC**: GGUF files the local LLM does not read yet (the models folder, the other local
+  LLMs' folders, `~/Downloads`, `~/Models`); **Add** makes one its model without a second copy (a
+  hard link on the same disk, else a symbolic one; LM Studio gets it as `local/<name>/` with its
+  vision projector; Ollama imports it with `ollama create`, which keeps its own copy).
+
 For Ollama there is also a field for library names (qwen3:8b); a Hugging Face model is pulled as
 hf.co/<repo>:<size>, and Ollama is started for it if it is not running. Before anything is sent to
 Ollama on 127.0.0.1, AI Agents Map checks that the listening port belongs to you.
@@ -408,6 +441,9 @@ the backup and Undo), and the agent is told the same context. A context you set 
   LLM's port). From settings it takes names, model ids, folders and addresses; it never
   opens credential files (`auth.json`, `.credentials.json`). MCP server entries are read whole so
   they can be copied to another agent; their environment and header values are never shown.
+- **Working now** reads, every 2 s while the window is open, the CPU time of the running agents'
+  own processes (`/proc/<pid>/stat`, your own UID only) and the modification times of their session
+  files (no contents).
 - **Details pages** (ⓘ on an agent or local LLM card) read usage as numbers and times only:
   Omarchy's usage records (Claude Code, Codex), the token, model and time columns of Hermes's
   (`~/.hermes/state.db`) and OpenCode's (`~/.local/share/opencode/opencode.db`) session
@@ -428,7 +464,7 @@ the backup and Undo), and the agent is told the same context. A context you set 
   every download, models included, goes into a `.part` file that is created new without following
   links, or resumed only when it is your own regular file, and curl writes into that open file),
   the npm registry for DeepSeek Harness, PyPI
-  (and `uv`) for vLLM; `huggingface.co` for model search and downloads; the local Ollama on
+  (and `uv`) for vLLM; `huggingface.co` for model search, a model's page (its numbers and GGUF facts) and its model card (`/raw/main/README.md`, at most 200 kB, shown as plain text), and downloads; for Antigravity CLI Google's release manifest (`antigravity-cli-auto-updater-…run.app/manifests/linux_<arch>.json`) and its tarball on `storage.googleapis.com` (checked against the manifest's SHA-512); the local Ollama on
   127.0.0.1 only after checking that the listening socket belongs to you; the same for each running
   local LLM's own API every 2 s while the window is open (which models are loaded) and for
   **Free GPU memory** (unload); answers are capped at 1 MiB and only shown, never run;
@@ -462,6 +498,12 @@ the backup and Undo), and the agent is told the same context. A context you set 
   and a herdr server of yours runs (never starts one), and `herdr agent focus <pane>` on a click on
   a herdr pane (the pane id checked against a strict pattern), then `hyprctl` focuses the window of
   the terminal that runs herdr (found through the parents of your own herdr processes).
+- **Removes** a model only on **Remove** and after you confirm it: its files (your own, inside the
+  local LLM's model folder, never through a link) go to the desktop's trash with GIO, a link only as
+  the link; for Ollama its own `DELETE /api/delete` on 127.0.0.1 after the port-owner check.
+- **Stops** an agent started here on **Stop**, on **Stop and close**, or when AI Agents Map ends:
+  SIGHUP to its own process group (it was started here as a session of its own), SIGTERM after 3 s
+  and SIGKILL after 6 s if it is still there.
 - **Writes**, each only after you confirm it with its preview (except AI Agents Map's own state):
   the agents' settings files named above (always written owner-only, 0600, since they may hold API keys or MCP secrets), links in the
   agents' skills folders, fetched skill files, programs you install into a folder you choose (one
@@ -490,13 +532,14 @@ the backup and Undo), and the agent is told the same context. A context you set 
 
 ## Languages and settings
 
-**?** (F1), left of the gear, opens **Help**: for now an animation of setting up by drawing (an
-agent, a provider and its model, an MCP server and a skill folder, with made-up boxes), started
-with **Start**. More of the manual will follow there.
+**?** (F1), left of the gear, opens **Help**: an animation of setting up by drawing (an agent, a
+provider and its model, an MCP server and a skill folder, with made-up boxes), started with
+**Start**, and LLM Monitor, the bar plugin that shows what a local LLM is doing (its picture, its
+marketplace page and its install command with a copy button).
 
 The gear (Ctrl+,) opens the settings: **Language** (system or one of English, Deutsch, Français,
 Español, Italiano, Português, Nederlands, Polski), **Look** (the colours from the Omarchy theme,
-or GNOME's Adwaita with the system's light/dark and accent colour), **Corners** (like windows, rounded or square, as
+or GNOME's Adwaita with the system's light/dark and accent colour), **Sidebar** (cards or tree), **Animate active lines**, **Corners** (like windows, rounded or square, as
 in App Manager and Theme Manager), **Look up new agents**, **Show what you could set up** (the "Show
 N more you could set up" hint below the cards), **Start local LLMs with their agents**, **Too narrow for the map** (what the header's "Maximize to see the map" does: move the window to a
 free workspace, maximize it where it is, or show no hint; with an animated preview), **In the app
@@ -549,6 +592,8 @@ rm -rf ~/.config/omarchy/ai-agents-map ~/.local/state/ai-agents-map ~/.cache/ai-
 | `agent_profiles.py` | Looking up new agents on the web |
 | `install_ctl.py`, `runtime_ctl.py`, `models_ctl.py`, `context_ctl.py` | Local LLMs: install, start/stop, models, context size |
 | `netfetch.py` | The one bounded way to the web (curl) |
+| `agent_activity.py`, `side_tree.py`, `model_names.py` | Which agents are working now; the sidebar tree; what a model's name means |
+| `assets/llm-monitor-preview.png` | LLM Monitor's picture on the Help page |
 | `claude_sessions.py`, `herdr_state.py` | Claude Code's numbers per project and subagent; herdr's live state and pane focus |
 | `desktop.py`, `desktop_omarchy.py`, `desktop_generic.py` | Everything desktop-specific behind one interface: Omarchy/Hyprland here; the generic one is used only outside Omarchy (the same code as the stand-alone app Asterism) |
 | `ai_core.py`, `palette.py`, `corners.py`, `pidfile.py`, `i18n.py`, `I18n.js` | Shared helpers, theme colours, corners, PID file, languages |

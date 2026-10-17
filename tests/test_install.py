@@ -100,6 +100,45 @@ if __name__ == "__main__":
     unittest.main()
 
 
+    def test_sha512_checksums_are_checked_too(self):
+        import hashlib
+        path = self.home / "blob"
+        path.write_bytes(b"antigravity")
+        sha512 = hashlib.sha512(b"antigravity").hexdigest()
+        self.assertEqual(ic.sha256_of(path, sha512), sha512)            # 128 digits: SHA-512
+        self.assertEqual(ic.sha256_of(path), hashlib.sha256(b"antigravity").hexdigest())
+        kept = ic.Release.from_json({"version": "v1", "assets": [["a.tar.gz", "https://x/a.tar.gz", 0]],
+                                     "digests": {"a.tar.gz": sha512, "b": "z" * 128}})
+        self.assertEqual(kept.digests, {"a.tar.gz": sha512})
+        # A kept download is only reused when it matches its SHA-512; else it is downloaded again.
+        src = self.home / "src"
+        src.mkdir()
+        (src / "antigravity").write_text("#!/bin/sh\necho 1.4.0\n")
+        archive = self.home / "cli_linux_x64.tar.gz"
+        import tarfile
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(src / "antigravity", arcname="antigravity")
+        digest = hashlib.sha512(archive.read_bytes()).hexdigest()
+        release = ic.Release("v1.4.0", [(archive.name, "https://storage.googleapis.com/x", 0)], {archive.name: digest})
+        folder = self.home / "agy"
+        (folder / "downloads").mkdir(parents=True)
+        (folder / "downloads" / archive.name).write_bytes(archive.read_bytes())
+        with mock.patch.object(ic, "download") as download:
+            ic.Agy().install(folder, None, False, False, ic.Gpu(), release, lambda *a: None, lambda: False)
+        download.assert_not_called()                                    # matched: kept
+        self.assertEqual(Path(os.readlink(self.home / ".local/bin/agy")), folder / "current/antigravity")
+        self.assertEqual(ic.Agy().current_version(), "v1.4.0")
+        (folder / "downloads").mkdir()
+        (folder / "downloads" / archive.name).write_bytes(b"tampered")
+
+        def fake_download(url, target, size, progress, cancelled, done_before=0, total=0, sha256=""):
+            self.assertEqual(sha256, digest)                            # handed on to be checked
+            target.write_bytes(archive.read_bytes())
+
+        with mock.patch.object(ic, "download", fake_download):
+            ic.Agy().install(folder, None, False, False, ic.Gpu(), release, lambda *a: None, lambda: False)
+
+
 class LlamaInstallTest(InstallTest):
     def test_llamacpp_flatten_env_unit_and_preset(self):
         inst = ic.LlamaCpp()
@@ -252,6 +291,34 @@ class IntegrityTest(unittest.TestCase):
                              lambda *a: None, lambda: False)
         download.assert_not_called()
         run.assert_not_called()
+
+    def agy_manifest(self, **change):
+        good = {"version": "1.4.0", "sha512": "a" * 128,
+                "url": "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.4.0-1/linux-x64/"
+                       "cli_linux_x64.tar.gz"}
+        return {**good, **change}
+
+    def test_agy_takes_only_googles_checksummed_tarball(self):
+        with mock.patch.object(ic, "_curl_json", return_value=self.agy_manifest()) as fetch, \
+                mock.patch.object(ic.os, "uname", return_value=mock.Mock(machine="x86_64")):
+            release = ic.Agy().latest(ic.Gpu())
+        self.assertIn("/manifests/linux_amd64.json", fetch.call_args.args[0])
+        self.assertEqual(release.version, "v1.4.0")
+        self.assertEqual(release.digests, {"cli_linux_x64.tar.gz": "a" * 128})
+        for bad in ({"sha512": ""}, {"sha512": "a" * 64}, {"sha512": "G" * 128}, {"version": "1.4"},
+                    {"version": "1.4.0; rm -rf ~"}, {"url": "https://evil.example/antigravity-cli/x.tar.gz"},
+                    {"url": "http://storage.googleapis.com/antigravity-public/antigravity-cli/x.tar.gz"},
+                    {"url": "https://storage.googleapis.com/antigravity-public/antigravity-cli/../x/x.tar.gz"},
+                    {"url": "https://storage.googleapis.com/antigravity-public/antigravity-cli/1/x.zip"},
+                    {"url": "https://storage.googleapis.com/antigravity-public/antigravity-cli/1/x y.tar.gz"}):
+            with mock.patch.object(ic, "_curl_json", return_value=self.agy_manifest(**bad)), \
+                    mock.patch.object(ic.os, "uname", return_value=mock.Mock(machine="x86_64")), \
+                    self.assertRaises(RuntimeError, msg=bad):
+                ic.Agy().latest(ic.Gpu())
+        with mock.patch.object(ic.os, "uname", return_value=mock.Mock(machine="riscv64")), \
+                mock.patch.object(ic, "_curl_json") as fetch, self.assertRaises(RuntimeError):
+            ic.Agy().latest(ic.Gpu())
+        fetch.assert_not_called()
 
     def test_lm_studio_and_bionic_are_not_installed_from_here(self):
         for inst in (ic.LmStudio(), ic.Bionic()):

@@ -55,7 +55,8 @@ SPECS = {
 ROBOT = "\U000f06a9"
 # Agents Omarchy's menu does not offer (yet): AI Agents Map installs them itself
 # (install_ctl.AGENT_INSTALLERS) into a version folder, the command in ~/.local/bin.
-EXTRA = [("dsh", "DeepSeek Harness", "\U000f0e7b", ""), ("bionic", "LM Studio Bionic", "\U000f09d1", "")]
+EXTRA = [("dsh", "DeepSeek Harness", "\U000f0e7b", ""), ("bionic", "LM Studio Bionic", "\U000f09d1", ""),
+         ("agy", "Antigravity CLI", "\U000f02ad", "")]
 
 
 @dataclass

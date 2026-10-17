@@ -54,7 +54,7 @@ class DownloadError(RuntimeError):
 class Release:
     version: str
     assets: list = field(default_factory=list)   # [(name, url, size)]
-    digests: dict = field(default_factory=dict)  # name -> SHA-256 (hex) the release lists for it
+    digests: dict = field(default_factory=dict)  # name -> SHA-256 (or SHA-512) hex the release lists for it
 
     @property
     def size(self) -> int:
@@ -76,7 +76,7 @@ class Release:
                 raise ValueError("bad release")
             assets.append((name, url, size))
         digests = {str(k): str(v) for k, v in (data.get("digests") or {}).items()
-                   if re.fullmatch(r"[0-9a-f]{64}", str(v))}
+                   if re.fullmatch(r"[0-9a-f]{64}|[0-9a-f]{128}", str(v))}
         return cls(version, assets, digests)
 
 
@@ -192,8 +192,14 @@ def github_release(version: str, assets: list) -> Release:
     return Release(version, [(n, u, s) for n, u, s, _d in picked], {n: d for n, _u, _s, d in picked})
 
 
-def sha256_of(path: Path) -> str:
-    digest = hashlib.sha256()
+def _hasher(expected: str = ""):
+    """The hash a release's checksum is in: SHA-512 for 128 hex digits, else SHA-256."""
+    return hashlib.sha512() if len(expected) == 128 else hashlib.sha256()
+
+
+def sha256_of(path: Path, expected: str = "") -> str:
+    """The file's SHA-256 (or SHA-512 when `expected` is one), to compare with `expected`."""
+    digest = _hasher(expected)
     with open(path, "rb") as handle:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
@@ -231,8 +237,8 @@ def open_staging(partial: Path) -> int:
     return fd
 
 
-def _sha256_of_fd(fd: int) -> str:
-    digest = hashlib.sha256()
+def _sha256_of_fd(fd: int, expected: str = "") -> str:
+    digest = _hasher(expected)
     offset = 0
     while block := os.pread(fd, 1024 * 1024, offset):
         digest.update(block)
@@ -287,10 +293,10 @@ def download(url: str, target: Path, size: int, progress, cancelled, done_before
         st = os.fstat(fd)
         if size and st.st_size != size:
             raise DownloadError("download incomplete")
-        if sha256 and _sha256_of_fd(fd) != sha256:
+        if sha256 and _sha256_of_fd(fd, sha256) != sha256:
             os.ftruncate(fd, 0)
             _remove_if_same(partial, st)
-            raise RuntimeError(f"{target.name} does not match the release's SHA-256 checksum; nothing was installed")
+            raise RuntimeError(f"{target.name} does not match the release's checksum; nothing was installed")
         os.fsync(fd)
         try:
             now = os.lstat(partial)
@@ -496,7 +502,8 @@ class Installer:
             progress(done / max(1, release.size), f"download {asset_name}")
             target = downloads / asset_name
             # Continued after an interruption: a file already downloaded and checked is kept.
-            if not (own_regular_file(target) and sha256_of(target) == release.digests[asset_name]):
+            if not (own_regular_file(target) and sha256_of(target, release.digests[asset_name])
+                    == release.digests[asset_name]):
                 download(url, target, size, progress, cancelled, done, release.size,
                          sha256=release.digests[asset_name])
             done += size
@@ -1126,7 +1133,35 @@ class Dsh(Installer):
         progress(1.0, "done")
 
 
-AGENT_INSTALLERS = {"bionic": Bionic(), "dsh": Dsh()}        # agents installed the same way (not local LLMs)
+class Agy(Installer):
+    """Google's Antigravity CLI (`agy`): the release Google's own install script would take, from
+    its manifest (version, a tarball on storage.googleapis.com and its SHA-512), checked before
+    anything is unpacked; the binary goes into a version folder, `agy` into ~/.local/bin. Google's
+    script is not run (its last step only adds ~/.local/bin to shell profiles)."""
+    key, name, command, service = "agy", "Antigravity CLI", "agy", ""
+    bin_rel = "antigravity"
+    has_service = False
+    uses_models = False
+    site = "https://antigravity.google"
+    MANIFEST = "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/linux_{0}.json"
+    DOWNLOADS = "https://storage.googleapis.com/antigravity-public/antigravity-cli/"
+    ARCHES = {"x86_64": "amd64", "aarch64": "arm64"}
+
+    def latest(self, gpu: Gpu, build: str = "") -> Release:
+        arch = self.ARCHES.get(os.uname().machine)
+        if arch is None:
+            raise RuntimeError(f"no Antigravity CLI for {os.uname().machine}")
+        data = _curl_json(self.MANIFEST.format(arch))
+        version, url, sha512 = (str(data.get(k) or "") for k in ("version", "url", "sha512"))
+        name = url.rsplit("/", 1)[-1]
+        if not re.fullmatch(r"\d+\.\d+\.\d+", version) or not re.fullmatch(r"[0-9a-f]{128}", sha512) \
+                or not url.startswith(self.DOWNLOADS) or not name.endswith(".tar.gz") or not NAME_RE.fullmatch(name) \
+                or any(c in url for c in "\"'\\ \n\r\t") or "/../" in url:
+            raise RuntimeError("Google's release manifest is not in the expected form; nothing was installed")
+        return Release(f"v{version}", [(name, url, 0)], {name: sha512})
+
+
+AGENT_INSTALLERS = {"bionic": Bionic(), "dsh": Dsh(), "agy": Agy()}   # agents installed the same way (not local LLMs)
 
 
 def installer(key: str):

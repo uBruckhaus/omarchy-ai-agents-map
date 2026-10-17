@@ -168,13 +168,38 @@ class TerminalPane(Gtk.Box):
         self.set_state(False, _("ended") + (f" ({code})" if code else ""))
 
     def stop(self):
-        """SIGHUP to our own child, as a terminal closing would; it was spawned here and
-        is reaped by VTE, so the pid cannot have been reused while we still hold it."""
+        """End the agent and what it started (its MCP servers, tools): SIGHUP to its process
+        group, as a terminal closing would; SIGTERM after 3 s and SIGKILL after 6 s if it is
+        still there. It was spawned here as a session of its own and is reaped by VTE, so
+        the pid (and its group) cannot have been reused while we still hold it."""
         if self.pid is not None and self.running:
-            try:
-                os.kill(self.pid, signal.SIGHUP)
-            except ProcessLookupError:
-                pass
+            pid = self.pid
+            self.signal_group(pid, signal.SIGHUP)
+            self.set_state(True, _("stopping…"))
+            GLib.timeout_add(3000, self.force_stop, pid, signal.SIGTERM)
+            GLib.timeout_add(6000, self.force_stop, pid, signal.SIGKILL)
+
+    def force_stop(self, pid: int, sig) -> bool:
+        if self.pid == pid and self.running:
+            self.signal_group(pid, sig)
+        return False
+
+    @staticmethod
+    def signal_group(pid: int, sig):
+        """Its whole process group when it leads one (VTE starts it as a session), else itself."""
+        try:
+            if os.getpgid(pid) == pid:
+                os.killpg(pid, sig)
+            else:
+                os.kill(pid, sig)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+    def stop_now(self):
+        """When AI Agents Map ends: the agent and its group get SIGHUP, then SIGTERM."""
+        if self.pid is not None and self.running:
+            self.signal_group(self.pid, signal.SIGHUP)
+            self.signal_group(self.pid, signal.SIGTERM)
 
     def set_state(self, running: bool, text: str):
         self.running = running

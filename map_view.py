@@ -96,6 +96,9 @@ class MapView(Gtk.DrawingArea):
         self.zoom = 1.0          # drawing scale (ZOOM_STEPS)
         self.on_zoom = None      # callback(zoom) after Ctrl+scroll
         self.usage = None        # gpu_usage.Usage: GPU memory per local LLM, loaded models, activity
+        self.animate = True      # Settings → Animate active lines: light flows along a running agent's path
+        self.flow_layer = None   # FlowLayer over the map (with_flow_layer)
+        self.working = None      # agent commands working now (agent_activity); None: every running one flows
         self.set_draw_func(self.on_draw)
         self.scroll_adjustment = None
         self.connect("map", lambda *_: self.follow_scrolling())
@@ -312,7 +315,8 @@ class MapView(Gtk.DrawingArea):
         return max(HEADER_H, min(y, height - PAD - column_height))
 
     def viewport_width(self) -> int:
-        parent = self.get_parent()
+        """The width the scrolled view shows (not the map's own, which grows when zoomed in)."""
+        parent = self.get_ancestor(Gtk.Viewport) or self.get_parent()
         return parent.get_width() if parent is not None and parent.get_width() > 0 else self.get_width()
 
     def relayout(self):
@@ -709,6 +713,108 @@ class MapView(Gtk.DrawingArea):
             by_id = {n.id: n for n in self.graph.nodes}
             self.on_selection([by_id[i] for i in self.selected if i in by_id])
 
+    # --- flowing light on running agents' paths ------------------------------------------------
+
+    def set_animate(self, on: bool):
+        self.animate = bool(on)
+        self.queue_draw()           # the map works out the flowing paths again and tells the layer
+
+    def animations_allowed(self) -> bool:
+        """The setting, and the desktop's own "animations" switch (reduced motion)."""
+        if not self.animate:
+            return False
+        settings = Gtk.Settings.get_default()
+        return settings is None or bool(settings.get_property("gtk-enable-animations"))
+
+    def running_agents(self) -> set:
+        """The agents whose lines flow: running ones, and of those only the working ones once known."""
+        running = {n.id for n in self.graph.nodes if n.kind == "agent" and n.status == "running"}
+        if self.working is not None:
+            running &= {f"agent:{command}" for command in self.working}
+        return running
+
+    def set_working(self, commands):
+        working = set(commands)
+        if working != self.working:
+            self.working = working
+            self.queue_draw()          # the flow follows on this drawing
+
+    def flow_paths(self, active_edges, drawn, running_only: bool = True) -> list:
+        """[(agent id, [edges agent → provider → model])] of the agents (the running ones, unless
+        running_only is off) whose active path is drawn bold now."""
+        agents = self.running_agents() if running_only else set(self.active)
+        paths = []
+        for agent in sorted(agents):
+            edges = [self.graph.edges[i] for i in self.active.get(agent, ())
+                     if i in active_edges and i in drawn]
+            first = [e for e in edges if e.source == agent]
+            if not first:
+                continue
+            rest = [e for e in edges if e.source == first[0].target]
+            paths.append((agent, first[:1] + rest[:1]))
+        return paths
+
+    FLOW_PERIOD = 2.6            # seconds for a light to run the whole path
+    FLOW_PULSES = 3              # lights on a path at a time
+    FLOW_FADE = 0.3              # seconds to fade an agent's lights in or out (never on and off at once)
+    FLOW_GRACE = 5.0             # seconds an agent's lights keep running after it stopped working (pauses
+                                 # between tokens, a missed check), so they do not blink
+
+    def draw_flow(self, cr, paths, now: float, levels=None):
+        """Comets running from the agent through the provider to the model: a bright head in a soft
+        glow and a tail that tapers and fades along the line."""
+        tail, steps = 0.3, 22        # tail length (in segments) and the samples it is drawn with
+        accent, fg = self.color("accent"), self.color("fg")
+        light = tuple(a + (f - a) * 0.6 for a, f in zip(accent[:3], fg[:3]))   # brighter than the line under it
+        cr.set_line_cap(cairo.LINE_CAP_ROUND)
+        for agent, edges in paths:
+            level = 1.0 if levels is None else levels.get(agent, 0.0)
+            if level <= 0:
+                continue
+            offset = (sum(map(ord, agent)) % 97) / 97          # agents do not pulse in step
+            count = len(edges)
+            for pulse in range(self.FLOW_PULSES):
+                head = ((now / self.FLOW_PERIOD + offset + pulse / self.FLOW_PULSES) % 1.0) * count
+                # Fade in at the agent and out at the model, so the comets do not pop.
+                ends = max(0.0, min(1.0, head / 0.15, (count - head) / 0.15)) * level
+                if ends <= 0:
+                    continue
+                points = []
+                for step in range(steps + 1):
+                    at = head - tail * step / steps
+                    if at < 0:
+                        break
+                    edge = edges[min(int(at), count - 1)]
+                    points.append(self.curve_point(edge, at - min(int(at), count - 1)))
+                for i in range(len(points) - 1):             # the tail: thick and bright near the head
+                    fade = 1 - i / steps
+                    cr.set_source_rgba(*light, 0.9 * fade * fade * ends)
+                    cr.set_line_width(1.0 + 3.5 * fade)
+                    if math.hypot(points[i][0] - points[i + 1][0], points[i][1] - points[i + 1][1]) > 40:
+                        continue             # the jump through the provider's box: no line across it
+                    cr.move_to(*points[i])
+                    cr.line_to(*points[i + 1])
+                    cr.stroke()
+                x, y = points[0]
+                glow = cairo.RadialGradient(x, y, 0, x, y, 18)
+                glow.add_color_stop_rgba(0, *light, 0.8 * ends)
+                glow.add_color_stop_rgba(0.35, *accent[:3], 0.35 * ends)
+                glow.add_color_stop_rgba(1, *accent[:3], 0.0)
+                cr.set_source(glow)
+                cr.arc(x, y, 18, 0, 2 * math.pi)
+                cr.fill()
+                cr.set_source_rgba(*self.color("fg", ends))
+                cr.arc(x, y, 3.2, 0, 2 * math.pi)
+                cr.fill()
+        cr.set_line_cap(cairo.LINE_CAP_BUTT)
+
+    def with_flow_layer(self) -> Gtk.Widget:
+        """The map with its FlowLayer on top (put this into the page, not the map alone)."""
+        overlay = Gtk.Overlay(child=self)
+        self.flow_layer = FlowLayer(self)
+        overlay.add_overlay(self.flow_layer)
+        return overlay
+
     # --- drawing ------------------------------------------------------------------------------
 
     def color(self, name: str, alpha: float = 1.0):
@@ -763,6 +869,7 @@ class MapView(Gtk.DrawingArea):
         active_edges, active_models = self.active_now(lit_edges)
         order = [i for i in range(len(self.graph.edges)) if i not in active_edges] + sorted(active_edges)
         markers = []                 # failed lines: a "!" on each, drawn over all lines
+        drawn = set()                # edge indexes drawn this time
         for index in order:
             edge = self.graph.edges[index]
             if edge.kind == "default" or edge.source not in self.boxes or edge.target not in self.boxes:
@@ -798,6 +905,7 @@ class MapView(Gtk.DrawingArea):
             cr.curve_to(x1 + bend, y1, x2 - bend, y2, x2, y2)
             cr.stroke()
             cr.set_dash([])
+            drawn.add(index)
             cr.set_line_cap(cairo.LINE_CAP_BUTT)
             if edge.failed and not (only_lit and index not in lit_edges):
                 markers.append(edge)
@@ -811,6 +919,10 @@ class MapView(Gtk.DrawingArea):
                 cr.stroke()
 
         self.draw_markers(cr, markers)
+        allowed = self.animations_allowed() and self.link is None
+        if self.flow_layer is not None:
+            self.flow_layer.update(self.flow_paths(active_edges, drawn, running_only=False) if allowed else [],
+                                   self.running_agents() if allowed else set())
 
         for node in self.graph.nodes:
             if node.id not in self.boxes:
@@ -990,3 +1102,89 @@ class Meter(Gtk.DrawingArea):
             cr.fill()
             x += part
         cr.restore()
+
+
+class FlowLayer(Gtk.DrawingArea):
+    """The lights on running agents' paths, drawn over the map in a layer of their own: only this
+    layer is drawn again each frame (the map's drawing stays as it is), and it takes no clicks.
+
+    Against flicker: drawn on every frame of the display (smooth, no stepping); positions follow
+    one steady clock, so a new drawing of the map never moves or restarts them; an agent's lights
+    fade in and out (FLOW_FADE) instead of switching, and keep running FLOW_GRACE seconds after
+    the agent was last seen running, so a missed process check does not blink them."""
+
+    def __init__(self, view: MapView):
+        super().__init__()
+        self.view = view
+        self.tick = None             # the frame-clock callback while lights flow or fade
+        self.last = 0                # frame time (µs) of the last tick
+        self.paths = {}              # agent id -> its edges, last known (kept while fading out)
+        self.visible = set()         # agents whose path the map draws bold now
+        self.running = set()         # agents running at the map's last drawing
+        self.stopped = {}            # agent id -> monotonic time it was no longer seen running
+        self.levels = {}             # agent id -> 0..1, how bright its lights are now
+        self.set_can_target(False)
+        self.set_draw_func(self.on_draw)
+
+    def update(self, paths, running):
+        """From each drawing of the map: the agents' bold paths and which agents run."""
+        now = GLib.get_monotonic_time() / 1e6
+        for agent in self.running - running:
+            self.stopped[agent] = now
+        for agent in running:
+            self.stopped.pop(agent, None)
+        self.running = set(running)
+        self.visible = {agent for agent, _edges in paths}
+        self.paths.update(paths)
+        self.follow()
+
+    def target(self, agent: str, now: float) -> float:
+        if agent not in self.visible:
+            return 0.0
+        if agent in self.running:
+            return 1.0
+        stopped = self.stopped.get(agent)
+        return 1.0 if stopped is not None and now - stopped < MapView.FLOW_GRACE else 0.0
+
+    def follow(self):
+        """Tick on every frame while anything is lit or should be; stop when all is dark."""
+        now = GLib.get_monotonic_time() / 1e6
+        busy = any(self.target(a, now) > 0 for a in self.paths) or any(v > 0 for v in self.levels.values())
+        if busy and self.tick is None:
+            self.last = 0
+            self.tick = self.add_tick_callback(self.on_tick)
+        elif not busy and self.tick is not None:
+            self.remove_tick_callback(self.tick)
+            self.tick = None
+            self.queue_draw()        # no lights left over
+
+    def on_tick(self, _widget, clock):
+        frame = clock.get_frame_time()
+        step = min(0.1, (frame - self.last) / 1e6) if self.last else 0.0
+        self.last = frame
+        now = GLib.get_monotonic_time() / 1e6
+        for agent in list(self.paths):
+            goal, level = self.target(agent, now), self.levels.get(agent, 0.0)
+            change = step / MapView.FLOW_FADE
+            level = min(goal, level + change) if goal > level else max(goal, level - change)
+            if level <= 0 and goal <= 0:
+                self.levels.pop(agent, None)
+                self.paths.pop(agent, None)
+                self.stopped.pop(agent, None)
+            else:
+                self.levels[agent] = level
+        self.queue_draw()
+        if not self.paths:
+            self.tick = None
+            return GLib.SOURCE_REMOVE
+        return GLib.SOURCE_CONTINUE
+
+    def on_draw(self, _area, cr, _width, _height):
+        view = self.view
+        if not self.levels or view.graph is None:
+            return
+        cr.scale(view.zoom, view.zoom)
+        try:
+            view.draw_flow(cr, list(self.paths.items()), GLib.get_monotonic_time() / 1e6, self.levels)
+        except KeyError:
+            pass                     # a box went away since the map was drawn: the next drawing fixes it

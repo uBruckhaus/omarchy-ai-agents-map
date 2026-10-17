@@ -26,6 +26,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango
 
 import atexit
 
+import agent_activity
 import agent_details
 import claude_sessions
 import herdr_state
@@ -56,6 +57,8 @@ import skills_web
 import runtime_ctl
 import install_ctl
 import models_ctl
+import side_tree
+import model_names
 import context_ctl
 import time
 import struct
@@ -92,6 +95,7 @@ WINDOW_SIZE = (1600, 960)   # first open; afterwards the size it was closed with
 AGENT_SPACING = 8
 SPLIT_WIDTH = 1300        # from this window width the overview shows the map beside the cards
 LIST_PANE_WIDTH = 440
+MODEL_LIST_WIDTH = 460       # the models page's list (search results, installed models)
 SIDEBAR_WIDTH = 360        # the cards beside the map (drag the line between them to change it)
 SIDEBAR_MIN = 280
 MAP_MIN = 600              # what dragging leaves the map at least
@@ -624,6 +628,22 @@ class AgentsMap(Adw.Application):
         heading = Gtk.Label(label=_("Overview").upper(), xalign=0, hexpand=True)
         heading.add_css_class("am-section-title")
         top.append(heading)
+        # Cards or tree, right here (also Settings › Sidebar).
+        style = Gtk.Box(spacing=0, valign=Gtk.Align.CENTER)
+        style.add_css_class("linked")
+        self.sidebar_buttons = {}
+        group = None
+        for key, icon, tip in (("cards", "view-grid-symbolic", _("Cards")), ("tree", "view-list-symbolic", _("Tree"))):
+            button = Gtk.ToggleButton(icon_name=icon, group=group, tooltip_text=tip)
+            group = group or button
+            button.add_css_class("am-small-btn")
+            button.add_css_class("am-style-btn")
+            style.append(button)
+            self.sidebar_buttons[key] = button
+        self.sidebar_buttons["tree" if self.sidebar_tree() else "cards"].set_active(True)
+        for key, button in self.sidebar_buttons.items():
+            button.connect("toggled", lambda b, k=key: b.get_active() and self.set_sidebar_style(k))
+        top.append(style)
         self.card_filter = Gtk.Button()
         self.card_filter.add_css_class("am-small-btn")
         self.card_filter.add_css_class("am-filter-btn")
@@ -697,6 +717,7 @@ class AgentsMap(Adw.Application):
         side.append(bar)
         self.side_map = MapView()
         self.side_map.set_layers(ai_core.map_layers())
+        self.side_map.set_animate(ai_core.load_settings().get("animate_lines", True) is not False)
         self.map_view = self.side_map      # the one map (code below still says map_view in places)
         self.side_map.on_zoom = lambda _z: self.zoom_changed()
         self.update_layer_toggles()
@@ -708,7 +729,7 @@ class AgentsMap(Adw.Application):
         self.side_map.on_failed_edge = self.show_link_hints
         self.side_map.on_context = lambda node_id, rect, v=self.side_map: self.show_context(v, node_id, rect)
         self.side_map.on_header = lambda column, rect: self.show_column_list(self.side_map, column, rect)
-        map_scroller = self.page_scroller(self.side_map)
+        map_scroller = self.page_scroller(self.side_map.with_flow_layer())   # the lights on running agents' paths on top
         map_scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)   # zoomed in: sideways too
         side.append(map_scroller)
         self.side_map.set_zoom(ai_core.load_settings().get("map_zoom", 1.0)
@@ -846,10 +867,17 @@ class AgentsMap(Adw.Application):
                 usage = gpu_usage.snapshot(runtimes)
             except Exception:
                 usage = None
-            GLib.idle_add(done, usage, self.running_now())
+            pids = {}
+            running = self.running_now(pids)
+            try:
+                working = self.working_now(pids, usage, runtimes)
+            except Exception:
+                working = set(running)
+            GLib.idle_add(done, usage, running, working)
 
-        def done(usage, running):
+        def done(usage, running, working):
             self.gpu_reading = False
+            self.side_map.set_working(working)
             if usage is not None and self.window.is_visible():
                 self.show_gpu(usage, runtimes)
             if running != self.running and self.window.is_visible():
@@ -901,11 +929,28 @@ class AgentsMap(Adw.Application):
         if changed:
             self.sync_provider_watch()
 
-    def running_now(self) -> dict:
-        """Agent command -> the model each open instance runs with (/proc only)."""
+    def working_now(self, pids: dict, usage, runtimes) -> set:
+        """The running agents that work right now (agent_activity): the map's lines flow for them."""
+        if not hasattr(self, "activity"):
+            self.activity = agent_activity.Activity()
+        states = {}
+        if any(herdr_state.server_running(sock) for _name, sock in herdr_state.sessions()):
+            for pane in herdr_state.snapshot() or []:
+                states.setdefault(pane.agent, set()).add(pane.state)
+        generating = set()
+        if usage is not None and usage.generating:
+            for rt in runtimes:
+                use = usage.runtimes.get(rt.key)
+                if use is not None and use.running:
+                    generating.update(rt.active_agents)
+        return self.activity.working(pids, states, generating)
+
+    def running_now(self, pids: dict | None = None) -> dict:
+        """Agent command -> the model each open instance runs with (/proc only); pids gets
+        {agent: [process ids]} when given."""
         names = [a.command for a in getattr(self, "agent_list", []) if a.installed]
         try:
-            found = provider_watch.agent_instances(names)
+            found = provider_watch.agent_instances(names, pids=pids)
         except OSError:
             return {}
         return {name: sorted(provider_watch.instance_model(name, args) for args in found[name]) for name in found}
@@ -947,13 +992,26 @@ class AgentsMap(Adw.Application):
         names = self.agent_names()
         self.update_card_filter()
 
+        runtimes = [] if "local" in off else \
+            [rt for rt in sorted(inv.runtimes, key=lambda r: not r.installed) if f"runtime:{rt.key}" not in hidden]
+        servers = [m for m in inv.mcp if f"mcp:{m.name}" not in hidden]
+        skill_sets = [s for s in inv.skill_sets if f"skills:{s.path}" not in hidden]
+        self.tree_list = None
+        if self.sidebar_tree():
+            self.render_tree(self.tree_nodes(installed, runtimes, servers, skill_sets, missing, names))
+            new_mcp, new_skills = self.new_found()
+        else:
+            new_mcp, new_skills = self.overview_cards(installed, runtimes, servers, skill_sets, missing, names)
+        self.overview_hints(new_mcp, new_skills)
+
+    def overview_cards(self, installed, runtimes, servers, skill_sets, missing, names):
+        """The sidebar as cards, in categories (Settings › Sidebar: Cards)."""
+        inv = self.inventory
         if installed:
             group = self.section(_("Agents ({0})").format(len(installed)))
             for agent in installed:
                 group.add(self.agent_card(agent))
 
-        runtimes = [] if "local" in off else \
-            [rt for rt in sorted(inv.runtimes, key=lambda r: not r.installed) if f"runtime:{rt.key}" not in hidden]
         if runtimes:
             group = self.section(_("Local LLMs ({0})").format(len([rt for rt in runtimes if rt.installed])))
         # Installed ones first; the others too, grey, as something to install and connect.
@@ -966,7 +1024,6 @@ class AgentsMap(Adw.Application):
                                             lambda b, rt=rt: self.fill_runtime(b, rt, names),
                                             dim=not rt.installed, status=status))
 
-        servers = [m for m in inv.mcp if f"mcp:{m.name}" not in hidden]
         group = self.section(_("MCP servers ({0})").format(len(servers)))
         if not inv.mcp:
             self.section_hint(_("No agent has an MCP server set up."))
@@ -982,7 +1039,6 @@ class AgentsMap(Adw.Application):
         add.connect("clicked", lambda *_: self.open_add_mcp())
         group.set_header_suffix(add)
 
-        skill_sets = [s for s in inv.skill_sets if f"skills:{s.path}" not in hidden]
         group = self.section(_("Skills ({0})").format(sum(len(s.skills) for s in skill_sets)))
         if not inv.skill_sets:
             self.section_hint(_("No skills found for the installed agents."))
@@ -1002,7 +1058,11 @@ class AgentsMap(Adw.Application):
             group = self.section(_("Not installed ({0})").format(len(missing)))
             for agent in missing:
                 group.add(self.agent_card(agent))
+        return new_mcp, new_skills
 
+    def overview_hints(self, new_mcp, new_skills):
+        """The hint area at the bottom of the sidebar (cards or tree)."""
+        inv = self.inventory
         # The hint area: what was found on this PC, then what else could be set up.
         def listed(names, most):
             return ", ".join(names[:most]) + ("…" if len(names) > most else "")
@@ -1027,6 +1087,327 @@ class AgentsMap(Adw.Application):
                            [(_("Show"), lambda: self.set_scope("all"))],
                            tip=_("Agents and local LLMs that are not installed, MCP servers no agent uses "
                                  "(+ Available in the header)"))
+
+    # --- the sidebar as a tree (Settings › Sidebar: Tree) ---------------------------------------
+
+    TREE_INDENT = 18
+
+    def sidebar_tree(self) -> bool:
+        return ai_core.load_settings().get("sidebar") == "tree"
+
+    def set_sidebar_style(self, style: str):
+        """Cards or tree (the buttons in the sidebar's heading, or Settings › Sidebar)."""
+        if (style == "tree") == self.sidebar_tree():
+            return
+        self.save_setting(sidebar=style)
+        button = getattr(self, "sidebar_buttons", {}).get(style)
+        if button is not None and not button.get_active():
+            button.set_active(True)
+        self.refresh_overview()
+
+    def tree_nodes(self, installed, runtimes, servers, skill_sets, missing, names) -> list:
+        """The categories and their boxes; what a box holds is made when it opens (tree_children)."""
+        T = side_tree.TreeNode
+        sections = []
+        if installed:
+            sections.append(T("section:agents", _("Agents ({0})").format(len(installed)), kind="section", children=[
+                T(f"agent:{a.command}", a.name, self.agent_subtitle(a), kind="agent", icon=a.icon,
+                  icon_font=a.icon_font, status="running" if self.running.get(a.command) else "",
+                  badge=_("Default") if a.default else "", lazy=True) for a in installed]))
+        if runtimes:
+            nodes = []
+            for rt in runtimes:
+                status = graph.runtime_status(rt)
+                state = {"running": _("running"), "stopped": _("installed, not running")}.get(status, _("not installed"))
+                sub = state if not rt.installed else " · ".join(
+                    [state, ngettext("1 model", "{0} models", len(rt.models)).format(len(rt.models))])
+                nodes.append(T(f"runtime:{rt.key}", rt.name, sub, kind="runtime", icon="\U000F061A",
+                               status=status, dim=not rt.installed, lazy=True))
+            sections.append(T("section:runtimes", _("Local LLMs ({0})").format(len([r for r in runtimes if r.installed])),
+                              kind="section", children=nodes))
+        sections.append(T("section:mcp", _("MCP servers ({0})").format(len(servers)), kind="section", children=[
+            T(f"mcp:{s.name}", s.name, ", ".join(names.get(a, a) for a in s.agents) or _("not used by any agent"),
+              kind="mcp", icon="\U000F0337", lazy=True) for s in servers]))
+        sections.append(T("section:skills", _("Skills ({0})").format(sum(len(s.skills) for s in skill_sets)),
+                          kind="section", children=[
+            T(f"skills:{s.path}", s.path, ngettext("1 skill", "{0} skills", len(s.skills)).format(len(s.skills))
+              + " · " + ", ".join(names.get(a, a) for a in s.agents), kind="skills", icon="\U000F0EB3", lazy=True)
+            for s in skill_sets]))
+        if missing:
+            sections.append(T("section:missing", _("Not installed ({0})").format(len(missing)), kind="section",
+                              children=[T(f"agent:{a.command}", a.name, _("Not installed"), kind="agent", icon=a.icon,
+                                          icon_font=a.icon_font, dim=True, lazy=True) for a in missing]))
+        return sections
+
+    def agent_subtitle(self, agent) -> str:
+        subtitle = (agent.version or _("Installed")) if agent.installed else _("Not installed")
+        if agent.installed and self.instance_label(agent):
+            subtitle = " · ".join(filter(None, [agent.version, self.instance_label(agent)]))
+        return subtitle
+
+    def tree_children(self, node) -> list:
+        """What an opened box holds: its facts as label · value rows, its models or skills, its buttons."""
+        T = side_tree.TreeNode
+        inv, names = self.inventory, self.agent_names()
+
+        def info(label, value):
+            return T(f"{node.id}/{label}", label, kind="info", value=value) if value else None
+
+        more = lambda n: ngettext("+ 1 more", "+ {0} more", n).format(n)   # noqa: E731
+        key, _sep, ident = node.id.partition(":")
+        children = []
+        if key == "agent":
+            agent = next((a for a in self.agent_list if a.command == ident), None)
+            if agent is None:
+                return []
+            if agent.installed:
+                details = agent_details.details_for(ident)
+                providers = []
+                for provider in details.providers:
+                    providers.append(provider.name + (f" ({provider.runtime})" if provider.runtime and
+                                                      provider.runtime != provider.name else "")
+                                     + ("" if provider.active else " · " + _("ready to switch to")))
+                sets = inv.agent_skills.get(ident, [])
+                count = sum(len(s.skills) for s in inv.skill_sets if s.path in sets)
+                children = [info(_("Model"), details.model), info(_("Provider"), ", ".join(providers)),
+                            info(_("MCP servers"), ", ".join(inv.agent_mcp.get(ident, []))),
+                            info(_("Skills"), ngettext("1 skill", "{0} skills", count).format(count) if count else ""),
+                            info(_("Last used"), when(details.last_used))]
+                actions = (["start"] if terminal_pane.program(ident) else []) + ["details"]
+            else:
+                children = [info(_("Status"), _("Not installed"))]
+                actions = ["details"]
+        elif key == "runtime":
+            rt = next((r for r in inv.runtimes if r.key == ident), None)
+            if rt is None:
+                return []
+            children = [info(_("Address"), rt.address), info(_("Used by"), ", ".join(names.get(a, a) for a in rt.agents)),
+                        info(_("Models folder"), inventory.tilde(rt.models_dir) if rt.models_dir else "")]
+            children += side_tree.limited([T(f"{node.id}/model/{m}", m, kind="item") for m in rt.models], 12, more)
+            actions = ["details"] + (["models"] if rt.installed and rt.key != "vllm" else [])
+        elif key == "mcp":
+            server = next((s for s in inv.mcp if s.name == ident), None)
+            if server is None:
+                return []
+            kind = {"command": _("runs a program"), "url": _("remote server")}.get(server.kind, "")
+            children = [info(_("Runs"), server.target), info(_("Type"), kind),
+                        info(_("Used by"), ", ".join(names.get(a, a) for a in server.agents))]
+            actions = ["details"]
+        elif key == "skills":
+            skill_set = next((s for s in inv.skill_sets if s.path == ident), None)
+            if skill_set is None:
+                return []
+            children = [info(_("Read by"), ", ".join(names.get(a, a) for a in skill_set.agents))]
+            children += side_tree.limited([T(f"{node.id}/skill/{getattr(s, 'name', s)}", str(getattr(s, "name", s)),
+                                             kind="item") for s in skill_set.skills], 15, more)
+            actions = ["details"]
+        else:
+            return []
+        return [c for c in children if c is not None] + [T(f"{node.id}/actions", "", kind="actions", actions=actions)]
+
+    def render_tree(self, nodes):
+        """The tree in the sidebar: a list of rows with guide lines; arrows and Enter work as in a file tree."""
+        self.tree_roots = nodes
+        self.tree_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
+        self.tree_list.set_margin_end(14)        # room for the scroll bar, which overlays the right edge
+        self.tree_list.add_css_class("am-tree")
+        self.tree_list.connect("row-activated", lambda _l, row: self.on_tree_activate(row))
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", self.on_tree_key)
+        self.tree_list.add_controller(keys)
+        self.agents_box.append(self.tree_list)
+        self.fill_tree()
+
+    def tree_open(self) -> set:
+        """Sections are open unless closed; boxes are open when in self.expanded (as the cards)."""
+        closed = getattr(self, "tree_closed", set())
+        return {n.id for n in self.tree_roots if n.id not in closed} | set(self.expanded)
+
+    def fill_tree(self, focus: str = ""):
+        listbox = self.tree_list
+        while (row := listbox.get_first_child()) is not None:
+            listbox.remove(row)
+        opened = self.tree_open()
+
+        def load(nodes):
+            for node in nodes:
+                if node.lazy and node.id in opened and not node.children:
+                    try:
+                        node.children = self.tree_children(node)
+                    except (OSError, ValueError):
+                        node.children = []
+                load(node.children)
+
+        load(self.tree_roots)
+        self.tree_rows = side_tree.flatten(self.tree_roots, opened)
+        chosen = None
+        for item in self.tree_rows:
+            row = self.tree_row(item, item.node.id in opened)
+            listbox.append(row)
+            if item.node.id == focus or (not focus and item.node.id in self.selection):
+                chosen = row
+        if chosen is not None:
+            listbox.select_row(chosen)
+            if focus:
+                chosen.grab_focus()
+
+    def tree_row(self, item, is_open: bool) -> Gtk.ListBoxRow:
+        node = item.node
+        row = Gtk.ListBoxRow()
+        row.node = node
+        row.item = item
+        line = Gtk.Box(spacing=6)
+        if item.depth:
+            guide = Gtk.DrawingArea()
+            guide.set_content_width(self.TREE_INDENT * item.depth)
+            guide.set_draw_func(lambda _a, cr, w, h, it=item: self.draw_tree_guide(cr, w, h, it))
+            line.append(guide)
+        arrow = Gtk.Image.new_from_icon_name(("pan-down-symbolic" if is_open else "pan-end-symbolic")
+                                             if node.expandable else "")
+        arrow.set_size_request(14, -1)
+        arrow.add_css_class("am-tree-arrow")
+        line.append(arrow)
+        if node.kind == "section":
+            label = Gtk.Label(label=node.title.upper(), xalign=0, hexpand=True)
+            label.add_css_class("am-tree-section")
+            line.append(label)
+            row.add_css_class("am-tree-section-row")
+        elif node.kind == "info":
+            key = Gtk.Label(label=node.title, xalign=0, valign=Gtk.Align.START)
+            key.set_size_request(92, -1)
+            key.add_css_class("am-line-label")
+            line.append(key)
+            value = Gtk.Label(label=node.value, xalign=0, hexpand=True, wrap=True, max_width_chars=1, selectable=True)
+            value.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            value.add_css_class("am-detail-value")
+            line.append(value)
+            row.set_activatable(False)
+        elif node.kind == "actions":
+            for action in node.actions:
+                line.append(self.tree_action(node, action))
+            row.set_activatable(False)
+            row.set_selectable(False)
+        elif node.kind in ("item", "more"):
+            label = Gtk.Label(label=node.title, xalign=0, hexpand=True)
+            label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+            label.set_max_width_chars(1)
+            label.add_css_class("am-agent-detail" if node.kind == "more" else "am-detail-value")
+            line.append(label)
+            row.set_activatable(False)
+        else:
+            dot = Gtk.Label(label="●")
+            dot.add_css_class("am-tree-dot")
+            dot.add_css_class({"running": "am-state-ok", "stopped": "am-state-warn"}.get(node.status, "am-tree-dot-off"))
+            line.append(dot)
+            if node.icon:
+                icon = Gtk.Label(label=node.icon)
+                icon.add_css_class("am-agent-icon")
+                if node.icon_font == "omarchy":
+                    icon.add_css_class("am-agent-icon-omarchy")
+                icon.add_css_class("am-tree-icon")
+                line.append(icon)
+            texts = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True)
+            title = Gtk.Label(label=node.title, xalign=0)
+            title.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+            title.set_max_width_chars(1)
+            title.add_css_class("am-tree-title")
+            texts.append(title)
+            if node.subtitle:
+                sub = Gtk.Label(label=node.subtitle, xalign=0)
+                sub.set_ellipsize(Pango.EllipsizeMode.END)
+                sub.set_max_width_chars(1)
+                sub.add_css_class("am-agent-detail")
+                texts.append(sub)
+            line.append(texts)
+            if node.badge:
+                badge = Gtk.Label(label=node.badge, valign=Gtk.Align.CENTER)
+                badge.add_css_class("am-agent-badge")
+                line.append(badge)
+        if node.dim:
+            row.add_css_class("am-dim")
+        row.set_child(line)
+        return row
+
+    def draw_tree_guide(self, cr, width, height, item):
+        """│ for each ancestor that goes on below, then ├ or └ to this row."""
+        cr.set_source_rgba(*self.side_map.color("muted", 0.55))
+        cr.set_line_width(1)
+        step = self.TREE_INDENT
+        for level, goes_on in enumerate(item.guides):
+            if goes_on:
+                x = level * step + step / 2 + 0.5
+                cr.move_to(x, 0)
+                cr.line_to(x, height)
+        x = len(item.guides) * step + step / 2 + 0.5
+        cr.move_to(x, 0)
+        cr.line_to(x, height if not item.last else height / 2)
+        cr.move_to(x, height / 2 + 0.5)
+        cr.line_to(width, height / 2 + 0.5)
+        cr.stroke()
+
+    def tree_action(self, node, action: str) -> Gtk.Widget:
+        owner = node.id.rsplit("/", 1)[0]
+        key, _sep, ident = owner.partition(":")
+        if action == "start":
+            agent = next(a for a in self.agent_list if a.command == ident)
+            return self.start_button(agent)
+        if action == "models":
+            rt = next(r for r in self.inventory.runtimes if r.key == ident)
+            button = Gtk.Button(label=_("Models…"), halign=Gtk.Align.START)
+            button.add_css_class("flat")
+            button.add_css_class("am-small-btn")
+            button.connect("clicked", lambda *_: self.open_models(rt))
+            return button
+        opener = {"agent": lambda: self.open_agent_status(next(a for a in self.agent_list if a.command == ident)),
+                  "runtime": lambda: self.open_runtime_status(ident),
+                  "mcp": lambda: self.open_mcp_details(ident),
+                  "skills": lambda: self.open_skills_details(ident)}[key]
+        return self.details_button(lambda *_: opener())
+
+    def toggle_tree_node(self, node_id: str):
+        if node_id.startswith("section:"):
+            closed = getattr(self, "tree_closed", set())
+            closed.symmetric_difference_update({node_id})
+            self.tree_closed = closed
+        elif node_id in self.expanded:
+            self.expanded.discard(node_id)
+        else:
+            self.expanded.add(node_id)
+            self.toggle_card_hook(node_id)
+        self.fill_tree(focus=node_id)
+
+    def on_tree_activate(self, row):
+        node = row.node
+        if node.kind in ("agent", "runtime", "mcp", "skills") and self.split and node.id in self.map_node_ids():
+            self.set_selection([node.id])        # the map beside it shows this box's connections
+        if node.expandable:
+            self.toggle_tree_node(node.id)
+
+    def on_tree_key(self, _controller, keyval, _code, _state):
+        row = self.tree_list.get_selected_row()
+        if row is None:
+            return False
+        node, is_open = row.node, row.node.id in self.tree_open()
+        if keyval == Gdk.KEY_Right and node.expandable:
+            if not is_open:
+                self.toggle_tree_node(node.id)
+            else:
+                index = row.get_index() + 1
+                nxt = self.tree_list.get_row_at_index(index)
+                if nxt is not None:
+                    self.tree_list.select_row(nxt)
+                    nxt.grab_focus()
+            return True
+        if keyval == Gdk.KEY_Left:
+            if node.expandable and is_open:
+                self.toggle_tree_node(node.id)
+            elif row.item.parent:
+                self.fill_tree(focus=row.item.parent)
+            return True
+        if keyval == Gdk.KEY_space and node.expandable:
+            self.toggle_tree_node(node.id)
+            return True
+        return False
 
     def agent_names(self) -> dict:
         names = {a.command: a.name for a in self.agent_list}
@@ -1533,6 +1914,22 @@ class AgentsMap(Adw.Application):
 
     # --- an agent started here, in its own terminal ------------------------------------------
 
+    def start_outside(self, agent, path: str, folder: str):
+        """The agent in a terminal window of its own (the desktop's terminal)."""
+        ok = terminal_pane.open_outside(path, folder)
+        if not ok:
+            try:
+                agent_status.remember_issue(agent.command, "terminal")
+            except OSError:
+                pass
+        self.show_notice(_("{0} opened in your terminal").format(agent.name) if ok
+                         else _("No terminal found (xdg-terminal-exec)"))
+
+    def stop_agent(self, command: str):
+        pane = self.sessions.get(command)
+        if pane is not None:
+            pane.stop()
+
     def ask_start_outside(self, agent, path: str, folder: str, anchor):
         """No vte4: ask whether to fix that (its details page shows how) or to start the
         agent in a separate terminal this time."""
@@ -1574,12 +1971,11 @@ class AgentsMap(Adw.Application):
         popover.connect("closed", lambda p: GLib.idle_add(p.unparent))
         popover.popup()
 
-    def start_agent(self, agent, anchor=None):
-        """Its terminal right of the cards (a running one is shown again)."""
+    def start_agent(self, agent, anchor=None, where: str = "here"):
+        """Start an agent: here (its terminal right of the cards; a running one is shown again)
+        or in a terminal window of its own ("terminal")."""
         pane = self.sessions.get(agent.command)
-        if pane is not None:
-            if not pane.running:
-                pane.start()
+        if pane is not None and pane.running:
             self.show_terminal(agent.command)
             return
         path = terminal_pane.program(agent.command)
@@ -1587,6 +1983,13 @@ class AgentsMap(Adw.Application):
             self.show_notice(_("{0} cannot be started from here").format(agent.name))
             return
         folder = self.agent_folder()
+        if where == "terminal":
+            self.start_outside(agent, path, folder)
+            return
+        if pane is not None:
+            pane.start()
+            self.show_terminal(agent.command)
+            return
         if terminal_pane.vte() is None:
             try:
                 agent_status.remember_issue(agent.command, "vte4")
@@ -1630,18 +2033,51 @@ class AgentsMap(Adw.Application):
         return str(Path.home())
 
     def start_button(self, agent) -> Gtk.Widget:
+        """Start (or Show terminal and Stop while it runs here)."""
         pane = self.sessions.get(agent.command)
         shown = pane is not None and pane.running
-        button = Gtk.Button(halign=Gtk.Align.START)
-        content = Gtk.Box(spacing=6)
-        content.append(Gtk.Image.new_from_icon_name("utilities-terminal-symbolic"))
-        content.append(Gtk.Label(label=_("Show terminal") if shown else _("Start")))
-        button.set_child(content)
-        button.add_css_class("flat")
-        button.add_css_class("am-small-btn")
-        button.set_tooltip_text(_("Run {0} in a terminal here, in {1}").format(agent.name, self.agent_folder()))
-        button.connect("clicked", lambda b: self.start_agent(agent, b))
-        return button
+        if shown:
+            both = Gtk.Box(spacing=6)
+            both.append(self.start_button_only(agent, shown))
+            stop = Gtk.Button(halign=Gtk.Align.START)
+            content = Gtk.Box(spacing=6)
+            content.append(Gtk.Image.new_from_icon_name("process-stop-symbolic"))
+            content.append(Gtk.Label(label=_("Stop")))
+            stop.set_child(content)
+            stop.add_css_class("flat")
+            stop.add_css_class("am-small-btn")
+            stop.add_css_class("am-danger")
+            stop.set_tooltip_text(_("End {0} and what it started (its MCP servers)").format(agent.name))
+            stop.connect("clicked", lambda *_: self.stop_agent(agent.command))
+            both.append(stop)
+            return both
+        return self.start_button_only(agent, shown)
+
+    def start_button_only(self, agent, shown: bool) -> Gtk.Widget:
+        """Not running here: Start here and Start in terminal. Running here: Show terminal."""
+        def button(icon, label, tip, where):
+            b = Gtk.Button(halign=Gtk.Align.START)
+            content = Gtk.Box(spacing=6)
+            content.append(Gtk.Image.new_from_icon_name(icon))
+            content.append(Gtk.Label(label=label))
+            b.set_child(content)
+            b.add_css_class("flat")
+            b.add_css_class("am-small-btn")
+            b.set_tooltip_text(tip)
+            b.connect("clicked", lambda w: self.start_agent(agent, w, where))
+            return b
+
+        if shown:
+            return button("utilities-terminal-symbolic", _("Show terminal"),
+                          _("Show the terminal {0} runs in here").format(agent.name), "here")
+        both = Gtk.Box(spacing=6)
+        both.append(button("utilities-terminal-symbolic", _("Start here"),
+                           _("Start {0} in {1}, in a terminal beside the cards; Stop ends it").format(
+                               agent.name, self.agent_folder()), "here"))
+        both.append(button("window-new-symbolic", _("Start in terminal"),
+                           _("Start {0} in {1}, in a terminal window of its own").format(
+                               agent.name, self.agent_folder()), "terminal"))
+        return both
 
     # --- agent and local LLM details (the (i) on their cards) -----------------------------------
 
@@ -4299,7 +4735,15 @@ class AgentsMap(Adw.Application):
 
     # --- models of a local LLM (right-click → Models…) ---------------------------------------------
 
+    MODEL_TABS = (("installed", N_("Installed")), ("web", N_("Get from Hugging Face")), ("local", N_("On this PC")))
+    FIT_TEXT = {"fits": N_("Fits your graphics card"), "partly": N_("Partly in system memory: works, slower"),
+                "too_large": N_("Likely too large")}
+
     def build_models_page(self) -> Gtk.Widget:
+        """A local LLM's models, laid out like LM Studio's model search: a list on the left, the
+        chosen model's page on the right. Tabs: Installed (info, context, Remove to the trash),
+        Get from Hugging Face (search, model page, download options), On this PC (GGUF files
+        other local LLMs or Downloads have)."""
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         header = Gtk.Box(spacing=8)
         back = Gtk.Button()
@@ -4314,38 +4758,103 @@ class AgentsMap(Adw.Application):
         back.set_tooltip_text(_("Back (Esc)"))
         back.connect("clicked", lambda *_: self.close_models())
         header.append(back)
-        self.models_title = Gtk.Label(xalign=0, hexpand=True)
+        self.models_title = Gtk.Label(xalign=0)
         self.models_title.add_css_class("am-section-title")
         header.append(self.models_title)
+        self.models_folder_label = Gtk.Label(xalign=0, hexpand=True)
+        self.models_folder_label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+        self.models_folder_label.add_css_class("am-agent-detail")
+        header.append(self.models_folder_label)
         page.append(header)
         rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         rule.add_css_class("am-settings-rule")
         page.append(rule)
-        self.models_intro = Gtk.Label(xalign=0, wrap=True, max_width_chars=1)
-        self.models_intro.add_css_class("am-detail-value")
-        page.append(self.models_intro)
 
-        body = Gtk.Box(spacing=24, vexpand=True)
-        # Left: what is there.
+        # The tabs (the choice is kept, as on the other Add pages).
+        switch = Gtk.Box(spacing=0, halign=Gtk.Align.START)
+        switch.add_css_class("am-segmented")
+        self.models_tab_buttons = {}
+        group = None
+        for key, label in self.MODEL_TABS:
+            button = Gtk.ToggleButton(label=_(label), group=group)
+            group = group or button
+            button.add_css_class("am-segment")
+            button.connect("toggled", lambda b, k=key: b.get_active() and self.show_models_tab(k, save=True))
+            switch.append(button)
+            self.models_tab_buttons[key] = button
+        page.append(switch)
+        self.where_models = lambda: next((k for k, b in self.models_tab_buttons.items() if b.get_active()), "web")
+        self.models_stack = Gtk.Stack(vexpand=True, transition_type=Gtk.StackTransitionType.CROSSFADE)
+        page.append(self.models_stack)
+
+        # Installed: the list, and the chosen model's page.
+        installed = Gtk.Box(spacing=18)
         left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        left.set_size_request(LIST_PANE_WIDTH, -1)
+        left.set_size_request(MODEL_LIST_WIDTH, -1)
         self.models_have_heading = Gtk.Label(xalign=0)
         self.models_have_heading.add_css_class("am-group-heading")
         left.append(self.models_have_heading)
-        self.models_have = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        have_scroller = Gtk.ScrolledWindow(vexpand=True)
-        have_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        have_scroller.set_child(self.models_have)
-        left.append(have_scroller)
-        body.append(left)
-        # Right: get more.
-        right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, hexpand=True)
-        local_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, vexpand=True)
-        web_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, vexpand=True)
-        right.append(self.where_switch("models", local_box, web_box, self.update_model_buttons))
-        right.append(local_box)
-        right.append(web_box)
+        self.models_installed = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
+        self.models_installed.add_css_class("am-list")
+        self.models_installed.add_css_class("boxed-list")
+        self.models_installed.connect("row-selected", lambda _l, row: row is not None and self.show_installed_model(row))
+        left.append(self.scrolled(self.models_installed))
+        installed.append(Adw.Clamp(maximum_size=MODEL_LIST_WIDTH, child=left, unit=Adw.LengthUnit.PX,
+                               halign=Gtk.Align.START, hexpand=False))
+        self.models_installed_detail = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        installed.append(self.scrolled(self.models_installed_detail, hexpand=True))
+        self.models_stack.add_named(installed, "installed")
+
+        # Get from Hugging Face: search on the left, the model's page on the right.
+        web = Gtk.Box(spacing=18)
+        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        left.set_size_request(MODEL_LIST_WIDTH, -1)
+        self.models_pull_row = Gtk.Box(spacing=8)
+        self.models_pull_entry = Gtk.Entry(hexpand=True, max_length=200,
+                                           placeholder_text=_("Ollama library name, e.g. qwen3:8b or gemma3:12b"))
+        self.models_pull_entry.add_css_class("am-path")
+        self.models_pull_entry.connect("activate", lambda *_: self.start_model_download(pull=True))
+        self.models_pull_row.append(self.models_pull_entry)
+        pull = Gtk.Button(label=_("Download"))
+        pull.add_css_class("am-small-btn")
+        pull.connect("clicked", lambda *_: self.start_model_download(pull=True))
+        self.models_pull_row.append(pull)
+        left.append(self.models_pull_row)
+        left.append(self.source_picker("models"))
+        self.models_search = Gtk.SearchEntry(hexpand=True,
+                                             placeholder_text=_("Search GGUF models, e.g. qwen3 coder"))
+        self.models_search.connect("activate", lambda *_: self.search_models())
+        left.append(self.models_search)
+        self.models_results_heading = Gtk.Label(xalign=0)
+        self.models_results_heading.add_css_class("am-group-heading")
+        left.append(self.models_results_heading)
+        self.models_repos = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
+        self.models_repos.add_css_class("am-list")
+        self.models_repos.add_css_class("boxed-list")
+        self.models_repos.connect("row-selected", lambda _l, row: row is not None and self.show_model_files(row.repo))
+        left.append(self.scrolled(self.models_repos))
+        web.append(Adw.Clamp(maximum_size=MODEL_LIST_WIDTH, child=left, unit=Adw.LengthUnit.PX,
+                               halign=Gtk.Align.START, hexpand=False))
+        self.models_web_detail = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        web.append(self.scrolled(self.models_web_detail, hexpand=True))
+        self.models_stack.add_named(web, "web")
+        # Kept across fills of the model page: the download options and their button.
+        self.models_files = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
+        self.models_files.add_css_class("am-list")
+        self.models_files.add_css_class("boxed-list")
+        self.models_files.connect("row-selected", lambda *_: self.update_model_buttons())
+        self.models_options = Gtk.ScrolledWindow(min_content_height=250, max_content_height=250)
+        self.models_options.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.models_options.set_child(self.models_files)
+        self.models_fit_label = Gtk.Label(xalign=0, wrap=True, max_width_chars=1, hexpand=True)
+        self.models_fit_label.add_css_class("am-agent-detail")
+        self.models_get = Gtk.Button(label=_("Download"), valign=Gtk.Align.CENTER)
+        self.models_get.add_css_class("am-primary")
+        self.models_get.add_css_class("am-download-btn")
+        self.models_get.connect("clicked", lambda *_: self.start_model_download(pull=False))
+
         # On this PC: GGUF files the local LLM does not have yet (other LLMs' folders, Downloads, …).
+        local_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         top = Gtk.Box(spacing=8)
         self.models_local_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1, hexpand=True)
         self.models_local_status.add_css_class("am-agent-detail")
@@ -4359,122 +4868,253 @@ class AgentsMap(Adw.Application):
         self.models_local.add_css_class("am-list")
         self.models_local.add_css_class("boxed-list")
         self.models_local.connect("row-selected", lambda *_: self.update_model_buttons())
-        local_scroller = Gtk.ScrolledWindow(hexpand=True, vexpand=True)
-        local_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        local_scroller.set_child(self.models_local)
-        local_box.append(local_scroller)
-        self.models_pull_row = Gtk.Box(spacing=8)
-        self.models_pull_entry = Gtk.Entry(hexpand=True, max_length=200,
-                                           placeholder_text=_("Ollama library name, e.g. qwen3:8b or gemma3:12b"))
-        self.models_pull_entry.add_css_class("am-path")
-        self.models_pull_entry.connect("activate", lambda *_: self.start_model_download(pull=True))
-        self.models_pull_row.append(self.models_pull_entry)
-        pull = Gtk.Button(label=_("Download"))
-        pull.add_css_class("am-small-btn")
-        pull.connect("clicked", lambda *_: self.start_model_download(pull=True))
-        self.models_pull_row.append(pull)
-        web_box.append(self.models_pull_row)
-        web_box.append(self.source_picker("models"))
-        search_row = Gtk.Box(spacing=8)
-        self.models_search = Gtk.Entry(hexpand=True, max_length=100,
-                                       placeholder_text=_("Search GGUF models, e.g. qwen3 coder"))
-        self.models_search.add_css_class("am-path")
-        self.models_search.connect("activate", lambda *_: self.search_models())
-        search_row.append(self.models_search)
-        find = Gtk.Button(label=_("Search"))
-        find.add_css_class("am-small-btn")
-        find.connect("clicked", lambda *_: self.search_models())
-        search_row.append(find)
-        web_box.append(search_row)
-        lists = Gtk.Box(spacing=12, vexpand=True)
-        self.models_repos = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
-        self.models_repos.add_css_class("am-list")
-        self.models_repos.add_css_class("boxed-list")
-        self.models_repos.connect("row-selected", lambda _l, row: row is not None and self.show_model_files(row.repo))
-        repo_scroller = Gtk.ScrolledWindow(hexpand=True, vexpand=True)
-        repo_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        repo_scroller.set_child(self.models_repos)
-        lists.append(repo_scroller)
-        self.models_files = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
-        self.models_files.add_css_class("am-list")
-        self.models_files.add_css_class("boxed-list")
-        self.models_files.connect("row-selected", lambda *_: self.update_model_buttons())
-        file_scroller = Gtk.ScrolledWindow(hexpand=True, vexpand=True)
-        file_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        file_scroller.set_child(self.models_files)
-        lists.append(file_scroller)
-        web_box.append(lists)
+        local_box.append(self.scrolled(self.models_local, hexpand=True))
+        add_row = Gtk.Box(spacing=8, halign=Gtk.Align.END)
+        self.models_add = Gtk.Button(label=_("Add"))
+        self.models_add.add_css_class("am-small-btn")
+        self.models_add.add_css_class("am-primary")
+        self.models_add.connect("clicked", lambda *_: self.add_local_model())
+        add_row.append(self.models_add)
+        local_box.append(add_row)
+        self.models_stack.add_named(local_box, "local")
+
+        # Below every tab: progress, what happened, Back / Stop download.
         self.models_bar = Gtk.ProgressBar()
         self.models_bar.add_css_class("am-progress")
-        right.append(self.models_bar)
-        self.models_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1)
+        page.append(self.models_bar)
+        bottom = Gtk.Box(spacing=8)
+        self.models_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1, hexpand=True)
         self.models_status.add_css_class("am-agent-detail")
-        right.append(self.models_status)
-        buttons = Gtk.Box(spacing=8, halign=Gtk.Align.END)
+        bottom.append(self.models_status)
         self.models_cancel = Gtk.Button(label=_("Cancel"))
         self.models_cancel.add_css_class("am-small-btn")
         self.models_cancel.connect("clicked", lambda *_: self.cancel_model_download())
-        buttons.append(self.models_cancel)
-        self.models_get = Gtk.Button(label=_("Download"))
-        self.models_get.add_css_class("am-small-btn")
-        self.models_get.add_css_class("am-primary")
-        self.models_get.connect("clicked", lambda *_: self.start_model_download(pull=False))
-        buttons.append(self.models_get)
-        right.append(buttons)
-        body.append(right)
-        page.append(body)
+        bottom.append(self.models_cancel)
+        page.append(bottom)
         self.models_state = None
         return page
 
+    @staticmethod
+    def scrolled(child, hexpand: bool = False) -> Gtk.ScrolledWindow:
+        scroller = Gtk.ScrolledWindow(hexpand=hexpand, vexpand=True)
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_child(child)
+        return scroller
+
+    def show_models_tab(self, key: str, save: bool = False):
+        self.models_stack.set_visible_child_name(key)
+        if save:
+            stored = ai_core.load_settings().get("add_where", {})
+            self.save_setting(add_where={**(stored if isinstance(stored, dict) else {}), "models": key})
+        state = self.models_state
+        if state is not None and key == "web" and not state.get("searched"):
+            self.search_models()                 # trending models to start with
+        self.update_model_buttons()
+
     def open_models(self, rt):
         self.models_state = {"rt": rt, "busy": False, "cancel": False, "from": self.view, "repo": None,
-                             "vram": install_ctl.detect_gpu().vram, "scanned": False, "scanning": False}
+                             "vram": install_ctl.detect_gpu().vram, "ram": models_ctl.system_ram(),
+                             "scanned": False, "scanning": False, "searched": False}
         while (row := self.models_local.get_first_child()) is not None:
             self.models_local.remove(row)
         self.models_local_status.set_label("")
         self.models_title.set_label(_("Models of {0}").format(rt.name).upper())
-        folder = rt.models_dir or "—"
-        self.models_intro.set_label(
-            _("Model folder: {0}. From the web: pick a model, then a size: the one marked fits your graphics "
-              "card with room for context. On this PC: a GGUF file another local LLM or Downloads has.")
-            .format(folder) +
-            (" " + _("Ollama is started for a download if it is not running.") if rt.key == "ollama" else
-             " " + _("Jan adds models in its own app (Hub); here you set their context.") if rt.key == "jan" else ""))
+        self.models_folder_label.set_label(_("Model folder: {0}").format(inventory.tilde(rt.models_dir))
+                                           if rt.models_dir else "")
         self.models_pull_row.set_visible(rt.key == "ollama")
-        self.models_status.set_label("")
+        self.models_status.set_label(
+            _("Ollama is started for a download if it is not running.") if rt.key == "ollama" else
+            _("Jan adds models in its own app (Hub); here you set their context.") if rt.key == "jan" else "")
         self.models_bar.set_fraction(0)
-        self.fill_model_list(rt)
         for listbox in (self.models_repos, self.models_files):
             while (row := listbox.get_first_child()) is not None:
                 listbox.remove(row)
-        self.update_model_buttons()
+        self.clear_box(self.models_web_detail)
+        self.models_web_detail.append(self.models_empty(_("Pick a model on the left to see what it is, how big "
+                                                          "it is and which size fits your computer.")))
+        self.fill_model_list(rt)
+        stored = ai_core.load_settings().get("add_where", {})
+        start = stored.get("models") if isinstance(stored, dict) else None
+        start = start if start in self.models_tab_buttons else ("installed" if rt.models else "web")
         self.show_page("models")
-        self.models_search.grab_focus()
+        if self.models_tab_buttons[start].get_active():
+            self.show_models_tab(start)
+        else:
+            self.models_tab_buttons[start].set_active(True)
+        if start == "web":
+            self.models_search.grab_focus()
 
-    def fill_model_list(self, rt):
-        """The installed models, each with its context now and the best one for the card."""
-        box = self.models_have
+    @staticmethod
+    def clear_box(box):
         while (child := box.get_first_child()) is not None:
             box.remove(child)
+
+    @staticmethod
+    def models_empty(text: str) -> Gtk.Widget:
+        label = Gtk.Label(label=text, wrap=True, max_width_chars=1, xalign=0.5, vexpand=True,
+                          valign=Gtk.Align.CENTER, justify=Gtk.Justification.CENTER)
+        label.add_css_class("am-agent-detail")
+        return label
+
+    def model_row(self, title: str, subtitle: str, chips=(), right: str = "") -> Gtk.ListBoxRow:
+        """A row of the model lists: the name, a line below, capability chips, a value on the right."""
+        row = Gtk.ListBoxRow()
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3, margin_start=10, margin_end=10,
+                      margin_top=7, margin_bottom=7)
+        top = Gtk.Box(spacing=6)
+        name = Gtk.Label(label=title, xalign=0, hexpand=True)
+        name.set_ellipsize(Pango.EllipsizeMode.END)
+        name.set_max_width_chars(1)
+        name.add_css_class("am-model-name")
+        top.append(name)
+        for chip in chips:
+            top.append(self.capability_chip(chip))
+        box.append(top)
+        line = Gtk.Box(spacing=6)
+        sub = Gtk.Label(label=subtitle, xalign=0, hexpand=True)
+        sub.set_ellipsize(Pango.EllipsizeMode.END)
+        sub.set_max_width_chars(1)
+        sub.add_css_class("am-agent-detail")
+        line.append(sub)
+        row.value_label = Gtk.Label(label=right, xalign=1)
+        row.value_label.add_css_class("am-agent-detail")
+        line.append(row.value_label)
+        box.append(line)
+        row.set_child(box)
+        return row
+
+    CAPABILITIES = {"vision": N_("Vision"), "tools": N_("Tools"), "reasoning": N_("Reasoning"), "mtp": "MTP"}
+    CAPABILITY_HINTS = {"vision": N_("Understands images (with its mmproj file)."),
+                        "tools": N_("Can call tools: what coding agents need."),
+                        "reasoning": N_("Thinks before it answers."),
+                        "mtp": N_("Multi-token prediction: faster answers where the local LLM supports it.")}
+
+    def capability_chip(self, key: str) -> Gtk.Widget:
+        chip = Gtk.Label(label=_(self.CAPABILITIES[key]))
+        chip.add_css_class("am-cap")
+        chip.add_css_class(f"am-cap-{key}")
+        chip.set_tooltip_text(_(self.CAPABILITY_HINTS[key]))
+        return chip
+
+    @staticmethod
+    def repo_chips(repo) -> list:
+        return [k for k in ("vision", "tools", "reasoning", "mtp") if getattr(repo, k)]
+
+    @staticmethod
+    def params_text(n: int) -> str:
+        return f"{n / 1e9:.1f} B".replace(".0 B", " B") if n >= 1e9 else f"{n / 1e6:.0f} M" if n else ""
+
+    @staticmethod
+    def age_text(epoch: float) -> str:
+        if not epoch:
+            return ""
+        days = int((time.time() - epoch) // 86400)
+        if days < 1:
+            return _("today")
+        return ngettext("1 day ago", "{0} days ago", days).format(days) if days < 60 else \
+            ngettext("1 month ago", "{0} months ago", days // 30).format(days // 30) if days < 730 else \
+            ngettext("1 year ago", "{0} years ago", days // 365).format(days // 365)
+
+    def option_row(self, entry, fit: str) -> Gtk.ListBoxRow:
+        """One download option on one line: the quantisation, how it fits, its size."""
+        row = Gtk.ListBoxRow()
+        line = Gtk.Box(spacing=10, margin_start=10, margin_end=10, margin_top=5, margin_bottom=5)
+        quant = Gtk.Label(label=entry.quant or entry.name, xalign=0, width_chars=10)
+        quant.set_ellipsize(Pango.EllipsizeMode.END)
+        quant.add_css_class("am-name-part")
+        line.append(quant)
+        how = Gtk.Label(label=_(self.FIT_TEXT[fit]), xalign=0, hexpand=True)
+        how.set_ellipsize(Pango.EllipsizeMode.END)
+        how.set_max_width_chars(1)
+        how.add_css_class("am-agent-detail")
+        line.append(how)
+        if entry.recommended:
+            badge = Gtk.Label(label=_("recommended"))
+            badge.add_css_class("am-agent-badge")
+            line.append(badge)
+        size = Gtk.Label(label=size_text(entry.size), xalign=1)
+        size.add_css_class("am-fact-value")
+        line.append(size)
+        row.set_child(line)
+        row.entry, row.fit = entry, fit
+        row.add_css_class(f"am-fit-{fit}")
+        row.set_tooltip_text(", ".join(entry.paths))
+        return row
+
+    def scroll_option_into_view(self, row):
+        """The preselected size in the middle of its box (the list starts with the smallest)."""
+        adjustment = self.models_options.get_vadjustment()
+        if row.get_parent() is not self.models_files:
+            return False                     # another model was chosen meanwhile
+        point = row.translate_coordinates(self.models_files, 0, 0)     # (x, y), None before layout
+        if point is None or row.get_height() == 0 or adjustment.get_upper() <= adjustment.get_page_size():
+            tries = getattr(row, "scroll_tries", 0)
+            row.scroll_tries = tries + 1
+            return tries < 20                # not laid out yet: again in a moment
+        adjustment.set_value(max(0, point[1] - adjustment.get_page_size() / 2 + row.get_height() / 2))
+        return False
+
+    def detail_heading(self, box, text: str):
+        label = Gtk.Label(label=text, xalign=0)
+        label.add_css_class("am-group-heading")
+        box.append(label)
+
+    def name_meaning(self, box, *names: str):
+        """What the name means: each recognised part with one line about it."""
+        seen, rows = set(), []
+        for name in names:
+            for part, text, values in model_names.parts(name):
+                if text not in seen:
+                    seen.add(text)
+                    rows.append((part, _(text).format(part, *values)))
+        if not rows:
+            return
+        self.detail_heading(box, _("What the name means"))
+        grid = Gtk.Grid(column_spacing=14, row_spacing=6)
+        for i, (part, text) in enumerate(rows):
+            key = Gtk.Label(label=part, xalign=0, valign=Gtk.Align.START)
+            key.add_css_class("am-name-part")
+            grid.attach(key, 0, i, 1, 1)
+            value = Gtk.Label(label=text, xalign=0, wrap=True, max_width_chars=1, hexpand=True)
+            value.add_css_class("am-detail-value")
+            grid.attach(value, 1, i, 1, 1)
+        box.append(grid)
+
+    def facts_grid(self, box, facts):
+        grid = Gtk.Grid(column_spacing=18, row_spacing=4)
+        column = 0
+        for title, value in facts:
+            if not value:
+                continue
+            key = Gtk.Label(label=title.upper(), xalign=0)
+            key.add_css_class("am-fact-key")
+            grid.attach(key, column, 0, 1, 1)
+            val = Gtk.Label(label=value, xalign=0, selectable=True)
+            val.add_css_class("am-fact-value")
+            grid.attach(val, column, 1, 1, 1)
+            column += 1
+        box.append(grid)
+
+    def fill_model_list(self, rt):
+        """Installed: each model with its size and context; its page on the right when chosen."""
+        listbox = self.models_installed
+        while (row := listbox.get_first_child()) is not None:
+            listbox.remove(row)
         self.models_have_heading.set_label(
             ngettext("1 model installed", "{0} models installed", len(rt.models)).format(len(rt.models)).upper())
+        self.clear_box(self.models_installed_detail)
+        if not rt.models:
+            self.models_installed_detail.append(self.models_empty(
+                _("No models yet. Get one from Hugging Face, or add one another local LLM has (On this PC).")))
+            return
         rows = {}
         for name in rt.models:
-            row = Gtk.Box(spacing=6)
-            label = Gtk.Label(label=name, xalign=0, hexpand=True)
-            label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
-            label.set_max_width_chars(1)
-            label.add_css_class("am-detail-value")
-            row.append(label)
-            info = Gtk.Label(xalign=1)
-            info.add_css_class("am-agent-detail")
-            row.append(info)
-            button = Gtk.Button(label=_("Set"))
-            button.add_css_class("am-small-btn")
-            button.set_visible(False)
-            row.append(button)
-            box.append(row)
-            rows[name] = (info, button)
+            quant = models_ctl.QUANT_RE.search(name)
+            row = self.model_row(name, quant.group(1).upper() if quant else "", right="")
+            row.model_name = name
+            row.context = None
+            listbox.append(row)
+            rows[name] = row
         state = self.models_state
         vram = state["vram"] if state else 0
 
@@ -4490,25 +5130,162 @@ class AgentsMap(Adw.Application):
         def done(results):
             if self.models_state is not state:
                 return False
-            for name, (now, fit_info, error) in results.items():
-                info, button = rows[name]
-                if fit_info is None:
-                    info.set_label(_("context: ?"))
-                    info.set_tooltip_text(error or "")
-                    continue
+            for name, result in results.items():
+                row = rows[name]
+                row.context = result
+                now, fit_info, _error = result
+                if fit_info is not None and fit_info.known:
+                    row.value_label.set_label(_("context {0}").format(context_ctl.short_context(now) if now
+                                                                      else _("default")))
+            selected = listbox.get_selected_row()
+            if selected is not None:
+                self.show_installed_model(selected)
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
+        listbox.select_row(listbox.get_row_at_index(0))
+
+    def show_installed_model(self, row):
+        """An installed model's page: what its name means, file and size, context, Remove."""
+        state = self.models_state
+        if state is None:
+            return
+        rt, name = state["rt"], row.model_name
+        box = self.models_installed_detail
+        self.clear_box(box)
+        title = Gtk.Label(label=name, xalign=0, wrap=True, max_width_chars=1, selectable=True)
+        title.add_css_class("am-model-title")
+        box.append(title)
+        facts = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.append(facts)
+        if rt.key in ("llamacpp", "koboldcpp", "lmstudio"):
+            try:
+                files = models_ctl.removal(rt.key, rt.models_dir, name)
+                where = Path(os.path.realpath(files.paths[0]))
+                size = sum(Path(os.path.realpath(p)).stat().st_size for p in files.paths)
+                self.facts_grid(facts, [(_("Size"), size_text(size)),
+                                        (_("Files"), str(len(files.paths)) if len(files.paths) > 1 else "")])
+                path = Gtk.Label(label=inventory.tilde(str(where)) + ("  ← " + _("linked") if files.links_only else ""),
+                                 xalign=0, wrap=True, max_width_chars=1, selectable=True)
+                path.add_css_class("am-agent-detail")
+                facts.append(path)
+            except (OSError, ValueError):
+                pass
+        result = row.context
+        if result is not None:
+            now, fit_info, error = result
+            if fit_info is None:
+                note = Gtk.Label(label=_("context: ?") + (f" ({error})" if error else ""), xalign=0, wrap=True,
+                                 max_width_chars=1)
+                note.add_css_class("am-agent-detail")
+                facts.append(note)
+            else:
                 best = fit_info.best
-                if not fit_info.known:
-                    info.set_label(_("now {0}").format(context_ctl.short_context(now) if now else _("default")))
-                    info.set_tooltip_text(_("Not a chat model, or its file does not say how much memory its context needs."))
-                    continue
-                info.set_label(_("now {0} · best {1}").format(context_ctl.short_context(now) if now else _("default"),
-                                                               context_ctl.short_context(best) if best else _("too big")))
-                info.set_tooltip_text(_("Trained for {0} tokens; each token of context takes {1} of video memory.")
-                                      .format(fit_info.native or "?", size_text(fit_info.per_token)))
-                if best and best != now and rt.key in ("llamacpp", "ollama", "lmstudio", "jan", "koboldcpp"):
-                    button.set_visible(True)
-                    button.set_tooltip_text(_("Set the context of {0} to {1} tokens.").format(name, best))
-                    button.connect("clicked", lambda _b, n=name, c=best: self.set_model_context(rt, n, c))
+                self.facts_grid(facts, [
+                    (_("Context now"), context_ctl.short_context(now) if now else _("default")),
+                    (_("Best for your card"), (context_ctl.short_context(best) if best else _("too big"))
+                     if fit_info.known else ""),
+                    (_("Trained for"), context_ctl.short_context(fit_info.native) if fit_info.native else ""),
+                ])
+                if fit_info.known and best and best != now and rt.key in ("llamacpp", "ollama", "lmstudio",
+                                                                             "jan", "koboldcpp"):
+                    set_row = Gtk.Box(spacing=8)
+                    hint = Gtk.Label(label=_("Each token of context takes {0} of video memory.")
+                                     .format(size_text(fit_info.per_token)), xalign=0, hexpand=True, wrap=True,
+                                     max_width_chars=1)
+                    hint.add_css_class("am-agent-detail")
+                    set_row.append(hint)
+                    button = Gtk.Button(label=_("Set context to {0}").format(context_ctl.short_context(best)))
+                    button.add_css_class("am-small-btn")
+                    button.connect("clicked", lambda *_: self.set_model_context(rt, name, best))
+                    set_row.append(button)
+                    facts.append(set_row)
+        self.name_meaning(box, name)
+        self.removal_box(box, rt, name)
+
+    def removal_box(self, box, rt, name: str):
+        """Remove: asks first, says what goes where (the trash; links only; Ollama's own store)."""
+        self.detail_heading(box, _("Remove"))
+        area = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.append(area)
+        if rt.key not in ("llamacpp", "koboldcpp", "lmstudio", "ollama"):
+            note = Gtk.Label(label=_("Remove it in {0} itself.").format(rt.name), xalign=0)
+            note.add_css_class("am-agent-detail")
+            area.append(note)
+            return
+        others = {r.name: (r.key, r.models_dir) for r in self.inventory.runtimes
+                  if r.installed and r.models_dir and r.key != rt.key}
+
+        def ask(_button):
+            self.clear_box(area)
+            try:
+                plan = None if rt.key == "ollama" else models_ctl.removal(rt.key, rt.models_dir, name, others)
+            except (OSError, ValueError) as problem:
+                note = Gtk.Label(label=_("Cannot remove it here: {0}").format(problem), xalign=0, wrap=True,
+                                 max_width_chars=1)
+                note.add_css_class("am-agent-detail")
+                area.append(note)
+                return
+            if plan is None:
+                text = _("Ollama deletes {0} from its own store (Ollama has no trash).").format(name)
+            elif plan.links_only:
+                text = _("Only the link in the model folder goes to the trash; the file itself stays where it is.")
+            else:
+                text = _("{0} go to the trash ({1} files); you can restore them from there.") \
+                    .format(size_text(plan.size), len(plan.paths))
+            if plan is not None and plan.shared:
+                text += " " + _("{0} reads the same file and loses it too.").format(", ".join(plan.shared))
+            note = Gtk.Label(label=text, xalign=0, wrap=True, max_width_chars=1)
+            note.add_css_class("am-detail-value")
+            area.append(note)
+            buttons = Gtk.Box(spacing=8)
+            go = Gtk.Button(label=_("Delete in Ollama") if plan is None else _("Move to trash"))
+            go.add_css_class("am-small-btn")
+            go.add_css_class("am-danger")
+            go.connect("clicked", lambda *_: self.remove_model(rt, name, plan))
+            buttons.append(go)
+            keep = Gtk.Button(label=_("Keep"))
+            keep.add_css_class("am-small-btn")
+            keep.connect("clicked", lambda *_: (self.clear_box(area), area.append(start_button())))
+            buttons.append(keep)
+            area.append(buttons)
+
+        def start_button():
+            button = Gtk.Button(label=_("Remove {0}…").format(name), halign=Gtk.Align.START)
+            button.add_css_class("am-small-btn")
+            button.connect("clicked", ask)
+            return button
+
+        area.append(start_button())
+
+    def remove_model(self, rt, name: str, plan):
+        state = self.models_state
+        self.models_status.set_label(_("Removing {0}…").format(name))
+
+        def work():
+            try:
+                if plan is None:
+                    models_ctl.ollama_delete(name, rt.address)
+                else:
+                    models_ctl.trash(plan.paths)
+                error = None
+            except (OSError, ValueError, RuntimeError) as problem:
+                error = str(problem)
+            GLib.idle_add(done, error)
+
+        def done(error):
+            if error:
+                self.models_status.set_label(_("Not removed: {0}").format(error))
+                return False
+            self.collect()
+            self.refresh_overview()
+            self.refresh_map()
+            if self.models_state is state and state is not None:
+                fresh = next((r for r in self.inventory.runtimes if r.key == rt.key), rt)
+                state["rt"] = fresh
+                self.fill_model_list(fresh)
+                self.models_status.set_label(_("Removed: {0}").format(name) +
+                                             ("" if plan is None else " " + _("(in the trash)")))
             return False
 
         threading.Thread(target=work, daemon=True).start()
@@ -4615,29 +5392,42 @@ class AgentsMap(Adw.Application):
         row.set_child(line)
         return row
 
+    def model_job(self, state) -> "jobs.Job | None":
+        """The download running for the models page's local LLM (started here or earlier)."""
+        if state is None:
+            return None
+        found = [j for j in self.jobs.active(f"runtime:{state['rt'].key}") if j.kind in ("model", "pull")]
+        return found[-1] if found else None
+
     def search_models(self):
+        """Search (or, with nothing typed, the trending GGUF models) on the chosen site."""
         state = self.models_state
-        query = self.models_search.get_text().strip()
-        if state is None or not query:
+        if state is None:
             return
+        query = self.models_search.get_text().strip()
+        state["searched"] = True
+        state["query"] = query
         self.models_status.set_label(_("Searching…"))
         state["base"] = base = web_sources.chosen("models")
 
         def work():
             try:
-                result, error = models_ctl.search(query, base=base), None
+                result, error = models_ctl.search(query, limit=25, base=base), None
             except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as problem:
                 result, error = [], str(problem)
             GLib.idle_add(done, result, error)
 
         def done(repos, error):
-            if self.models_state is not state:
+            if self.models_state is not state or state.get("query") != query:
                 return False
-            for listbox in (self.models_repos, self.models_files):
-                while (row := listbox.get_first_child()) is not None:
-                    listbox.remove(row)
+            while (row := self.models_repos.get_first_child()) is not None:
+                self.models_repos.remove(row)
+            self.models_results_heading.set_label((_("Results") if query else _("Trending now")).upper())
             for repo in repos:
-                row = self.list_row(repo.id, _("{0} downloads").format(short_number(repo.downloads)))
+                line = " · ".join(x for x in (repo.author, self.params_text(repo.params),
+                                              "↓ " + short_number(repo.downloads), "♥ " + short_number(repo.likes))
+                                  if x)
+                row = self.model_row(repo.name, line, self.repo_chips(repo), self.age_text(repo.updated))
                 row.repo = repo.id
                 self.models_repos.append(row)
             self.models_status.set_label(error or ("" if repos else _("Nothing found.")))
@@ -4647,58 +5437,136 @@ class AgentsMap(Adw.Application):
         threading.Thread(target=work, daemon=True).start()
 
     def show_model_files(self, repo: str):
+        """The model's page: numbers, facts, capabilities, what the name means, the download
+        options with how each fits, and the model card's text."""
         state = self.models_state
         state["repo"] = repo
-        self.models_status.set_label(_("Reading the files of {0}…").format(repo))
+        box = self.models_web_detail
+        self.clear_box(box)
+        title = Gtk.Label(label=repo, xalign=0, wrap=True, max_width_chars=1, selectable=True)
+        title.add_css_class("am-model-title")
+        box.append(title)
+        loading = Gtk.Label(label=_("Reading {0}…").format(repo), xalign=0)
+        loading.add_css_class("am-agent-detail")
+        box.append(loading)
+        while (row := self.models_files.get_first_child()) is not None:
+            self.models_files.remove(row)
+        base = state.get("base") or models_ctl.HF
 
         def work():
+            info = entries = None
+            errors = []
             try:
-                result, error = models_ctl.files(repo, state["vram"], base=state.get("base") or models_ctl.HF), None
+                info = models_ctl.details(repo, base=base)
+            except (OSError, ValueError, RuntimeError) as problem:
+                errors.append(str(problem))
+            try:
+                entries = models_ctl.files(repo, state["vram"], base=base)
             except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as problem:
-                result, error = [], str(problem)
-            GLib.idle_add(done, result, error)
+                errors.append(str(problem))
+            card = models_ctl.readme(repo, base=base) if info is not None else ""
+            GLib.idle_add(done, info, entries or [], card, "; ".join(errors))
 
-        def done(entries, error):
+        def done(info, entries, card, error):
             if self.models_state is not state or state["repo"] != repo:
                 return False
-            listbox = self.models_files
-            while (row := listbox.get_first_child()) is not None:
-                listbox.remove(row)
+            box.remove(loading)
+            if info is not None:
+                stats = Gtk.Box(spacing=14)
+                for text in ("↓ " + short_number(info.downloads), "♥ " + short_number(info.likes),
+                             _("updated {0}").format(self.age_text(info.updated)) if info.updated else "",
+                             info.license and _("license {0}").format(info.license)):
+                    if text:
+                        label = Gtk.Label(label=text)
+                        label.add_css_class("am-agent-detail")
+                        stats.append(label)
+                link = Gtk.LinkButton(uri=f"{base}/{repo}", label=_("Open on the web"), hexpand=True,
+                                      halign=Gtk.Align.END)
+                stats.append(link)
+                box.append(stats)
+                if info.gated:
+                    note = Gtk.Label(label=_("Gated: accept its terms on Hugging Face first, or the download "
+                                             "is refused."), xalign=0, wrap=True, max_width_chars=1)
+                    note.add_css_class("am-warning-text")
+                    box.append(note)
+                card_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+                card_box.add_css_class("am-model-card")
+                active = model_names.SIZE_MOE.search(repo) or re.search(r"[-_]A(\d+(?:\.\d+)?)B(?![A-Za-z])", repo)
+                self.facts_grid(card_box, [
+                    (_("Parameters"), self.params_text(info.params)),
+                    (_("Active"), f"{active.groups()[-1]} B" if active else ""),
+                    (_("Architecture"), info.architecture),
+                    (_("Context"), context_ctl.short_context(info.context) if info.context else ""),
+                    (_("Format"), "GGUF"),
+                ])
+                chips = Gtk.Box(spacing=6)
+                for key in self.repo_chips(info):
+                    chips.append(self.capability_chip(key))
+                if chips.get_first_child() is not None:
+                    card_box.append(chips)
+                if info.base_model:
+                    based = Gtk.Label(label=_("Based on {0}").format(info.base_model), xalign=0, selectable=True)
+                    based.add_css_class("am-agent-detail")
+                    card_box.append(based)
+                box.append(card_box)
+            # Download options: every size, how it fits, the best one chosen.
+            self.detail_heading(box, _("Download options"))
             pick = None
             for entry in entries:
-                mark = _("recommended") if entry.recommended else ""
-                detail = size_text(entry.size) + ("" if entry.fits else "  · " + _("too big for the card"))
-                row = self.list_row(entry.quant or entry.name, detail, mark)
-                row.entry = entry
-                row.set_tooltip_text(", ".join(entry.paths))
-                listbox.append(row)
-                if entry.recommended:
-                    pick = row
-            if pick is not None:
-                listbox.select_row(pick)
-            self.models_status.set_label(error or ("" if entries else _("No GGUF files in {0}.").format(repo)))
+                fit = models_ctl.fit(entry.size, state["vram"], state["ram"])
+                row = self.option_row(entry, fit)
+                self.models_files.append(row)
+                if entry.recommended or (pick is None and fit != "too_large"):
+                    pick = row if entry.recommended or pick is None else pick
+            if entries:
+                if self.models_options.get_parent() is not None:
+                    self.models_options.get_parent().remove(self.models_options)
+                box.append(self.models_options)
+                action = Gtk.Box(spacing=10)
+                for widget in (self.models_fit_label, self.models_get):
+                    if widget.get_parent() is not None:
+                        widget.get_parent().remove(widget)
+                    action.append(widget)
+                box.append(action)
+                chosen = pick or self.models_files.get_row_at_index(0)
+                self.models_files.select_row(chosen)
+                GLib.timeout_add(120, self.scroll_option_into_view, chosen)
+            else:
+                none = Gtk.Label(label=_("No GGUF files in {0}.").format(repo), xalign=0)
+                none.add_css_class("am-agent-detail")
+                box.append(none)
+            self.name_meaning(box, repo)          # the chosen size is explained next to Download
+            if card:
+                self.detail_heading(box, _("About the model (from its page)"))
+                text = Gtk.Label(label=card, xalign=0, wrap=True, max_width_chars=1, selectable=True,
+                                 wrap_mode=Pango.WrapMode.WORD_CHAR)
+                text.add_css_class("am-readme")
+                box.append(text)
+            self.models_status.set_label(error)
             self.update_model_buttons()
             return False
 
         threading.Thread(target=work, daemon=True).start()
 
-    def model_job(self, state) -> "jobs.Job | None":
-        """The download running for the models page's local LLM (started here or earlier)."""
-        if state is None:
-            return None
-        found = [j for j in self.jobs.active(f"runtime:{state['rt'].key}") if j.kind in ("model", "pull")]
-        return found[-1] if found else None
-
     def update_model_buttons(self):
         state = self.models_state
         job = self.model_job(state)
         busy = bool(state and (state["busy"] or job is not None))
-        local = getattr(self, "where_models", lambda: "web")() == "local"
-        row = (self.models_local if local else self.models_files).get_selected_row()
-        self.models_get.set_label(_("Add") if local else _("Download"))
-        self.models_get.set_sensitive(not busy and row is not None and state is not None
-                                      and state["rt"].key in ("ollama", "llamacpp", "lmstudio", "koboldcpp"))
-        if local and state is not None and self.models_local.get_first_child() is None \
+        rt_ok = state is not None and state["rt"].key in ("ollama", "llamacpp", "lmstudio", "koboldcpp")
+        file_row = self.models_files.get_selected_row()
+        if file_row is not None and getattr(file_row, "entry", None) is not None:
+            entry = file_row.entry
+            self.models_get.set_label(_("Download {0}").format(size_text(entry.size)))
+            quant = next((_(t).format(p, *v) for p, t, v in model_names.parts(entry.name)
+                          if t in [q for _p, q in model_names.QUANTS]), "")
+            self.models_fit_label.set_label(" ".join(x for x in (_(self.FIT_TEXT[file_row.fit]) + ".", quant) if x))
+        else:
+            self.models_get.set_label(_("Download"))
+            self.models_fit_label.set_label("")
+        self.models_get.set_sensitive(not busy and file_row is not None and rt_ok)
+        self.models_add.set_sensitive(not busy and self.models_local.get_selected_row() is not None and rt_ok)
+        where = self.where_models()
+        if where == "local" and state is not None and self.models_local.get_first_child() is None \
                 and not state.get("scanned") and not state.get("scanning"):
             GLib.idle_add(lambda: self.scan_local_models() and False)
         self.models_cancel.set_label(_("Stop download") if busy else _("Back"))
@@ -4706,9 +5574,6 @@ class AgentsMap(Adw.Application):
     def start_model_download(self, pull: bool):
         state = self.models_state
         if state is None or state["busy"] or self.model_job(state) is not None:
-            return
-        if not pull and getattr(self, "where_models", lambda: "web")() == "local":
-            self.add_local_model()
             return
         rt = state["rt"]
         entry = None
@@ -6242,6 +7107,11 @@ class AgentsMap(Adw.Application):
         self.combo_row(group, _("Corners"), self.corners_tip(), [like, _("Rounded"), _("Square")],
                        corners.CHOICES.index(ai_core.saved_corners()),
                        lambda i: (self.save_setting(corners=corners.CHOICES[i]), self.apply_theme_css()))
+        self.combo_row(group, _("Sidebar"),
+                       _("Cards: a box per agent, local LLM, MCP server and skill folder. Tree: the same as a compact "
+                         "tree; an opened entry shows its facts and its buttons (arrow keys open and close)."),
+                       [_("Cards"), _("Tree")], 1 if self.sidebar_tree() else 0,
+                       lambda i: self.set_sidebar_style("tree" if i == 1 else "cards"))
         if desktop.NAME == "omarchy":
             look = self.combo_row(group, _("Look"),
                            _("The colours, light or dark: from the Omarchy theme, or GNOME's Adwaita (light or dark "
@@ -6263,6 +7133,11 @@ class AgentsMap(Adw.Application):
                                                   2).format("N")),
                         settings.get("show_more_hint", True),
                         lambda on: (self.save_setting(show_more_hint=on), self.refresh_overview()))
+        self.switch_row(group, _("Animate active lines"),
+                        _("Light runs along a running agent's line to its provider and model on the map. Off: "
+                          "the lines stay still. Also off when the system turns animations off."),
+                        settings.get("animate_lines", True) is not False,
+                        lambda on: (self.save_setting(animate_lines=on), self.side_map.set_animate(on)))
         self.switch_row(group, _("Start local LLMs with their agents"),
                         _("When an agent connected to a local LLM starts, its LLM starts too; when the last such "
                           "agent closes, the LLM stops and its GPU memory is free again. Works with this window "
@@ -6686,8 +7561,61 @@ class AgentsMap(Adw.Application):
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
         body.add_css_class("am-settings")
         body.append(self.help_setup_card())
+        monitor = self.help_llm_monitor_card()
+        if monitor is not None:
+            body.append(monitor)
         page.append(self.page_scroller(body))
         return page
+
+    LLM_MONITOR_ID = "ubruckhaus.llm-usage"
+    LLM_MONITOR_LISTING = "https://omarchyplugins.com/plugin.html?id=ubruckhaus.llm-usage"
+    LLM_MONITOR_ADD = "omarchy plugin add https://github.com/uBruckhaus/omarchy-llm-usage.git --enable"
+
+    def help_llm_monitor_card(self) -> Gtk.Widget | None:
+        """On Omarchy: LLM Monitor, the bar plugin that shows what a local LLM is doing (the same
+        author's): its picture, the marketplace page and the command that installs it."""
+        if desktop.NAME != "omarchy":
+            return None
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        card.add_css_class("am-help-card")
+        top = Gtk.Box(spacing=10)
+        heading = Gtk.Label(label=_("Also for your bar: LLM Monitor").upper(), xalign=0, hexpand=True)
+        heading.add_css_class("am-setting-heading")
+        top.append(heading)
+        installed = (Path.home() / ".config/omarchy/plugins" / self.LLM_MONITOR_ID).is_dir()
+        if installed:
+            mark = Gtk.Label(label=_("Installed"))
+            mark.add_css_class("am-agent-badge")
+            top.append(mark)
+        card.append(top)
+        intro = Gtk.Label(label=_("A plugin of its own for Omarchy's bar: it shows when llama.cpp, Ollama, LM Studio or "
+                                  "vLLM holds a model on the graphics card, how full its context is, GPU memory, load "
+                                  "and speed, and frees GPU memory with one click."),
+                          xalign=0, wrap=True, max_width_chars=1)
+        intro.add_css_class("am-agent-detail")
+        card.append(intro)
+        here = Path(__file__).resolve().parent
+        image = next((p for p in (here / "assets/llm-monitor-preview.png", here / "data/llm-monitor-preview.png")
+                      if p.is_file()), None)
+        if image is not None:
+            picture = Gtk.Picture.new_for_filename(str(image))
+            picture.set_content_fit(Gtk.ContentFit.CONTAIN)
+            picture.set_can_shrink(True)
+            picture.set_size_request(-1, 300)
+            picture.set_alternative_text(_("LLM Monitor in the bar and its panel"))
+            picture.add_css_class("am-help-picture")
+            card.append(picture)
+        listbox = self.boxed_list()
+        listbox.append(self.command_row(self.LLM_MONITOR_ADD))
+        card.append(listbox)
+        hint = Gtk.Label(label=_("Run it in a terminal, or install it from Omarchy's plugin marketplace."), xalign=0,
+                         wrap=True, max_width_chars=1)
+        hint.add_css_class("am-agent-detail")
+        card.append(hint)
+        link = Gtk.LinkButton(uri=self.LLM_MONITOR_LISTING, label=_("Open LLM Monitor in the marketplace"),
+                              halign=Gtk.Align.START)
+        card.append(link)
+        return card
 
     def help_setup_card(self) -> Gtk.Widget:
         """Setting up by drawing: an animation with dummy boxes, played on Start."""
@@ -7017,6 +7945,37 @@ class AgentsMap(Adw.Application):
         .am-card button.am-danger {{ color: {red_hex}; border-color: alpha({red_hex}, 0.6); }}
         popover button.am-danger {{ color: {red_hex}; border-color: alpha({red_hex}, 0.6); }}
         .am-hint-error {{ color: {red_hex}; font-weight: bold; }}
+        .am-model-name {{ font-weight: 600; }}
+        .am-help-picture {{ border-radius: 8px; }}
+        list.am-tree {{ background: transparent; }}
+        list.am-tree row {{ padding: 2px 6px 2px 2px; min-height: 0; border-radius: 6px; }}
+        list.am-tree row:selected {{ background: alpha({accent_hex}, 0.22); }}
+        list.am-tree row.am-tree-section-row {{ padding-top: 10px; }}
+        .am-tree-section {{ font-size: 11px; font-weight: 800; letter-spacing: 1px; color: {accent_hex}; }}
+        .am-tree-title {{ font-weight: 600; font-size: 13px; }}
+        .am-tree-icon {{ font-size: 15px; min-width: 20px; }}
+        button.am-style-btn {{ padding: 1px 6px; min-height: 0; }}
+        .am-tree-arrow {{ color: {dim_hex}; }}
+        .am-tree-dot {{ font-size: 9px; }}
+        .am-tree-dot-off {{ color: transparent; }}
+        list.am-tree row.am-dim {{ opacity: 0.6; }}
+        button.am-download-btn {{ padding: 6px 18px; font-weight: 700; }}
+        .am-model-title {{ font-size: 17px; font-weight: 700; }}
+        .am-model-card {{ background: alpha({fg_hex}, 0.05); border-radius: 8px; padding: 12px 14px; }}
+        .am-fact-key {{ font-size: 9px; font-weight: 700; letter-spacing: 1px; color: {dim_hex}; }}
+        .am-fact-value {{ font-family: monospace; font-weight: 600; }}
+        .am-cap {{ font-size: 10px; font-weight: 600; border-radius: 999px; padding: 1px 8px;
+                   border: 1px solid alpha({fg_hex}, 0.25); }}
+        .am-cap-vision {{ color: {yellow_hex}; border-color: alpha({yellow_hex}, 0.5); }}
+        .am-cap-tools {{ color: {accent_hex}; border-color: alpha({accent_hex}, 0.5); }}
+        .am-cap-reasoning {{ color: {green_hex}; border-color: alpha({green_hex}, 0.5); }}
+        .am-cap-mtp {{ color: {orange_hex}; border-color: alpha({orange_hex}, 0.5); }}
+        .am-name-part {{ font-family: monospace; font-weight: 700; color: {accent_hex}; }}
+        .am-readme {{ font-size: 12px; color: alpha({fg_hex}, 0.85); }}
+        .am-warning-text {{ color: {yellow_hex}; }}
+        row.am-fit-fits .am-agent-detail {{ color: {green_hex}; }}
+        row.am-fit-partly .am-agent-detail {{ color: {yellow_hex}; }}
+        row.am-fit-too_large .am-agent-detail {{ color: {red_hex}; }}
         .am-hint-warning {{ color: {yellow_hex}; font-weight: bold; }}
         .am-hint-ok {{ color: {green_hex}; font-weight: bold; }}
         .am-undo {{ background: {bg_hex}; border: 1px solid {accent_hex}; border-radius: {radius}px;
@@ -7213,7 +8172,7 @@ class AgentsMap(Adw.Application):
         if not self.window.is_visible():
             self.open()
         elif self.window.is_active():
-            self.close()
+            self.hide_window()          # the bar icon only hides: agents running here go on
         else:
             self.window.present()
             desktop.focus_window(desktop.app_id())
@@ -7278,6 +8237,39 @@ class AgentsMap(Adw.Application):
             GLib.idle_add(self.open_mcp_details, page[8:])
 
     def close(self):
+        """Closing the window: while agents run here, ask first (stop them, or keep them running
+        in the background); then hide."""
+        running = [pane for pane in self.sessions.values() if pane.running]
+        if running and not getattr(self, "close_asked", False):
+            self.ask_close(running)
+            return
+        self.close_asked = False
+        self.hide_window()
+
+    def ask_close(self, running):
+        names = ", ".join(pane.agent.name for pane in running)
+        dialog = Adw.AlertDialog(heading=_("{0} is still running here").format(names),
+                                 body=_("Stop it and close? Its local LLM is then stopped too and frees the graphics "
+                                        "card's memory (when no other agent uses it). Or keep it running with the "
+                                        "window closed."))
+        dialog.add_response("cancel", _("Cancel"))
+        dialog.add_response("keep", _("Keep running"))
+        dialog.add_response("stop", _("Stop and close"))
+        dialog.set_response_appearance("stop", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("stop")
+        dialog.set_close_response("cancel")
+
+        def answered(_dialog, response):
+            if response == "stop":
+                for pane in running:
+                    pane.stop()
+            if response in ("stop", "keep"):
+                self.close_asked = True
+                self.close()
+        dialog.connect("response", answered)
+        dialog.present(self.window)
+
+    def hide_window(self):
         """Hide the window (agents running in it keep running) and remember its size."""
         width, height = self.window.get_width(), self.window.get_height()
         if width >= 400 and height >= 400 and [width, height] != ai_core.load_settings().get("window_size"):
@@ -7303,6 +8295,8 @@ def main():
     i18n.set_name("AI Agents Map", desktop.app_name())     # "Asterism" outside Omarchy
     app = AgentsMap()
     atexit.register(cleanup_pid)
+    # Ending AI Agents Map ends the agents running in it too (and so frees their local LLMs).
+    atexit.register(lambda: [pane.stop_now() for pane in getattr(app, "sessions", {}).values()])
     return app.run()
 
 
