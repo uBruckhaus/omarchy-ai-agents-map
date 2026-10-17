@@ -287,10 +287,12 @@ ticked agents at once: one preview, one Undo). No agent is ticked unless you sel
 - **MCP registry**: a search of the official MCP registry (`registry.modelcontextprotocol.io`; its
   search often takes 10 seconds or more). Each result names its publisher as the registry checked it
   (a GitHub account for `io.github.<user>/…`, a domain for `com.example/…`). npm packages run with
-  `npx`, PyPI packages with `uvx`, images with `docker` (with the image's own `docker run`
-  arguments), remote servers by their https address; the variables a server needs (API keys,
-  folders, also inside a value such as `Bearer {api_key}`) become fields, and optional ones left
-  empty are left out.
+  `npx`, PyPI packages with `uvx`, images with `docker` (of the image's own `docker run`
+  arguments only `-e NAME=value`, passed as `-e NAME` with the value in docker's environment),
+  remote servers by their https address; the variables a server needs (API keys, folders, also
+  inside a value such as `Bearer {api_key}`) become fields, and optional ones left empty are left
+  out. A secret field is never put on a command line, where other users of the PC could read it:
+  a server that would need that has to be set up by hand.
 - **By hand**: a command line, or an address with headers.
 
 **+ Skills** opens the same kind of page: skill folders that apps brought along and no agent reads

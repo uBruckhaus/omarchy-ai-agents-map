@@ -3808,6 +3808,10 @@ class AgentsMap(Adw.Application):
             option = (self.add_from or {}).get("registry")
             if option is not None:
                 entry["headers"] = {**option.entry["headers"], **pairs}
+        secrets = [name for name, (_entry, need) in self.add_need_entries.items() if need.secret and values.get(name)]
+        if leaked := mcp_registry.secret_in_args(entry, secrets):
+            raise ValueError(_("{0} would be on the command line, where other users of this PC can read it.")
+                             .format(", ".join(leaked)))
         entry = mcp_registry.drop_unfilled(mcp_registry.fill(entry, values), optional)
         # Optional fields left empty: their {placeholders} go.
         entry["env"] = {k: v for k, v in entry["env"].items() if not re.fullmatch(r"\{[^}]+\}", v)}

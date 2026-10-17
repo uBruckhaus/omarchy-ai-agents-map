@@ -168,10 +168,19 @@ def option_from_package(package: dict) -> Option | None:
         # docker's own arguments from runtimeArguments, before the image: only environment
         # variables (-e NAME[=value]). Anything else (-v, -p, --privileged, --network, …) would let a
         # registry entry reach into this PC, so it is left out.
-        runtime, runtime_needs = _arguments([a for a in package.get("runtimeArguments") or []
-                                             if _env_flag(a)])
-        arg_needs += runtime_needs
-        base = ["run", "-i", "--rm"] + [x for n in env for x in ("-e", n)] + runtime + [image]
+        # -e NAME=value goes in as -e NAME with the value in the environment of docker: a value on the
+        # command line (a token, say) would be readable by every user of this PC in /proc/<pid>/cmdline.
+        passed = []                     # -e NAME alone: docker passes that variable on
+        for item in package.get("runtimeArguments") or []:
+            if _env_flag(item):
+                name, sep, value = str(item.get("value") or item.get("default")).partition("=")
+                if not sep:
+                    passed.append(name)
+                    continue
+                env.setdefault(name, value)
+                arg_needs += _inner_needs(item, value)
+        names = list(env) + [n for n in dict.fromkeys(passed) if n not in env]
+        base = ["run", "-i", "--rm"] + [x for n in names for x in ("-e", n)] + [image]
     else:
         return None
     entry = {"transport": "stdio", "command": command, "args": base + args, "env": env, "url": "", "headers": {}}
@@ -246,17 +255,25 @@ def drop_unfilled(entry: dict, optional) -> dict:
     def asks(text: str) -> bool:
         return any(m in optional for m in re.findall(r"\{([A-Za-z_][A-Za-z0-9_-]*|arg:\d+)\}", text))
 
+    dropped = {k for k, v in entry["env"].items() if asks(v)}
     args = []
     for arg in entry["args"]:
-        if asks(arg):
+        if asks(arg) or (entry["command"] == "docker" and arg in dropped and args[-1:] == ["-e"]):
             if args and args[-1].startswith("-") and "=" not in args[-1]:
                 args.pop()
             continue
         args.append(arg)
-    return {**entry, "args": args, "env": {k: v for k, v in entry["env"].items() if not asks(v)},
+    return {**entry, "args": args, "env": {k: v for k, v in entry["env"].items() if k not in dropped},
             "headers": {k: v for k, v in entry["headers"].items() if not asks(v)}}
 
 
 def unfilled(entry: dict) -> list[str]:
     text = json.dumps(entry)
     return re.findall(r"\{([A-Za-z_][A-Za-z0-9_-]*|arg:\d+)\}", text)
+
+
+def secret_in_args(entry: dict, secrets) -> list[str]:
+    """The secret fields an entry would put on the command line, where every user of this PC can read
+    them (/proc/<pid>/cmdline). They belong in the environment or a header."""
+    found = {m for arg in entry["args"] for m in re.findall(r"\{([A-Za-z_][A-Za-z0-9_-]*|arg:\d+)\}", arg)}
+    return [name for name in secrets if name in found]

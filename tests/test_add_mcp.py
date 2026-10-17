@@ -93,10 +93,37 @@ class CatalogTest(unittest.TestCase):
                                         {"type": "named", "name": "--network", "value": "host"},
                                         {"type": "named", "name": "-e", "value": "X=1 --privileged\n"}]}
         option = mcp_registry.option_from_package(package)
-        self.assertEqual(option.entry["args"], ["run", "-i", "--rm", "-e", "TOKEN={token}", "ghcr.io/acme/srv:2.0"])
-        self.assertEqual([(n.name, n.required) for n in option.needs], [("token", False)])
-        self.assertEqual(mcp_registry.drop_unfilled(option.entry, ["token"])["args"],
-                         ["run", "-i", "--rm", "ghcr.io/acme/srv:2.0"])
+        # The value goes into docker's environment, not its command line (/proc/<pid>/cmdline).
+        self.assertEqual(option.entry["args"], ["run", "-i", "--rm", "-e", "TOKEN", "ghcr.io/acme/srv:2.0"])
+        self.assertEqual(option.entry["env"], {"TOKEN": "{token}"})
+        self.assertEqual([(n.name, n.required, n.secret) for n in option.needs], [("token", False, True)])
+        filled = mcp_registry.fill(option.entry, {"token": "s3cret"})
+        self.assertNotIn("s3cret", " ".join(filled["args"]))
+        self.assertEqual(filled["env"], {"TOKEN": "s3cret"})
+        dropped = mcp_registry.drop_unfilled(option.entry, ["token"])
+        self.assertEqual(dropped["args"], ["run", "-i", "--rm", "ghcr.io/acme/srv:2.0"])
+        self.assertEqual(dropped["env"], {})
+
+    def test_docker_bare_env_flag_passes_variable_on(self):
+        package = {"registryType": "oci", "identifier": "ghcr.io/acme/srv:2.0", "transport": {"type": "stdio"},
+                   "runtimeArguments": [{"type": "named", "name": "-e", "value": "HOME_DIR"},
+                                        {"type": "named", "name": "--env", "value": "LEVEL=debug"}]}
+        option = mcp_registry.option_from_package(package)
+        self.assertEqual(option.entry["args"],
+                         ["run", "-i", "--rm", "-e", "LEVEL", "-e", "HOME_DIR", "ghcr.io/acme/srv:2.0"])
+        self.assertEqual(option.entry["env"], {"LEVEL": "debug"})
+
+    def test_secret_on_command_line_found(self):
+        package = {"registryType": "npm", "identifier": "@acme/srv", "transport": {"type": "stdio"},
+                   "packageArguments": [{"type": "named", "name": "--api-key", "value": "{key}",
+                                         "variables": {"key": {"isSecret": True, "isRequired": True}}}]}
+        option = mcp_registry.option_from_package(package)
+        self.assertEqual(mcp_registry.secret_in_args(option.entry, ["key"]), ["key"])
+        oci = mcp_registry.option_from_package(
+            {"registryType": "oci", "identifier": "ghcr.io/acme/srv:2.0", "transport": {"type": "stdio"},
+             "runtimeArguments": [{"type": "named", "name": "-e", "value": "TOKEN={token}",
+                                   "variables": {"token": {"isSecret": True}}}]})
+        self.assertEqual(mcp_registry.secret_in_args(oci.entry, ["token"]), [])
 
     def test_option_like_identifier_refused(self):
         for ident in ("--registry=https://evil.example", "-p"):

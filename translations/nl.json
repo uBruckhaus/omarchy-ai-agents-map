@@ -1199,5 +1199,6 @@
  "Searching… The registry often takes 10 seconds or more.": "Zoeken… Het register doet er vaak 10 seconden of langer over.",
  "Type what a server should work with, e.g. postgres, notion, slack, home assistant. Anyone can publish to the registry: each server's page says who published it and where it runs.": "Typ waarmee een server moet werken, bijv. postgres, notion, slack, home assistant. Iedereen kan in het register publiceren: de pagina van elke server zegt wie hem publiceerde en waar hij draait.",
  "The agents below read this folder. Each one uses a skill from it when a task fits: you just ask for the task. To give the folder to another agent, draw a line on the map from that agent to it.": "De agents hieronder lezen deze map. Elk gebruikt er een skill uit als een taak past: je vraagt gewoon om de taak. Om de map aan een andere agent te geven, trek je op de kaart een lijn van die agent ernaartoe.",
- "Recommended servers, the MCP registry, programs on this PC, or by hand": "Aanbevolen servers, het MCP-register, programma's op deze pc of met de hand"
+ "Recommended servers, the MCP registry, programs on this PC, or by hand": "Aanbevolen servers, het MCP-register, programma's op deze pc of met de hand",
+ "{0} would be on the command line, where other users of this PC can read it.": "{0} zou op de opdrachtregel staan, die andere gebruikers van deze pc kunnen lezen."
 }

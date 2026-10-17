@@ -1199,5 +1199,6 @@
  "Searching… The registry often takes 10 seconds or more.": "A procurar… O registo demora muitas vezes 10 segundos ou mais.",
  "Type what a server should work with, e.g. postgres, notion, slack, home assistant. Anyone can publish to the registry: each server's page says who published it and where it runs.": "Escreve com o que um servidor deve trabalhar, p. ex. postgres, notion, slack, home assistant. Qualquer pessoa pode publicar no registo: a página de cada servidor diz quem o publicou e onde corre.",
  "The agents below read this folder. Each one uses a skill from it when a task fits: you just ask for the task. To give the folder to another agent, draw a line on the map from that agent to it.": "Os agentes abaixo leem esta pasta. Cada um usa uma skill dela quando uma tarefa se ajusta: basta pedir a tarefa. Para dar a pasta a outro agente, traça uma linha no mapa desse agente até ela.",
- "Recommended servers, the MCP registry, programs on this PC, or by hand": "Servidores recomendados, o registo MCP, programas neste PC ou à mão"
+ "Recommended servers, the MCP registry, programs on this PC, or by hand": "Servidores recomendados, o registo MCP, programas neste PC ou à mão",
+ "{0} would be on the command line, where other users of this PC can read it.": "{0} ficaria na linha de comando, que outros utilizadores deste PC podem ler."
 }
