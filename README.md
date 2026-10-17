@@ -128,8 +128,13 @@ what is missing (install, models, an agent to connect).
   its buttons, and the arrow keys open, close and move as in a file tree. An agent's card or entry
   has **Start here** (a terminal beside the cards) and **Start in terminal** (a window of its own);
   while it runs here, **Show terminal** and **Stop** (it ends the agent and what it started, such as
-  its MCP servers).
-- **Terminal tabs**: while agents have terminals here, a tab line above the map (legend on top) has a
+  its MCP servers). **Hide** (also in a box's right-click menu on the map) leaves an agent or a provider out of
+  **My setup** (cards and map, with Undo); **+ Available** lists them under **Hidden**, above **Not
+  installed**, with **Show again**. A provider can be hidden only while no shown agent uses one of
+  its models through it (a line without a model, such as Hermes → Ollama, does not count); if one
+  does again later, the provider shows again by itself.
+- **Legend**: **ⓘ** in the header explains every dot, line and mark of the map, drawn as there.
+- **Terminal tabs**: while agents have terminals here, a tab line above the map and the terminals (legend on top; the terminal in view has its tab marked) has a
   tab for each with a dot for working, running or ended; a click shows that terminal, × closes an
   ended one (Settings › **Terminal tabs above the map**, on by default).
 - **Working now**: while an agent is working (herdr shows it working, its process uses the CPU, its

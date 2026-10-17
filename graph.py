@@ -70,6 +70,26 @@ def scope_extras(agent_list, inventory) -> set:
             | {f"mcp:{m.name}" for m in inventory.mcp if not m.agents})
 
 
+def provider_users(graph, shown: dict) -> dict:
+    """Provider box id -> names of the shown agents fully connected to it: a line from the agent to
+    the provider and one of the provider's models in use by that agent. Hide is refused for those
+    providers; a line without a model (Hermes → Ollama) does not count. shown: agent box id -> name."""
+    serves, models, providers = {}, {}, {}
+    for edge in graph.edges:
+        if edge.kind == "serves":
+            serves.setdefault(edge.source, set()).add(edge.target)
+        elif edge.kind == "default":
+            models.setdefault(edge.source, set()).add(edge.target)
+        elif edge.kind in ("uses", "available"):
+            providers.setdefault(edge.source, set()).add(edge.target)
+    users = {}
+    for agent_id, name in shown.items():
+        for provider in sorted(providers.get(agent_id, ())):
+            if serves.get(provider, set()) & models.get(agent_id, set()):
+                users.setdefault(provider, []).append(name)
+    return users
+
+
 FOLDERS_BOX = "add:folders"
 
 

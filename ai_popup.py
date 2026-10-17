@@ -80,7 +80,7 @@ import model_layout
 import jobs
 import health
 import web_sources
-from map_view import MapView, Meter
+from map_view import LegendSample, MapView, Meter
 from gi.repository import PangoCairo  # noqa: E402  (map_view asked for its version)
 from palette import ThemePalette
 
@@ -539,6 +539,19 @@ class AgentsMap(Adw.Application):
         self.mode_buttons[self.setup_mode()].set_active(True)
         header.append(self.view_switch)
 
+        # The legend (as in App Manager): what the map's dots, lines and marks mean.
+        legend_button = Gtk.MenuButton()
+        mark = Gtk.Label(label="ⓘ")
+        mark.add_css_class("am-gear")
+        legend_button.set_child(mark)
+        legend_button.set_tooltip_text(_("What the marks mean"))
+        legend_button.add_css_class("flat")
+        legend_button.add_css_class("am-header-btn")
+        legend_button.add_css_class("am-gear-btn")
+        legend_button.set_create_popup_func(lambda button: button.set_popover(self.legend_popover()))
+        header.append(legend_button)
+        self.legend_button = legend_button
+
         # Help (the manual: setting up by drawing, …), left of the gear, in the same bordered box.
         help_button = Gtk.Button()
         mark = Gtk.Label(label="?")
@@ -566,10 +579,79 @@ class AgentsMap(Adw.Application):
         self.settings_button = settings_button
         return header
 
-    def page_scroller(self, child: Gtk.Widget) -> Gtk.ScrolledWindow:
+    def legend_popover(self) -> Gtk.Popover:
+        """The legend: every dot, line and mark of the map, drawn as there, with what it means."""
+        colors = lambda name, alpha=1.0: self.side_map.color(name, alpha)
+        sections = [
+            (_("Boxes"), [
+                ("dot:green", _("Running")),
+                ("dot:yellow", _("Installed, not running")),
+                ("dot:muted", _("Not installed")),
+                ("ring", _("A local LLM server generating right now")),
+                ("model:loaded", _("Model loaded in GPU memory")),
+                ("model:loading", _("Model loading")),
+                ("model:sleeping", _("Model asleep: listed, GPU memory free")),
+                ("check", _("Selected (Shift + click selects more)")),
+            ]),
+            (_("Lines"), [
+                ("line:active", _("In use now: light flows while the agent works")),
+                ("line:uses", _("The agent uses this provider")),
+                ("line:available", _("Set up, but not in use")),
+                ("line:serves", _("A provider or server offers this model")),
+                ("line:mcp", _("MCP server connected to the agent")),
+                ("line:skills", _("The agent's skills")),
+                ("line:error", _("Does not work: click the line for hints")),
+                ("line:warning", _("Works with warnings: click the line for hints")),
+            ]),
+        ]
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        box.set_margin_top(8)
+        box.set_margin_bottom(8)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+        for heading, rows in sections:
+            title = Gtk.Label(label=heading.upper(), xalign=0)
+            title.add_css_class("am-section-title")
+            title.set_margin_top(4)
+            box.append(title)
+            for sample, text in rows:
+                line = Gtk.Box(spacing=12)
+                line.append(LegendSample(colors, sample))
+                label = Gtk.Label(label=text, xalign=0, wrap=True, max_width_chars=44)
+                label.add_css_class("am-legend-text")
+                line.append(label)
+                box.append(line)
+        more = Gtk.Label(label=_("A column heading such as “Models (3/5) ▾”: some boxes are hidden; click it to choose."),
+                         xalign=0, wrap=True, max_width_chars=50)
+        more.add_css_class("am-hint")
+        more.set_margin_top(6)
+        box.append(more)
+        popover = Gtk.Popover()
+
+        def to_help(*_):
+            popover.popdown()
+            self.open_help()
+        help_link = Gtk.Button(label=_("More in the Help (F1)"))
+        help_link.add_css_class("flat")
+        help_link.add_css_class("am-legend-help")
+        help_link.set_halign(Gtk.Align.START)
+        help_link.connect("clicked", to_help)
+        box.append(help_link)
+        # The popover is its own surface: the window's keys (F1) don't reach it while it is open.
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", lambda _c, keyval, *_: keyval == Gdk.KEY_F1 and (to_help() or True))
+        popover.add_controller(keys)
+        popover.set_child(box)
+        return popover
+
+    def page_scroller(self, child: Gtk.Widget, bar_room: bool = True) -> Gtk.ScrolledWindow:
+        """bar_room: keep the right edge free for the scroll bar, which overlays the content
+        (it covered the cards' ▾ in the narrow window)."""
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scroller.set_vexpand(True)
+        if bar_room:
+            child.set_margin_end(max(child.get_margin_end(), 14))
         scroller.set_child(child)
         self.scrollers.append(scroller)
         return scroller
@@ -700,7 +782,6 @@ class AgentsMap(Adw.Application):
         # Wide: the map beside the cards; a click on a card selects it there.
         side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, hexpand=True)
         side.add_css_class("am-map-pane")
-        side.append(self.build_terminal_tabs())
         self.gpu_line = self.build_gpu_line()
         side.append(self.gpu_line)
         side.append(self.build_layer_toggles())
@@ -747,7 +828,7 @@ class AgentsMap(Adw.Application):
         self.side_map.on_failed_edge = self.show_link_hints
         self.side_map.on_context = lambda node_id, rect, v=self.side_map: self.show_context(v, node_id, rect)
         self.side_map.on_header = lambda column, rect: self.show_column_list(self.side_map, column, rect)
-        map_scroller = self.page_scroller(self.side_map.with_flow_layer())   # the lights on running agents' paths on top
+        map_scroller = self.page_scroller(self.side_map.with_flow_layer(), bar_room=False)   # the lights on running agents' paths on top
         map_scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)   # zoomed in: sideways too
         side.append(map_scroller)
         self.side_map.set_zoom(ai_core.load_settings().get("map_zoom", 1.0)
@@ -758,10 +839,16 @@ class AgentsMap(Adw.Application):
         right.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
         right.set_transition_duration(120)
         right.add_named(side, "map")
-        right.set_visible(False)
         self.right_stack = right
         self.side_pane = right
-        body.append(right)
+        # The terminal tabs over the map and over the terminals (not over other pages).
+        column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True)
+        column.append(self.build_terminal_tabs())
+        column.append(right)
+        column.set_visible(False)
+        self.right_column = column
+        right.connect("notify::visible-child-name", lambda *_: self.update_terminal_tabs())
+        body.append(column)
         page.append(body)
         return page
 
@@ -793,19 +880,20 @@ class AgentsMap(Adw.Application):
             return
         on_right = self.page_name() in RIGHT_PAGES
         if self.split:
-            self.right_stack.set_visible(True)
+            self.right_column.set_visible(True)
             self.list_pane.set_visible(self.sidebar_visible)
             self.side_rule.set_visible(self.sidebar_visible)
         else:
-            self.right_stack.set_visible(on_right)
+            self.right_column.set_visible(on_right)
             self.list_pane.set_visible(not on_right)
             self.side_rule.set_visible(False)
 
     # --- the terminals started here, as tabs above the map ---------------------------------------
 
     def build_terminal_tabs(self) -> Gtk.Widget:
-        """Above the map, only while an agent has a terminal here: a legend (as in App Manager)
-        over one tab per terminal with a dot: working, running or ended. A click shows it."""
+        """Above the map and the terminals, only while an agent has a terminal here: a legend
+        (as in App Manager) over one tab per terminal with a dot: working, running or ended.
+        A click shows it; the terminal in view has its tab marked."""
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         box.set_margin_bottom(12)
         top = Gtk.Box(spacing=10)
@@ -827,13 +915,18 @@ class AgentsMap(Adw.Application):
         return box
 
     def update_terminal_tabs(self):
+        if getattr(self, "right_stack", None) is None:
+            return
         row = self.terminal_tab_row
+        shown = self.right_stack.get_visible_child_name() or ""
         while (child := row.get_first_child()) is not None:
             row.remove(child)
         for command, pane in self.sessions.items():
             state = ("working" if command in self.working_agents else "running") if pane.running else "ended"
             tab = Gtk.Box(spacing=0)
             tab.add_css_class("am-term-tab")
+            if shown == f"term:{command}":
+                tab.add_css_class("am-term-tab-current")
             button = Gtk.Button()
             button.add_css_class("flat")
             content = Gtk.Box(spacing=6)
@@ -853,7 +946,7 @@ class AgentsMap(Adw.Application):
                 close.connect("clicked", lambda _b, c=command: self.close_terminal(c))
                 tab.append(close)
             row.append(tab)
-        self.terminal_tabs.set_visible(bool(self.sessions)
+        self.terminal_tabs.set_visible(bool(self.sessions) and (shown == "map" or shown.startswith("term:"))
                                        and ai_core.load_settings().get("terminal_tabs", True) is not False)
 
     def close_terminal(self, command: str):
@@ -861,6 +954,8 @@ class AgentsMap(Adw.Application):
         pane = self.sessions.get(command)
         if pane is None or pane.running:
             return
+        if self.right_stack.get_visible_child() is pane:
+            self.show_view("main", save=False)
         del self.sessions[command]
         self.right_stack.remove(pane)
         self.update_terminal_tabs()
@@ -1077,14 +1172,22 @@ class AgentsMap(Adw.Application):
         self.card_widgets = {}
         off, mode_hidden = self.mode_rules()
         hidden = self.card_hidden() | mode_hidden
-        installed = [a for a in self.agent_list if a.installed and f"agent:{a.command}" not in hidden]
+        put_away = self.hidden_now()
+        installed = [a for a in self.agent_list if a.installed and f"agent:{a.command}" not in hidden
+                     and f"agent:{a.command}" not in put_away]
+        # Hidden with Hide: only in + Available, in a section of their own above Not installed.
+        self.put_away_ids = [] if self.scope == "mine" else \
+            [f"agent:{a.command}" for a in self.agent_list if a.installed and f"agent:{a.command}" in put_away
+             and f"agent:{a.command}" not in hidden] + \
+            sorted(i for i in put_away if not i.startswith("agent:") and i not in hidden)
         missing = [a for a in self.agent_list if not a.installed and f"agent:{a.command}" not in hidden]
         inv = self.inventory
         names = self.agent_names()
         self.update_card_filter()
 
         runtimes = [] if "local" in off else \
-            [rt for rt in sorted(inv.runtimes, key=lambda r: not r.installed) if f"runtime:{rt.key}" not in hidden]
+            [rt for rt in sorted(inv.runtimes, key=lambda r: not r.installed)
+             if f"runtime:{rt.key}" not in hidden and f"runtime:{rt.key}" not in put_away]
         servers = [m for m in inv.mcp if f"mcp:{m.name}" not in hidden]
         skill_sets = [s for s in inv.skill_sets if f"skills:{s.path}" not in hidden]
         self.tree_list = None
@@ -1145,11 +1248,28 @@ class AgentsMap(Adw.Application):
         add.connect("clicked", lambda *_: self.open_add_skills())
         group.set_header_suffix(add)
 
+        if self.put_away_ids:
+            group = self.section(_("Hidden ({0})").format(len(self.put_away_ids)))
+            for node_id in self.put_away_ids:
+                group.add(self.hidden_card(node_id, names))
         if missing:
             group = self.section(_("Not installed ({0})").format(len(missing)))
             for agent in missing:
                 group.add(self.agent_card(agent))
         return new_mcp, new_skills
+
+    def hidden_card(self, node_id: str, names) -> Gtk.Widget:
+        """A hidden agent or provider in + Available › Hidden, grey, with Show again."""
+        key, _sep, ident = node_id.partition(":")
+        if key == "agent":
+            return self.agent_card(next(a for a in self.agent_list if a.command == ident))
+        if key == "runtime":
+            rt = next((r for r in self.inventory.runtimes if r.key == ident), None)
+            if rt is not None:
+                return self.expandable_card(node_id, "\U000F061A", "", rt.name, _("Local LLM"),
+                                            lambda b, rt=rt: self.fill_runtime(b, rt, names), dim=True)
+        return self.expandable_card(node_id, "\U000F0163", "", self.item_name(node_id), _("Online provider"),
+                                    lambda b: b.append(self.hide_button(node_id)), dim=True)
 
     def overview_hints(self, new_mcp, new_skills):
         """The hint area at the bottom of the sidebar (cards or tree)."""
@@ -1224,6 +1344,16 @@ class AgentsMap(Adw.Application):
             T(f"skills:{s.path}", s.path, ngettext("1 skill", "{0} skills", len(s.skills)).format(len(s.skills))
               + " · " + ", ".join(names.get(a, a) for a in s.agents), kind="skills", icon="\U000F0EB3", lazy=True)
             for s in skill_sets]))
+        put_away = getattr(self, "put_away_ids", [])
+        if put_away:
+            agents = {f"agent:{a.command}": a for a in self.agent_list}
+            sections.append(T("section:hidden", _("Hidden ({0})").format(len(put_away)), kind="section", children=[
+                T(i, agents[i].name, self.agent_subtitle(agents[i]), kind="agent", icon=agents[i].icon,
+                  icon_font=agents[i].icon_font, dim=True, lazy=True) if i in agents else
+                T(i, self.item_name(i), _("Local LLM") if i.startswith("runtime:") else _("Online provider"),
+                  kind="runtime" if i.startswith("runtime:") else "cloud",
+                  icon="\U000F061A" if i.startswith("runtime:") else "\U000F0163", dim=True, lazy=True)
+                for i in put_away]))
         if missing:
             sections.append(T("section:missing", _("Not installed ({0})").format(len(missing)), kind="section",
                               children=[T(f"agent:{a.command}", a.name, _("Not installed"), kind="agent", icon=a.icon,
@@ -1264,7 +1394,7 @@ class AgentsMap(Adw.Application):
                             info(_("MCP servers"), ", ".join(inv.agent_mcp.get(ident, []))),
                             info(_("Skills"), ngettext("1 skill", "{0} skills", count).format(count) if count else ""),
                             info(_("Last used"), when(details.last_used))]
-                actions = (["start"] if terminal_pane.program(ident) else []) + ["details"]
+                actions = (["start"] if terminal_pane.program(ident) else []) + ["details", "hide"]
             else:
                 children = [info(_("Status"), _("Not installed"))]
                 actions = ["details"]
@@ -1275,7 +1405,7 @@ class AgentsMap(Adw.Application):
             children = [info(_("Address"), rt.address), info(_("Used by"), ", ".join(names.get(a, a) for a in rt.agents)),
                         info(_("Models folder"), inventory.tilde(rt.models_dir) if rt.models_dir else "")]
             children += side_tree.limited([T(f"{node.id}/model/{m}", m, kind="item") for m in rt.models], 12, more)
-            actions = ["details"] + (["models"] if rt.installed and rt.key != "vllm" else [])
+            actions = ["details"] + (["models"] if rt.installed and rt.key != "vllm" else []) + ["hide"]
         elif key == "mcp":
             server = next((s for s in inv.mcp if s.name == ident), None)
             if server is None:
@@ -1292,6 +1422,8 @@ class AgentsMap(Adw.Application):
             children += side_tree.limited([T(f"{node.id}/skill/{getattr(s, 'name', s)}", str(getattr(s, "name", s)),
                                              kind="item") for s in skill_set.skills], 15, more)
             actions = ["details"]
+        elif key == "cloud":
+            actions = ["hide"]
         else:
             return []
         return [c for c in children if c is not None] + [T(f"{node.id}/actions", "", kind="actions", actions=actions)]
@@ -1447,6 +1579,8 @@ class AgentsMap(Adw.Application):
         if action == "start":
             agent = next(a for a in self.agent_list if a.command == ident)
             return self.start_button(agent)
+        if action == "hide":
+            return self.hide_button(owner)
         if action == "models":
             rt = next(r for r in self.inventory.runtimes if r.key == ident)
             button = Gtk.Button(label=_("Models…"), halign=Gtk.Align.START)
@@ -1814,7 +1948,7 @@ class AgentsMap(Adw.Application):
         if agent.installed and self.instance_label(agent):
             subtitle = " · ".join(filter(None, [agent.version, self.instance_label(agent)]))
         card = self.expandable_card(key, agent.icon, agent.icon_font, agent.name, subtitle,
-                         lambda b, a=agent: self.fill_agent(b, a), dim=not agent.installed,
+                         lambda b, a=agent: self.fill_agent(b, a), dim=not agent.installed or key in self.hidden_now(),
                          badge=_("Default") if agent.default else "", badge_tip=_("Omarchy's default agent"),
                          highlight=agent.default,
                          status="running" if agent.installed and self.running.get(agent.command) else "")
@@ -1982,6 +2116,8 @@ class AgentsMap(Adw.Application):
             if agent.installed and terminal_pane.program(agent.command):
                 buttons.append(self.start_button(agent))
             buttons.append(self.details_button(lambda *_: self.open_agent_status(agent)))
+            if agent.installed:
+                buttons.append(self.hide_button(f"agent:{agent.command}"))
             box.append(buttons)
 
     # --- runtime, MCP and skill cards ----------------------------------------------------
@@ -2012,7 +2148,10 @@ class AgentsMap(Adw.Application):
             box.append(heading)
             self.note(box, "\n".join(rt.models))
         if not summary:
-            box.append(self.details_button(lambda *_: self.open_runtime_status(rt.key)))
+            buttons = Gtk.Box(spacing=8)
+            buttons.append(self.details_button(lambda *_: self.open_runtime_status(rt.key)))
+            buttons.append(self.hide_button(f"runtime:{rt.key}"))
+            box.append(buttons)
 
     def fill_mcp(self, box, server, names):
         kind = {"command": _("runs a program"), "url": _("remote server")}.get(server.kind, "")
@@ -3891,7 +4030,7 @@ class AgentsMap(Adw.Application):
         built = getattr(getattr(self, "side_map", None), "graph", None)
         if getattr(self, "scope", "mine") != "mine":
             return {graph.FOLDERS_BOX}
-        hidden = graph.scope_extras(self.agent_list, self.inventory)
+        hidden = graph.scope_extras(self.agent_list, self.inventory) | self.hidden_now()
         if built is not None and not getattr(self, "folders_open", False):
             # Model folders no agent uses a model from: folded behind one box.
             for ids in graph.idle_folders(built).values():
@@ -3941,6 +4080,92 @@ class AgentsMap(Adw.Application):
         self.set_selection([i for i in self.selection if i not in hidden])
 
     # --- the overview's own filter (like the map's column lists) ------------------------------
+
+    # --- Hide: agents and providers left out of My setup (+ Available › Hidden shows them) -------
+
+    def hidden_items(self) -> set:
+        """What Hide put away, as box ids: agent:…, runtime:… (local LLMs), cloud:… (online providers)."""
+        value = ai_core.load_settings().get("hidden_items", [])
+        return {str(v) for v in value[:300] if str(v).partition(":")[0] in ("agent", "runtime", "cloud")} \
+            if isinstance(value, list) else set()
+
+    def provider_users(self) -> dict:
+        """Provider id -> names of the shown (not hidden) agents fully connected to it: a line to the
+        provider and one of its models in use. Such a provider cannot be hidden (a line without a model,
+        as Hermes → Ollama, does not count)."""
+        built = getattr(getattr(self, "side_map", None), "graph", None)
+        if built is None:
+            return {}
+        hidden = self.hidden_items()
+        shown = {f"agent:{a.command}": a.name for a in self.agent_list
+                 if a.installed and f"agent:{a.command}" not in hidden}
+        return graph.provider_users(built, shown)
+
+    def hidden_now(self) -> set:
+        """hidden_items, less the providers a shown agent is fully connected to (again): a connection
+        beats Hide, so nothing in use is ever out of sight."""
+        hidden = self.hidden_items()
+        return hidden - set(self.provider_users()) if hidden else hidden
+
+    def item_name(self, node_id: str) -> str:
+        key, _sep, ident = node_id.partition(":")
+        if key == "agent":
+            return next((a.name for a in self.agent_list if a.command == ident), ident)
+        if key == "runtime":
+            return next((r.name for r in self.inventory.runtimes if r.key == ident), ident)
+        built = getattr(self.side_map, "graph", None)
+        node = next((n for n in built.nodes if n.id == node_id), None) if built is not None else None
+        return node.label if node is not None else ident
+
+    def set_hidden(self, node_id: str, hide: bool, undo: bool = True):
+        hidden = self.hidden_items()
+        hidden = hidden | {node_id} if hide else hidden - {node_id}
+        self.save_setting(hidden_items=sorted(hidden))
+        self.apply_setup_mode()
+        self.refresh_overview()
+        if undo:
+            name = self.item_name(node_id)
+            message = _("{0} is hidden: + Available › Hidden shows it again") if hide else _("{0} is shown again")
+            self.toast(message.format(name), 6, _("Undo"), lambda: self.set_hidden(node_id, not hide, undo=False))
+
+    def hide_state(self, node_id: str) -> tuple[str, str, bool]:
+        """(label, tip, clickable) of the Hide / Show again control for this box."""
+        name = self.item_name(node_id)
+        if node_id in self.hidden_now():
+            return _("Show again"), _("Show {0} in My setup again").format(name), True
+        users = self.provider_users().get(node_id) if not node_id.startswith("agent:") else None
+        if users:
+            return _("Hide"), _("{0} uses a model of {1}: hide that agent first, or disconnect it").format(
+                ", ".join(users), name), False
+        return _("Hide"), _("Leave {0} out of My setup (+ Available › Hidden shows it)").format(name), True
+
+    def hide_button(self, node_id: str) -> Gtk.Widget:
+        """Hide (an agent, or a provider no shown agent uses a model of) or, once hidden, Show again."""
+        label, tip, clickable = self.hide_state(node_id)
+        hidden = node_id in self.hidden_now()
+        button = Gtk.Button(halign=Gtk.Align.START)
+        content = Gtk.Box(spacing=6)
+        content.append(Gtk.Image.new_from_icon_name("view-reveal-symbolic" if hidden else "view-conceal-symbolic"))
+        content.append(Gtk.Label(label=label))
+        button.set_child(content)
+        button.add_css_class("flat")
+        button.add_css_class("am-small-btn")
+        button.set_tooltip_text(tip)
+        button.set_sensitive(clickable)
+        button.connect("clicked", lambda *_: self.set_hidden(node_id, not hidden))
+        return button
+
+    def hide_menu_item(self, node_id: str, popover) -> Gtk.Widget:
+        """The same in a box's right-click menu on the map."""
+        label, tip, clickable = self.hide_state(node_id)
+        hidden = node_id in self.hidden_now()
+        item = Gtk.Button(label=label, halign=Gtk.Align.START)
+        item.add_css_class("flat")
+        item.add_css_class("am-menu-item")
+        item.set_tooltip_text(tip)
+        item.set_sensitive(clickable)
+        item.connect("clicked", lambda *_: (popover.popdown(), self.set_hidden(node_id, not hidden)))
+        return item
 
     def card_hidden(self) -> set:
         value = ai_core.load_settings().get("card_hidden", [])
@@ -6741,12 +6966,14 @@ class AgentsMap(Adw.Application):
             button.add_css_class("am-menu-item")
             button.connect("clicked", lambda _b, m=mode: (popover.popdown(), self.open_install(target, m)))
             box.append(button)
+        box.append(self.hide_menu_item(f"agent:{agent.command}", popover))
         popover.set_child(box)
         popover.connect("closed", lambda p: GLib.idle_add(p.unparent))
         popover.popup()
 
     def show_context(self, view, node_id: str, rect):
-        """Local LLM: start, stop, start at login. A new agent: look up its setup again."""
+        """Local LLM: start, stop, start at login. A new agent: look up its setup again. Every
+        agent and provider: Hide / Show again."""
         rt = next((r for r in self.inventory.runtimes if f"runtime:{r.key}" == node_id), None)
         if rt is None:
             agent = next((a for a in self.agent_list if f"agent:{a.command}" == node_id), None)
@@ -6754,6 +6981,8 @@ class AgentsMap(Adw.Application):
                 self.show_install_agent_context(view, agent, rect)
             elif agent is not None and self.is_new_agent(agent.command):
                 self.show_agent_context(view, agent, rect)
+            elif (agent is not None and agent.installed) or node_id.startswith("cloud:"):
+                self.show_hide_context(view, node_id, rect)
             return
         popover = Gtk.Popover()
         popover.set_parent(view)
@@ -6831,6 +7060,7 @@ class AgentsMap(Adw.Application):
                 check.connect("toggled", lambda b: self.control_runtime(
                     rt, lambda r: runtime_ctl.set_start_at_login(r, b.get_active()), _("Start at login")))
                 box.append(check)
+        box.append(self.hide_menu_item(node_id, popover))
         popover.set_child(box)
         popover.connect("closed", lambda p: GLib.idle_add(p.unparent))
         popover.popup()
@@ -6907,6 +7137,24 @@ class AgentsMap(Adw.Application):
 
     # --- settings ----------------------------------------------------------------
 
+    def show_hide_context(self, view, node_id: str, rect):
+        """An agent or online provider with no other menu: its name and Hide / Show again."""
+        popover = Gtk.Popover()
+        popover.set_parent(view)
+        area = Gdk.Rectangle()
+        area.x, area.y, area.width, area.height = (int(v) for v in rect)
+        popover.set_pointing_to(area)
+        popover.set_position(Gtk.PositionType.BOTTOM)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        box.add_css_class("am-provider-list")
+        title = Gtk.Label(label=self.item_name(node_id), xalign=0)
+        title.add_css_class("am-agent-name")
+        box.append(title)
+        box.append(self.hide_menu_item(node_id, popover))
+        popover.set_child(box)
+        popover.connect("closed", lambda p: GLib.idle_add(p.unparent))
+        popover.popup()
+
     def show_agent_context(self, view, agent, rect):
         popover = Gtk.Popover()
         popover.set_parent(view)
@@ -6929,6 +7177,7 @@ class AgentsMap(Adw.Application):
         button.set_sensitive(agent.command not in self.researching)
         button.connect("clicked", lambda *_: (popover.popdown(), self.start_research(agent)))
         box.append(button)
+        box.append(self.hide_menu_item(f"agent:{agent.command}", popover))
         popover.set_child(box)
         popover.connect("closed", lambda p: GLib.idle_add(p.unparent))
         popover.popup()
@@ -7317,7 +7566,7 @@ class AgentsMap(Adw.Application):
                         lambda on: (self.save_setting(animate_lines=on), self.side_map.set_animate(on)))
         self.switch_row(group, _("Terminal tabs above the map"),
                         _("While agents run in terminals here: a tab for each, with a dot for working, running "
-                          "or ended. A click shows the terminal."),
+                          "or ended, above the map and the terminals. A click shows the terminal."),
                         settings.get("terminal_tabs", True) is not False,
                         lambda on: (self.save_setting(terminal_tabs=on), self.update_terminal_tabs()))
         self.switch_row(group, _("Start local LLMs with their agents"),
@@ -8101,10 +8350,17 @@ class AgentsMap(Adw.Application):
             padding: 4px 10px; }}
         .am-section-title {{ font-size: 11px; font-weight: 700; letter-spacing: 1px; }}
         .am-tab-legend {{ font-size: 10px; }}
+        .am-legend-text {{ font-size: 13px; }}
+        .am-card menubutton.am-gear-btn {{ margin-right: 4px; }}
+        .am-card menubutton.am-gear-btn > button {{ border: 1px solid alpha({fg_hex}, 0.35); border-radius: {radius}px;
+            padding: 1px 6px; min-width: 0; min-height: 0; background: none; box-shadow: none; }}
+        .am-card menubutton.am-gear-btn > button:checked {{ color: {accent_hex}; background: alpha({accent_hex}, 0.14); }}
+        button.am-legend-help {{ font-size: 13px; padding: 2px 6px; margin-top: 4px; }}
         .am-card .am-tab-working {{ color: {accent_hex}; }}
         .am-card .am-tab-running {{ color: {green_hex}; }}
         .am-card .am-tab-ended {{ color: {muted_hex}; }}
         .am-term-tab {{ border: 1px solid alpha({fg_hex}, 0.2); border-radius: {radius}px; }}
+        .am-term-tab-current {{ border-color: {accent_hex}; background: alpha({accent_hex}, 0.14); }}
         .am-term-tab button {{ padding: 2px 8px; min-height: 0; min-width: 0; }}
         .am-tab-dot {{ font-size: 10px; }}
         separator.am-settings-rule {{ background-color: alpha({fg_hex}, 0.12); background-image: none;

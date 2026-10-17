@@ -1188,3 +1188,103 @@ class FlowLayer(Gtk.DrawingArea):
             view.draw_flow(cr, list(self.paths.items()), GLib.get_monotonic_time() / 1e6, self.levels)
         except KeyError:
             pass                     # a box went away since the map was drawn: the next drawing fixes it
+
+
+class LegendSample(Gtk.DrawingArea):
+    """One mark of the map, drawn small for the ⓘ legend as the map draws it:
+    "dot:<colour>" / "ring" a box's status dot, "model:<state>" a model's mark
+    at the right, "line:<kind>" a line between boxes, "check" a selected box.
+    `colors`: a function (name, alpha) -> rgba, the map's palette."""
+
+    def __init__(self, colors, sample: str, width: int = 40, height: int = 18):
+        super().__init__()
+        self.colors = colors
+        self.sample = sample
+        self.set_content_width(width)
+        self.set_content_height(height)
+        self.set_valign(Gtk.Align.CENTER)
+        self.set_draw_func(self.on_draw)
+
+    def box(self, cr, width, height):
+        MapView.rounded(cr, 1, 1, width - 2, height - 2, 4)
+        cr.set_source_rgba(*self.colors("fg", 0.05))
+        cr.fill_preserve()
+        cr.set_source_rgba(*self.colors("fg", 0.3))
+        cr.set_line_width(1)
+        cr.stroke()
+
+    def on_draw(self, _area, cr, width, height):
+        kind, _sep, value = self.sample.partition(":")
+        mid = height / 2
+        if kind in ("dot", "ring"):
+            self.box(cr, width, height)
+            cr.set_source_rgba(*self.colors("green" if kind == "ring" else value))
+            cr.arc(10, mid, 4, 0, 2 * math.pi)
+            cr.fill()
+            if kind == "ring":
+                cr.set_source_rgba(*self.colors("accent"))
+                cr.set_line_width(1.5)
+                cr.arc(10, mid, 7, 0, 2 * math.pi)
+                cr.stroke()
+        elif kind == "model":
+            self.box(cr, width, height)
+            cx = width - 10
+            if value == "sleeping":
+                cr.set_source_rgba(*self.colors("muted"))
+                cr.set_line_width(1.5)
+                cr.arc(cx, mid, 3.5, 0, 2 * math.pi)
+                cr.stroke()
+            else:
+                cr.set_source_rgba(*self.colors("green" if value == "loaded" else "yellow"))
+                cr.arc(cx, mid, 4, 0, 2 * math.pi)
+                cr.fill()
+        elif kind == "check":
+            self.box(cr, width, height)
+            MapView.rounded(cr, 1, 1, width - 2, height - 2, 4)
+            cr.set_source_rgba(*self.colors("accent", 0.4))
+            cr.fill()
+            layout = PangoCairo.create_layout(cr)
+            layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 10"))
+            layout.set_text("✓", -1)
+            text_w, text_h = layout.get_pixel_size()
+            cr.set_source_rgba(*self.colors("accent"))
+            cr.move_to(width - text_w - 6, (height - text_h) / 2)
+            PangoCairo.show_layout(cr, layout)
+        elif kind == "line":
+            if value in ("error", "warning"):
+                color = "red" if value == "error" else "yellow"
+                cr.set_source_rgba(*self.colors(color))
+                cr.set_line_width(2.4)
+                cr.set_line_cap(cairo.LINE_CAP_ROUND)
+                cr.set_dash([0.1, 5])
+                cr.move_to(2, mid)
+                cr.line_to(width - 2, mid)
+                cr.stroke()
+                cr.set_dash([])
+                cx = width / 2
+                cr.arc(cx, mid, 7.5, 0, 2 * math.pi)
+                cr.set_source_rgba(*self.colors("bg"))
+                cr.fill_preserve()
+                cr.set_source_rgba(*self.colors(color))
+                cr.set_line_width(1.8)
+                cr.stroke()
+                cr.move_to(cx, mid - 3.8)
+                cr.line_to(cx, mid + 0.9)
+                cr.stroke()
+                cr.arc(cx, mid + 3.4, 1.0, 0, 2 * math.pi)
+                cr.fill()
+                return
+            active = value == "active"
+            cr.set_source_rgba(*self.colors("accent" if active else EDGE_COLORS.get(value, "muted"),
+                                            1.0 if active else 0.8))
+            cr.set_line_width(2.8 if active else 1.6)
+            cr.set_dash([5, 4] if value == "available" else [])
+            cr.move_to(2, mid)
+            cr.line_to(width - 2, mid)
+            cr.stroke()
+            cr.set_dash([])
+            if active:
+                # The flowing light's bright head.
+                cr.set_source_rgba(*self.colors("fg", 0.9))
+                cr.arc(width * 0.62, mid, 2.6, 0, 2 * math.pi)
+                cr.fill()
