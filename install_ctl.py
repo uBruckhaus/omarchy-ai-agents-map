@@ -696,6 +696,17 @@ class LlamaCpp(Installer):
             return github_release(f"{version}-{build}", picked)
         raise RuntimeError(f"no {build} build for Linux found")
 
+    def unpack(self, archive: Path, folder: Path):
+        """Each archive has its own top folder (llama-b11706/, cudart-llama-b11706-…/):
+        flattened one at a time, so the CUDA runtime lands beside llama-server."""
+        stage = folder / f".{archive.name}.unpack"
+        shutil.rmtree(stage, ignore_errors=True)
+        extract(archive, stage)
+        flatten(stage)
+        for child in stage.iterdir():
+            os.replace(child, folder / child.name)
+        stage.rmdir()
+
     def models_folder(self) -> str:
         return read_env(self.env_file).get("LLAMA_ARG_MODELS_DIR", "")
 
