@@ -22,6 +22,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
 import time
@@ -199,43 +200,116 @@ def sha256_of(path: Path) -> str:
     return digest.hexdigest()
 
 
+def own_regular_file(path: Path) -> bool:
+    """A regular file of this account with one name (not a link, not someone else's, not a hard
+    link that another name could change): only such a file is resumed, kept or read as ours."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    return stat.S_ISREG(st.st_mode) and st.st_uid == os.getuid() and st.st_nlink == 1
+
+
+def open_staging(partial: Path) -> int:
+    """The download's staging file, never through a link: created new and exclusively, or, to
+    resume, an existing one that is this account's own regular file with one name. New files get
+    0644 within the umask, as curl gave them (a model folder may be shared on purpose)."""
+    flags = os.O_RDWR | os.O_APPEND | os.O_NOFOLLOW | os.O_CLOEXEC
+    try:
+        return os.open(partial, flags | os.O_CREAT | os.O_EXCL, 0o644)
+    except FileExistsError:
+        pass
+    try:
+        fd = os.open(partial, flags)            # a link at that name fails here (ELOOP)
+    except OSError as error:
+        raise RuntimeError(f"{partial.name} is not a file this download can continue: {error}") from error
+    st = os.fstat(fd)
+    if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid() or st.st_nlink != 1:
+        os.close(fd)
+        raise RuntimeError(f"{partial.name} in {partial.parent} is not this account's own download; "
+                           "remove it and try again")
+    return fd
+
+
+def _sha256_of_fd(fd: int) -> str:
+    digest = hashlib.sha256()
+    offset = 0
+    while block := os.pread(fd, 1024 * 1024, offset):
+        digest.update(block)
+        offset += len(block)
+    return digest.hexdigest()
+
+
 def download(url: str, target: Path, size: int, progress, cancelled, done_before: int = 0, total: int = 0,
              sha256: str = ""):
     """curl into target, reporting how far along (of total bytes) it is. With sha256
-    the file only becomes target when its bytes match it (else it is deleted)."""
+    the file only becomes target when its bytes match it (else it is deleted).
+
+    The bytes go into a staging file `<target>.part` that this function opens itself (open_staging:
+    exclusive and no-follow, or an own regular file to resume); curl writes to that open file on its
+    standard output and never opens a path. The file is checked through the same descriptor and only
+    renamed into place while the name still points at it."""
     target.parent.mkdir(parents=True, exist_ok=True)
     partial = target.with_name(target.name + ".part")
-    # The size from the release list caps the download (a wrong or endless body stops there).
-    limit = ["--max-filesize", str(size)] if size else ["--max-filesize", str(MAX_DOWNLOAD)]
-    proc = subprocess.Popen(["curl", "-fsSL", "--proto", "=https", "--proto-redir", "=https", "--max-redirs", "5",
-                             "-C", "-", *limit, "-o", str(partial), "--", url],
-                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    limit_bytes = size or MAX_DOWNLOAD
+    fd = open_staging(partial)
     try:
-        while proc.poll() is None:
-            if cancelled():
+        have = os.fstat(fd).st_size
+        if have > limit_bytes:                  # more than announced: start again
+            os.ftruncate(fd, 0)
+            have = 0
+        # The size from the release list caps the download (a wrong or endless body stops there).
+        argv = ["curl", "-fsSL", "--proto", "=https", "--proto-redir", "=https", "--max-redirs", "5",
+                "--max-filesize", str(limit_bytes)]
+        if have:
+            argv += ["-C", str(have)]           # resume at the checked size of our own file
+        proc = subprocess.Popen([*argv, "--", url], stdin=subprocess.DEVNULL, stdout=fd, stderr=subprocess.PIPE)
+        try:
+            while proc.poll() is None:
+                if cancelled():
+                    proc.kill()
+                    raise Cancelled()
+                have = os.fstat(fd).st_size
+                if have > limit_bytes:
+                    proc.kill()
+                    raise RuntimeError("the download is larger than announced")
+                if total or size:
+                    progress((done_before + have) / max(1, total or size), None)
+                else:
+                    # No size announced: a bar that keeps moving but never reaches the end, and the MB.
+                    progress(have / (have + 200 * 1024 * 1024), f"{have // (1024 * 1024)} MB")
+                time.sleep(0.4)
+        finally:
+            if proc.poll() is None:
                 proc.kill()
-                raise Cancelled()
-            have = partial.stat().st_size if partial.exists() else 0
-            if have > (size or MAX_DOWNLOAD):
-                proc.kill()
-                raise RuntimeError("the download is larger than announced")
-            if total or size:
-                progress((done_before + have) / max(1, total or size), None)
-            else:
-                # No size announced: a bar that keeps moving but never reaches the end, and the MB.
-                progress(have / (have + 200 * 1024 * 1024), f"{have // (1024 * 1024)} MB")
-            time.sleep(0.4)
+        if proc.returncode != 0:
+            raise DownloadError(f"download failed: {proc.stderr.read(400).decode('utf-8', 'replace').strip()}")
+        st = os.fstat(fd)
+        if size and st.st_size != size:
+            raise DownloadError("download incomplete")
+        if sha256 and _sha256_of_fd(fd) != sha256:
+            os.ftruncate(fd, 0)
+            _remove_if_same(partial, st)
+            raise RuntimeError(f"{target.name} does not match the release's SHA-256 checksum; nothing was installed")
+        os.fsync(fd)
+        try:
+            now = os.lstat(partial)
+        except OSError:
+            now = None
+        if now is None or (now.st_dev, now.st_ino) != (st.st_dev, st.st_ino):
+            raise RuntimeError(f"{partial.name} was replaced while downloading; nothing was kept")
+        os.replace(partial, target)
     finally:
-        if proc.poll() is None:
-            proc.kill()
-    if proc.returncode != 0:
-        raise DownloadError(f"download failed: {proc.stderr.read(400).decode('utf-8', 'replace').strip()}")
-    if size and partial.stat().st_size != size:
-        raise DownloadError("download incomplete")
-    if sha256 and sha256_of(partial) != sha256:
-        partial.unlink(missing_ok=True)
-        raise RuntimeError(f"{target.name} does not match the release's SHA-256 checksum; nothing was installed")
-    os.replace(partial, target)
+        os.close(fd)
+
+
+def _remove_if_same(path: Path, st):
+    try:
+        now = os.lstat(path)
+    except OSError:
+        return
+    if (now.st_dev, now.st_ino) == (st.st_dev, st.st_ino):
+        path.unlink(missing_ok=True)
 
 
 def extract(archive: Path, folder: Path):
@@ -422,7 +496,7 @@ class Installer:
             progress(done / max(1, release.size), f"download {asset_name}")
             target = downloads / asset_name
             # Continued after an interruption: a file already downloaded and checked is kept.
-            if not (target.is_file() and not target.is_symlink() and sha256_of(target) == release.digests[asset_name]):
+            if not (own_regular_file(target) and sha256_of(target) == release.digests[asset_name]):
                 download(url, target, size, progress, cancelled, done, release.size,
                          sha256=release.digests[asset_name])
             done += size

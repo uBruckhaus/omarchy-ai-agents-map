@@ -412,7 +412,9 @@ the backup and Undo), and the agent is told the same context. A context you set 
   file exists (never opened) or an API-key variable is set (its name only); Cursor CLI is asked
   with its own `cursor-agent status`.
 - **Network** (each only on a click, except where noted): GitHub's release API and release
-  downloads for Ollama, llama.cpp, Jan and KoboldCpp (each checked against the release's SHA-256),
+  downloads for Ollama, llama.cpp, Jan and KoboldCpp (each checked against the release's SHA-256;
+  every download, models included, goes into a `.part` file that is created new without following
+  links, or resumed only when it is your own regular file, and curl writes into that open file),
   the npm registry for DeepSeek Harness, PyPI
   (and `uv`) for vLLM; `huggingface.co` for model search and downloads; the local Ollama on
   127.0.0.1 only after checking that the listening socket belongs to you; the same for each running

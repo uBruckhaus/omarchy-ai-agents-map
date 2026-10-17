@@ -139,12 +139,17 @@ class LlamaInstallTest(InstallTest):
 
 
 class FakeCurl:
-    """Stands in for curl: writes the given bytes to the -o file."""
+    """Stands in for curl: writes the given bytes (from -C's offset on) to its standard output,
+    the staging file download() opened; it is never given a path to open."""
     def __init__(self, body: bytes):
         self.body = body
+        self.argv = None
 
-    def __call__(self, argv, **_kw):
-        Path(argv[argv.index("-o") + 1]).write_bytes(self.body)
+    def __call__(self, argv, stdout=None, **_kw):
+        assert "-o" not in argv and "--output" not in argv
+        self.argv = argv
+        start = int(argv[argv.index("-C") + 1]) if "-C" in argv else 0
+        os.write(stdout, self.body[start:])
         proc = mock.Mock(returncode=0)
         proc.poll.return_value = 0
         return proc
@@ -177,6 +182,49 @@ class IntegrityTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.fetch(evil)
         self.assertEqual(list((self.home / "downloads").iterdir()), [])   # neither the file nor the .part
+
+    def test_planted_link_at_the_part_name_is_not_followed(self):
+        downloads = self.home / "downloads"
+        downloads.mkdir()
+        victim = self.home / "victim.txt"
+        victim.write_bytes(b"keep")
+        (downloads / "app.AppImage.part").symlink_to(victim)
+        with self.assertRaises(RuntimeError):
+            self.fetch(self.GOOD)
+        self.assertEqual(victim.read_bytes(), b"keep")
+        self.assertFalse((downloads / "app.AppImage").exists())
+
+    def test_part_file_with_a_second_name_is_not_resumed(self):
+        downloads = self.home / "downloads"
+        downloads.mkdir()
+        other = self.home / "elsewhere"
+        other.write_bytes(b"gen")
+        os.link(other, downloads / "app.AppImage.part")
+        with self.assertRaises(RuntimeError):
+            self.fetch(self.GOOD)
+        self.assertEqual(other.read_bytes(), b"gen")
+
+    def test_own_part_file_resumes_at_its_size(self):
+        downloads = self.home / "downloads"
+        downloads.mkdir()
+        (downloads / "app.AppImage.part").write_bytes(self.GOOD[:7])
+        curl = FakeCurl(self.GOOD)
+        target = downloads / "app.AppImage"
+        with mock.patch.object(ic.subprocess, "Popen", curl):
+            ic.download("https://example.invalid/app", target, len(self.GOOD), lambda *a: None, lambda: False,
+                        sha256=self.digest)
+        self.assertEqual(curl.argv[curl.argv.index("-C") + 1], "7")
+        self.assertEqual(target.read_bytes(), self.GOOD)
+
+    def test_planted_link_at_the_target_does_not_count_as_downloaded(self):
+        link = self.home / "model.gguf"
+        real = self.home / "someone-elses.gguf"
+        real.write_bytes(b"x" * 10)
+        link.symlink_to(real)
+        self.assertFalse(ic.own_regular_file(link))
+        plain = self.home / "mine.gguf"
+        plain.write_bytes(b"x")
+        self.assertTrue(ic.own_regular_file(plain))
 
     def test_github_asset_needs_a_sha256(self):
         asset = {"name": "Jan_1.0.0_amd64.AppImage", "browser_download_url": "https://github.com/x", "size": 5}

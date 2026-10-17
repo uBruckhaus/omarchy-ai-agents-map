@@ -142,7 +142,8 @@ def download_gguf(runtime_key: str, models_dir: Path, repo: str, entry: GgufFile
     for path, size in zip(entry.paths, sizes):
         target = folder / Path(path).name
         first = first or target
-        if not (target.exists() and target.stat().st_size == size):
+        # Downloaded before: only an own regular file of that size counts (not a link someone put there).
+        if not (install_ctl.own_regular_file(target) and target.stat().st_size == size):
             install_ctl.download(f"{base}/{repo}/resolve/main/{urllib.parse.quote(path)}", target, size,
                                  progress, cancelled, done, entry.size)
         done += size
