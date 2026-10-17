@@ -153,6 +153,28 @@ class LlamaInstallTest(InstallTest):
         self.assertTrue((self.home / "llama/b1-cuda/llama-server").exists())
         self.assertTrue((self.home / "llama/b1-cuda/libcudart.so.12").exists())
 
+    def test_detect_gpu_nvidia_vram_from_nvidia_smi(self):
+        """The NVIDIA driver has no mem_info_vram_total; the Intel chip beside it is not the name."""
+        drm = self.home / "drm"
+        for card, vendor, slot in (("card1", "0x10de", "0000:01:00.0"), ("card2", "0x8086", "0000:00:02.0")):
+            dev = self.home / "pci" / slot
+            dev.mkdir(parents=True)
+            (dev / "vendor").write_text(vendor + "\n")
+            (drm / card).mkdir(parents=True)
+            (drm / card / "device").symlink_to(dev)
+        lspci = (b"00:02.0 VGA compatible controller: Intel Corporation TigerLake-H GT1 [UHD Graphics]\n"
+                 b"01:00.0 3D controller: NVIDIA Corporation TU117GLM [T1200 Laptop GPU]\n")
+
+        def fake_output(argv, **_kw):
+            return (b"00000000:01:00.0, 4096\n", True) if argv[0] == "nvidia-smi" else (lspci, True)
+
+        real_path = ic.Path
+        with mock.patch.object(ic, "Path", lambda p: drm if p == "/sys/class/drm" else real_path(p)), \
+                mock.patch.object(ic.ai_core, "read_bounded_output", fake_output):
+            gpu = ic.detect_gpu()
+        self.assertEqual((gpu.vendor, gpu.vram), ("nvidia", 4096 * 1024 ** 2))
+        self.assertIn("T1200", gpu.name)
+
     def test_default_builds(self):
         llama = ic.LlamaCpp()
         self.assertEqual(llama.default_build(ic.Gpu("nvidia")), "cuda")

@@ -91,9 +91,28 @@ class Gpu:
 
 # --- what is on this machine --------------------------------------------------------------
 
+def _nvidia_vram() -> dict:
+    """PCI slot (0000:01:00.0) → video memory in bytes, from nvidia-smi: the NVIDIA
+    driver has no mem_info_vram_total in sysfs."""
+    try:
+        out, ok = ai_core.read_bounded_output(["nvidia-smi", "--query-gpu=pci.bus_id,memory.total",
+                                               "--format=csv,noheader,nounits"], max_bytes=4096, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    found = {}
+    for line in out.decode("utf-8", "replace").splitlines() if ok else []:
+        bus, _sep, total = line.partition(",")
+        try:
+            found[bus.strip().lower()[-12:]] = int(float(total) * 1024 ** 2)
+        except ValueError:
+            continue
+    return found
+
+
 def detect_gpu() -> Gpu:
     """The graphics card a runtime should use: the one with the most video memory."""
     cards = []
+    nvidia = None
     for device in sorted(Path("/sys/class/drm").glob("card[0-9]*/device")):
         try:
             vendor = (device / "vendor").read_text().strip()
@@ -101,6 +120,9 @@ def detect_gpu() -> Gpu:
             slot = device.resolve().name
         except (OSError, ValueError):
             continue
+        if vendor == "0x10de" and not vram:
+            nvidia = _nvidia_vram() if nvidia is None else nvidia
+            vram = nvidia.get(slot.lower(), 0)
         if vendor in ("0x1002", "0x10de") and not any(c[2] == slot for c in cards):
             cards.append((vendor, vram, slot))
     if not cards:
@@ -113,7 +135,8 @@ def detect_gpu() -> Gpu:
     try:
         out = ai_core.read_bounded_output(["lspci"], max_bytes=256 * 1024, timeout=5)[0].decode("utf-8", "replace")
         names = [l.split(": ", 1)[-1] for l in out.splitlines() if re.search(r"VGA|Display|3D", l)]
-        gpu.name = next((n for n in names if ("AMD" in n) == (gpu.vendor == "amd")), "")[:120]
+        brand = ("AMD", "ATI") if gpu.vendor == "amd" else ("NVIDIA",)   # not the Intel chip beside it
+        gpu.name = next((n for n in names if any(b in n for b in brand)), "")[:120]
     except (OSError, subprocess.SubprocessError):
         pass
     return gpu
