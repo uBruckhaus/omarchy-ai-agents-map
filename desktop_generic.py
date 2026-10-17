@@ -159,6 +159,11 @@ def focus_window(app_id: str) -> bool:
     return _on_window(lambda w: w.present())
 
 
+def focus_process(pids: list[int]) -> bool:
+    """Other programs' windows cannot be raised from here on most desktops (Wayland)."""
+    return False
+
+
 def is_maximized(app_id: str):
     return _window.is_maximized() if _window is not None else None
 

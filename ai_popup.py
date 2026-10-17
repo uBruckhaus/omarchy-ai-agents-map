@@ -27,6 +27,12 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango
 import atexit
 
 import agent_details
+import claude_sessions
+import herdr_state
+try:
+    import session_topics       # Asterism only: session titles and a written summary (not in the Omarchy plugin)
+except ImportError:
+    session_topics = None
 import desktop
 import agent_updates
 import agent_profiles
@@ -1694,16 +1700,26 @@ class AgentsMap(Adw.Application):
             logged_in = agent_status.login_state(agent.command) if agent.installed else None
             checks = agent_status.agent_checks(agent, info, record, inventory, link_hints.load(), logged_in,
                                                issue=agent_status.load_issues().get(agent.command))
-            GLib.idle_add(done, info, usage, checks)
+            sessions = None
+            if agent.command == "claude" and agent.installed:
+                try:
+                    sessions = claude_sessions.collect_by_id()      # numbers only, incremental
+                except Exception:
+                    sessions = None
+            try:
+                panes = herdr_state.snapshot()
+            except Exception:
+                panes = None
+            GLib.idle_add(done, info, usage, checks, sessions, panes)
 
-        def done(info, usage, checks):
+        def done(info, usage, checks, sessions, panes):
             if self.status_showing == ("agent", agent.command):
-                self.fill_agent_status(agent, info, usage, checks)
+                self.fill_agent_status(agent, info, usage, checks, sessions, panes)
             return False
 
         threading.Thread(target=work, daemon=True).start()
 
-    def fill_agent_status(self, agent, info, usage, checks):
+    def fill_agent_status(self, agent, info, usage, checks, sessions=None, panes=None):
         self.clear_status(agent.name)
         body = self.status_body
         # At the top: one sentence, then what it is doing now.
@@ -1716,6 +1732,12 @@ class AgentsMap(Adw.Application):
         else:
             now = _("Not running")
         body.append(self.status_hero(state, sentence, now))
+        if panes is not None:
+            # herdr's live state, read again every few seconds while this page shows.
+            self.herdr_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            body.append(self.herdr_box)
+            self.fill_herdr_panes(agent, panes)
+            self.watch_herdr(agent)
 
         tiles = []
         if usage is not None and usage.has_tokens:
@@ -1756,6 +1778,9 @@ class AgentsMap(Adw.Application):
                 _("Usage from {0}'s own session records (numbers and times only)").format(usage.source)
             self.note(body, source)
 
+        if sessions:
+            self.fill_session_projects(body, sessions)
+
         self.settings_heading(body, _("Setup"))
         body.append(self.check_list(checks))
         self.settings_heading(body, _("Configuration"))
@@ -1763,6 +1788,146 @@ class AgentsMap(Adw.Application):
         config.add_css_class("am-boxed")
         self.fill_agent(config, agent, summary=True)
         body.append(config)
+
+    HERDR_STATES = {"blocked": (N_("Waiting for you"), "dialog-question-symbolic"),
+                    "working": (N_("Working"), "content-loading-symbolic"),
+                    "idle": (N_("Idle"), "media-playback-pause-symbolic"),
+                    "done": (N_("Done"), "object-select-symbolic"),
+                    "unknown": (N_("Running"), "media-playback-start-symbolic")}
+    HERDR_EVERY = 4                # seconds between reads while an agent's page shows
+
+    def fill_herdr_panes(self, agent, panes):
+        """The agent's panes in herdr now: state, folder and workspace (nothing of the screen)."""
+        box = self.herdr_box
+        while (child := box.get_first_child()) is not None:
+            box.remove(child)
+        mine = herdr_state.for_agent(panes, agent.command)
+        if not mine:
+            return
+        self.settings_heading(box, _("In herdr now"))
+        listbox = self.boxed_list()
+        for pane in mine[:12]:
+            label, icon = self.HERDR_STATES[pane.state]
+            where = inventory.tilde(pane.cwd) if pane.cwd else _("Unknown folder")
+            space = " › ".join(x for x in (pane.session, pane.workspace) if x)
+            row = self.plain_row(_(label), _("{0} · workspace {1}").format(where, space) if space else where)
+            row.add_prefix(Gtk.Image.new_from_icon_name(icon))
+            if pane.state == "blocked":
+                row.add_css_class("warning")
+            if pane.pane_id:
+                row.set_activatable(True)
+                row.set_tooltip_text(_("Show this pane in herdr"))
+                row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
+                row.connect("activated", lambda _r, p=pane: self.focus_herdr_pane(p))
+            listbox.append(row)
+        box.append(listbox)
+        if len(mine) > 12:
+            self.note(box, ngettext("1 more pane", "{0} more panes", len(mine) - 12).format(len(mine) - 12))
+
+    def focus_herdr_pane(self, pane):
+        """herdr switches to the pane; its terminal window comes to the front (where the desktop can)."""
+        def work():
+            try:
+                switched = herdr_state.focus(pane)
+                shown = switched and desktop.focus_process(
+                    herdr_state.client_pids(pane.session, inventory.own_processes()))
+            except Exception:
+                switched = shown = False
+            GLib.idle_add(done, switched, shown)
+
+        def done(switched, shown):
+            if not switched:
+                self.toast(_("herdr could not switch to this pane"), 4)
+            elif not shown:
+                self.toast(_("Switched in herdr; open herdr in a terminal to see it"), 5)
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def watch_herdr(self, agent):
+        """While this agent's page shows: herdr's state again every HERDR_EVERY seconds (on a thread)."""
+        showing, box, busy = ("agent", agent.command), self.herdr_box, {"on": False}
+
+        def current() -> bool:
+            return self.status_showing == showing and getattr(self, "herdr_box", None) is box
+
+        def tick():
+            if not current():
+                return False
+            if not busy["on"]:
+                busy["on"] = True
+                threading.Thread(target=work, daemon=True).start()
+            return True
+
+        def work():
+            try:
+                panes = herdr_state.snapshot()
+            except Exception:
+                panes = None
+            GLib.idle_add(done, panes)
+
+        def done(panes):
+            busy["on"] = False
+            if current():
+                self.fill_herdr_panes(agent, panes or [])
+            return False
+
+        GLib.timeout_add_seconds(self.HERDR_EVERY, tick)
+
+    WEEKDAYS = (N_("Monday"), N_("Tuesday"), N_("Wednesday"), N_("Thursday"), N_("Friday"), N_("Saturday"),
+                N_("Sunday"))
+
+    @staticmethod
+    def duration_text(seconds: float) -> str:
+        minutes = int(seconds // 60)
+        return _("{0} h {1} min").format(minutes // 60, minutes % 60) if minutes >= 60 else \
+            _("{0} min").format(minutes)
+
+    def fill_session_projects(self, body, sessions):
+        """Claude Code's last 30 days per project folder: working time, sessions, tokens, lines
+        changed, API value (numbers from its session files; no text)."""
+        since = time.time() - 30 * 86400
+        rows = claude_sessions.projects(list(sessions.values()), since)
+        if not rows:
+            return
+        self.settings_heading(body, _("Projects, last 30 days"))
+        listbox = self.boxed_list()
+        for project in rows[:10]:
+            parts = [_("{0} working").format(self.duration_text(project.active)),
+                     ngettext("1 session", "{0} sessions", project.sessions).format(project.sessions),
+                     _("{0} tokens").format(short_number(project.tokens))]
+            if project.subagent_runs:
+                parts.append(ngettext("1 subagent run", "{0} subagent runs", project.subagent_runs)
+                             .format(project.subagent_runs))
+            if project.lines_added or project.lines_removed:
+                parts.append(_("+{0} −{1} lines").format(project.lines_added, project.lines_removed))
+            if project.cost:
+                parts.append(_("API value {0}").format(f"$ {project.cost:.2f}"))
+            row = self.plain_row(inventory.tilde(project.cwd) if project.cwd != "?" else _("Unknown folder"),
+                                 " · ".join(parts))
+            row.set_title_selectable(True)
+            row.add_prefix(Gtk.Image.new_from_icon_name("folder-symbolic"))
+            listbox.append(row)
+        body.append(listbox)
+        runs = claude_sessions.subagents(list(sessions.values()), since)
+        if runs:
+            self.settings_heading(body, _("Subagents, last 30 days"))
+            listbox = self.boxed_list()
+            for kind, count, tokens, active in runs[:10]:
+                row = self.plain_row(kind if kind != "?" else _("Unknown type"), " · ".join((
+                    ngettext("1 run", "{0} runs", count).format(count),
+                    _("{0} tokens").format(short_number(tokens)),
+                    _("{0} working").format(self.duration_text(active)))))
+                row.add_prefix(Gtk.Image.new_from_icon_name("system-run-symbolic"))
+                listbox.append(row)
+            body.append(listbox)
+        peak = claude_sessions.busiest(list(sessions.values()), since)
+        if peak is not None:
+            self.note(body, _("Most active: {0}, around {1}:00").format(_(self.WEEKDAYS[peak[0]]), peak[1]))
+        self.note(body, _("Numbers from Claude Code's session files (no text is read). The API value is what the "
+                          "tokens would cost at API prices, not what a plan costs."))
+        if session_topics is not None:
+            session_topics.fill(self, body, sessions, since)
 
     def open_runtime_status(self, key: str):
         rt = next((r for r in self.inventory.runtimes if r.key == key), None)
@@ -5755,7 +5920,11 @@ class AgentsMap(Adw.Application):
         page.append(rule)
         self.settings_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18, margin_top=6, margin_bottom=12)
         self.settings_box.add_css_class("am-settings")
-        clamp = Adw.Clamp(maximum_size=760, tightening_threshold=560, child=self.settings_box)
+        # One column: at most 760 px wide, centred. Two columns: the whole width, half and half.
+        # Pixels, not libadwaita's default "sp", so the page does not grow and shrink with the text size.
+        clamp = Adw.Clamp(maximum_size=760, tightening_threshold=560, child=self.settings_box,
+                          unit=Adw.LengthUnit.PX)
+        self.settings_clamp = clamp
         page.append(self.page_scroller(clamp))
         return page
 
@@ -5964,10 +6133,23 @@ class AgentsMap(Adw.Application):
         box = self.settings_box
         while (child := box.get_first_child()) is not None:
             box.remove(child)
-        # First, so a "Not now" at the first start is easy to redo (only where the app offers an entry).
+        # Two columns when the window is wide enough (General left; the app, Models and Window right),
+        # else one, so everything fits without scrolling.
+        wide = self.window is not None and self.window.get_width() >= 900
+        self.settings_two_columns = wide
+        self.settings_clamp.set_maximum_size(100000 if wide else 760)
+        self.settings_clamp.set_tightening_threshold(100000 if wide else 560)
+        columns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL if wide else Gtk.Orientation.VERTICAL,
+                          spacing=24 if wide else 18, homogeneous=wide)
+        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18, valign=Gtk.Align.START)
+        right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18, valign=Gtk.Align.START)
+        columns.append(left)
+        columns.append(right)
+        box.append(columns)
+        self.fill_general_settings(left, right)
         if desktop.launcher_entry():
-            self.fill_launcher_setting(box)
-        self.fill_general_settings(box)
+            self.fill_launcher_setting(right)
+            right.reorder_child_after(right.get_last_child(), None)     # the app's own entry first on the right
         self.settings_ready = True
 
     def preference_group(self, box, title: str) -> Adw.PreferencesGroup:
@@ -5975,21 +6157,40 @@ class AgentsMap(Adw.Application):
         box.append(group)
         return group
 
+    @staticmethod
+    def short_hint(hint: str) -> str:
+        """A long explanation's first sentence (the whole one goes into the tooltip)."""
+        first = re.split(r"(?<=[.;])\s", hint, maxsplit=1)[0].rstrip(".;") + "."
+        return first if len(hint) > 90 and len(first) < len(hint) else hint
+
     def switch_row(self, group, title: str, hint: str, active: bool, on_toggle) -> Adw.SwitchRow:
-        row = Adw.SwitchRow(title=title, subtitle=hint, active=active, use_markup=False)
+        short = self.short_hint(hint)
+        row = Adw.SwitchRow(title=title, subtitle=short, active=active, use_markup=False)
+        if short != hint:
+            row.set_tooltip_text(hint)
         row.connect("notify::active", lambda r, *_: self.settings_ready and on_toggle(r.get_active()))
         group.add(row)
         return row
 
     def combo_row(self, group, title: str, hint: str, labels: list[str], selected: int, on_change) -> Adw.ComboRow:
         """A long explanation would squeeze the chosen value: its first sentence shows, all of it on hover."""
-        first = re.split(r"(?<=[.;])\s", hint, maxsplit=1)[0].rstrip(".;") + "."
-        short = first if len(hint) > 90 and len(first) < len(hint) else hint
+        short = self.short_hint(hint)
         row = Adw.ComboRow(title=title, subtitle=short, model=Gtk.StringList.new(labels), use_markup=False)
         if short != hint:
             row.set_tooltip_text(hint)
         row.set_selected(max(0, selected))
         row.connect("notify::selected", lambda r, *_: self.settings_ready and on_change(r.get_selected()))
+        # The framed value and arrow at their own height, centred, not the row's (see the CSS).
+        stack = [row]
+        while stack:
+            widget = stack.pop()
+            if widget.has_css_class("suffixes"):
+                widget.set_valign(Gtk.Align.CENTER)
+                break
+            child = widget.get_first_child()
+            while child is not None:
+                stack.append(child)
+                child = child.get_next_sibling()
         group.add(row)
         return row
 
@@ -6019,7 +6220,8 @@ class AgentsMap(Adw.Application):
                         ai_core.load_settings().get("launcher_entry") is True,
                         lambda on: (self.save_setting(launcher_entry=on), app_entry.ensure_entry(on)))
 
-    def fill_general_settings(self, box):
+    def fill_general_settings(self, box, side):
+        """General in `box`; Models and Window in `side` (the right column, or below)."""
         settings = ai_core.load_settings()
         group = self.preference_group(box, _("General"))
         codes = ["auto"] + [code for code, _name in i18n.LANGUAGES]
@@ -6041,11 +6243,15 @@ class AgentsMap(Adw.Application):
                        corners.CHOICES.index(ai_core.saved_corners()),
                        lambda i: (self.save_setting(corners=corners.CHOICES[i]), self.apply_theme_css()))
         if desktop.NAME == "omarchy":
-            self.combo_row(group, _("Look"),
+            look = self.combo_row(group, _("Look"),
                            _("The colours, light or dark: from the Omarchy theme, or GNOME's Adwaita (light or dark "
                              "and the accent colour as set in the system). Everything else works the same."),
                            [_("Omarchy theme"), _("GNOME (Adwaita)")], ai_core.LOOKS.index(ai_core.saved_look()),
                            lambda i: self.set_look(ai_core.LOOKS[i]))
+            # One column: a line break after "Adwaita", before its bracket (the same place in every
+            # language). Two columns are too narrow for it: the text just wraps.
+            if not getattr(self, "settings_two_columns", False):
+                look.set_subtitle(look.get_subtitle().replace(" (", "\n(", 1))
         self.switch_row(group, _("Look up new agents"),
                         _("When a new agent is installed, Claude Code or Codex finds out on the web where it keeps "
                           "MCP servers and skills (once, a few minutes in the background)."),
@@ -6066,9 +6272,11 @@ class AgentsMap(Adw.Application):
         self.folder_row(group, _("Agents start in"),
                         _("The folder an agent started here (Start on its card) works in. Enter saves it."),
                         self.agent_folder(), self.save_agent_folder)
+        models_group = self.preference_group(side, _("Models"))
         if desktop.NAME == "omarchy":
             # Hyprland tiles the window: what "Maximize to see the map" does, with its sketch below
             # (last in the group: libadwaita puts what is not a row after the list).
+            group = self.preference_group(side, _("Window"))
             modes = previews.WIDEN_MODES
             self.combo_row(group, _("Too narrow for the map"),
                            _("What “Maximize to see the map” in the header does when the window is tiled too narrow "
@@ -6081,7 +6289,7 @@ class AgentsMap(Adw.Application):
             preview.append(previews.WidenSketch(lambda: self.theme.colors, self.widen_mode))
             group.add(preview)
 
-        group = self.preference_group(box, _("Models"))
+        group = models_group
         models = self.folder_row(group, _("Models folder"),
                                  _("One folder for the models of every local LLM. On this PC (Add models) looks "
                                    "here too."), self.models_root(), self.save_models_root)
@@ -6851,6 +7059,14 @@ class AgentsMap(Adw.Application):
         progressbar.am-progress progress {{ min-height: 6px; background: {accent_hex}; border-radius: 3px; }}
         .am-card button.am-menu-item {{ padding: 3px 8px; font-size: 12px; }}
         .am-form-list row .title {{ min-width: 110px; }}
+        /* A combo row's chosen value (its inline list): the size and colour of the subtitle, not of the title. */
+        row.combo listview.inline label {{ font-size: smaller; color: {dim_hex}; }}
+        row.combo popover listview label {{ font-size: smaller; }}
+        /* The chosen value and its arrow framed like the other controls, well apart from a long explanation. */
+        row.combo listview.inline {{ min-width: 128px; }}    /* the chosen value stays readable; the explanation wraps */
+        row.combo box.suffixes {{ margin-left: 24px; padding: 3px 6px 3px 10px; border: 1px solid alpha({fg_hex}, 0.28);
+            border-radius: {max(4, min(radius, 8))}px; }}
+        row.combo:hover box.suffixes {{ border-color: alpha({fg_hex}, 0.45); }}
         .am-card list.am-list:not(.boxed-list) {{ background: alpha({fg_hex}, 0.03); border-radius: {radius}px; }}
         .am-card list.am-list row:selected {{ background: alpha({accent_hex}, 0.22); }}
         .am-card-check {{ color: {accent_hex}; font-weight: 700; }}

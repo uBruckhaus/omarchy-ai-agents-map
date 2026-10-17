@@ -211,6 +211,32 @@ def focus_window(app_id: str) -> bool:
     return _dispatch(f'hl.dsp.focus({{ window = "{_selector(app_id)}" }})')
 
 
+def _parent(pid: int) -> int:
+    """The parent of one of this user's processes (0: unknown, or not this user's)."""
+    try:
+        if os.stat(f"/proc/{pid}").st_uid != os.getuid():
+            return 0
+        with open(f"/proc/{pid}/stat", "rb") as handle:
+            stat = handle.read(4096)
+        return int(stat[stat.rindex(b")") + 2:].split()[1])    # after "(comm)": state, ppid
+    except (OSError, ValueError, IndexError):
+        return 0
+
+
+def focus_process(pids: list[int]) -> bool:
+    """Bring the window of one of these programs to the front: the window whose process is
+    the program or one of its parents (the terminal a TUI runs in), switching workspaces."""
+    windows = {c.get("pid") for c in _clients() if isinstance(c.get("pid"), int)}
+    for pid in pids[:20]:
+        for _step in range(32):
+            if pid <= 1:
+                break
+            if pid in windows:
+                return _dispatch(f'hl.dsp.focus({{ window = "pid:{int(pid)}" }})')
+            pid = _parent(pid)
+    return False
+
+
 def is_maximized(app_id: str) -> bool | None:
     """Whether Hyprland shows our window maximized or full screen (None: unknown)."""
     own = own_window(_clients(), app_id)

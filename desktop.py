@@ -25,6 +25,8 @@ The interface (each implementation provides all of it):
     stays_in_background() -> bool whether closing only hides the window (else it quits when nothing runs in it)
     attach_window(window)         the app's Gtk.Window, once it exists
     focus_window(app_id) -> bool  bring the app's window to the front (switching workspaces)
+    focus_process(pids) -> bool   bring the window of one of these programs (or of a parent: its terminal)
+                                  to the front; False when the desktop cannot
     is_maximized(app_id) -> bool|None
     widen(app_id) -> bool         room for the map: move to a free workspace, else maximize
     maximize(app_id) -> bool      maximize where it is

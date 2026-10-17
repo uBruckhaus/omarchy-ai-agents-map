@@ -20,8 +20,8 @@ and it stays open while you work in other windows. The bar button opens it, brin
 (also from another workspace), or hides it when it is already in front. Closing the window hides it:
 the program keeps running in the background, with any agent started in it, and opens again at once.
 
-Requires Python with PyGObject and GTK4 in an Omarchy/Hyprland session; both come with a standard
-Omarchy install. Running agents inside the window (Start on an agent's card) needs VTE for GTK4
+Requires Python with PyGObject, GTK4 and libadwaita in an Omarchy/Hyprland session; all come with a
+standard Omarchy install (libadwaita with Nautilus). Running agents inside the window (Start on an agent's card) needs VTE for GTK4
 (`sudo pacman -S vte4`); without it, Start opens the agent in your normal terminal. Installing local LLMs uses `curl` and `tar` (and `uv` for
 vLLM); the MCP and skills search uses `curl`.
 
@@ -96,7 +96,12 @@ what is missing (install, models, an agent to connect).
     ones first with their version, Omarchy's default agent marked. Details: plan, rate limits with
     reset times and today's usage (from Omarchy's own usage data, refreshed when you open the card),
     model, providers (local ones named by runtime), MCP servers, skills, tools, last used, settings
-    folder.
+    folder. Claude Code's details also show the last 30 days per project folder (working time,
+    sessions, tokens, lines changed, what the tokens would cost at API prices) and its subagent runs
+    per type. **In herdr now**: when you run agents in [herdr](https://herdr.dev), each of the
+    agent's herdr panes with its state (waiting for you, working, idle, done) and folder, read again
+    every 4 seconds while the page is open; a click on one switches herdr to that pane and brings
+    its terminal window to the front.
   - **Local LLMs**: llama.cpp, Ollama, LM Studio, vLLM, Jan and KoboldCpp: running or stopped, the address, the user
     service that starts it, the models folder and every model it can serve, and which agents use it.
   - **MCP servers**: each server with what it runs (a program or a remote host) and which agents
@@ -409,7 +414,15 @@ the backup and Undo), and the agent is told the same context. A context you set 
   databases, opened read-only, and the names and dates of Pi's session files (never opened). No
   conversation text is read. Whether an agent is signed in is judged from whether its credential
   file exists (never opened) or an API-key variable is set (its name only); Cursor CLI is asked
-  with its own `cursor-agent status`.
+  with its own `cursor-agent status`. Claude Code's session files (`~/.claude/projects/…/*.jsonl`,
+  subagent runs included) are read for numbers only: of model replies the model, token counts, time
+  and folder, of its cost summaries lines changed and cost, of a subagent run's `.meta.json` only
+  its agent type; your own regular files only (no links), lines over 8 MiB skipped, at most 2 GB per
+  run, then on from where it stopped. The numbers are cached owner-only in
+  `~/.cache/ai-agents-map/claude-sessions.json`. herdr's live state comes from
+  `herdr api snapshot` (per running session), only when that session's socket exists and is
+  yours; of its answer (capped at 4 MiB) only the agent, its state, the folder and the workspace
+  name are kept, no terminal titles or screen text.
 - **Network** (each only on a click, except where noted): GitHub's release API and release
   downloads for Ollama, llama.cpp, Jan and KoboldCpp (each checked against the release's SHA-256;
   every download, models included, goes into a `.part` file that is created new without following
@@ -445,7 +458,10 @@ the backup and Undo), and the agent is told the same context. A context you set 
   server's command when you click **Test** or ask for its tools, or right after you connect an agent
   to it (the check above; in its own process group, stopped afterwards); an AppImage's `--appimage-extract` only on **Look inside…**, when adding a server
   from it, or for a newer version of an app looked into before; `claude -p` or `codex exec` for a new agent; `wl-paste`,
-  `lspci`, `hyprctl`.
+  `lspci`, `hyprctl`; `herdr [--session <name>] api snapshot` while an agent's details page is open
+  and a herdr server of yours runs (never starts one), and `herdr agent focus <pane>` on a click on
+  a herdr pane (the pane id checked against a strict pattern), then `hyprctl` focuses the window of
+  the terminal that runs herdr (found through the parents of your own herdr processes).
 - **Writes**, each only after you confirm it with its preview (except AI Agents Map's own state):
   the agents' settings files named above (always written owner-only, 0600, since they may hold API keys or MCP secrets), links in the
   agents' skills folders, fetched skill files, programs you install into a folder you choose (one
@@ -479,7 +495,8 @@ agent, a provider and its model, an MCP server and a skill folder, with made-up 
 with **Start**. More of the manual will follow there.
 
 The gear (Ctrl+,) opens the settings: **Language** (system or one of English, Deutsch, Français,
-Español, Italiano, Português, Nederlands, Polski), **Corners** (like windows, rounded or square, as
+Español, Italiano, Português, Nederlands, Polski), **Look** (the colours from the Omarchy theme,
+or GNOME's Adwaita with the system's light/dark and accent colour), **Corners** (like windows, rounded or square, as
 in App Manager and Theme Manager), **Look up new agents**, **Show what you could set up** (the "Show
 N more you could set up" hint below the cards), **Start local LLMs with their agents**, **Too narrow for the map** (what the header's "Maximize to see the map" does: move the window to a
 free workspace, maximize it where it is, or show no hint; with an animated preview), **In the app
@@ -532,5 +549,7 @@ rm -rf ~/.config/omarchy/ai-agents-map ~/.local/state/ai-agents-map ~/.cache/ai-
 | `agent_profiles.py` | Looking up new agents on the web |
 | `install_ctl.py`, `runtime_ctl.py`, `models_ctl.py`, `context_ctl.py` | Local LLMs: install, start/stop, models, context size |
 | `netfetch.py` | The one bounded way to the web (curl) |
+| `claude_sessions.py`, `herdr_state.py` | Claude Code's numbers per project and subagent; herdr's live state and pane focus |
+| `desktop.py`, `desktop_omarchy.py`, `desktop_generic.py` | Everything desktop-specific behind one interface: Omarchy/Hyprland here; the generic one is used only outside Omarchy (the same code as the stand-alone app Asterism) |
 | `ai_core.py`, `palette.py`, `corners.py`, `pidfile.py`, `i18n.py`, `I18n.js` | Shared helpers, theme colours, corners, PID file, languages |
 | `tests/` | Unit tests (`python3 -m unittest discover -s tests`) |
