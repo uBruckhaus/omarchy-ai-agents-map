@@ -127,6 +127,54 @@ class LlamaInstallTest(InstallTest):
         unit = (self.home / ".config/systemd/user/llama-server.service").read_text()
         self.assertIn("--models-preset", unit)
 
+    def test_llamacpp_cuda_two_archives(self):
+        inst = ic.LlamaCpp()
+        inst.env_file = self.home / ".config/llama.cpp/server.env"
+        archives = {}
+        for name, top, file in (("llama.tgz", "llama-b1", "llama-server"),
+                                ("cudart.tgz", "cudart-llama-b1", "libcudart.so.12")):
+            src = self.home / "src3" / top
+            src.mkdir(parents=True)
+            (src / file).write_text("x\n")
+            archives[name] = self.home / name
+            with tarfile.open(archives[name], "w:gz") as tar:
+                tar.add(src, arcname=top)
+        release = ic.Release("b1-cuda", [(n, "https://example.invalid/" + n, a.stat().st_size) for n, a in archives.items()],
+                             {n: ic.sha256_of(a) for n, a in archives.items()})
+
+        def fake_download(url, target, size, progress, cancelled, done_before=0, total=0, sha256=""):
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(archives[target.name].read_bytes())
+
+        with mock.patch.object(ic, "download", fake_download), \
+                mock.patch.object(ic, "HOME", self.home):
+            inst.install(self.home / "llama", self.home / "Models", False, False, ic.Gpu("nvidia", index=0, count=1),
+                         release, lambda *a: None, lambda: False)
+        self.assertTrue((self.home / "llama/b1-cuda/llama-server").exists())
+        self.assertTrue((self.home / "llama/b1-cuda/libcudart.so.12").exists())
+
+    def test_detect_gpu_nvidia_vram_from_nvidia_smi(self):
+        """The NVIDIA driver has no mem_info_vram_total; the Intel chip beside it is not the name."""
+        drm = self.home / "drm"
+        for card, vendor, slot in (("card1", "0x10de", "0000:01:00.0"), ("card2", "0x8086", "0000:00:02.0")):
+            dev = self.home / "pci" / slot
+            dev.mkdir(parents=True)
+            (dev / "vendor").write_text(vendor + "\n")
+            (drm / card).mkdir(parents=True)
+            (drm / card / "device").symlink_to(dev)
+        lspci = (b"00:02.0 VGA compatible controller: Intel Corporation TigerLake-H GT1 [UHD Graphics]\n"
+                 b"01:00.0 3D controller: NVIDIA Corporation TU117GLM [T1200 Laptop GPU]\n")
+
+        def fake_output(argv, **_kw):
+            return (b"00000000:01:00.0, 4096\n", True) if argv[0] == "nvidia-smi" else (lspci, True)
+
+        real_path = ic.Path
+        with mock.patch.object(ic, "Path", lambda p: drm if p == "/sys/class/drm" else real_path(p)), \
+                mock.patch.object(ic.ai_core, "read_bounded_output", fake_output):
+            gpu = ic.detect_gpu()
+        self.assertEqual((gpu.vendor, gpu.vram), ("nvidia", 4096 * 1024 ** 2))
+        self.assertIn("T1200", gpu.name)
+
     def test_default_builds(self):
         llama = ic.LlamaCpp()
         self.assertEqual(llama.default_build(ic.Gpu("nvidia")), "cuda")
