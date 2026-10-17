@@ -1033,5 +1033,8 @@
  "· {0} to copy to another disk": "· {0} te kopiëren naar een andere schijf",
  "− Fold unused folders": "− Ongebruikte mappen inklappen",
  "running here": "draait hier",
- "one here": "één hier"
+ "one here": "één hier",
+ "Hide until the next start": "Verbergen tot de volgende start",
+ "Health check line": "Regel gezondheidscheck",
+ "On the main page when something needs fixing (× hides it until the next start).": "Op de hoofdpagina als er iets te verhelpen is (× verbergt hem tot de volgende start)."
 }

@@ -1070,5 +1070,8 @@
  "· {0} to copy to another disk": "· {0} do skopiowania na inny dysk",
  "− Fold unused folders": "− Zwiń nieużywane foldery",
  "running here": "działa tutaj",
- "one here": "jeden tutaj"
+ "one here": "jeden tutaj",
+ "Hide until the next start": "Ukryj do następnego uruchomienia",
+ "Health check line": "Wiersz kontroli stanu",
+ "On the main page when something needs fixing (× hides it until the next start).": "Na stronie głównej, gdy coś wymaga naprawy (× ukrywa go do następnego uruchomienia)."
 }

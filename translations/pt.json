@@ -1033,5 +1033,8 @@
  "· {0} to copy to another disk": "· {0} para copiar para outro disco",
  "− Fold unused folders": "− Recolher pastas não usadas",
  "running here": "em execução aqui",
- "one here": "um aqui"
+ "one here": "um aqui",
+ "Hide until the next start": "Ocultar até o próximo início",
+ "Health check line": "Linha da verificação de saúde",
+ "On the main page when something needs fixing (× hides it until the next start).": "Na página principal quando há algo a corrigir (× oculta-a até o próximo início)."
 }

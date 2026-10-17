@@ -612,7 +612,18 @@ class AgentsMap(Adw.Application):
         self.health_line.set_child(line)
         self.health_line.set_tooltip_text(_("What works, what to fix, and what you can do with this setup"))
         self.health_line.connect("clicked", lambda *_: self.open_health())
-        page.append(self.health_line)
+        # Shown only when something needs fixing; × hides it until the next start (Settings › Health check).
+        self.health_bar = Gtk.Box(spacing=4, visible=False)
+        self.health_line.set_hexpand(True)
+        self.health_bar.append(self.health_line)
+        dismiss = Gtk.Button(icon_name="window-close-symbolic", valign=Gtk.Align.CENTER)
+        dismiss.add_css_class("flat")
+        dismiss.add_css_class("circular")
+        dismiss.set_tooltip_text(_("Hide until the next start"))
+        dismiss.connect("clicked", lambda *_: self.dismiss_health_line())
+        self.health_bar.append(dismiss)
+        self.health_dismissed = False
+        page.append(self.health_bar)
         self.health_report = None
         self.health_running = False
         body = Gtk.Box(spacing=0)
@@ -5885,8 +5896,20 @@ class AgentsMap(Adw.Application):
         page.append(self.page_scroller(self.health_body))
         return page
 
+    def set_health_line(self, on: bool):
+        self.save_setting(health_line=on)
+        report = self.health_report
+        self.health_bar.set_visible(on and report is not None and report.level == "warn" and not self.health_dismissed)
+
+    def dismiss_health_line(self):
+        self.health_dismissed = True
+        self.health_bar.set_visible(False)
+
     def open_health(self):
-        self.health_from = self.view
+        # Where it was opened from (the update page, a terminal, Settings…): Back returns there.
+        here = (self.stack.get_visible_child_name(), self.right_stack.get_visible_child_name())
+        if here != ("main", "health"):
+            self.health_from = here
         self.show_page("health")
         self.update_header()
         if self.health_report is not None:
@@ -5894,7 +5917,23 @@ class AgentsMap(Adw.Application):
         self.run_health(show=True)
 
     def close_health(self):
-        self.show_view("main", save=False)
+        """Back (button, Backspace, Esc): the page it was opened from."""
+        outer, inner = getattr(self, "health_from", None) or ("main", "map")
+        self.health_from = None
+        if outer != "main" and self.stack.get_child_by_name(outer) is not None:
+            self.stack.set_visible_child_name(outer)
+        elif inner and inner not in ("map", "health") and self.right_stack.get_child_by_name(inner) is not None \
+                and not (inner == "install" and self.installing is None):
+            self.stack.set_visible_child_name("main")
+            self.right_stack.set_visible_child_name(inner)
+        else:
+            self.show_view("main", save=False)
+            return
+        self.place_panes()
+        self.update_header()
+        command = inner[5:] if outer == "main" and inner and inner.startswith("term:") else ""
+        if command in getattr(self, "sessions", {}):
+            GLib.idle_add(lambda: self.sessions[command].terminal.grab_focus() and False)
 
     def run_health(self, show: bool = False):
         """In the background: the agents' and local LLMs' own setup checks, the PC, then health.check."""
@@ -5940,6 +5979,8 @@ class AgentsMap(Adw.Application):
                 self.health_mark.remove_css_class(f"am-health-{level}")
             self.health_mark.add_css_class(f"am-health-{report.level}")
             self.health_text.set_label(report.summary())
+            self.health_bar.set_visible(report.level == "warn" and not self.health_dismissed
+                                        and ai_core.load_settings().get("health_line", True) is not False)
             if self.page_name() == "health":
                 self.fill_health(report)
             return False
@@ -7151,6 +7192,11 @@ class AgentsMap(Adw.Application):
                        [_("System ({0})").format(i18n.language_name(i18n.system_language()))]
                        + [name for _code, name in i18n.LANGUAGES],
                        codes.index(setting) if setting in codes else 0, lambda i: self.set_language(codes[i]))
+        self.button_row(group, _("Health check"), _("What works, what to fix, and what you can do with this setup"),
+                        _("Open"), self.open_health)
+        self.switch_row(group, _("Health check line"),
+                        _("On the main page when something needs fixing (× hides it until the next start)."),
+                        settings.get("health_line", True) is not False, self.set_health_line)
         self.combo_row(group, _("Start with"),
                        _("What the cards and the map show when AI Agents Map opens; My setup and + Available "
                          "in the header switch for the moment."),
