@@ -3,6 +3,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+# The window class and the mixins it is built from.
+WINDOW_MODULES = ("ai_popup.py", "settings_pages.py", "theme_css.py")
 # Everything that runs an AppImage (its own --appimage-extract).
 RUNNERS = {"look_inside", "unpack_bin", "unpack", "unpack_appimage"}
 # The only window methods that may reach them: each runs after the user's click.
@@ -20,9 +22,10 @@ class NoRunOnOpenTest(unittest.TestCase):
     a newer file next to a known app is only named (mcp_scan.new_versions_found)."""
 
     def test_only_click_handlers_run_appimages(self):
-        tree = ast.parse((ROOT / "ai_popup.py").read_text())
         reaching = set()
-        for cls in (n for n in tree.body if isinstance(n, ast.ClassDef)):
+        classes = [n for name in WINDOW_MODULES for n in ast.parse((ROOT / name).read_text()).body
+                   if isinstance(n, ast.ClassDef)]
+        for cls in classes:
             for method in (n for n in cls.body if isinstance(n, ast.FunctionDef)):
                 for node in ast.walk(method):      # nested work()/done() included
                     if isinstance(node, ast.Call) and getattr(node.func, "attr", "") in RUNNERS:
