@@ -96,12 +96,29 @@ the cards stay beside them; **Back** brings the map back.
 
 **ⓘ Details** on an agent's card sums it up at the top: ready or not (and why), running now or
 when it was last used, today's and the last 7 days' tokens and sessions, the plan, a chart of
-tokens per day, its limits and tokens by model. Then **Setup**: every check with a ✓, or with
-what to do next when it is missing (sign in with which command, which subscription or API key it
-needs and where to get one, install or start its local LLM, download a model, add MCP servers or
-skills, a connection that does not work). **Configuration** lists its settings. A local LLM's
-ⓘ Details does the same: running, GPU memory and loaded models, models, connected agents, and
-what is missing (install, models, an agent to connect).
+tokens per day, its limits and tokens by model. Then the **Healthy & Security check**, with a
+health badge (Healthy, Needs a look, Not set up) and a risk badge (low, medium, high risk):
+
+- **Health**: every check with a ✓, or with what to do next when it is missing (sign in with which
+  command, which subscription or API key it needs and where to get one, install or start its local
+  LLM, download a model, add MCP servers or skills, a connection that does not work).
+- **Security settings**: what the agent may do without asking you, read from its own settings file
+  — Claude Code (permission mode, sandbox, block bypass mode, allow/ask/deny rules), Codex (when it
+  asks, sandbox, network in the sandbox, trusted folders), Copilot (permission mode, trusted
+  folders), Cursor CLI (approval, sandbox, network, web search, allow/deny rules), Hermes
+  (dangerous commands, hide secrets, where commands run), OpenCode (ask/allow/never for editing,
+  commands, web pages, outside the project) and Pi (its tools; Pi never asks). Each setting opens
+  to every choice with what it means and its risk; **Use…** shows the change (old → new, risk
+  before and after, the lines of the file) and **Change** writes only that key, with a backup and
+  Undo.
+- **Risk management**: what the settings mean together, most serious first, with what lowers each
+  risk (**Lower it…** opens the change); protections in place get a ✓.
+- **What the words mean**: sandbox, approval, allow and deny rules, trusted folders, network,
+  bypass, automatic review, prompt injection, MCP servers, explained.
+
+**Configuration** lists its settings. A local LLM's ⓘ Details does the same: running, GPU memory
+and loaded models, models, connected agents, what is missing (install, models, an agent to
+connect), and who can reach it (only this PC on 127.0.0.1, or your whole network).
 
 - **Cards**, in four sections. Click a card to open its details.
   - **Agents**: every coding agent Omarchy offers (its Setup → Defaults → Agent list), installed
@@ -503,6 +520,10 @@ the backup and Undo), and the agent is told the same context. A context you set 
   `manifest.json` (a plain plugin id only), an agent by its name, else the program's name. Nothing
   of what they send is read. AI Agents Map itself and LLM Monitor (status reads only) are left out.
   At most 16 names per local LLM, each forgotten 30 s after its last request; shown as plain text.
+- **Healthy & Security check** reads only the security keys of the agents' settings files named in
+  the card (never credential files). **Disk space** walks the agents' program and data folders and
+  the local LLMs' program, data and model folders with `lstat` only (no file is opened, links are
+  not followed), at most 400 000 entries per folder and 60 s in all, plus `statvfs` of their disks.
 - **Working now** reads, every 2 s while the window is open, the CPU time of the running agents'
   own processes (`/proc/<pid>/stat`, your own UID only) and the modification times of their session
   files (no contents).
@@ -567,7 +588,10 @@ the backup and Undo), and the agent is told the same context. A context you set 
   SIGHUP to its own process group (it was started here as a session of its own), SIGTERM after 3 s
   and SIGKILL after 6 s if it is still there.
 - **Writes**, each only after you confirm it with its preview (except AI Agents Map's own state):
-  the agents' settings files named above (always written owner-only, 0600, since they may hold API keys or MCP secrets), links in the
+  the agents' settings files named above, security settings included (`~/.claude/settings.json`,
+  `~/.codex/config.toml`, `~/.copilot/settings.json`, `~/.config/cursor/cli-config.json`,
+  `~/.hermes/config.yaml`, `~/.config/opencode/opencode.json`, `~/.pi/agent/settings.json`: only the
+  one key changed; always written owner-only, 0600, since they may hold API keys or MCP secrets), links in the
   agents' skills folders, fetched skill files, programs you install into a folder you choose (one
   folder per version, a `current` link, the command in `~/.local/bin`), user services in
   `~/.config/systemd/user`, their settings in `~/.config/<runtime>/`, LM Studio and Jan desktop
@@ -597,8 +621,17 @@ the backup and Undo), and the agent is told the same context. A context you set 
 **?** (F1), left of the gear, opens **Help**: **Open user manual** (the PDF manual of this version,
 `assets/user-manual.pdf`, opened in the desktop's PDF viewer through GTK's file launcher), an animation of setting up by drawing (an agent, a
 provider and its model, an MCP server and a skill folder, with made-up boxes), started with
-**Start**, and LLM Monitor, the bar plugin that shows what a local LLM is doing (its picture, its
+**Start**, **Disk space** (below), and LLM Monitor, the bar plugin that shows what a local LLM is doing (its picture, its
 marketplace page and its install command with a copy button).
+
+**Disk space: agents, local LLMs and models** (in Help, measured in the background when Help opens,
+again after 10 minutes or on **Measure again**): its heading sums it up (agents, local LLMs, models,
+in all); inside, tiles and a bar split the total into agent programs, agent data, local LLMs and
+models, then **Disks** (space for AI and free space per disk), **Agents**, **Local LLMs** and
+**Models folders**, each folded with its sum and largest entries. Opened, every entry lists its
+folders with size and file count and opens them in the file manager; agents that keep many old mise
+versions get a `mise prune` tip. Sizes are space on disk, each file counted once (hard links too),
+links not followed; nothing is deleted from here.
 
 The gear (Ctrl+,) opens the settings: **Language** (system or one of English, Deutsch, Français,
 Español, Italiano, Português, Nederlands, Polski), **Look** (the colours from the Omarchy theme,

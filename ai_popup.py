@@ -28,6 +28,8 @@ import atexit
 
 import agent_activity
 import agent_details
+import agent_security
+import disk_usage
 import claude_sessions
 import herdr_state
 try:
@@ -176,6 +178,49 @@ def monitor_height() -> int:
         for i in range(monitors.get_n_items()):
             heights.append(monitors.get_item(i).get_geometry().height)
     return min(heights) if heights else 1080
+
+
+class SpaceBar(Gtk.DrawingArea):
+    """One stacked bar: parts (label, bytes, colour name) side by side, as wide as their share.
+    Hovering a part tells its name and size."""
+
+    HEIGHT = 14
+
+    def __init__(self, color, parts):
+        super().__init__()
+        self.color = color          # (name, alpha) -> rgba, the map's palette
+        self.parts = [p for p in parts if p[1] > 0]
+        self.spans = []
+        self.set_content_height(self.HEIGHT)
+        self.set_hexpand(True)
+        self.set_has_tooltip(True)
+        self.connect("query-tooltip", self.on_tooltip)
+        self.set_draw_func(self.on_draw)
+
+    def on_draw(self, _area, cr, width, height):
+        total = sum(size for _l, size, _c in self.parts) or 1
+        MapView.rounded(cr, 0, 0, width, height, 4)
+        cr.set_source_rgba(*self.color("fg", 0.08))
+        cr.fill()
+        x, self.spans = 0.0, []
+        for label, size, name in self.parts:
+            w = max(2.0, width * size / total)
+            cr.save()
+            MapView.rounded(cr, 0, 0, width, height, 4)
+            cr.clip()
+            cr.rectangle(x, 0, w - (1 if x + w < width - 1 else 0), height)
+            cr.set_source_rgba(*self.color(name, 0.9))
+            cr.fill()
+            cr.restore()
+            self.spans.append((x, x + w, label, size))
+            x += w
+
+    def on_tooltip(self, _widget, x, _y, _keyboard, tooltip):
+        for start, end, label, size in self.spans:
+            if start <= x < end:
+                tooltip.set_text(f"{label}: {size_text(size)}")
+                return True
+        return False
 
 
 class TokenChart(Gtk.DrawingArea):
@@ -2483,16 +2528,21 @@ class AgentsMap(Adw.Application):
                 panes = herdr_state.snapshot()
             except Exception:
                 panes = None
-            GLib.idle_add(done, info, usage, checks, sessions, panes)
+            try:
+                servers = sum(1 for m in inventory.mcp if agent.command in m.agents)
+                security = agent_security.report_for(agent.command, servers) if agent.installed else None
+            except Exception:
+                security = None
+            GLib.idle_add(done, info, usage, checks, sessions, panes, security)
 
-        def done(info, usage, checks, sessions, panes):
+        def done(info, usage, checks, sessions, panes, security):
             if self.status_showing == ("agent", agent.command):
-                self.fill_agent_status(agent, info, usage, checks, sessions, panes)
+                self.fill_agent_status(agent, info, usage, checks, sessions, panes, security)
             return False
 
         threading.Thread(target=work, daemon=True).start()
 
-    def fill_agent_status(self, agent, info, usage, checks, sessions=None, panes=None):
+    def fill_agent_status(self, agent, info, usage, checks, sessions=None, panes=None, security=None):
         self.clear_status(agent.name)
         body = self.status_body
         # At the top: one sentence, then what it is doing now.
@@ -2554,8 +2604,7 @@ class AgentsMap(Adw.Application):
         if sessions:
             self.fill_session_projects(body, sessions)
 
-        self.settings_heading(body, _("Setup"))
-        body.append(self.check_list(checks))
+        body.append(self.health_security_card(agent, checks, security))
         self.settings_heading(body, _("Configuration"))
         config = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         config.add_css_class("am-boxed")
@@ -2733,8 +2782,7 @@ class AgentsMap(Adw.Application):
         if rt.address:
             tiles.append((_("Address"), rt.address, rt.service))
         body.append(self.stat_tiles(tiles))
-        self.settings_heading(body, _("Setup"))
-        body.append(self.check_list(checks))
+        body.append(self.health_security_card(None, checks, agent_security.runtime_report(rt)))
         self.settings_heading(body, _("Configuration"))
         config = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         config.add_css_class("am-boxed")
@@ -2818,6 +2866,183 @@ class AgentsMap(Adw.Application):
         copy.connect("clicked", copied)
         row.add_suffix(copy)
         return row
+
+    # --- Healthy & Security check (agent and local LLM pages) ------------------------------------
+
+    RISK_MARKS = {"high": ("!", "am-state-missing"), "medium": ("!", "am-state-warn"), "low": ("·", "am-state-info"),
+                  "ok": ("✓", "am-state-ok")}
+    RISK_NAMES = {"high": N_("High risk"), "medium": N_("Medium risk"), "low": N_("Low risk")}
+    RISK_SENTENCES = {
+        "high": N_("It can do serious things on this PC without asking you. What lowers the risk is listed below."),
+        "medium": N_("Some things happen without asking you. What lowers the risk is listed below."),
+        "low": N_("It asks before it does anything that matters, or cannot do it at all."),
+    }
+    HEALTH_NAMES = {"ok": N_("Healthy"), "warn": N_("Needs a look"), "missing": N_("Not set up")}
+
+    def risk_mark(self, level: str) -> Gtk.Label:
+        text, css = self.RISK_MARKS.get(level, ("·", "am-state-info"))
+        mark = Gtk.Label(label=text)
+        mark.add_css_class(css)
+        mark.add_css_class("am-check-mark")
+        return mark
+
+    @staticmethod
+    def risk_badge(text: str, level: str) -> Gtk.Label:
+        badge = Gtk.Label(label=text, valign=Gtk.Align.CENTER)
+        badge.add_css_class("am-risk-badge")
+        badge.add_css_class(f"am-risk-{level}")
+        return badge
+
+    def health_security_card(self, agent, checks, security) -> Gtk.Widget:
+        """Health (is it set up and working), security settings (what it may do without asking,
+        each choice explained, changeable with a preview), risk management (what the settings mean
+        together and what lowers each risk) and the words explained."""
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        card.add_css_class("am-help-card")
+        top = Gtk.Box(spacing=8)
+        top.append(Gtk.Image.new_from_icon_name("security-high-symbolic"))
+        heading = Gtk.Label(label=_("Healthy & Security check").upper(), xalign=0, hexpand=True)
+        heading.add_css_class("am-setting-heading")
+        top.append(heading)
+        state, _sentence = agent_status.summary_line(checks)
+        top.append(self.risk_badge(_(self.HEALTH_NAMES.get(state, "Needs a look")),
+                                   {"ok": "ok", "warn": "medium", "missing": "high"}.get(state, "medium")))
+        level = security.level() if security is not None and (security.settings or security.risks) else ""
+        if level:
+            top.append(self.risk_badge(_(self.RISK_NAMES[level]), level))
+        card.append(top)
+        self.note(card, _("Whether it is set up and works, what it may do on this PC without asking you, and what "
+                          "lowers the risks."))
+
+        self.settings_heading(card, _("Health"))
+        card.append(self.check_list(checks))
+        if security is None:
+            return card
+        if security.settings:
+            self.settings_heading(card, _("Security settings"))
+            listbox = self.boxed_list()
+            for setting in security.settings:
+                listbox.append(self.security_setting_row(agent, setting))
+            card.append(listbox)
+            if agent is not None:
+                self.note(card, _("Open a setting to see every choice. A change is shown first, backed up and can "
+                                  "be undone; it applies the next time {0} starts.").format(agent.name))
+        for title, _key, entries in security.rules:
+            listbox = self.boxed_list()
+            rules = Adw.ExpanderRow(title=title, subtitle=ngettext("1 rule", "{0} rules", len(entries))
+                                    .format(len(entries)), use_markup=False)
+            rules.add_prefix(Gtk.Image.new_from_icon_name("view-list-symbolic"))
+            for entry in entries[:60]:
+                row = self.plain_row(entry)
+                row.add_css_class("monospace")
+                row.set_title_selectable(True)
+                rules.add_row(row)
+            listbox.append(rules)
+            card.append(listbox)
+        if security.note:
+            self.note(card, security.note)
+        if security.files:
+            self.note(card, ngettext("Settings file: {0}", "Settings files: {0}", len(security.files)).format(
+                ", ".join(inventory.tilde(f) for f in security.files)))
+
+        if security.risks:
+            self.settings_heading(card, _("Risk management"))
+            if level:
+                self.note(card, _(self.RISK_SENTENCES[level]))
+            listbox = self.boxed_list()
+            for risk in security.risks:
+                lines = [risk.why] + (["→ " + risk.lower] if risk.lower and risk.level != "ok" else [])
+                row = self.plain_row(risk.title, "\n".join(lines))
+                row.add_prefix(self.risk_mark(risk.level))
+                setting = next((s for s in security.settings if s.key == risk.fix_key), None)
+                fix = next((c for c in setting.choices if agent_security._same(c.value, risk.fix_value)), None) \
+                    if setting is not None else None
+                if agent is not None and fix is not None and setting.editable \
+                        and not agent_security._same(setting.value(), fix.value):
+                    button = Gtk.Button(label=_("Lower it…"), valign=Gtk.Align.CENTER)
+                    button.add_css_class("am-small-btn")
+                    button.set_tooltip_text(_("{0}: {1}").format(setting.title, fix.label))
+                    button.connect("clicked", lambda _b, s=setting, c=fix: self.open_security_change(agent, s, c))
+                    row.add_suffix(button)
+                listbox.append(row)
+            card.append(listbox)
+
+        self.settings_heading(card, _("What the words mean"))
+        listbox = self.boxed_list()
+        words = agent_security.terms()
+        for term in security.terms():
+            if term not in words:
+                continue
+            title, text = words[term]
+            row = Adw.ExpanderRow(title=title, use_markup=False)
+            row.add_prefix(Gtk.Image.new_from_icon_name("help-about-symbolic"))
+            explain = self.plain_row("", text)
+            row.add_row(explain)
+            listbox.append(row)
+        card.append(listbox)
+        return card
+
+    def security_setting_row(self, agent, setting) -> Gtk.Widget:
+        """One setting: its value now and what it means; opened, every choice with its risk and Use."""
+        chosen = setting.choice()
+        row = Adw.ExpanderRow(title=setting.title, subtitle=f"{chosen.label} — {chosen.explain}", use_markup=False)
+        row.set_subtitle_lines(0)
+        row.add_prefix(self.risk_mark(agent_security.LEVELS[chosen.risk] if chosen.risk else "ok"))
+        about = setting.explain
+        if setting.current is None:
+            about += " " + _("Not set: the agent's own default applies.")
+        explain = self.plain_row("", about)
+        row.add_row(explain)
+        for choice in setting.choices:
+            if choice.value is None and setting.current is None and choice is not chosen:
+                continue
+            title = choice.label
+            if agent_security._same(choice.value, setting.recommended):
+                title += " · " + _("recommended")
+            line = self.plain_row(title, choice.explain)
+            line.add_prefix(self.risk_mark(agent_security.LEVELS[choice.risk] if choice.risk else "ok"))
+            if choice.risk:
+                line.add_suffix(self.risk_badge(_(self.RISK_NAMES[agent_security.LEVELS[choice.risk]]),
+                                                agent_security.LEVELS[choice.risk]))
+            if choice is chosen:
+                mark = Gtk.Label(label=_("In use"), valign=Gtk.Align.CENTER)
+                mark.add_css_class("am-agent-badge")
+                line.add_suffix(mark)
+            elif setting.editable and agent is not None:
+                use = Gtk.Button(label=_("Use…"), valign=Gtk.Align.CENTER)
+                use.add_css_class("am-small-btn")
+                use.connect("clicked", lambda _b, c=choice: self.open_security_change(agent, setting, c))
+                line.add_suffix(use)
+            row.add_row(line)
+        return row
+
+    def open_security_change(self, agent, setting, choice):
+        """The change of one security setting on the connect page: what it means, the diff, Change."""
+        self.connecting = {"agent": agent, "security": setting.key, "value": choice.value, "title": setting.title,
+                           "label": choice.label, "from": self.view}
+        self.connect_title.set_label(_("{0}: {1}").format(agent.name, setting.title).upper())
+        form = self.connect_form
+        while (child := form.get_first_child()) is not None:
+            form.remove(child)
+        old = setting.choice()
+        levels = agent_security.LEVELS
+        self.connect_intro.set_label(_("{0} → {1}: {2}").format(old.label, choice.label, choice.explain) + " "
+                                     + _("It applies the next time {0} starts; Undo puts it back.").format(agent.name))
+        if old.risk != choice.risk:
+            line = Gtk.Box(spacing=8)
+            line.append(Gtk.Label(label=_("Risk"), xalign=0))
+            line.append(self.risk_badge(_(self.RISK_NAMES[levels[old.risk]]), levels[old.risk]))
+            line.append(Gtk.Label(label="→"))
+            line.append(self.risk_badge(_(self.RISK_NAMES[levels[choice.risk]]), levels[choice.risk]))
+            form.append(line)
+        self.connect_preview_heading.set_visible(True)
+        self.connect_preview_scroller.set_visible(True)
+        self.connect_status.set_label("")
+        self.connect_remove.set_visible(False)
+        self.connect_ok.set_visible(True)
+        self.connect_ok.set_label(_("Change"))
+        self.update_connect_preview()
+        self.show_page("connect")
 
     # --- MCP server details (the (i) on its card) ---------------------------------------------------
 
@@ -5307,6 +5532,8 @@ class AgentsMap(Adw.Application):
 
     def current_connect_plan(self, remove: bool = False):
         info = self.connecting
+        if "security" in info:
+            return agent_security.plan(info["agent"].command, info["security"], info["value"])
         if "update" in info:
             return mcp_update.plan(info["update"], [a.command for a in self.agent_list if a.installed])
         if "delete" in info:
@@ -5390,6 +5617,10 @@ class AgentsMap(Adw.Application):
             self.close_connect()
             self.refresh_map()
             self.show_note(_("{0} could not be connected: see the red line on the map.").format(info["agent"].name))
+            return
+        if "security" in info:
+            self.close_connect()
+            self.show_undo(_("{0}: {1} is now {2}").format(info["agent"].name, info["title"], info["label"]), backup)
             return
         remove = remove or bool(info.get("remove_only"))
         if link is not None and remove:
@@ -5551,6 +5782,9 @@ class AgentsMap(Adw.Application):
     def close_connect(self):
         info = getattr(self, "connecting", None)
         self.connecting = None
+        if info and "security" in info:
+            self.open_agent_status(info["agent"])      # back to its page, read again
+            return
         self.show_view(info["from"] if info else self.view, save=False)
 
     # --- models of a local LLM (right-click → Models…) ---------------------------------------------
@@ -7837,6 +8071,11 @@ class AgentsMap(Adw.Application):
         self.collect()
         self.refresh_overview()
         self.refresh_map()
+        showing = getattr(self, "status_showing", None)
+        if showing and showing[0] == "agent" and self.page_name() == "status":
+            agent = next((a for a in self.agent_list if a.command == showing[1]), None)
+            if agent is not None:
+                self.open_agent_status(agent)          # its security settings as they are again
 
     # --- settings ----------------------------------------------------------------
 
@@ -8673,6 +8912,7 @@ class AgentsMap(Adw.Application):
         manual = self.help_manual_card()
         if manual is not None:
             body.append(manual)
+        body.append(self.help_disk_card())
         body.append(self.help_setup_card())
         monitor = self.help_llm_monitor_card()
         if monitor is not None:
@@ -8728,6 +8968,243 @@ class AgentsMap(Adw.Application):
 
         button.connect("clicked", open_manual)
         return card
+
+    SPACE_PARTS = (("agents", N_("Agent programs")), ("agent_data", N_("Agent data")),
+                   ("runtimes", N_("Local LLMs")), ("models", N_("Models")))
+    SPACE_KINDS = {"program": N_("Program"), "data": N_("Data"), "models": N_("Models")}
+
+    def help_disk_card(self) -> Gtk.Widget:
+        """Disk space of the agents, local LLMs and models: how much, where, on which disk.
+        Measured when Help opens (in the background); nothing is changed or deleted."""
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        card.add_css_class("am-help-card")
+        top = Gtk.Box(spacing=10)
+        # The heading with the totals in one line; a click shows or hides the details.
+        toggle = Gtk.Box(spacing=8, hexpand=True)
+        chevron = Gtk.Image.new_from_icon_name("pan-down-symbolic")       # open at first; the sections inside start folded
+        chevron.set_valign(Gtk.Align.START)
+        toggle.append(chevron)
+        texts = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, hexpand=True)
+        heading = Gtk.Label(label=_("Disk space: agents, local LLMs and models").upper(), xalign=0)
+        heading.add_css_class("am-setting-heading")
+        texts.append(heading)
+        self.disk_summary = Gtk.Label(label="", xalign=0, wrap=True, max_width_chars=1)
+        self.disk_summary.add_css_class("am-agent-detail")
+        texts.append(self.disk_summary)
+        toggle.append(texts)
+        toggle.set_cursor_from_name("pointer")
+        toggle.set_tooltip_text(_("Hide details"))
+        top.append(toggle)
+        again = Gtk.Button(valign=Gtk.Align.START)
+        content = Gtk.Box(spacing=6)
+        content.append(Gtk.Image.new_from_icon_name("view-refresh-symbolic"))
+        content.append(Gtk.Label(label=_("Measure again")))
+        again.set_child(content)
+        again.add_css_class("am-small-btn")
+        again.connect("clicked", lambda *_: self.measure_disk(force=True))
+        top.append(again)
+        card.append(top)
+        details = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_top=10)
+        self.note(details, _("How much room your AI setup takes and where it is. Programs can be installed again; data "
+                             "holds settings, sessions and history; models are the largest files, and several local "
+                             "LLMs can share one models folder."))
+        self.disk_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        details.append(self.disk_box)
+        revealer = Gtk.Revealer(child=details, reveal_child=True,
+                                transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN)
+        card.append(revealer)
+
+        def flip(*_args):
+            shown = not revealer.get_reveal_child()
+            revealer.set_reveal_child(shown)
+            chevron.set_from_icon_name("pan-down-symbolic" if shown else "pan-end-symbolic")
+            toggle.set_tooltip_text(_("Hide details") if shown else _("Show details"))
+        click = Gtk.GestureClick()
+        click.connect("released", flip)
+        toggle.add_controller(click)
+        self.disk_result, self.disk_time = None, 0.0
+        self.disk_busy = False
+        return card
+
+    def measure_disk(self, force: bool = False):
+        if self.disk_busy or (self.disk_result is not None and not force
+                              and time.monotonic() - self.disk_time < 600):
+            return
+        self.disk_busy = True
+        self.disk_summary.set_label(_("Measuring…"))
+        box = self.disk_box
+        while (child := box.get_first_child()) is not None:
+            box.remove(child)
+        self.note(box, _("Measuring…"))
+        agent_list, inv = list(self.agent_list), self.inventory
+
+        def work():
+            try:
+                items = disk_usage.plan(agent_list, inv)
+                disks = disk_usage.measure(items)
+                result = (items, disks, "")
+            except Exception as error:      # shown, never fatal
+                result = ([], [], str(error))
+            GLib.idle_add(done, result)
+
+        def done(result):
+            self.disk_busy = False
+            self.disk_result, self.disk_time = result, time.monotonic()
+            self.fill_disk(*result)
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def fill_disk(self, items, disks, error):
+        box = self.disk_box
+        while (child := box.get_first_child()) is not None:
+            box.remove(child)
+        if error:
+            self.note(box, _("Could not measure: {0}").format(error))
+            self.disk_summary.set_label(_("Could not measure: {0}").format(error))
+            return
+        sums = disk_usage.totals(items)
+        total = sum(sums.values())
+        partial = any(i.partial() for i in items)
+        at_least = (lambda n: _("at least {0}").format(size_text(n))) if partial else size_text
+        self.disk_summary.set_label("  ·  ".join(_("{0} {1}").format(label, size) for label, size in (
+            (_("Agents"), size_text(sums["agents"] + sums["agent_data"])), (_("Local LLMs"), size_text(sums["runtimes"])),
+            (_("Models"), size_text(sums["models"])), (_("In all"), at_least(total)))))
+        box.append(self.stat_tiles([
+            (_("In all"), at_least(total), ngettext("on 1 disk", "on {0} disks", len(disks)).format(len(disks))),
+            (_("Agents"), size_text(sums["agents"] + sums["agent_data"]),
+             _("{0} programs · {1} data").format(size_text(sums["agents"]), size_text(sums["agent_data"]))),
+            (_("Local LLMs"), size_text(sums["runtimes"]), _("programs and their data")),
+            (_("Models"), size_text(sums["models"]), ngettext("1 folder", "{0} folders", sum(
+                1 for i in items if i.group == "models")).format(sum(1 for i in items if i.group == "models"))),
+        ]))
+        colors = {"agents": "accent", "agent_data": "green", "runtimes": "yellow", "models": "outside"}
+        box.append(SpaceBar(self.side_map.color, [(_(label), sums[key], colors[key]) for key, label in self.SPACE_PARTS]))
+        legend = Gtk.Box(spacing=14)
+        for key, label in self.SPACE_PARTS:
+            if not sums[key]:
+                continue
+            part = Gtk.Box(spacing=4)
+            dot = Gtk.Label(label="●")
+            dot.add_css_class(f"am-space-{key}")
+            part.append(dot)
+            text = Gtk.Label(label=f"{_(label)} {size_text(sums[key])}")
+            text.add_css_class("am-agent-detail")
+            part.append(text)
+            legend.append(part)
+        box.append(legend)
+
+        if disks:
+            section = self.fold_section(box, _("Disks"), "  ·  ".join(
+                f"{d.mount} " + _("{0} free").format(size_text(d.free)) for d in disks))
+            listbox = self.boxed_list()
+            for disk in disks:
+                row = self.plain_row(disk.mount, _("{0} for AI · {1} free of {2}").format(
+                    size_text(disk.ai), size_text(disk.free), size_text(disk.size)))
+                row.add_prefix(Gtk.Image.new_from_icon_name("drive-harddisk-symbolic"))
+                level = Gtk.LevelBar(min_value=0, max_value=1, valign=Gtk.Align.CENTER)
+                level.set_value(1 - disk.free / disk.size if disk.size else 0)
+                level.set_size_request(120, -1)
+                level.set_tooltip_text(_("{0} free").format(size_text(disk.free)))
+                row.add_suffix(level)
+                listbox.append(row)
+            section.append(listbox)
+
+        for group, title in (("agent", _("Agents")), ("runtime", _("Local LLMs")), ("models", _("Models folders"))):
+            rows = sorted((i for i in items if i.group == group), key=lambda i: -i.total())
+            if not rows:
+                continue
+            # Folded: the sum and the three largest in the heading's line.
+            largest = [f"{i.name} {size_text(i.total())}" for i in rows[:3]] + (["…"] if len(rows) > 3 else [])
+            section = self.fold_section(box, title, "  ·  ".join(
+                [size_text(sum(i.total() for i in rows))] + largest))
+            listbox = self.boxed_list()
+            for item in rows:
+                listbox.append(self.disk_item_row(item))
+            section.append(listbox)
+            if group == "agent":
+                for item in [i for i in rows if i.versions > 3][:4]:
+                    self.note(section, "→ " + _("{0} keeps {1} versions; “mise prune” removes the ones no longer "
+                                                "used.").format(item.name, item.versions))
+        self.note(box, _("Space on disk; a file kept in two places counts once, links are not followed. Nothing is "
+                         "deleted from here."))
+
+    def fold_section(self, box, title: str, summary: str, shown: bool = False) -> Gtk.Box:
+        """A heading that folds what is under it: chevron, title and (folded) a one-line summary.
+        Returns the box to fill."""
+        head = Gtk.Box(spacing=8)
+        chevron = Gtk.Image.new_from_icon_name("pan-down-symbolic" if shown else "pan-end-symbolic")
+        head.append(chevron)
+        label = Gtk.Label(label=title, xalign=0)
+        label.add_css_class("heading")
+        head.append(label)
+        line = Gtk.Label(label=summary, xalign=0, hexpand=True, ellipsize=Pango.EllipsizeMode.END,
+                         max_width_chars=1, visible=not shown)
+        line.add_css_class("am-agent-detail")
+        line.set_tooltip_text(summary)
+        head.append(line)
+        head.set_cursor_from_name("pointer")
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)       # folded: no gap for the hidden part
+        outer.append(head)
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=8)
+        revealer = Gtk.Revealer(child=content, reveal_child=shown,
+                                transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN)
+        outer.append(revealer)
+        box.append(outer)
+
+        def flip(*_args):
+            now = not revealer.get_reveal_child()
+            revealer.set_reveal_child(now)
+            chevron.set_from_icon_name("pan-down-symbolic" if now else "pan-end-symbolic")
+            line.set_visible(not now)
+        click = Gtk.GestureClick()
+        click.connect("released", flip)
+        head.add_controller(click)
+        return content
+
+    def disk_item_row(self, item) -> Gtk.Widget:
+        kinds = {}
+        for place in item.places:
+            kinds[place.kind] = kinds.get(place.kind, 0) + place.size
+        parts = [_("{0} {1}").format(_(self.SPACE_KINDS[kind]), size_text(size)) for kind, size in kinds.items()]
+        if item.group == "models":
+            place = item.places[0]
+            parts = [ngettext("1 file", "{0} files", place.files).format(place.files)]
+            if place.links and place.size < 1_000_000:
+                parts = [ngettext("only 1 link to a model in another folder",
+                                  "only links to models in other folders ({0})", place.links).format(place.links)]
+            if item.users:
+                parts.append(_("used by {0}").format(", ".join(item.users)))
+        row = Adw.ExpanderRow(title=item.name, subtitle=" · ".join(parts), use_markup=False)
+        row.set_subtitle_lines(0)
+        size = Gtk.Label(label=(_("at least {0}") if item.partial() else "{0}").format(size_text(item.total())),
+                         valign=Gtk.Align.CENTER)
+        size.add_css_class("heading")
+        row.add_suffix(size)
+        for place in item.places:
+            details = [_(self.SPACE_KINDS[place.kind]), size_text(place.size),
+                       ngettext("1 file", "{0} files", place.files).format(place.files)]
+            if place.kind == "program" and item.versions > 1:
+                details.append(ngettext("1 version kept", "{0} versions kept", item.versions).format(item.versions))
+            line = self.plain_row(inventory.tilde(place.path), " · ".join(details))
+            line.set_title_selectable(True)
+            line.add_prefix(Gtk.Image.new_from_icon_name(
+                "folder-symbolic" if place.path.is_dir() else "text-x-generic-symbolic"))
+            show = Gtk.Button(icon_name="folder-open-symbolic", valign=Gtk.Align.CENTER)
+            show.add_css_class("flat")
+            show.set_tooltip_text(_("Open the folder"))
+            folder = place.path if place.path.is_dir() else place.path.parent
+            show.connect("clicked", lambda _b, f=folder: self.open_folder(f))
+            line.add_suffix(show)
+            row.add_row(line)
+        return row
+
+    def open_folder(self, folder: Path):
+        """The desktop's file manager on a folder (GIO, no command line built here)."""
+        try:
+            Gio.AppInfo.launch_default_for_uri(folder.as_uri(), None)
+        except GLib.Error as error:
+            self.show_note(_("Could not open the folder: {0}").format(error.message))
 
     LLM_MONITOR_ID = "ubruckhaus.llm-usage"
     LLM_MONITOR_LISTING = "https://omarchyplugins.com/plugin.html?id=ubruckhaus.llm-usage"
@@ -8825,6 +9302,7 @@ class AgentsMap(Adw.Application):
         if self.page_name() not in ("settings", "help"):
             self.remember_page()
         self.show_page("help")
+        self.measure_disk()
 
     def close_help(self):
         self.back_to_last_page()
@@ -9256,6 +9734,15 @@ class AgentsMap(Adw.Application):
         .am-agent-detail {{ font-size: 11px; color: {dim_hex}; }}
         .am-agent-badge {{ font-size: 10px; font-weight: 600; color: {bg_hex}; background: {accent_hex};
             border-radius: {min(radius, 4)}px; padding: 0 5px; }}
+        .am-risk-badge {{ font-size: 10px; font-weight: 600; border-radius: {min(radius, 4)}px; padding: 1px 6px; }}
+        .am-risk-high {{ color: {red_hex}; background: alpha({red_hex}, 0.16); }}
+        .am-risk-medium {{ color: {yellow_hex}; background: alpha({yellow_hex}, 0.16); }}
+        .am-risk-low {{ color: {dim_hex}; background: alpha({fg_hex}, 0.07); }}
+        .am-risk-ok {{ color: {green_hex}; background: alpha({green_hex}, 0.14); }}
+        .am-space-agents {{ color: {accent_hex}; }}
+        .am-space-agent_data {{ color: {green_hex}; }}
+        .am-space-runtimes {{ color: {yellow_hex}; }}
+        .am-space-models {{ color: {outside_hex}; }}
         .am-agent {{ padding: 0; }}
         .am-agent > box:first-child {{ padding: 10px 12px; }}
         .am-agent-chevron {{ color: {muted_hex}; }}
@@ -9432,6 +9919,8 @@ class AgentsMap(Adw.Application):
             GLib.idle_add(lambda: self.open_runtime_status(page[8:]) and False)
         elif page == "health":
             GLib.idle_add(lambda: self.open_health() and False)
+        elif page == "help":
+            GLib.idle_add(lambda: self.open_help() and False)
         elif page == "addmcp":
             GLib.idle_add(lambda: self.open_add_mcp() and False)
         elif page == "addskills":
