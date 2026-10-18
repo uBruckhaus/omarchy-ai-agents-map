@@ -1478,5 +1478,6 @@
  "\u0004Unpacks 1 AppImage into ~/Applications first.": [
   "Pakt eerst 1 AppImage uit in ~/Applications.",
   "Pakt eerst {0} AppImages uit in ~/Applications."
- ]
+ ],
+ "Numbers from {0}'s session database (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs.": "Cijfers uit de sessiedatabase van {0} (er wordt geen tekst gelezen). De API-waarde is wat de tokens tegen API-prijzen zouden kosten, niet wat een abonnement kost."
 }

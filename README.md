@@ -129,9 +129,9 @@ connect), and who can reach it (only this PC on 127.0.0.1, or your whole network
     ones first with their version, Omarchy's default agent marked. Details: plan, rate limits with
     reset times and today's usage (from Omarchy's own usage data, refreshed when you open the card),
     model, providers (local ones named by runtime), MCP servers, skills, tools, last used, settings
-    folder. Claude Code's details also show the last 30 days per project folder (working time,
-    sessions, tokens, lines changed, what the tokens would cost at API prices) and its subagent runs
-    per type. **In herdr now**: when you run agents in [herdr](https://herdr.dev), each of the
+    folder. The details of Claude Code, OpenCode and Hermes also show the last 30 days per project
+    folder (working time, sessions, tokens, lines changed, what the tokens would cost at API prices)
+    and their subagent runs (per type where the agent names one). **In herdr now**: when you run agents in [herdr](https://herdr.dev), each of the
     agent's herdr panes with its state (waiting for you, working, idle, done) and folder, read again
     every 4 seconds while the page is open; a click on one switches herdr to that pane and brings
     its terminal window to the front.
@@ -535,9 +535,11 @@ the backup and Undo), and the agent is told the same context. A context you set 
   own processes (`/proc/<pid>/stat`, your own UID only) and the modification times of their session
   files (no contents).
 - **Details pages** (ⓘ on an agent or local LLM card) read usage as numbers and times only:
-  Omarchy's usage records (Claude Code, Codex), the token, model and time columns of Hermes's
-  (`~/.hermes/state.db`) and OpenCode's (`~/.local/share/opencode/opencode.db`) session
-  databases, opened read-only, and the names and dates of Pi's session files (never opened). No
+  Omarchy's usage records (Claude Code, Codex), the token, model, cost, folder, lines-changed,
+  parent-session and time columns of Hermes's (`~/.hermes/state.db`) and OpenCode's
+  (`~/.local/share/opencode/opencode.db`) session databases and the session id and time of their
+  messages (never titles or message content), opened read-only, and the names and dates of Pi's
+  session files (never opened). No
   conversation text is read. Whether an agent is signed in is judged from whether its credential
   file exists (never opened) or an API-key variable is set (its name only); Cursor CLI is asked
   with its own `cursor-agent status`. Claude Code's session files (`~/.claude/projects/…/*.jsonl`,
@@ -702,6 +704,7 @@ rm -rf ~/.config/omarchy/ai-agents-map ~/.local/state/ai-agents-map ~/.cache/ai-
 | `agent_activity.py`, `side_tree.py`, `model_names.py` | Which agents are working now; the sidebar tree; what a model's name means |
 | `assets/drawing-demo.gif` | The animation above (rendered from `previews.SetupSketch`) |
 | `claude_sessions.py`, `herdr_state.py` | Claude Code's numbers per project and subagent; herdr's live state and pane focus |
+| `harnesses.py`, `harness_claude.py`, `harness_opencode.py`, `harness_hermes.py`, `edition.py` | One adapter per agent harness (session numbers per project for now); what this edition may show (numbers only in this plugin) |
 | `desktop.py`, `desktop_omarchy.py`, `desktop_generic.py` | Everything desktop-specific behind one interface: Omarchy/Hyprland here; the generic one is used only outside Omarchy (the same code as the stand-alone app Asterism) |
 | `ai_core.py`, `palette.py`, `corners.py`, `pidfile.py`, `i18n.py`, `I18n.js` | Shared helpers, theme colours, corners, PID file, languages |
 | `tests/` | Unit tests (`python3 -m unittest discover -s tests`) |

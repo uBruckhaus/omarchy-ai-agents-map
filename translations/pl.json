@@ -1527,5 +1527,6 @@
   "Najpierw rozpakowuje 1 AppImage do ~/Applications.",
   "Najpierw rozpakowuje {0} AppImage do ~/Applications.",
   "Najpierw rozpakowuje {0} AppImage do ~/Applications."
- ]
+ ],
+ "Numbers from {0}'s session database (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs.": "Liczby z bazy sesji {0} (żaden tekst nie jest czytany). Wartość API to koszt tokenów po cenach API, a nie koszt planu."
 }

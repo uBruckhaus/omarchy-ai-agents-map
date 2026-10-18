@@ -1478,5 +1478,6 @@
  "\u0004Unpacks 1 AppImage into ~/Applications first.": [
   "Prima estrae 1 AppImage in ~/Applications.",
   "Prima estrae {0} AppImage in ~/Applications."
- ]
+ ],
+ "Numbers from {0}'s session database (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs.": "Numeri dal database delle sessioni di {0} (nessun testo viene letto). Il valore API è quanto costerebbero i token a prezzi API, non quanto costa un piano."
 }

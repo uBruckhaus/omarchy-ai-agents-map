@@ -31,6 +31,8 @@ import agent_details
 import agent_security
 import disk_usage
 import claude_sessions
+import edition
+import harnesses
 import herdr_state
 try:
     import session_topics       # Asterism only: session titles and a written summary (not in the Omarchy plugin)
@@ -2473,9 +2475,10 @@ class AgentsMap(SettingsPages, ThemeCss, Adw.Application):
             checks = agent_status.agent_checks(agent, info, record, inventory, link_hints.load(), logged_in,
                                                issue=agent_status.load_issues().get(agent.command))
             sessions = None
-            if agent.command == "claude" and agent.installed:
+            harness = harnesses.get(agent.command)
+            if harness is not None and harness.sessions is not None and agent.installed:
                 try:
-                    sessions = claude_sessions.collect_by_id()      # numbers only, incremental
+                    sessions = harness.sessions.collect()           # numbers only
                 except Exception:
                     sessions = None
             try:
@@ -2555,8 +2558,9 @@ class AgentsMap(SettingsPages, ThemeCss, Adw.Application):
                 _("Usage from {0}'s own session records (numbers and times only)").format(usage.source)
             self.note(body, source)
 
-        if sessions:
-            self.fill_session_projects(body, sessions)
+        harness = harnesses.get(agent.command)
+        if sessions and harness is not None and harness.sessions is not None:
+            self.fill_session_projects(body, sessions, harness)
 
         body.append(self.health_security_card(agent, checks, security))
         self.settings_heading(body, _("Configuration"))
@@ -2659,9 +2663,9 @@ class AgentsMap(SettingsPages, ThemeCss, Adw.Application):
         return _("{0} h {1} min").format(minutes // 60, minutes % 60) if minutes >= 60 else \
             _("{0} min").format(minutes)
 
-    def fill_session_projects(self, body, sessions):
-        """Claude Code's last 30 days per project folder: working time, sessions, tokens, lines
-        changed, API value (numbers from its session files; no text)."""
+    def fill_session_projects(self, body, sessions, harness):
+        """A harness's last 30 days per project folder: working time, sessions, tokens, lines
+        changed, API value (numbers from its own session store; no text)."""
         since = time.time() - 30 * 86400
         rows = claude_sessions.projects(list(sessions.values()), since)
         if not rows:
@@ -2700,10 +2704,9 @@ class AgentsMap(SettingsPages, ThemeCss, Adw.Application):
         peak = claude_sessions.busiest(list(sessions.values()), since)
         if peak is not None:
             self.note(body, _("Most active: {0}, around {1}:00").format(_(self.WEEKDAYS[peak[0]]), peak[1]))
-        self.note(body, _("Numbers from Claude Code's session files (no text is read). The API value is what the "
-                          "tokens would cost at API prices, not what a plan costs."))
-        if session_topics is not None:
-            session_topics.fill(self, body, sessions, since)
+        self.note(body, harness.sessions.note())
+        if session_topics is not None and edition.allows(edition.TITLES):
+            session_topics.fill(self, body, harness, sessions, since)
 
     def open_runtime_status(self, key: str):
         rt = next((r for r in self.inventory.runtimes if r.key == key), None)

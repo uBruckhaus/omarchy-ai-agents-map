@@ -1478,5 +1478,6 @@
  "\u0004Unpacks 1 AppImage into ~/Applications first.": [
   "Décompresse d'abord 1 AppImage dans ~/Applications.",
   "Décompresse d'abord {0} AppImages dans ~/Applications."
- ]
+ ],
+ "Numbers from {0}'s session database (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs.": "Chiffres tirés de la base de sessions de {0} (aucun texte n’est lu). La valeur API est ce que les tokens coûteraient au prix de l’API, pas le prix d’un abonnement."
 }
