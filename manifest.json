@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "ubruckhaus.ai-agents-map",
   "name": "AI Agents Map",
-  "version": "0.13.1",
+  "version": "0.13.2",
   "author": "Uwe Bruckhaus",
   "license": "MIT",
   "description": "Your AI setup as cards or a tree and a map: coding agents with plan, limits and usage, local LLMs (llama.cpp, Ollama, LM Studio, vLLM, Jan, KoboldCpp), MCP servers and skills. Connect them by drawing a line, with preview and Undo; the map lights up while an agent works, an ⓘ legend explains every mark, and Hide puts away what you don't use. A Healthy & Security check explains and sets what each agent may do unasked; Help shows disk space. Hugging Face models, local LLM installs. 8 languages.",

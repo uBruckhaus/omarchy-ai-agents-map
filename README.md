@@ -7,6 +7,10 @@ tidying your own setup.
 
 ![AI Agents Map](preview.png)
 
+Setting up by drawing (the animation in Help, drawn in your theme's colours):
+
+![An agent is connected to a local LLM, a model, an MCP server and a skill folder by drawing lines; then its pin and right-click menu](assets/setup-by-drawing.gif)
+
 ## Install
 
 ```sh
@@ -624,8 +628,10 @@ the backup and Undo), and the agent is told the same context. A context you set 
 **?** (F1), left of the gear, opens **Help**: **Open user manual** (the PDF manual of this version,
 `assets/user-manual.pdf`, opened in the desktop's PDF viewer through GTK's file launcher), an animation of setting up by drawing (an agent, a
 provider and its model, an MCP server and a skill folder, with made-up boxes), started with
-**Start**, **Disk space** (below), and LLM Monitor, the bar plugin that shows what a local LLM is doing (its picture, its
-marketplace page and its install command with a copy button).
+**Start**, **Disk space** (below), and LLM Monitor, the bar plugin that shows what a local LLM is doing (a small
+animation of its bar item and panel, its marketplace page and its install command with a copy button).
+The animations here and in Settings are drawn in the theme's colours and follow a theme change at once;
+LLM Monitor's runs only while it is on screen and stands still when the desktop turns animations off.
 
 **Disk space: agents, local LLMs and models** (in Help, measured in the background when Help opens,
 again after 10 minutes or on **Measure again**): its heading sums it up (agents, local LLMs, models,
@@ -678,6 +684,8 @@ rm -rf ~/.config/omarchy/ai-agents-map ~/.local/state/ai-agents-map ~/.cache/ai-
 | `BarWidget.qml` | Bar button: runs `ai-agents-map-toggle` |
 | `ai-agents-map-toggle` | Singleton toggle: start the window, or signal it to show/hide |
 | `ai_popup.py` | The GTK4 app window: cards, map, pages, agents' terminals |
+| `settings_pages.py`, `theme_css.py`, `ui_helpers.py` | The window's Settings, Reorganize and Help pages; its theme colours and CSS; small shared drawing helpers |
+| `previews.py` | The animated sketches in Settings and Help (drawn with cairo in the theme's colours) |
 | `app_entry.py`, `assets/ai-agents-map.svg` | Launcher entry and icon; bringing the window to the front |
 | `terminal_pane.py`, `agent_status.py` | An agent's own terminal (VTE); details pages: usage and setup checks |
 | `map_view.py`, `graph.py` | The map: drawing, selection, lines; what it shows |
@@ -692,7 +700,7 @@ rm -rf ~/.config/omarchy/ai-agents-map ~/.local/state/ai-agents-map ~/.cache/ai-
 | `install_ctl.py`, `runtime_ctl.py`, `models_ctl.py`, `context_ctl.py` | Local LLMs: install, start/stop, models, context size |
 | `netfetch.py` | The one bounded way to the web (curl) |
 | `agent_activity.py`, `side_tree.py`, `model_names.py` | Which agents are working now; the sidebar tree; what a model's name means |
-| `assets/llm-monitor-preview.png` | LLM Monitor's picture on the Help page |
+| `assets/setup-by-drawing.gif` | The animation above (rendered from `previews.SetupSketch`) |
 | `claude_sessions.py`, `herdr_state.py` | Claude Code's numbers per project and subagent; herdr's live state and pane focus |
 | `desktop.py`, `desktop_omarchy.py`, `desktop_generic.py` | Everything desktop-specific behind one interface: Omarchy/Hyprland here; the generic one is used only outside Omarchy (the same code as the stand-alone app Asterism) |
 | `ai_core.py`, `palette.py`, `corners.py`, `pidfile.py`, `i18n.py`, `I18n.js` | Shared helpers, theme colours, corners, PID file, languages |

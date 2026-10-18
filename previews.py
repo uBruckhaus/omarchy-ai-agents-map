@@ -59,6 +59,7 @@ def lerp(a, b, t):
 
 def pointer(cr, x, y, c, pressed=False):
     """A small arrow pointer with its tip at (x, y); a ring when it clicks."""
+    cr.new_path()               # not joined to where the last text was drawn
     if pressed:
         cr.arc(x, y, 9, 0, 2 * math.pi)
         cr.set_source_rgba(*rgba(c.get("accent"), 0.5))
@@ -79,14 +80,14 @@ def pointer(cr, x, y, c, pressed=False):
     cr.stroke()
 
 
-def text(cr, x, y, label, size=8, color=(1, 1, 1, 1), bold=False, width=None, center=False):
+def text(cr, x, y, label, size=8, color=(1, 1, 1, 1), bold=False, width=None, center=False, right=False):
     layout = PangoCairo.create_layout(cr)
     layout.set_font_description(Pango.FontDescription.from_string(f"Sans {'Bold ' if bold else ''}{size}"))
     if width:
         layout.set_width(int(width * Pango.SCALE))
         layout.set_ellipsize(Pango.EllipsizeMode.END)
-        if center:
-            layout.set_alignment(Pango.Alignment.CENTER)
+        if center or right:
+            layout.set_alignment(Pango.Alignment.RIGHT if right else Pango.Alignment.CENTER)
     layout.set_text(label, -1)
     cr.set_source_rgba(*color)
     cr.move_to(x, y)
@@ -494,3 +495,152 @@ class SetupSketch(Sketch):
             cr.set_dash([4, 3])
         cr.stroke()
         cr.set_dash([])
+
+
+# --- Help: LLM Monitor, the bar plugin (drawn in the theme's colours, not a picture) ------------
+
+MONITOR_LOOP = 9.0          # seconds: the context fills while generating, then the agent compacts
+
+
+def monitor_frame(t: float) -> dict:
+    """LLM Monitor at loop time t: context fill (0..1), tokens per second, generating or idle."""
+    t %= MONITOR_LOOP
+    if t < 6.0:                                   # generating: the context fills up
+        fill, generating = lerp(0.38, 0.93, ease(t / 6.0)), True
+    elif t < 6.6:                                 # the agent compacts: the context drops
+        fill, generating = lerp(0.93, 0.31, ease((t - 6.0) / 0.6)), False
+    else:                                         # idle, then it starts again
+        fill, generating = lerp(0.31, 0.38, ease((t - 6.6) / 2.4)), t > 8.4
+    speed = 27.1 + 1.6 * math.sin(t * 2.3) + 0.7 * math.sin(t * 5.1) if generating else 0.0
+    return {"fill": fill, "generating": generating, "speed": speed}
+
+
+def level_color(c: dict, fill: float) -> str:
+    """LLM Monitor's colours for a filling buffer: green < 50 %, yellow, orange, red ≥ 90 %."""
+    for limit, name in ((0.5, "green"), (0.75, "yellow"), (0.9, "orange")):
+        if fill < limit:
+            return c.get(name)
+    return c.get("red")
+
+
+class LlmMonitorSketch(Sketch):
+    """The bar item (GPU memory and context fill, pulsing while generating) and its panel."""
+
+    def __init__(self, colors, labels):
+        super().__init__(560, 214, colors)
+        self.labels = labels            # key -> translated label
+        self.set_halign(Gtk.Align.CENTER)
+        self.connect("map", lambda *_a: self.animate(self.motion_allowed()))
+        self.connect("unmap", lambda *_a: self.animate(False))
+
+    @staticmethod
+    def motion_allowed() -> bool:
+        settings = Gtk.Settings.get_default()
+        return settings is None or bool(settings.get_property("gtk-enable-animations"))
+
+    @staticmethod
+    def bar(cr, c, x, y, w, h, parts):
+        rounded(cr, x, y, w, h, h / 2)
+        cr.set_source_rgba(*rgba(c.get("foreground"), 0.10))
+        cr.fill()
+        cr.save()
+        rounded(cr, x, y, w, h, h / 2)
+        cr.clip()
+        for share, color, alpha in parts:
+            cr.rectangle(x, y, w * share, h)
+            cr.set_source_rgba(*rgba(color, alpha))
+            cr.fill()
+            x += w * share
+        cr.restore()
+
+    @staticmethod
+    def dot(cr, c, x, y, color, square=False):
+        cr.new_sub_path()
+        if square:
+            rounded(cr, x - 3.5, y - 3.5, 7, 7, 1.5)
+        else:
+            cr.arc(x, y, 3.2, 0, 2 * math.pi)
+        if color:
+            cr.set_source_rgba(*rgba(c.get(color), 1))
+            cr.fill()
+        else:
+            cr.set_source_rgba(*rgba(c.get("foreground"), 0.6))
+            cr.set_line_width(1)
+            cr.stroke()
+
+    def draw(self, _area, cr, width, height):
+        c = self.colors()
+        moving = self.tick is not None
+        f = monitor_frame(time.monotonic() - self.started if moving else 2.5)
+        fg = lambda a=1.0: rgba(c.get("foreground"), a)    # noqa: E731
+        head = rgba(c.get("accent"), 0.9)
+        level = level_color(c, f["fill"])
+        pulse = 0.6 + 0.4 * math.sin(time.monotonic() * 5) if f["generating"] and moving else 1.0
+        # Left: the bar item, as in Omarchy's bar.
+        bw, bh = min(220, width * 0.38), 54
+        bx, by = 16, (height - bh - 56) / 2
+        rounded(cr, bx, by, bw, bh, 8)
+        cr.set_source_rgba(*rgba(c.get("background"), 1))
+        cr.fill_preserve()
+        cr.set_source_rgba(*rgba(c.get("accent"), 0.9 * pulse))
+        cr.set_line_width(2)
+        cr.stroke()
+        text(cr, bx + 16, by + 10, f"▦ 18.1G {round(f['fill'] * 100)}%", 15, rgba(c.get("accent"), 1), bold=True,
+             width=bw - 24)
+        self.bar(cr, c, bx + 16, by + bh - 12, bw - 32, 4, [(f["fill"], level, 1)])
+        text(cr, bx, by + bh + 14, self.labels["gpu"] + " · " + self.labels["context"], 9, fg(0.8), width=bw)
+        for i, name in enumerate(("green", "yellow", "orange", "red")):
+            rounded(cr, bx + i * 18, by + bh + 38, 14, 8, 2)
+            cr.set_source_rgba(*rgba(c.get(name), 1))
+            cr.fill()
+        text(cr, bx + 78, by + bh + 34, "< 50 · 75 · 90 %", 8, fg(0.6))
+        # Right: the panel.
+        px, py = bx + bw + 28, 8
+        pw, ph = width - px - 16, height - 16
+        rounded(cr, px, py, pw, ph, 6)
+        cr.set_source_rgba(*rgba(c.get("background"), 1))
+        cr.fill_preserve()
+        cr.set_source_rgba(*rgba(c.get("accent"), 0.9))
+        cr.set_line_width(1.2)
+        cr.stroke()
+        x, w = px + 14, pw - 28
+        text(cr, x, py + 10, "LLM Monitor", 10, fg(), bold=True, width=w * 0.6)
+        text(cr, x, py + 26, "llama.cpp · Qwen3.8-27B-Q4_K_M", 7, fg(0.6), width=w * 0.7)
+        state = self.labels["generating"] if f["generating"] else self.labels["running"]
+        text(cr, x + w - 110, py + 12, state, 8, rgba(c.get("green"), 1) if f["generating"] else fg(0.6),
+             width=110, right=True)
+        y = py + 48
+        text(cr, x, y, self.labels["gpu"].upper(), 7, head, bold=True, width=w - 110)
+        text(cr, x + w - 110, y, "19.2 / 24.0 GiB", 7, fg(0.7), width=110, right=True)
+        self.bar(cr, c, x, y + 15, w, 6, [(0.75, c.get("accent"), 0.9), (0.05, c.get("muted"), 1)])
+        y += 28
+        for i, (label, color) in enumerate(((self.labels["llms"], "accent"), (self.labels["desktop"], "muted"),
+                                            (self.labels["free"], None))):
+            self.dot(cr, c, x + i * w / 3 + 3.5, y + 7, color, square=True)
+            text(cr, x + i * w / 3 + 12, y, label, 7, fg(0.8), width=w / 3 - 16)
+        y += 20
+        text(cr, x, y, self.labels["context"].upper(), 7, head, bold=True, width=w - 140)
+        text(cr, x + w - 140, y, f"{round(f['fill'] * 98)}k / 98k ({round(f['fill'] * 100)}%)", 7, fg(0.7),
+             width=140, right=True)
+        self.bar(cr, c, x, y + 15, w, 6, [(f["fill"], level, 1)])
+        y += 28
+        text(cr, x, y, self.labels["activity"].upper(), 7, head, bold=True, width=w - 90)
+        speed = f"{f['speed']:.1f} tok/s" if f["generating"] else "0 tok/s"
+        text(cr, x + w - 90, y, speed, 7, fg(0.7), width=90, right=True)
+        load = 0.9 + 0.06 * math.sin(time.monotonic() * 3) if f["generating"] and moving else (0.93 if f["generating"] else 0.03)
+        self.bar(cr, c, x, y + 15, w, 6, [(load, c.get("accent"), 0.6)])
+        y += 30
+        cx = x
+        for i, (name, color, note, share) in enumerate((("llama.cpp", "green", self.labels["running"], 0.42),
+                                                        ("Ollama", "yellow", "", 0.24),
+                                                        ("vLLM", None, self.labels["stopped"], 0.34))):
+            self.dot(cr, c, cx + 3.5, y + 7, color)
+            label = f"{name} · {note}" if note else name
+            text(cr, cx + 12, y, label, 7, fg(1 if i == 0 else 0.75), bold=i == 0, width=w * share - 14)
+            cx += w * share
+        y += 22
+        rounded(cr, x, y, 112, 20, 4)
+        cr.set_source_rgba(*fg(0.35))
+        cr.set_line_width(1)
+        cr.stroke()
+        text(cr, x + 8, y + 4, self.labels["free_gpu"], 7, fg(0.9), width=100)

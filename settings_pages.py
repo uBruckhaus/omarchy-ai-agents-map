@@ -1184,17 +1184,13 @@ class SettingsPages:
                           xalign=0, wrap=True, max_width_chars=1)
         intro.add_css_class("am-agent-detail")
         card.append(intro)
-        here = Path(__file__).resolve().parent
-        image = next((p for p in (here / "assets/llm-monitor-preview.png", here / "data/llm-monitor-preview.png")
-                      if p.is_file()), None)
-        if image is not None:
-            picture = Gtk.Picture.new_for_filename(str(image))
-            picture.set_content_fit(Gtk.ContentFit.CONTAIN)
-            picture.set_can_shrink(True)
-            picture.set_size_request(-1, 300)
-            picture.set_alternative_text(_("LLM Monitor in the bar and its panel"))
-            picture.add_css_class("am-help-picture")
-            card.append(picture)
+        labels = {"gpu": _("GPU memory"), "context": _("Context"), "activity": _("GPU activity"),
+                  "generating": _("generating"), "running": _("running"), "stopped": _("stopped"),
+                  "llms": _("Local LLMs"), "desktop": _("Desktop & apps"), "free": _("Free"),
+                  "free_gpu": _("Free GPU memory")}
+        sketch = previews.LlmMonitorSketch(lambda: self.theme.colors, labels)
+        sketch.update_property([Gtk.AccessibleProperty.DESCRIPTION], [_("LLM Monitor in the bar and its panel")])
+        card.append(sketch)
         listbox = self.boxed_list()
         listbox.append(self.command_row(self.LLM_MONITOR_ADD))
         card.append(listbox)

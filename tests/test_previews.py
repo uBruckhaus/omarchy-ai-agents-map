@@ -47,5 +47,22 @@ class SetupTest(unittest.TestCase):
                 self.assertTrue(key is None or key in previews.POINTS)
 
 
+
+class MonitorTest(unittest.TestCase):
+    def test_context_fills_while_generating_then_drops(self):
+        start, full, after = (previews.monitor_frame(t) for t in (0.0, 5.9, 7.0))
+        self.assertTrue(start["generating"] and full["generating"])
+        self.assertLess(start["fill"], full["fill"])
+        self.assertGreater(full["fill"], 0.9)
+        self.assertFalse(after["generating"])
+        self.assertLess(after["fill"], 0.4)
+        self.assertEqual(after["speed"], 0.0)
+        self.assertAlmostEqual(previews.monitor_frame(1.0)["fill"], previews.monitor_frame(1.0 + previews.MONITOR_LOOP)["fill"])
+
+    def test_level_colours(self):
+        c = {"green": "g", "yellow": "y", "orange": "o", "red": "r"}
+        self.assertEqual([previews.level_color(c, f) for f in (0.2, 0.6, 0.8, 0.95)], ["g", "y", "o", "r"])
+
+
 if __name__ == "__main__":
     unittest.main()
