@@ -96,6 +96,11 @@ def _number(path) -> float | None:
         return None
 
 
+def busy_now() -> float | None:
+    """The GPU's busy percent right now, when it is a cheap read (sysfs; None otherwise)."""
+    return _number(f"{GPU_DIR}/gpu_busy_percent") if GPU_DIR else None
+
+
 def gpu_totals() -> tuple[int, int, float | None]:
     """(used, total, busy percent)."""
     if GPU_DIR:

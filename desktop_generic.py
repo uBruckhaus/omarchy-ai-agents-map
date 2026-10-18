@@ -36,9 +36,11 @@ RADIUS = 12          # libadwaita's window corners
 ACCENTS = {"blue": "#3584e4", "teal": "#2190a4", "green": "#3a944a", "yellow": "#c88800", "orange": "#ed5b00",
            "red": "#e62d42", "pink": "#d56199", "purple": "#9141ac", "slate": "#6f8396"}
 LIGHT = {"background": "#fafafb", "foreground": "#323233", "muted": "#77767b", "selection": "#dedddf",
-         "red": "#e01b24", "yellow": "#e5a50a", "orange": "#ff7800", "green": "#2ec27e"}
+         "red": "#e01b24", "yellow": "#e5a50a", "orange": "#ff7800", "green": "#2ec27e", "magenta": "#9141ac",
+         "cyan": "#2190a4"}
 DARK = {"background": "#222226", "foreground": "#ffffff", "muted": "#9a9996", "selection": "#3a3a3e",
-        "red": "#ff7b63", "yellow": "#f8e45c", "orange": "#ffa348", "green": "#8ff0a4"}
+        "red": "#ff7b63", "yellow": "#f8e45c", "orange": "#ffa348", "green": "#8ff0a4", "magenta": "#dc8add",
+        "cyan": "#93ddc2"}
 
 # Terminals: (program, how argv follows it).
 TERMINALS = (("xdg-terminal-exec", []), ("kgx", ["--"]), ("ptyxis", ["--"]), ("gnome-terminal", ["--"]),

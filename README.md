@@ -150,6 +150,13 @@ what is missing (install, models, an agent to connect).
   session files were written in the last seconds, or its local LLM is generating), light runs along
   its line to its provider and model on the map (Settings › **Animate active lines**; off when the
   desktop turns animations off).
+- **Used from outside the map**: when a program that is not on the map (a plugin such as Video
+  Trans, a chat app, a script) generates with a local LLM, the line from that LLM to the model is
+  drawn bold in a colour of its own (the theme's magenta or cyan, whichever stands apart from the
+  map's other colours), light runs along it, and the model box says who uses it ("in use · Video
+  Trans"); the local LLM's right-click menu and its ⓘ Details say "In use by Video Trans · now". It
+  shows while that program sent a request in the last 10 s and the GPU was generating; the ⓘ legend
+  has both marks.
 - **Running now**: an agent with an open instance gets a green dot and "running" (or "2 running"),
   its card says which model, and the model box it runs with says "in use · <agent>": the model
   given with `--model` when it was started, else the one in its settings (a model switched inside
@@ -487,6 +494,15 @@ the backup and Undo), and the agent is told the same context. A context you set 
   LLM's port). From settings it takes names, model ids, folders and addresses; it never
   opens credential files (`auth.json`, `.credentials.json`). MCP server entries are read whole so
   they can be copied to another agent; their environment and header values are never shown.
+- **Used from outside the map** reads, every 2 s while the window is open and for 1.5 s of that
+  (100 ms apart, since a request holds its connection for a moment only), `/proc/net/tcp` and
+  `tcp6` (the connections to a running local LLM's port that are established and yours, by their
+  uid column; at most 8 MiB each), then `/proc/<pid>/fd` of your own processes to find which one
+  holds such a connection, and that process's command line (and its parents' while they are your
+  own helpers such as `sh`, `python3` or `curl`) to name it: a plugin by the `name` in its
+  `manifest.json` (a plain plugin id only), an agent by its name, else the program's name. Nothing
+  of what they send is read. AI Agents Map itself and LLM Monitor (status reads only) are left out.
+  At most 16 names per local LLM, each forgotten 30 s after its last request; shown as plain text.
 - **Working now** reads, every 2 s while the window is open, the CPU time of the running agents'
   own processes (`/proc/<pid>/stat`, your own UID only) and the modification times of their session
   files (no contents).

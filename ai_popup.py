@@ -49,6 +49,7 @@ import mcp_scan
 import mcp_tools
 import link_check
 import link_hints
+import llm_clients
 import jan_ctl
 import kobold_ctl
 import mcp_update
@@ -85,7 +86,7 @@ import health
 import web_sources
 from map_view import LegendSample, MapView, Meter
 from gi.repository import PangoCairo  # noqa: E402  (map_view asked for its version)
-from palette import ThemePalette
+from palette import ThemePalette, outside_color
 
 # Smallest card (a small monitor); normally the card fills the screen.
 # Default outer size as in the other popups: a 420 px card around a 590 px
@@ -592,12 +593,15 @@ class AgentsMap(Adw.Application):
                 ("dot:muted", _("Not installed")),
                 ("ring", _("A local LLM server generating right now")),
                 ("model:loaded", _("Model loaded in GPU memory")),
+                ("model:outside", _("Model in use by an app that is not on the map (its name in the box)")),
                 ("model:loading", _("Model loading")),
                 ("model:sleeping", _("Model asleep: listed, GPU memory free")),
                 ("check", _("Selected (Shift + click selects more)")),
             ]),
             (_("Lines"), [
                 ("line:active", _("In use now: light flows while the agent works")),
+                ("line:outside", _("Used by an app that is not on the map: light flows from the local LLM to its model "
+                                   "(the app is named in the local LLM's menu and details)")),
                 ("line:uses", _("The agent uses this provider")),
                 ("line:available", _("Set up, but not in use")),
                 ("line:serves", _("A provider or server offers this model")),
@@ -1060,11 +1064,17 @@ class AgentsMap(Adw.Application):
                 working = self.working_now(pids, usage, runtimes)
             except Exception:
                 working = set(running)
-            GLib.idle_add(done, usage, running, working)
+            try:
+                outside = self.outside_now(usage, runtimes)
+            except Exception:
+                outside = {}
+            GLib.idle_add(done, usage, running, working, outside)
 
-        def done(usage, running, working):
+        def done(usage, running, working, outside):
             self.gpu_reading = False
             self.side_map.set_working(working)
+            self.side_map.set_outside({rid: {mid: _("in use · {0}").format(names) for mid, names in models.items()}
+                                       for rid, models in outside.items()})
             if working != self.working_agents:
                 self.working_agents = set(working)
                 self.update_terminal_tabs()
@@ -1134,6 +1144,39 @@ class AgentsMap(Adw.Application):
                 if use is not None and use.running:
                     generating.update(rt.active_agents)
         return self.activity.working(pids, states, generating)
+
+    def outside_now(self, usage, runtimes) -> dict:
+        """Who uses the running local LLMs (llm_clients, kept for the menu and the details page),
+        and {runtime id: {model id: "Video Trans"}} where an app outside the map generates now: its light
+        and its name on the map."""
+        if not hasattr(self, "llm_clients"):
+            self.llm_clients = llm_clients.Clients()
+        if usage is None:
+            return {}
+        ports = {rt.key: gpu_usage.port_of(rt) for rt in runtimes
+                 if (use := usage.runtimes.get(rt.key)) is not None and use.running}
+        # ~1.5 s of this poll's 2 s: requests and short replies fall between single samples.
+        peak = self.llm_clients.update(ports, self.agent_names(), samples=15, probe=gpu_usage.busy_now)
+        # Generating counts for llm_clients.ACTIVE seconds after it was last seen, like the clients.
+        now = time.monotonic()
+        if usage.generating or (usage.loaded and (peak or 0) >= gpu_usage.BUSY_PERCENT):
+            self.generated_at = now
+        recently = now - getattr(self, "generated_at", -1e9) <= llm_clients.ACTIVE
+        outside, agents = {}, set(self.agent_names().values())
+        for key in ports:
+            loaded = [m for m, state in usage.runtimes[key].models.items() if state == "loaded"]
+            names = [name for name, age in self.llm_clients.recent(key) if age <= llm_clients.ACTIVE
+                     and name not in agents]
+            if loaded and names and recently:
+                outside[f"runtime:{key}"] = {f"model:runtime:{key}:{m}": ", ".join(names[:3]) for m in loaded}
+        return outside
+
+    def runtime_users(self, key: str) -> str:
+        """"Video Trans · now, Hermes · 12 s ago": who used this local LLM lately ("" nobody)."""
+        clients = getattr(self, "llm_clients", None)
+        rows = clients.recent(key) if clients is not None else []
+        return ", ".join(f"{name} · " + (_("now") if age <= llm_clients.ACTIVE else
+                                        _("{0} s ago").format(round(age))) for name, age in rows[:6])
 
     def running_now(self, pids: dict | None = None) -> dict:
         """Agent command -> the model each open instance runs with (/proc only); pids gets
@@ -2680,6 +2723,8 @@ class AgentsMap(Adw.Application):
             loaded = [m for m, state_ in (use.models.items() if use is not None else []) if state_ == "loaded"]
             if loaded:
                 now += " · " + _("loaded: {0}").format(", ".join(loaded))
+            if self.runtime_users(key):
+                now += "\n" + _("In use by {0}").format(self.runtime_users(key))
         else:
             now = _("Not running") if rt.installed else _("Not installed")
         body.append(self.status_hero(state, sentence, now))
@@ -7676,6 +7721,8 @@ class AgentsMap(Adw.Application):
                 items.append(self.menu_note(_("Not installed.") if not rt.installed else
                                             _("No user service starts it, so it cannot be started from here.")))
             return f"{rt.name} · {state}", items
+        if rt.running and self.runtime_users(rt.key):
+            items.insert(0, self.menu_note(_("In use by {0}").format(self.runtime_users(rt.key))))
         if rt.running:
             items.append(self.menu_item(_("Stop"), popover, lambda: self.control_runtime(rt, runtime_ctl.stop, _("Stop"))))
             items.append(self.menu_item(_("Free GPU memory"), popover,
@@ -8940,6 +8987,7 @@ class AgentsMap(Adw.Application):
         yellow_hex = colors.get("yellow", "#f9e2af")
         orange_hex = colors.get("orange", "#fab387")
         red_hex = colors.get("red", "#f04452")
+        outside_hex = colors.get("outside") or outside_color(colors)
         # The settings labels' grey in the QML plugins: Qt.darker(foreground, 1.45).
         try:
             r, g, b = (int(fg_hex.lstrip("#")[i:i + 2], 16) / 255 for i in (0, 2, 4))
@@ -9204,7 +9252,8 @@ class AgentsMap(Adw.Application):
         for view in (getattr(self, "map_view", None), getattr(self, "side_map", None)):
             if view is not None:
                 view.set_palette({"bg": bg_hex, "fg": fg_hex, "dim": dim_hex, "muted": muted_hex,
-                                  "accent": accent_hex, "green": green_hex, "yellow": yellow_hex, "red": red_hex},
+                                  "accent": accent_hex, "green": green_hex, "yellow": yellow_hex, "red": red_hex,
+                                  "outside": outside_hex},
                                  radius)
         self.apply_style_scheme(bg_hex)
         css = self.adw_colors_css(bg_hex, fg_hex, accent_hex, red_hex, green_hex, yellow_hex, radius) + css

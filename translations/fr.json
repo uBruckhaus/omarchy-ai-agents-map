@@ -1200,5 +1200,10 @@
  "Type what a server should work with, e.g. postgres, notion, slack, home assistant. Anyone can publish to the registry: each server's page says who published it and where it runs.": "Tapez avec quoi un serveur doit travailler, par ex. postgres, notion, slack, home assistant. Tout le monde peut publier dans le registre : la page de chaque serveur indique qui l'a publié et où il tourne.",
  "The agents below read this folder. Each one uses a skill from it when a task fits: you just ask for the task. To give the folder to another agent, draw a line on the map from that agent to it.": "Les agents ci-dessous lisent ce dossier. Chacun utilise une skill qu'il contient quand une tâche s'y prête : demandez simplement la tâche. Pour donner le dossier à un autre agent, tracez une ligne sur la carte de cet agent au dossier.",
  "Recommended servers, the MCP registry, programs on this PC, or by hand": "Serveurs recommandés, le registre MCP, programmes de ce PC ou à la main",
- "{0} would be on the command line, where other users of this PC can read it.": "{0} figurerait dans la ligne de commande, lisible par les autres utilisateurs de ce PC."
+ "{0} would be on the command line, where other users of this PC can read it.": "{0} figurerait dans la ligne de commande, lisible par les autres utilisateurs de ce PC.",
+ "In use by {0}": "Utilisé par {0}",
+ "{0} s ago": "il y a {0} s",
+ "now": "maintenant",
+ "Used by an app that is not on the map: light flows from the local LLM to its model (the app is named in the local LLM's menu and details)": "Utilisé par une app qui n'est pas sur la carte : la lumière va du LLM local à son modèle (l'app est nommée dans le menu et les détails du LLM local)",
+ "Model in use by an app that is not on the map (its name in the box)": "Modèle utilisé par une app qui n'est pas sur la carte (son nom dans la case)"
 }

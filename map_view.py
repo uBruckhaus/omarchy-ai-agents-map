@@ -112,6 +112,7 @@ class MapView(Gtk.DrawingArea):
         self.animate = True      # Settings → Animate active lines: light flows along a running agent's path
         self.flow_layer = None   # FlowLayer over the map (with_flow_layer)
         self.working = None      # agent commands working now (agent_activity); None: every running one flows
+        self.outside = {}        # runtime id -> {model id: "in use · Video Trans"}: an app outside the map generates
         self.set_draw_func(self.on_draw)
         self.scroll_adjustment = None
         self.connect("map", lambda *_: self.follow_scrolling())
@@ -677,6 +678,15 @@ class MapView(Gtk.DrawingArea):
                             nodes.add(other)
                             following.append(other)
             frontier = following if start.startswith("agent:") else []
+        if start.startswith("model:"):
+            # A model: also the agents that use it, with their line to the provider that serves it,
+            # so their whole path (and its light) stays lit.
+            for edge in self.graph.edges:
+                if edge.kind == "default" and edge.target == start:
+                    for index, uses in enumerate(self.graph.edges):
+                        if uses.kind == "uses" and uses.source == edge.source and uses.target in nodes:
+                            edges.add(index)
+                            nodes.add(edge.source)
         return nodes, edges
 
     # --- selection ------------------------------------------------------------------------
@@ -842,6 +852,29 @@ class MapView(Gtk.DrawingArea):
             self.working = working
             self.queue_draw()          # the flow follows on this drawing
 
+    def set_outside(self, outside: dict):
+        """{runtime id: {model id: label}}: a program that is not on the map (Video Trans, a script)
+        is using that local LLM now: the line to the model is drawn bold in its own colour with light
+        running along it, and the model box names the program when nothing else does."""
+        outside = {rid: dict(models) for rid, models in outside.items() if models}
+        if outside != self.outside:
+            self.outside = outside
+            self.queue_draw()
+
+    def outside_edge(self, edge) -> bool:
+        return edge.kind == "serves" and not edge.failed and edge.target in self.outside.get(edge.source, {})
+
+    def outside_label(self, node_id: str) -> str:
+        return next((models[node_id] for models in self.outside.values() if node_id in models), "")
+
+    def outside_paths(self, drawn) -> list:
+        """[("outside:<model id>", [the line local LLM → model])] for set_outside."""
+        paths = []
+        for index, edge in enumerate(self.graph.edges):
+            if index in drawn and self.outside_edge(edge):
+                paths.append((f"outside:{edge.target}", [edge]))
+        return paths
+
     def flow_paths(self, active_edges, drawn, running_only: bool = True) -> list:
         """[(agent id, [edges agent → provider → model])] of the agents (the running ones, unless
         running_only is off) whose active path is drawn bold now."""
@@ -867,13 +900,15 @@ class MapView(Gtk.DrawingArea):
         """Comets running from the agent through the provider to the model: a bright head in a soft
         glow and a tail that tapers and fades along the line."""
         tail, steps = 0.3, 22        # tail length (in segments) and the samples it is drawn with
-        accent, fg = self.color("accent"), self.color("fg")
-        light = tuple(a + (f - a) * 0.6 for a, f in zip(accent[:3], fg[:3]))   # brighter than the line under it
+        fg = self.color("fg")
         cr.set_line_cap(cairo.LINE_CAP_ROUND)
         for agent, edges in paths:
             level = 1.0 if levels is None else levels.get(agent, 0.0)
             if level <= 0:
                 continue
+            # An app outside the map: its own colour; an agent: the accent.
+            accent = self.color("outside" if agent.startswith("outside:") else "accent")
+            light = tuple(a + (f - a) * 0.6 for a, f in zip(accent[:3], fg[:3]))   # brighter than the line under it
             offset = (sum(map(ord, agent)) % 97) / 97          # agents do not pulse in step
             count = len(edges)
             for pulse in range(self.FLOW_PULSES):
@@ -989,7 +1024,8 @@ class MapView(Gtk.DrawingArea):
                 moving = self.link is not None and self.link.get("relink") and self.link["drawing"]
                 alpha = 0.3 if moving else 1.0
             active = index in active_edges
-            if active and not picked:
+            outside = not active and self.outside_edge(edge)
+            if (active or outside) and not picked and not (lit_edges is not None and index not in lit_edges):
                 alpha = 1.0
             if edge.failed:
                 # Failed (red) or with warnings (yellow), dotted, until it is removed by hand.
@@ -999,8 +1035,9 @@ class MapView(Gtk.DrawingArea):
                 cr.set_line_cap(cairo.LINE_CAP_ROUND)
                 cr.set_dash([0.1, 5])
             else:
-                cr.set_source_rgba(*self.color("accent" if active else EDGE_COLORS.get(edge.kind, "muted"), alpha))
-                cr.set_line_width(3.2 if picked else 2.8 if active else
+                cr.set_source_rgba(*self.color("accent" if active else "outside" if outside
+                                               else EDGE_COLORS.get(edge.kind, "muted"), alpha))
+                cr.set_line_width(3.2 if picked else 2.8 if active or outside else
                                   2.0 if lit_edges is not None and index in lit_edges else 1.4)
                 # Dashed: set up but not in use (an agent's second provider).
                 cr.set_dash([5, 4] if edge.kind == "available" else [])
@@ -1024,8 +1061,9 @@ class MapView(Gtk.DrawingArea):
         self.draw_markers(cr, markers)
         allowed = self.animations_allowed() and self.link is None
         if self.flow_layer is not None:
-            self.flow_layer.update(self.flow_paths(active_edges, drawn, running_only=False) if allowed else [],
-                                   self.running_agents() if allowed else set())
+            outside = self.outside_paths(drawn) if allowed else []
+            self.flow_layer.update(self.flow_paths(active_edges, drawn, running_only=False) + outside if allowed else [],
+                                   self.running_agents() | {key for key, _edges in outside} if allowed else set())
 
         self.pin_rects = {}
         for node in self.graph.nodes:
@@ -1060,10 +1098,12 @@ class MapView(Gtk.DrawingArea):
             if node.id in self.selected:
                 cr.set_source_rgba(*self.color("accent", 0.40))
                 cr.fill_preserve()
+            # A model an app outside the map generates with now: framed in that light's colour.
+            outside = node.kind == "model" and bool(self.outside_label(node.id))
             border = "accent" if node.id == self.hover or node.id in self.defaults or node.kind == "agent" \
-                or node.id in self.selected else "fg"
-            cr.set_source_rgba(*self.color(border, (0.9 if border == "accent" else 0.18) * (0.3 if faded else 1)))
-            cr.set_line_width(2.5 if node.id in self.selected else 2 if node.id in active_models else 1)
+                or node.id in self.selected else "outside" if outside else "fg"
+            cr.set_source_rgba(*self.color(border, (0.18 if border == "fg" else 0.9) * (0.3 if faded else 1)))
+            cr.set_line_width(2.5 if node.id in self.selected else 2 if node.id in active_models or outside else 1)
             cr.stroke()
             if node.id in self.selected:
                 # A check mark in the corner: selected, not just highlighted.
@@ -1078,7 +1118,7 @@ class MapView(Gtk.DrawingArea):
 
             text_x = x + 10
             use = self.runtime_use(node)
-            detail = node.detail
+            detail = node.detail or (self.outside_label(node.id) if node.kind == "model" else "")
             right = 0                # room kept free at the right for the loaded mark
             if node.status:
                 # Status dot: green running, yellow installed but stopped, grey not installed.
@@ -1107,7 +1147,8 @@ class MapView(Gtk.DrawingArea):
                         cr.arc(cx, cy, 3.5, 0, 2 * math.pi)
                         cr.stroke()
                     else:
-                        cr.set_source_rgba(*self.color("green" if state == "loaded" else "yellow",
+                        loaded = "outside" if outside else "green"
+                        cr.set_source_rgba(*self.color(loaded if state == "loaded" else "yellow",
                                                        0.35 if faded else 1.0))
                         cr.arc(cx, cy, 4, 0, 2 * math.pi)
                         cr.fill()
@@ -1132,7 +1173,7 @@ class MapView(Gtk.DrawingArea):
                 PangoCairo.show_layout(cr, layout)
                 layout.set_font_description(Pango.FontDescription.from_string("Sans 8"))
                 layout.set_text(detail, -1)
-                cr.set_source_rgba(*self.color("dim", alpha))
+                cr.set_source_rgba(*self.color("outside" if outside and not node.detail else "dim", alpha))
                 cr.move_to(text_x, y + h / 2 + 1)
                 PangoCairo.show_layout(cr, layout)
             else:
@@ -1348,6 +1389,11 @@ class LegendSample(Gtk.DrawingArea):
                 cr.stroke()
         elif kind == "model":
             self.box(cr, width, height)
+            if value == "outside":
+                MapView.rounded(cr, 1, 1, width - 2, height - 2, 4)
+                cr.set_source_rgba(*self.colors("outside", 0.9))
+                cr.set_line_width(2)
+                cr.stroke()
             cx = width - 10
             if value == "sleeping":
                 cr.set_source_rgba(*self.colors("muted"))
@@ -1355,7 +1401,7 @@ class LegendSample(Gtk.DrawingArea):
                 cr.arc(cx, mid, 3.5, 0, 2 * math.pi)
                 cr.stroke()
             else:
-                cr.set_source_rgba(*self.colors("green" if value == "loaded" else "yellow"))
+                cr.set_source_rgba(*self.colors({"loaded": "green", "outside": "outside"}.get(value, "yellow")))
                 cr.arc(cx, mid, 4, 0, 2 * math.pi)
                 cr.fill()
         elif kind == "check":
@@ -1392,6 +1438,18 @@ class LegendSample(Gtk.DrawingArea):
                 cr.line_to(cx, mid + 0.9)
                 cr.stroke()
                 cr.arc(cx, mid + 3.4, 1.0, 0, 2 * math.pi)
+                cr.fill()
+                return
+            if value == "outside":
+                # A local LLM used from outside the map: the provider → model line, bold in its colour,
+                # with the light's bright head.
+                cr.set_source_rgba(*self.colors("outside"))
+                cr.set_line_width(2.8)
+                cr.move_to(2, mid)
+                cr.line_to(width - 2, mid)
+                cr.stroke()
+                cr.set_source_rgba(*self.colors("fg", 0.9))
+                cr.arc(width * 0.62, mid, 2.6, 0, 2 * math.pi)
                 cr.fill()
                 return
             active = value == "active"
