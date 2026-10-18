@@ -125,6 +125,20 @@ class CatalogTest(unittest.TestCase):
                                    "variables": {"token": {"isSecret": True}}}]})
         self.assertEqual(mcp_registry.secret_in_args(oci.entry, ["token"]), [])
 
+    def test_required_secret_argument_without_value_stays_secret(self):
+        # A required package argument marked isSecret with no value/default: its field is secret, so
+        # the form's guard refuses it on the command line (it would be readable in /proc/<pid>/cmdline).
+        package = {"registryType": "npm", "identifier": "@acme/srv", "transport": {"type": "stdio"},
+                   "packageArguments": [{"type": "named", "name": "--api-key", "isRequired": True, "isSecret": True,
+                                         "description": "API key"},
+                                        {"type": "positional", "isRequired": True, "valueHint": "folder"}]}
+        option = mcp_registry.option_from_package(package)
+        self.assertEqual(option.entry["args"], ["-y", "@acme/srv", "--api-key", "{arg:0}", "{arg:1}"])
+        self.assertEqual([(n.name, n.required, n.secret) for n in option.needs],
+                         [("arg:0", True, True), ("arg:1", True, False)])
+        secrets = [n.name for n in option.needs if n.secret]
+        self.assertEqual(mcp_registry.secret_in_args(option.entry, secrets), ["arg:0"])
+
     def test_option_like_identifier_refused(self):
         for ident in ("--registry=https://evil.example", "-p"):
             self.assertIsNone(mcp_registry.option_from_package(

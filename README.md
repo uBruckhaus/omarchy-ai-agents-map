@@ -594,7 +594,8 @@ the backup and Undo), and the agent is told the same context. A context you set 
 
 ## Languages and settings
 
-**?** (F1), left of the gear, opens **Help**: an animation of setting up by drawing (an agent, a
+**?** (F1), left of the gear, opens **Help**: **Open user manual** (the PDF manual of this version,
+`assets/user-manual.pdf`, opened in the desktop's PDF viewer through GTK's file launcher), an animation of setting up by drawing (an agent, a
 provider and its model, an MCP server and a skill folder, with made-up boxes), started with
 **Start**, and LLM Monitor, the bar plugin that shows what a local LLM is doing (its picture, its
 marketplace page and its install command with a copy button).

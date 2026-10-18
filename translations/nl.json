@@ -1205,5 +1205,9 @@
  "{0} s ago": "{0} s geleden",
  "now": "nu",
  "Used by an app that is not on the map: light flows from the local LLM to its model (the app is named in the local LLM's menu and details)": "Gebruikt door een app die niet op de kaart staat: licht stroomt van de lokale LLM naar zijn model (de app staat in het menu en de details van de lokale LLM)",
- "Model in use by an app that is not on the map (its name in the box)": "Model in gebruik door een app die niet op de kaart staat (de naam in het vak)"
+ "Model in use by an app that is not on the map (its name in the box)": "Model in gebruik door een app die niet op de kaart staat (de naam in het vak)",
+ "User manual": "Handleiding",
+ "Open user manual": "Handleiding openen",
+ "Everything this app does, step by step: the map, agents, local LLMs and models, connecting by drawing, MCP servers, skills, settings and troubleshooting (a PDF, in English, for this version).": "Alles wat deze app doet, stap voor stap: de kaart, agents, lokale LLM's en modellen, verbinden door te tekenen, MCP-servers, skills, instellingen en probleemoplossing (een pdf, in het Engels, voor deze versie).",
+ "Could not open the manual: {0}": "De handleiding kon niet worden geopend: {0}"
 }

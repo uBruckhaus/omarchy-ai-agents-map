@@ -124,8 +124,9 @@ def _arguments(items) -> tuple[list, list]:
         name = _s(item.get("name"), 80)
         if not value and item.get("isRequired"):
             key = f"arg:{number}"
-            needs.append(Need(key, _s(item.get("description")) or _s(item.get("valueHint")) or name, True, False,
-                              hint=_s(item.get("valueHint"), 60)))
+            # isSecret kept: a secret field is masked, and the form refuses to put it on a command line.
+            needs.append(Need(key, _s(item.get("description")) or _s(item.get("valueHint")) or name, True,
+                              item.get("isSecret") is True, hint=_s(item.get("valueHint"), 60)))
             value = "{" + key + "}"
         elif PLACEHOLDER.search(value):
             needs += _inner_needs(item, value)

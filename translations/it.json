@@ -1205,5 +1205,9 @@
  "{0} s ago": "{0} s fa",
  "now": "ora",
  "Used by an app that is not on the map: light flows from the local LLM to its model (the app is named in the local LLM's menu and details)": "Usato da un'app che non è sulla mappa: la luce scorre dal LLM locale al suo modello (l'app è indicata nel menu e nei dettagli del LLM locale)",
- "Model in use by an app that is not on the map (its name in the box)": "Modello in uso da un'app che non è sulla mappa (il suo nome nel riquadro)"
+ "Model in use by an app that is not on the map (its name in the box)": "Modello in uso da un'app che non è sulla mappa (il suo nome nel riquadro)",
+ "User manual": "Manuale utente",
+ "Open user manual": "Apri il manuale",
+ "Everything this app does, step by step: the map, agents, local LLMs and models, connecting by drawing, MCP servers, skills, settings and troubleshooting (a PDF, in English, for this version).": "Tutto ciò che fa questa app, passo per passo: la mappa, gli agenti, i LLM locali e i modelli, collegare disegnando, i server MCP, le skill, le impostazioni e la risoluzione dei problemi (un PDF, in inglese, per questa versione).",
+ "Could not open the manual: {0}": "Impossibile aprire il manuale: {0}"
 }

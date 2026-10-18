@@ -8670,12 +8670,64 @@ class AgentsMap(Adw.Application):
         page.append(rule)
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
         body.add_css_class("am-settings")
+        manual = self.help_manual_card()
+        if manual is not None:
+            body.append(manual)
         body.append(self.help_setup_card())
         monitor = self.help_llm_monitor_card()
         if monitor is not None:
             body.append(monitor)
         page.append(self.page_scroller(body))
         return page
+
+    @staticmethod
+    def manual_path() -> Path | None:
+        """The user manual that comes with this version (assets/ in the plugin, data/ in Asterism)."""
+        here = Path(__file__).resolve().parent
+        return next((p for p in (here / "assets/user-manual.pdf", here / "data/user-manual.pdf") if p.is_file()), None)
+
+    def help_manual_card(self) -> Gtk.Widget | None:
+        """The user manual (a PDF of this version), opened in the desktop's PDF viewer."""
+        path = self.manual_path()
+        if path is None:
+            return None
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        card.add_css_class("am-help-card")
+        top = Gtk.Box(spacing=10)
+        heading = Gtk.Label(label=_("User manual").upper(), xalign=0, hexpand=True)
+        heading.add_css_class("am-setting-heading")
+        top.append(heading)
+        button = Gtk.Button()
+        content = Gtk.Box(spacing=6)
+        content.append(Gtk.Image.new_from_icon_name("x-office-document-symbolic"))
+        content.append(Gtk.Label(label=_("Open user manual")))
+        button.set_child(content)
+        button.add_css_class("am-small-btn")
+        top.append(button)
+        card.append(top)
+        intro = Gtk.Label(label=_("Everything this app does, step by step: the map, agents, local LLMs and models, "
+                                  "connecting by drawing, MCP servers, skills, settings and troubleshooting "
+                                  "(a PDF, in English, for this version)."),
+                          xalign=0, wrap=True, max_width_chars=1)
+        intro.add_css_class("am-agent-detail")
+        card.append(intro)
+        note = Gtk.Label(xalign=0, wrap=True, max_width_chars=1, visible=False)
+        note.add_css_class("am-agent-detail")
+        card.append(note)
+
+        def open_manual(*_args):
+            # The desktop's default PDF viewer, started from its desktop entry by GIO (no shell, no
+            # command line built here). Not Gtk.FileLauncher: it goes through the desktop portal,
+            # which on Hyprland cannot attach to the window and silently opens nothing.
+            try:
+                Gio.AppInfo.launch_default_for_uri(path.as_uri(), None)
+                note.set_visible(False)
+            except GLib.Error as error:
+                note.set_label(_("Could not open the manual: {0}").format(error.message))
+                note.set_visible(True)
+
+        button.connect("clicked", open_manual)
+        return card
 
     LLM_MONITOR_ID = "ubruckhaus.llm-usage"
     LLM_MONITOR_LISTING = "https://omarchyplugins.com/plugin.html?id=ubruckhaus.llm-usage"
