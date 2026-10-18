@@ -308,6 +308,9 @@ ticked agents at once: one preview, one Undo). No agent is ticked unless you sel
   the list of MCP servers or a link in `~/.local/bin` still start the old version, it shows as
   **Update…**: one preview unpacks the new version, points every one of them at it and moves the
   old folder into the backup (deleted after 7 days; Undo within that time brings everything back).
+  **Check for updates** (On this PC) does all of it at once after your click: it looks inside the
+  new versions, offers every update in one preview with one backup and one Undo, and then tests
+  each updated server (a note names any that does not answer).
 - **MCP registry**: a search of the official MCP registry (`registry.modelcontextprotocol.io`; its
   search often takes 10 seconds or more). Each result names its publisher as the registry checked it
   (a GitHub account for `io.github.<user>/…`, a domain for `com.example/…`). npm packages run with

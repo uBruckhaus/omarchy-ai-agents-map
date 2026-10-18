@@ -103,6 +103,40 @@ class UpdateTest(unittest.TestCase):
         self.assertEqual(os.readlink(link), str(old))
         self.assertTrue(old.exists())
 
+    def test_plan_all_updates_several_apps_in_the_same_files(self):
+        olds, news = {}, {}
+        for app in ("gridapp", "figapp"):
+            olds[app] = self.program(self.home / f"Applications/{app}-0.6.1/usr/bin/{app}-cli",
+                                     USAGE.replace(b"gridapp", app.encode()))
+            news[app] = self.program(self.home / f"Applications/{app}-0.7.0/usr/bin/{app}-cli",
+                                     USAGE.replace(b"gridapp", app.encode()))
+        entries = {app: {"transport": "stdio", "command": str(olds[app]), "args": ["mcp"], "env": {}, "url": "",
+                         "headers": {}} for app in olds}
+        for agent in ("pi", "claude"):
+            for app in olds:
+                connect.apply(mcp_ctl.plan(agent, app, entry=entries[app]), self.home / "b")
+        mcp_library.remember({app: mcp_ctl.check_entry(entries[app]) for app in olds})
+        used = {str(p): ["pi", "claude"] for p in olds.values()}
+        candidates = [c for c in mcp_scan.scan(used) if c.update_from]
+        self.assertEqual(sorted(c.name for c in candidates), ["figapp", "gridapp"])
+        plan = mcp_update.plan_all(candidates, ["pi", "claude"])
+        self.assertEqual(len({c.path for c in plan.changes}), len(plan.changes))   # one change per file
+        backup = connect.apply(plan, self.home / "b")
+        for agent in ("pi", "claude"):
+            for app in olds:
+                self.assertEqual(mcp_ctl.normal(mcp_ctl.raw_entries(agent)[app])["command"], str(news[app]))
+        self.assertEqual({n: e["command"] for n, e in mcp_library.load().items()},
+                         {app: str(news[app]) for app in olds})
+        self.assertEqual(sorted(mcp_update.updated_entries(candidates, ["pi", "claude"])), ["figapp", "gridapp"])
+        for app in olds:
+            self.assertFalse(olds[app].exists())
+        connect.undo(backup)
+        for agent in ("pi", "claude"):
+            for app in olds:
+                self.assertEqual(mcp_ctl.normal(mcp_ctl.raw_entries(agent)[app])["command"], str(olds[app]))
+        self.assertTrue(all(p.exists() for p in olds.values()))
+        self.assertIsNone(getattr(connect._STAGED, "texts", None))
+
     def test_prune_retired(self):
         root = self.home / "b"
         (root / "20200101-000000-000000/retired-0-app-1.0").mkdir(parents=True)

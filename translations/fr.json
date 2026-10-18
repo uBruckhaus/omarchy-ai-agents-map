@@ -1458,5 +1458,25 @@
   "{0} dossiers"
  ],
  "Show details": "Afficher les détails",
- "Hide details": "Masquer les détails"
+ "Hide details": "Masquer les détails",
+ "Check for updates": "Rechercher des mises à jour",
+ "Looks inside new versions of the apps whose MCP servers you use, then moves every agent to them in one step (preview, backup, Undo), tests the servers and removes the old versions.": "Examine les nouvelles versions des apps dont tu utilises les serveurs MCP, y fait passer tous les agents en une seule étape (aperçu, sauvegarde, Annuler), teste les serveurs et supprime les anciennes versions.",
+ "Looking for updates…": "Recherche de mises à jour…",
+ "Every app with an MCP server you use is up to date.": "Toutes les apps dont tu utilises un serveur MCP sont à jour.",
+ "Update {0} apps": "Mettre à jour {0} apps",
+ "{0} apps updated": "{0} apps mises à jour",
+ "Afterwards each server is tested.": "Ensuite, chaque serveur est testé.",
+ "Not working after the update: {0}": "Ne fonctionne pas après la mise à jour : {0}",
+ "\u0004Looking inside 1 new version…": [
+  "Examen de 1 nouvelle version…",
+  "Examen de {0} nouvelles versions…"
+ ],
+ "\u0004Tested: the updated server works.": [
+  "Testé : le serveur mis à jour fonctionne.",
+  "Testé : les {0} serveurs mis à jour fonctionnent."
+ ],
+ "\u0004Unpacks 1 AppImage into ~/Applications first.": [
+  "Décompresse d'abord 1 AppImage dans ~/Applications.",
+  "Décompresse d'abord {0} AppImages dans ~/Applications."
+ ]
 }

@@ -263,6 +263,8 @@ class LmStudioIdsTest(unittest.TestCase):
                 {"domain": "llm", "defaultIdentifier": "gemma-4-12b-it-qat", "containingDirSubpath": "x/gemma-4-12B-it-QAT-GGUF"},
                 {"domain": "embedding", "defaultIdentifier": "text-embedding-nomic"},
                 {"domain": "llm", "defaultIdentifier": "<b>bad</b>\n"},
-                {"domain": "llm"}]}))
+                {"domain": "llm"},
+                # moved to the trash: LM Studio's cache still lists it
+                {"domain": "llm", "defaultIdentifier": "gone", "entryPoint": {"absPath": f"{root}/gone.gguf"}}]}))
             self.assertEqual(inventory.lmstudio_identifiers(Path(root)), ["gemma-4-12b-it-qat"])
             self.assertEqual(inventory.lmstudio_identifiers(Path(root, "missing")), [])

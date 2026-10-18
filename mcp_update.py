@@ -129,3 +129,27 @@ def plan(candidate, agents) -> connect.Plan:
         listed.links_add.append((link, new_target))
     listed.retire = [Path(f) for f in candidate.old_folders if Path(f).is_dir() and Path(f) != folder]
     return connect.merge(plans + [listed])
+
+
+def plan_all(candidates, agents) -> connect.Plan:
+    """Every app's update as one plan (Check for updates): they edit the same
+    settings files, so each is planned on top of the ones before."""
+    return connect.chain([lambda c=c: plan(c, agents) for c in candidates])
+
+
+def updated_entries(candidates, agents) -> dict:
+    """name -> entry of the servers that start one of these apps' new
+    versions now (directly or through a link), to test them after the update."""
+    folders = [_real(str(new_folder(c))) for c in candidates]
+    sources = [mcp_ctl.raw_entries(a) for a in agents if mcp_ctl.supported(a)] + [mcp_library.load()]
+    found = {}
+    for raw in sources:
+        for name, value in raw.items():
+            entry = mcp_ctl.normal(value) if mcp_ctl.NAME_RE.match(name) else None
+            if not entry or entry["transport"] != "stdio" or name in found:
+                continue
+            command = os.path.expanduser(entry["command"])
+            program = _real(shutil.which(command) or command)
+            if any(_inside(program, folder) for folder in folders):
+                found[name] = entry
+    return found

@@ -8,6 +8,7 @@ RUNNERS = {"look_inside", "unpack_bin", "unpack", "unpack_appimage"}
 # The only window methods that may reach them: each runs after the user's click.
 CLICKED = {
     "look_inside_appimages",   # + MCP server › Look inside…
+    "check_mcp_updates",       # + MCP server › On this PC › Check for updates
     "test_new_mcp",            # Test on the add page
     "apply_new_mcp",           # Add on the add page (a server that lives in an AppImage)
     "apply_connect",           # Update… of an app's MCP entries, after its preview

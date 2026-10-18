@@ -364,6 +364,11 @@ def lmstudio_identifiers(root: Path) -> list[str]:
     found = []
     for entry in (models if isinstance(models, list) else [])[:MAX_ITEMS]:
         if isinstance(entry, dict) and entry.get("domain") == "llm" and isinstance(entry.get("defaultIdentifier"), str):
+            # The index is LM Studio's own cache: a model moved to the trash stays in it
+            # until LM Studio looks again.
+            point = entry.get("entryPoint") if isinstance(entry.get("entryPoint"), dict) else {}
+            if isinstance(point.get("absPath"), str) and not os.path.exists(point["absPath"]):
+                continue
             name = clean(entry["defaultIdentifier"])
             if NAME_RE.fullmatch(name):
                 found.append(name)

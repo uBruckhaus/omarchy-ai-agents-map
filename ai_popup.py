@@ -3374,6 +3374,13 @@ class AgentsMap(Adw.Application):
         rescan.add_css_class("am-small-btn")
         rescan.connect("clicked", lambda *_: self.scan_mcp(force=True))
         top.append(rescan)
+        self.add_check_updates = Gtk.Button(label=_("Check for updates"), valign=Gtk.Align.START)
+        self.add_check_updates.add_css_class("am-small-btn")
+        self.add_check_updates.set_tooltip_text(_(
+            "Looks inside new versions of the apps whose MCP servers you use, then moves every agent to them "
+            "in one step (preview, backup, Undo), tests the servers and removes the old versions."))
+        self.add_check_updates.connect("clicked", lambda *_: self.check_mcp_updates())
+        top.append(self.add_check_updates)
         left.append(top)
         self.add_found_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         left.append(self.scrolled(self.add_found_list))
@@ -3861,6 +3868,45 @@ class AgentsMap(Adw.Application):
             self.add_inside.set_sensitive(True)
             self.found_mcp = None
             self.scan_mcp()
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def check_mcp_updates(self):
+        """On this PC › Check for updates: look inside the new versions of known
+        apps (the user's click: an AppImage's own --appimage-extract), scan, and
+        offer every update at once."""
+        if self.scanning_mcp:
+            return
+        self.scanning_mcp = True
+        self.add_check_updates.set_sensitive(False)
+        newer = mcp_scan.new_versions_found()
+        self.add_found_status.set_label(ngettext(
+            "Looking inside 1 new version…", "Looking inside {0} new versions…", len(newer)).format(len(newer))
+            if newer else _("Looking for updates…"))
+        configured = self.configured_programs()
+        commands = [a.command for a in self.agent_list]
+
+        def work():
+            try:
+                if newer:
+                    mcp_scan.look_inside(newer)
+                found = mcp_scan.scan(configured, commands)
+            except (OSError, RuntimeError, subprocess.SubprocessError):
+                found = []
+            GLib.idle_add(done, found)
+
+        def done(found):
+            self.scanning_mcp = False
+            self.add_check_updates.set_sensitive(True)
+            self.found_mcp = found
+            self.configured_now = None
+            self.show_found_mcp()
+            updates = self.mcp_updates()
+            if updates:
+                self.open_mcp_updates(updates)
+            else:
+                self.add_found_status.set_label(_("Every app with an MCP server you use is up to date."))
             return False
 
         threading.Thread(target=work, daemon=True).start()
@@ -5476,10 +5522,14 @@ class AgentsMap(Adw.Application):
         self.show_page("connect")
 
     def open_mcp_update(self, candidate):
-        """An app's newer version: its users move to it (preview, backup, Undo)."""
+        self.open_mcp_updates([candidate])
+
+    def open_mcp_updates(self, candidates):
+        """Apps' newer versions: their users move to them (one preview, backup, Undo)."""
         names = self.agent_names()
-        self.connecting = {"update": candidate, "from": self.view, "remove_only": False}
-        self.connect_title.set_label(_("Update {0}").format(candidate.name).upper())
+        self.connecting = {"updates": list(candidates), "from": self.view, "remove_only": False}
+        self.connect_title.set_label((_("Update {0}").format(candidates[0].name) if len(candidates) == 1 else
+                                      _("Update {0} apps").format(len(candidates))).upper())
         form = self.connect_form
         while (child := form.get_first_child()) is not None:
             form.remove(child)
@@ -5489,19 +5539,54 @@ class AgentsMap(Adw.Application):
         self.connect_ok.set_visible(True)
         self.connect_ok.set_label(_("Update"))
         self.connect_remove.set_visible(False)
-        folder = mcp_update.new_folder(candidate)
-        text = _("{0} {1} is replaced by {2}.").format(candidate.name, candidate.update_from, candidate.version)
-        if candidate.appimage and not folder.exists():
-            text += " " + _("Unpacks {0} into {1} first (the server lives inside it).").format(
-                Path(candidate.appimage).name, skills_ctl.tilde(folder))
-        users = [names.get(a, a) for a in candidate.users if a != "list"]
+        users = []
+        for candidate in candidates:
+            users += [names.get(a, a) for a in candidate.users if a != "list" and names.get(a, a) not in users]
+        unpack = [c for c in candidates if c.appimage and not mcp_update.new_folder(c).exists()]
+        if len(candidates) == 1:
+            candidate = candidates[0]
+            text = _("{0} {1} is replaced by {2}.").format(candidate.name, candidate.update_from, candidate.version)
+            if unpack:
+                text += " " + _("Unpacks {0} into {1} first (the server lives inside it).").format(
+                    Path(candidate.appimage).name, skills_ctl.tilde(mcp_update.new_folder(candidate)))
+        else:
+            text = "\n".join("{0}  {1} → {2}".format(c.name, c.update_from, c.version) for c in candidates) + "\n"
+            if unpack:
+                text += ngettext("Unpacks 1 AppImage into ~/Applications first.",
+                                 "Unpacks {0} AppImages into ~/Applications first.", len(unpack)).format(len(unpack))
         if users:
             text += " " + _("{0} start the new version from then on.").format(", ".join(users))
         text += " " + _("The old version is kept with the backup for {0} days: Undo brings everything back.").format(
             connect.RETIRED_DAYS)
+        text += " " + _("Afterwards each server is tested.")
         self.connect_intro.set_label(text)
         self.update_connect_preview()
         self.show_page("connect")
+
+    def test_updated_mcp(self, updates, backup):
+        """After an update: every server that starts a new version answers? (one
+        after the other, in the background; the Tools of each are kept)."""
+        agents = [a.command for a in self.agent_list if a.installed]
+
+        def work():
+            failed, count = [], 0
+            for name, entry in mcp_update.updated_entries(updates, agents).items():
+                count += 1
+                result = mcp_tools.ask_and_keep(name, entry)
+                if result.get("status") != "ok":
+                    failed.append(f"{name}: {result.get('error', '')}"[:200])
+            GLib.idle_add(done, count, failed)
+
+        def done(count, failed):
+            if failed:
+                self.toast(_("Not working after the update: {0}").format("; ".join(failed)), 30, _("Undo"),
+                           lambda: self.undo_last(backup))
+            elif count:
+                self.toast(ngettext("Tested: the updated server works.", "Tested: all {0} updated servers work.",
+                                    count).format(count), 30, _("Undo"), lambda: self.undo_last(backup))
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
 
     def open_mcp_delete(self, name: str):
         """The card's Remove: the server goes from every agent and from the list."""
@@ -5534,8 +5619,8 @@ class AgentsMap(Adw.Application):
         info = self.connecting
         if "security" in info:
             return agent_security.plan(info["agent"].command, info["security"], info["value"])
-        if "update" in info:
-            return mcp_update.plan(info["update"], [a.command for a in self.agent_list if a.installed])
+        if "updates" in info:
+            return mcp_update.plan_all(info["updates"], [a.command for a in self.agent_list if a.installed])
         if "delete" in info:
             plans = [mcp_ctl.plan(a, info["delete"], remove=True) for a in info["users"]]
             listed = connect.Plan("", "", info["delete"])
@@ -5565,18 +5650,22 @@ class AgentsMap(Adw.Application):
 
     def apply_connect(self, remove: bool):
         info = self.connecting
-        candidate = info.get("update")
-        if candidate is not None and candidate.appimage and not info.get("unpacked"):
-            # The new version unpacked first (in the background), then the plan.
+        updates = info.get("updates")
+        images = [Path(c.appimage) for c in updates or [] if c.appimage]
+        if images and not info.get("unpacked"):
+            # The new versions unpacked first (in the background), then the plan.
             self.connect_ok.set_sensitive(False)
-            self.connect_status.set_label(_("Unpacking {0}…").format(Path(candidate.appimage).name))
 
             def work():
-                try:
-                    mcp_scan.unpack(Path(candidate.appimage))
-                    error = ""
-                except (OSError, RuntimeError, subprocess.SubprocessError) as failure:
-                    error = str(failure)
+                error = ""
+                for number, image in enumerate(images, 1):
+                    GLib.idle_add(self.connect_status.set_label, _("Unpacking {0}…").format(image.name) +
+                                  (f" ({number}/{len(images)})" if len(images) > 1 else ""))
+                    try:
+                        mcp_scan.unpack(image)
+                    except (OSError, RuntimeError, subprocess.SubprocessError) as failure:
+                        error = str(failure)
+                        break
                 GLib.idle_add(done, error)
 
             def done(error):
@@ -5627,14 +5716,16 @@ class AgentsMap(Adw.Application):
             link_hints.forget(link[0])              # removed by hand: its hints go with it
         if info.get("replaces") is not None and not remove:
             link_hints.forget(link_hints.key(f"agent:{info['agent'].command}", f"runtime:{info['replaces'].key}"))
-        if candidate is not None:
+        if updates:
             self.found_mcp = None
             self.configured_now = None
             self.close_connect()
             self.collect()
             self.refresh_overview()
             self.refresh_map()
-            self.show_undo(_("{0} updated to {1}").format(candidate.name, candidate.version), backup)
+            self.show_undo(_("{0} updated to {1}").format(updates[0].name, updates[0].version) if len(updates) == 1
+                           else _("{0} apps updated").format(len(updates)), backup)
+            self.test_updated_mcp(updates, backup)
             self.check_new_apps()
             return
         if "delete" in info:

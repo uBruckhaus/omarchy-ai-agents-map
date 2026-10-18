@@ -1458,5 +1458,25 @@
   "{0} mappen"
  ],
  "Show details": "Details tonen",
- "Hide details": "Details verbergen"
+ "Hide details": "Details verbergen",
+ "Check for updates": "Op updates controleren",
+ "Looks inside new versions of the apps whose MCP servers you use, then moves every agent to them in one step (preview, backup, Undo), tests the servers and removes the old versions.": "Kijkt in nieuwe versies van de apps waarvan je de MCP-servers gebruikt, zet daarna alle agents in één stap over (voorbeeld, back-up, Ongedaan maken), test de servers en verwijdert de oude versies.",
+ "Looking for updates…": "Zoeken naar updates…",
+ "Every app with an MCP server you use is up to date.": "Elke app met een MCP-server die je gebruikt is up-to-date.",
+ "Update {0} apps": "{0} apps bijwerken",
+ "{0} apps updated": "{0} apps bijgewerkt",
+ "Afterwards each server is tested.": "Daarna wordt elke server getest.",
+ "Not working after the update: {0}": "Werkt niet na de update: {0}",
+ "\u0004Looking inside 1 new version…": [
+  "Kijken in 1 nieuwe versie…",
+  "Kijken in {0} nieuwe versies…"
+ ],
+ "\u0004Tested: the updated server works.": [
+  "Getest: de bijgewerkte server werkt.",
+  "Getest: alle {0} bijgewerkte servers werken."
+ ],
+ "\u0004Unpacks 1 AppImage into ~/Applications first.": [
+  "Pakt eerst 1 AppImage uit in ~/Applications.",
+  "Pakt eerst {0} AppImages uit in ~/Applications."
+ ]
 }

@@ -458,12 +458,7 @@ def plan(agent: str, name: str, sources=(), remove: bool = False, entry: dict | 
 
 def _claude_json_change(name: str, item: dict | None) -> list:
     path = HOME / ".claude.json"
-    try:
-        if path.stat().st_size > 8 * 1024 * 1024:
-            raise ValueError("~/.claude.json is too large to edit here")
-        text = path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        text = ""
+    text = connect._read(path)      # size-limited; what connect.chain planned before, if anything
     data = json.loads(text) if text.strip() else {}
     if not isinstance(data, dict):
         raise ValueError("~/.claude.json is not a JSON object")

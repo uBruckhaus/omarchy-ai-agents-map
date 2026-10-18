@@ -25,6 +25,7 @@ import re
 import shlex
 import subprocess
 import tempfile
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -101,7 +102,13 @@ def base_url(address: str) -> str:
     return f"http://{host}:{port}/v1"
 
 
+_STAGED = threading.local()     # chain(): texts planned so far, per file (this thread only)
+
+
 def _read(path: Path) -> str:
+    staged = getattr(_STAGED, "texts", None)
+    if staged is not None and Path(path) in staged:
+        return staged[Path(path)]
     try:
         limit = 8 * 1024 * 1024 if path.name == ".claude.json" else MAX_BYTES
         if path.stat().st_size > limit:
@@ -508,6 +515,30 @@ def _run(argv: list):
 def tilde(path) -> str:
     text, home = str(path), str(HOME)
     return "~" + text[len(home):] if text == home or text.startswith(home + "/") else text
+
+
+def chain(builders) -> Plan:
+    """Plans that may change the same files (several apps' updates all edit
+    ~/.claude.json), each made on top of the ones before it: builders are
+    called in order and read what the earlier ones planned. One preview, one
+    backup, one Undo, as merge()."""
+    plans, first = [], {}
+    _STAGED.texts = {}
+    try:
+        for build in builders:
+            item = build()
+            for change in item.changes:
+                first.setdefault(Path(change.path), change.old)
+                _STAGED.texts[Path(change.path)] = change.new
+            item.changes = []
+            plans.append(item)
+        texts = dict(_STAGED.texts)
+    finally:
+        _STAGED.texts = None
+    if not plans:
+        raise ValueError("nothing to do")
+    plans[0].changes = [Change(path, first[path], text) for path, text in texts.items() if text != first[path]]
+    return merge(plans)
 
 
 def merge(plans: list) -> Plan:
