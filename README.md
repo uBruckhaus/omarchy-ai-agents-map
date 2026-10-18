@@ -9,7 +9,7 @@ tidying your own setup.
 
 Setting up by drawing (the animation in Help, drawn in your theme's colours):
 
-![An agent is connected to a local LLM, a model, an MCP server and a skill folder by drawing lines; then its pin and right-click menu](assets/setup-by-drawing.gif)
+![An agent is connected to a local LLM, a model, an MCP server and a skill folder by drawing lines; then its pin and right-click menu](assets/drawing-demo.gif)
 
 ## Install
 
@@ -700,7 +700,7 @@ rm -rf ~/.config/omarchy/ai-agents-map ~/.local/state/ai-agents-map ~/.cache/ai-
 | `install_ctl.py`, `runtime_ctl.py`, `models_ctl.py`, `context_ctl.py` | Local LLMs: install, start/stop, models, context size |
 | `netfetch.py` | The one bounded way to the web (curl) |
 | `agent_activity.py`, `side_tree.py`, `model_names.py` | Which agents are working now; the sidebar tree; what a model's name means |
-| `assets/setup-by-drawing.gif` | The animation above (rendered from `previews.SetupSketch`) |
+| `assets/drawing-demo.gif` | The animation above (rendered from `previews.SetupSketch`) |
 | `claude_sessions.py`, `herdr_state.py` | Claude Code's numbers per project and subagent; herdr's live state and pane focus |
 | `desktop.py`, `desktop_omarchy.py`, `desktop_generic.py` | Everything desktop-specific behind one interface: Omarchy/Hyprland here; the generic one is used only outside Omarchy (the same code as the stand-alone app Asterism) |
 | `ai_core.py`, `palette.py`, `corners.py`, `pidfile.py`, `i18n.py`, `I18n.js` | Shared helpers, theme colours, corners, PID file, languages |
