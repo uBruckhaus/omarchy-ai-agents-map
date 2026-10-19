@@ -509,10 +509,10 @@ def agent_checks(agent, info, record: dict, inventory, hints: dict, logged_in: b
         rt = by_name.get(p.runtime)
         if rt is None or not rt.installed:
             checks.append(Check("missing", _("{0} is not installed").format(p.runtime or p.name), "",
-                                _("Install it: right-click its box on the map → Install.")))
+                                _("Install it: its card on Setup → Install.")))
         elif not rt.models:
             checks.append(Check("missing", _("{0} has no models").format(rt.name), "",
-                                _("Download one: the + Model box on the map.")))
+                                _("Download one: Add model on Setup, or Models… in its menu on the map.")))
         elif p.active and not rt.running:
             checks.append(Check("ok", rt.name, _("starts with the agent") if rt.service or rt.key == "lmstudio"
                                 else _("installed, not running")))
@@ -533,12 +533,12 @@ def agent_checks(agent, info, record: dict, inventory, hints: dict, logged_in: b
         checks.append(Check("ok", _("MCP servers"), ", ".join(servers)))
     else:
         checks.append(Check("info", _("No MCP servers yet"), "",
-                            _("Add one: the + MCP server box on the map, then draw a line to the agent.")))
+                            _("Add one: Add MCP server on Setup, then draw a line from the agent to it on the map.")))
     sets = inventory.agent_skills.get(agent.command, [])
     if sets:
         checks.append(Check("ok", _("Skills"), ", ".join(sets)))
     else:
-        checks.append(Check("info", _("No skills yet"), "", _("Add some: the + Skills box on the map.")))
+        checks.append(Check("info", _("No skills yet"), "", _("Add some: Add skills on Setup.")))
     return checks
 
 
@@ -546,7 +546,7 @@ def runtime_checks(rt, hints: dict, agent_names: dict, login: bool | None) -> li
     checks = []
     if not rt.installed:
         return [Check("missing", _("Not installed"), "",
-                      _("Install it: right-click its box on the map → Install."))]
+                      _("Install it: its card on Setup → Install."))]
     checks.append(Check("ok", _("Installed"), rt.address))
     if rt.running:
         checks.append(Check("ok", _("Running"), rt.address))
@@ -562,7 +562,7 @@ def runtime_checks(rt, hints: dict, agent_names: dict, login: bool | None) -> li
     if rt.models:
         checks.append(Check("ok", _("Models"), str(len(rt.models)) + (f" · {rt.models_dir}" if rt.models_dir else "")))
     else:
-        checks.append(Check("missing", _("No models"), "", _("Download one: the + Model box on the map.")))
+        checks.append(Check("missing", _("No models"), "", _("Download one: Add model on Setup, or Models… in its menu on the map.")))
     users = [agent_names.get(a, a) for a in rt.agents]
     if users:
         now = [agent_names.get(a, a) for a in rt.active_agents]

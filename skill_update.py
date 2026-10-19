@@ -24,6 +24,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 from pathlib import Path
 
@@ -183,6 +184,21 @@ def check(answer: str, name: str) -> str:
     return text + "\n"
 
 
+def _read_answer(path: Path) -> str:
+    """Codex's answer file: our own regular file, never through a link, read up to a cap."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except OSError:
+        return ""
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
+            return ""
+        return os.read(fd, MAX_SKILL * 2).decode("utf-8", "replace")
+    finally:
+        os.close(fd)
+
+
 def _bounded(argv, **kwargs):
     import ai_core
     kwargs.setdefault("env", {**os.environ, "AI_AGENTS_MAP_NO_PROVIDERS": "1"})
@@ -212,8 +228,8 @@ def rewrite(skill_file: Path, server: str, tools: dict, installed, run=_bounded)
             out, ok = run(writer_command(writer, answer_file), max_bytes=MAX_SKILL * 4, timeout=TIMEOUT,
                           stdin=prompt, cwd=str(WORK_DIR))
             text = out.decode("utf-8", "replace")
-            if writer == "codex" and answer_file.is_file() and not answer_file.is_symlink():
-                text = answer_file.read_text(encoding="utf-8", errors="replace")[:MAX_SKILL * 2]
+            if writer == "codex":
+                text = _read_answer(answer_file) or text
             if not ok:
                 raise RuntimeError(text.strip()[-200:] or "no answer")
             return check(text, name), writer

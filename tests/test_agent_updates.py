@@ -145,7 +145,7 @@ class AgentUpdatesTest(unittest.TestCase):
             self.assertFalse(au.run_in_terminal(["mise", "upgrade", "a;rm"]))
             popen.assert_not_called()
             self.assertTrue(au.run_in_terminal(["mise", "upgrade", "http:muse"]))
-        self.assertEqual(popen.call_args[0][0][1], "MISE_USE_VERSIONS_HOST=0 mise upgrade http:muse")
+        self.assertEqual(popen.call_args[0][0][1], "env MISE_USE_VERSIONS_HOST=0 mise upgrade http:muse")
 
     def test_checking_runs_nothing_but_mise_outdated(self):
         with mock.patch.object(au.subprocess, "Popen") as popen, mock.patch.object(au.shutil, "which", return_value="/x"):

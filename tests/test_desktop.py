@@ -70,6 +70,17 @@ class GenericTest(unittest.TestCase):
         self.assertTrue(argv[4].startswith("env MISE_USE_VERSIONS_HOST=0 mise upgrade http:muse; "))
         self.assertEqual(shlex.split(argv[4].split(";")[0]), ["env", "MISE_USE_VERSIONS_HOST=0", "mise", "upgrade", "http:muse"])
 
+    def test_omarchy_floating_terminal_quotes_every_word(self):
+        """The floating terminal runs its argument through bash: no word may become shell syntax."""
+        hostile = ["agent", "x; touch /tmp/pwned", "$(id)", "`id`", "a b", "'q'", "\n"]
+        with mock.patch.object(desktop_omarchy.shutil, "which", return_value="/usr/bin/float"), \
+                mock.patch.object(desktop_omarchy.subprocess, "Popen") as popen:
+            self.assertTrue(desktop_omarchy.run_in_terminal(hostile, {"K": "v w"}))
+            self.assertEqual(shlex.split(popen.call_args[0][0][1]), ["env", "K=v w", *hostile])
+            self.assertTrue(desktop_omarchy.run_steps_in_terminal([hostile, ["b", "&&", "c"]]))
+            line = popen.call_args[0][0][1]
+            self.assertEqual([shlex.split(part) for part in line.split(" && ")], [hostile, ["b", "&&", "c"]])
+
     def test_install_command_per_package_manager(self):
         for manager, expected in (("apt", "sudo apt install gir1.2-vte-3.91"), ("dnf", "sudo dnf install vte291-gtk4"),
                                   ("zypper", "sudo zypper install typelib-1_0-Vte-3_91"), ("pacman", "sudo pacman -S vte4")):

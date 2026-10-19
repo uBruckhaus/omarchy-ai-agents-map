@@ -283,7 +283,7 @@ def check(agent_list, details: dict, inventory, built, pc: PC, agent_checks: dic
                                      .format(len(used_mcp)), ", ".join(sorted(m.name for m in used_mcp))[:200]))
     else:
         area.findings.append(Finding("hint", _("No MCP servers yet"),
-                                     _("MCP servers give agents tools: files, a browser, your apps. + MCP server finds "
+                                     _("MCP servers give agents tools: files, a browser, your apps. Add MCP server finds "
                                        "them on this PC and on the web."), ("addmcp", "")))
     if unused:
         area.findings.append(Finding("hint", ngettext("1 MCP server no agent uses", "{0} MCP servers no agent uses",
@@ -341,7 +341,7 @@ def check(agent_list, details: dict, inventory, built, pc: PC, agent_checks: dic
     use.have = image_tools[:3] + vision[:2] + makers[:2]
     if not image_tools:
         use.steps.append(Finding("hint", _("Add an image tool"),
-                                 _("An MCP server for images lets agents edit pictures: + MCP server, search “image”."),
+                                 _("An MCP server for images lets agents edit pictures: Add MCP server, search “image”."),
                                  ("addmcp", "image")))
     if runtimes and not vision:
         use.steps.append(Finding("hint", _("A model that can see"),

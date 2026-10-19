@@ -66,6 +66,14 @@ class StdinTest(unittest.TestCase):
         self.assertTrue(ok)
         self.assertNotIn(KEY, message)
 
+    def test_endless_output_is_cut_off(self):
+        import time
+        start = time.monotonic()
+        ok, message = signin.save_key(signin.KeyStep("X_API_KEY", stdin=("sh", "-c", "read k; yes $k")), KEY)
+        self.assertFalse(ok)                               # over the cap: not taken as success
+        self.assertNotIn(KEY, message)
+        self.assertLess(time.monotonic() - start, 5)
+
     def test_failure_is_reported(self):
         ok, _message = signin.save_key(signin.KeyStep("X_API_KEY", stdin=("sh", "-c", "read k; exit 3")), KEY)
         self.assertFalse(ok)

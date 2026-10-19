@@ -1166,7 +1166,7 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
                                [(button, opener)])
         versions = getattr(self, "new_versions", [])
         if versions:
-            self.hint_line(_("New version found: {0} · + MCP server › Look inside… to use it").format(
+            self.hint_line(_("New version found: {0} · Add MCP server › Look inside… to use it").format(
                 listed(versions, 3)), [(_("Add MCP server…"), self.open_add_mcp)])
 
         for update in agent_updates.still_open(getattr(self, "updates", []), self.agent_list, inv.runtimes):
@@ -2219,7 +2219,7 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
                 return ""
         return {"details": _("Details"), "runtime": _("Details"), "models": _("Models…"), "install": _("Install…"),
                 "setup": _("Setup"), "link": _("Map"),
-                "addmcp": _("+ MCP server"), "addskills": _("+ Skills"), "reorganize": _("Tidy up…")}.get(kind, "")
+                "addmcp": _("Add MCP server"), "addskills": _("Add skills"), "reorganize": _("Tidy up…")}.get(kind, "")
 
     def health_action(self, action):
         kind = action[0]

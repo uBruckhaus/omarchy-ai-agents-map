@@ -278,13 +278,14 @@ def open_terminal(argv: list, cwd: str) -> bool:
 
 def run_in_terminal(argv: list, env: dict | None = None) -> bool:
     """A fixed command in a terminal window of its own that waits at the end (Omarchy's
-    floating terminal), else xdg-terminal-exec. argv and env must be plain words: the
-    floating terminal runs them as one line through bash (checked by the caller)."""
+    floating terminal), else xdg-terminal-exec. The floating terminal runs its argument as one
+    line through bash, so every word is quoted here (shlex): no word can become shell syntax."""
+    import shlex
     env = env or {}
     words = [f"{k}={v}" for k, v in env.items()]
     floating = shutil.which(FLOATING_TERMINAL)
     if floating:
-        launcher = [floating, " ".join(words + list(argv))]
+        launcher = [floating, shlex.join((["env", *words] if words else []) + [str(a) for a in argv])]
     elif shutil.which("xdg-terminal-exec"):
         launcher = [shutil.which("xdg-terminal-exec"), *(["env", *words] if words else []), *argv]
     else:
@@ -299,16 +300,15 @@ def run_in_terminal(argv: list, env: dict | None = None) -> bool:
 
 def run_steps_in_terminal(steps: list) -> bool:
     """Several fixed commands, one after the other while each succeeds, in one terminal window that
-    waits at the end. Every word must be plain (checked by the caller): the floating terminal runs
-    them as one line through bash."""
+    waits at the end. They run as one line through bash, so every word is quoted here (shlex)."""
+    import shlex
     steps = [list(map(str, s)) for s in steps if s]
     if not steps:
         return False
     floating = shutil.which(FLOATING_TERMINAL)
     if floating:
-        launcher = [floating, " && ".join(" ".join(s) for s in steps)]
+        launcher = [floating, " && ".join(shlex.join(s) for s in steps)]
     elif shutil.which("xdg-terminal-exec"):
-        import shlex
         launcher = [shutil.which("xdg-terminal-exec"), "bash", "-c", " && ".join(shlex.join(s) for s in steps)]
     else:
         return False

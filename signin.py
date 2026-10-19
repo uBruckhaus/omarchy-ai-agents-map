@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 import re
 import stat
-import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -63,17 +63,15 @@ def save_key(step: KeyStep, key: str, home: Path | None = None) -> tuple[bool, s
 
 
 def _to_stdin(argv: tuple, key: str) -> tuple[bool, str]:
+    """The agent's own key command, the key on stdin; its answer read with a byte cap and one deadline."""
     import ai_core
     env = dict(os.environ)
     ai_core.drop_agent_session_vars(env)      # the agent's own command, not a child of an agent session
-    try:
-        done = subprocess.run(list(argv), input=key + "\n", capture_output=True, text=True,
-                              timeout=STDIN_TIMEOUT, env=env)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        return False, type(error).__name__
-    text = ((done.stdout or "") + (done.stderr or ""))[-MAX_OUTPUT:].replace(key, "…")
+    out, ok = ai_core.read_bounded_output(list(argv), max_bytes=MAX_OUTPUT, timeout=STDIN_TIMEOUT,
+                                          stdin=(key + "\n").encode(), env=env, merge_stderr=True)
+    text = out.decode("utf-8", "replace").replace(key, "…")
     lines = [line for line in text.splitlines() if line.strip()]
-    return done.returncode == 0, (lines[-1][:200] if lines else "")
+    return ok, (lines[-1][:200] if lines else "")
 
 
 def write_env(path: Path, var: str, value: str):
@@ -105,14 +103,18 @@ def write_env(path: Path, var: str, value: str):
     pattern = re.compile(rf"\s*(export\s+)?{re.escape(var)}\s*=")
     lines = [line for line in old.splitlines() if not pattern.match(line)]
     lines.append(f"{var}={value}")
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")    # exclusive, unique, 0600
     try:
-        os.write(fd, ("\n".join(lines) + "\n").encode())
+        os.fchmod(fd, 0o600)
+        data = ("\n".join(lines) + "\n").encode()
+        while data:
+            data = data[os.write(fd, data):]
         os.fsync(fd)
-    except BaseException:
         os.close(fd)
-        tmp.unlink(missing_ok=True)
+        fd = None
+        os.replace(tmp, path)
+    except BaseException:
+        if fd is not None:
+            os.close(fd)
+        Path(tmp).unlink(missing_ok=True)
         raise
-    os.close(fd)
-    os.replace(tmp, path)

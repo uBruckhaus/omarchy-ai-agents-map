@@ -32,46 +32,79 @@ standard Omarchy install (libadwaita with Nautilus). Running agents inside the w
 (`sudo pacman -S vte4`); **Start in terminal** opens it in a terminal window of its own. Installing local LLMs uses `curl` and `tar` (and `uv` for
 vLLM); the MCP and skills search uses `curl`.
 
-## One view: the map, and My setup
+## Setup and the map
 
-The map shows what is set up: installed agents and local LLMs, the MCP servers and skill folders
-agents use, and models. **My setup** in the header lists every agent and local LLM the app knows
-(missing ones greyed out with **Install**), and every MCP server, skill folder and model, as cards
-with their menus: install, update, sign in, start, remove.
+The header has **Setup** and **Map** on every page (the one in view highlighted), then a red **!**
+when something needs fixing, **ⓘ** for the legend, **?** for Help (F1) and the gear for Settings
+(Ctrl+,).
 
-The map always shows everything that is set up; the **Show** toggles above it leave whole
-categories out.
+**Setup** has a card for every agent, local LLM, MCP server, skill folder and model, in sections
+that fold with a click on their bar:
 
-The cards are a panel of their own beside the map. Each section (Agents, Local LLMs, MCP servers,
-Skills, Not installed) is a card of its own with its Add button. Its **Show ▾** list ticks the
-cards it shows, a whole section or card by card, like the map's column lists.
+- **How things get onto your map**: a folded card at the top with five numbered steps (switch on or
+  find what you use, install what is missing, sign in to an online agent, connect by drawing, what
+  shows up by itself); **What you can do with this**: what the setup is good for (everyday help,
+  coding, images, voice, research and writing), one tile each with the next step.
+- **AI agents, Local LLMs**: every one the plugin knows. Installed ones have a blue frame and their
+  version, the others **Install**. A click on an installed card opens its details.
+- **MCP servers, Skills, Models**: a card for each one that is installed, and a card at the end of
+  each section that adds one (**Add MCP server**, **Add skills**, **Add model**).
+- **⋯** or a right-click on a card opens the same menu as the box on the map: update, sign in, start
+  or stop, details, uninstall or remove, move a model. A yellow **↑ version** means an update is
+  waiting, a red **!** an open problem there (hover it).
+- A small **battery** on an online agent's card shows what is left of its limits (a session, a
+  week): the tightest one counts, yellow at a quarter or less, red under a tenth; hover it for each
+  limit and when it resets. On a running local LLM's card it is the GPU memory still free.
+- The refresh symbol (F5) looks again at what is installed, set up and signed in.
 
-Below the cards, a hint area of its own (shown only when there is something to say): new programs
-or skills found on this PC (with **Add MCP server…** / **Add skills…**), **updates** for the
-installed agents and local LLMs (see below), and "N more you could set up" with **Show** (Settings ›
-**Show what you could set up** turns that one off). Their buttons share one column and one width.
+**The map** shows only what is set up, across the whole width: MCP servers and skills ← agents →
+LLM providers → models, under the **GPU** card (GPU memory and activity; it folds).
 
-**On the map**, moving the pointer over a box lights it and what it is joined to. The **pin** at a
-box's top right corner (shown on hover) keeps that box's connections lit: while anything is pinned,
-moving over other boxes changes nothing; click the pin again to let go. **Right-click** a box for
-what its card offers, in one framed menu: an agent's **Start here** / **Start in terminal** (or
-**Show terminal** / **Stop** while it runs here) and **Details**; a local LLM's install, models,
-start and stop and **Details**; an MCP server's **Details** and **Remove**; a skill folder's
-**Details**; then **Hide** for agents, providers and models. A model an agent uses cannot be hidden;
-hidden ones are listed under **+ Available › Hidden** with **Show again**.
+- Hover a box to light it and what it is joined to; the **pin** at its top right keeps that lit.
+  Click selects (✓), Shift+click adds more, Esc clears. **Right-click** a box for everything its
+  card offers. **▶** on an agent's box starts it in a terminal in this window.
+- Each agent's active path (agent → provider in use → its model) is drawn bold; a **red dotted**
+  line joins an agent to a provider it is set up for but does not use now. Online agents' boxes
+  carry the same battery as their cards, running local LLMs' boxes the free GPU memory.
+- The **Show** toggles leave whole categories out (remembered). In a narrow window (below about
+  1300 px) the map picks them itself, said in a line beside the toggles: agents and providers while
+  an agent runs, else providers and models; **Maximize for more room** in the header gives it the
+  whole screen. **− 100 % +** (Ctrl+scroll, Ctrl+plus/minus/0) zooms.
+- Until the first line is drawn, a card above the map shows how in three steps (**Watch how** plays
+  the animation from Help); it goes for good after the first connection, or with ×.
+- **Legend**: **ⓘ** in the header explains every dot, line and mark of the map, drawn as there.
+- **Terminal tabs**: while agents have terminals here, a tab line above the map has a tab for each
+  with a dot for working, running or ended; a click shows that terminal, × closes an ended one
+  (Settings › **Terminal tabs above the map**, on by default).
+- **Working now**: while an agent is working (herdr shows it working, its process uses the CPU, its
+  session files were written in the last seconds, or its local LLM is generating), light runs along
+  its line to its provider and model (Settings › **Map animations**: agents and other programs, only
+  agents, or off; off when the desktop turns animations off).
+- **Used from outside the map**: when a program that is not on the map (a plugin such as Video
+  Trans, a chat app, a script) generates with a local LLM, the line from that LLM to the model is
+  drawn bold in a colour of its own, light runs along it, and the model box says who uses it ("in use
+  · Video Trans"). It shows while that program sent a request in the last 10 s and the GPU was
+  generating.
+- **Running now**: an agent with an open instance gets a green dot and "running" (or "2 running"),
+  and the model box it runs with says "in use · <agent>": the model given with `--model` when it was
+  started, else the one in its settings. Checked every 2 seconds from `/proc` (your own processes
+  only).
 
-**Health check** above the cards sums up how well the setup works ("1 thing to fix · 3 tips");
-**Open ›** lists by area (this PC, agents, local LLMs and models, tools) what is fine, tips and what
-to fix, each with what to do and, where it can, a button that does it, and what the setup is good
-for (everyday help, vibe coding, images, voice, research and writing) with the next step. It only
-reads what the window has collected plus the graphics card, memory and free disk space; nothing is
-changed, started or sent.
+### Open problems, updates and suggestions
 
-### Updates
+A red **!** in the header appears when something needs fixing; its tooltip says how many. It opens
+**Open problems**, one line each (an agent that is not signed in, a local LLM without models, a
+connection that does not work, little free space for models) with a button to where it is fixed:
+the agent's or local LLM's details, the map with that line lit, Setup, or Tidy up. The same problems
+show as a red **!** on their cards. The check only reads what the window collected plus the
+graphics card, memory and free disk space; nothing is changed, started or sent.
 
-The hint area names an update when one is out, checked in the background when the window opens and
-at most every 6 hours (cached in `~/.cache/ai-agents-map/updates.json`, 0600), each the way it was
-installed, so **Update** installs what was named:
+Below them, **Updates and suggestions** lists new programs or skills found on this PC (with **Add
+MCP server…** / **Add skills…**), what is on this PC but not on the map (with **Setup**), and
+**updates** for the installed agents and local LLMs. With only these and no problem, the **!** shows
+in the accent colour. Updates are checked in the background when the window opens and at most every
+6 hours (cached in `~/.cache/ai-agents-map/updates.json`, 0600), each the way it was installed, so
+**Update** installs what was named:
 
 - agents installed with mise (Claude Code, Codex, Copilot, Cursor CLI, Muse, OpenCode, …): one
   `mise outdated --json`; **Update** runs `mise upgrade <tool>` in a terminal window of its own
@@ -85,105 +118,47 @@ installed, so **Update** installs what was named:
 - system packages are left to the system's updates.
 
 Nothing is installed or run by the check itself (except `mise outdated`); an update starts only
-with a click on **Update**.
+with a click on **Update**. Pages opened from the map or from Setup (details, adding MCP servers or
+skills, models, installing, connecting) open in place of the map; **Back** returns to where they
+were opened from.
 
-The map takes the whole width; **My setup** in the header has a card for everything on it (install,
-update, remove, sign in). Hints (new on this PC, new versions, updates) show as lines above the map.
-In a window narrower than about 1300 px the map scrolls and **Maximize for more room** appears in the
-header. Pages opened from the map or from My setup (ⓘ Details, adding MCP servers or skills, models,
-installing, connecting) open in place of the map; **Back** returns to where they were opened from.
+### Details pages
 
-**ⓘ Details** on an agent's card sums it up at the top: ready or not (and why), running now or
-when it was last used, today's and the last 7 days' tokens and sessions, the plan, a chart of
-tokens per day, its limits and tokens by model. Then the **Healthy & Security check**, with a
-health badge (Healthy, Needs a look, Not set up) and a risk badge (low, medium, high risk):
+An agent's details (a click on its card, or right-click its box › **Details**) start with whether it
+is ready (and if not, why) and whether it is running now or when it was last used. Below, every
+category is a card that folds, with a one-line summary and badges:
 
-- **Health**: every check with a ✓, or with what to do next when it is missing (sign in with which
-  command, which subscription or API key it needs and where to get one, install or start its local
-  LLM, download a model, add MCP servers or skills, a connection that does not work).
-- **Security settings**: what the agent may do without asking you, read from its own settings file
-  — Claude Code (permission mode, sandbox, block bypass mode, allow/ask/deny rules), Codex (when it
+- **Usage and tokens**: today's and the last 7 days' tokens and sessions, the plan, a chart of tokens
+  per day, rate limits with reset times (from Omarchy's own usage data, refreshed when you open the
+  page) and tokens by model.
+- **Projects, last 30 days** (Claude Code, OpenCode, Hermes): per project folder the working time,
+  sessions, tokens, subagent runs, lines changed and what the tokens would cost at API prices, from
+  each agent's own session files or database; no message text is read.
+- **In herdr now**: when you run agents in [herdr](https://herdr.dev), each of the agent's herdr
+  panes with its state (waiting for you, working, idle, done) and folder, read again every 4 seconds
+  while the page is open; a click on one switches herdr to that pane and brings its terminal window
+  to the front.
+- **Health**: every check with a ✓, or what to do next (sign in with which command, which
+  subscription or API key it needs and where to get one, install or start its local LLM, download a
+  model, add MCP servers or skills, a connection that does not work).
+- **Security settings**: what the agent may do without asking you, read from its own settings file —
+  Claude Code (permission mode, sandbox, block bypass mode, allow/ask/deny rules), Codex (when it
   asks, sandbox, network in the sandbox, trusted folders), Copilot (permission mode, trusted
-  folders), Cursor CLI (approval, sandbox, network, web search, allow/deny rules), Hermes
-  (dangerous commands, hide secrets, where commands run), OpenCode (ask/allow/never for editing,
-  commands, web pages, outside the project) and Pi (its tools; Pi never asks). Each setting opens
-  to every choice with what it means and its risk; **Use…** shows the change (old → new, risk
-  before and after, the lines of the file) and **Change** writes only that key, with a backup and
-  Undo.
+  folders), Cursor CLI (approval, sandbox, network, web search, allow/deny rules), Hermes (dangerous
+  commands, hide secrets, where commands run), OpenCode (ask/allow/never for editing, commands, web
+  pages, outside the project) and Pi (its tools; Pi never asks). Each setting opens to every choice
+  with what it means and its risk; **Use…** shows the change (old → new, risk before and after, the
+  lines of the file) and **Change** writes only that key, with a backup and Undo.
 - **Risk management**: what the settings mean together, most serious first, with what lowers each
-  risk (**Lower it…** opens the change); protections in place get a ✓.
-- **What the words mean**: sandbox, approval, allow and deny rules, trusted folders, network,
-  bypass, automatic review, prompt injection, MCP servers, explained.
+  risk (**Lower it…** opens the change); **What the words mean**: sandbox, approval, allow and deny
+  rules, trusted folders, network, bypass, automatic review, prompt injection, MCP servers.
+- **Configuration**: its settings, MCP servers, skills and settings folder.
 
-**Configuration** lists its settings. A local LLM's ⓘ Details does the same: running, GPU memory
-and loaded models, models, connected agents, what is missing (install, models, an agent to
-connect), and who can reach it (only this PC on 127.0.0.1, or your whole network).
-
-- **Cards**, in four sections. Click a card to open its details.
-  - **Agents**: every coding agent Omarchy offers (its Setup → Defaults → Agent list), installed
-    ones first with their version, Omarchy's default agent marked. Details: plan, rate limits with
-    reset times and today's usage (from Omarchy's own usage data, refreshed when you open the card),
-    model, providers (local ones named by runtime), MCP servers, skills, tools, last used, settings
-    folder. The details of Claude Code, OpenCode and Hermes also show the last 30 days per project
-    folder (working time, sessions, tokens, lines changed, what the tokens would cost at API prices)
-    and their subagent runs (per type where the agent names one). **In herdr now**: when you run agents in [herdr](https://herdr.dev), each of the
-    agent's herdr panes with its state (waiting for you, working, idle, done) and folder, read again
-    every 4 seconds while the page is open; a click on one switches herdr to that pane and brings
-    its terminal window to the front.
-  - **Local LLMs**: llama.cpp, Ollama, LM Studio, vLLM, Jan and KoboldCpp: running or stopped, the address, the user
-    service that starts it, the models folder and every model it can serve, and which agents use it.
-  - **MCP servers**: each server with what it runs (a program or a remote host) and which agents
-    use it, also servers no agent uses any more. **ⓘ Details** shows each agent's settings file,
-    command or address (names only for environment variables and headers) and, on request, the
-    server's tools; **Remove** takes it from every agent and from the list.
-  - **Skills**: each skill folder with its skills and the agents that read it (linked skills count
-    where they really live, so a shared `~/.agents/skills` shows up once). **ⓘ Details** lists every
-    skill with its description and how each agent gets the folder.
-- **Map**: MCP servers and skills ← agents → LLM providers → models. Hover a box to light up
-  everything it is joined to. A click on a card or a box selects it (✓), Shift+click adds or
-  removes more (one agent at a time). The category you select in then shows only the selected
-  boxes; the other columns keep every box, but only the connections of the selection are drawn.
-  Each agent's active path (agent → provider in use → its model) is drawn bold. Esc or **Clear
-  selection** clears the selection. The **Show** toggles above the map shorten it to the categories
-  you are working on (models need a provider category, MCP servers and skills need Agents); the
-  choice is remembered. **− 100 % +** (Ctrl+scroll, Ctrl+plus/minus/0) zooms the map. Columns
-  that fit stay in the middle of what you see while you scroll a long one.
-- **Starting an agent**: the ▶ on an agent's box starts it in a terminal in this window; while it
-  runs there the button shows a terminal and brings it back. Its right-click menu also has **Start in
-  terminal** (a window of its own) and, while it runs here, **Show terminal** and **Stop** (it ends the
-  agent and what it started, such as MCP servers). **Hide** in a box's right-click menu on the map leaves an agent or a provider out of
-  **My setup** (cards and map, with Undo); **+ Available** lists them under **Hidden**, above **Not
-  installed**, with **Show again**. A provider can be hidden only while no shown agent uses one of
-  its models through it (a line without a model, such as Hermes → Ollama, does not count); if one
-  does again later, the provider shows again by itself.
-- **Legend**: **ⓘ** in the header explains every dot, line and mark of the map, drawn as there.
-- **Terminal tabs**: while agents have terminals here, a tab line above the map and the terminals (legend on top; the terminal in view has its tab marked) has a
-  tab for each with a dot for working, running or ended; a click shows that terminal, × closes an
-  ended one (Settings › **Terminal tabs above the map**, on by default).
-- **Working now**: while an agent is working (herdr shows it working, its process uses the CPU, its
-  session files were written in the last seconds, or its local LLM is generating), light runs along
-  its line to its provider and model on the map (Settings › **Map animations**: agents and other programs, only agents, or off; off when the
-  desktop turns animations off).
-- **Used from outside the map**: when a program that is not on the map (a plugin such as Video
-  Trans, a chat app, a script) generates with a local LLM, the line from that LLM to the model is
-  drawn bold in a colour of its own (the theme's magenta or cyan, whichever stands apart from the
-  map's other colours), light runs along it, and the model box says who uses it ("in use · Video
-  Trans"); the local LLM's right-click menu and its ⓘ Details say "In use by Video Trans · now". It
-  shows while that program sent a request in the last 10 s and the GPU was generating; the ⓘ legend
-  has both marks.
-- **Running now**: an agent with an open instance gets a green dot and "running" (or "2 running"),
-  its card says which model, and the model box it runs with says "in use · <agent>": the model
-  given with `--model` when it was started, else the one in its settings (a model switched inside
-  a running session cannot be seen from outside). Checked every 2 seconds from `/proc` (your own
-  processes only).
-
-Every column heading (**MCP SERVERS · SKILLS ▾**, **AGENTS ▾**, **LLM PROVIDERS ▾**, **MODELS ▾**)
-opens a list of its boxes in groups (MCP servers and skills; online and local providers; models by
-the folder they live in): untick a box, or a whole group at once, to leave it out of the map. What
-hangs only on it goes too (a provider's models, an agent's own MCP servers and skill sets). The
-heading shows how many are shown, e.g. (5/8). The models column is grouped by folder as well, and
-each folder ends in a dashed **+ Model** box that opens the download page below for that folder
-(when several local LLMs share it, you pick which one downloads).
+A local LLM's details do the same: running, GPU memory and loaded models, models, connected agents,
+what is missing, and who can reach it (only this PC on 127.0.0.1, or your whole network). An MCP
+server's details show each agent's settings file, command or address (names only for environment
+variables and headers) and, on request, the server's tools; **Remove** takes it from every agent. A
+skill folder's details list every skill with its description and how each agent gets the folder.
 
 ## Connecting by drawing
 
@@ -276,7 +251,7 @@ a site you add with **Add a site…** (kept in the settings until you remove it 
 
 Only https addresses without user, query or `#`; a site you added is asked only when you search.
 
-**+ MCP server** (on the map or under the cards) opens a page laid out like the models page: a list
+**Add MCP server** (the card at the end of Setup's MCP servers) opens a page laid out like the models page: a list
 on the left, the chosen server's page on the right. The page says who made it and how much that is
 checked, what it does (with things to ask an agent once it has it), how it runs (each way as a row:
 a program through npx, uvx or Docker on this PC, or a web service, with what that means and whether
@@ -356,7 +331,7 @@ offered; a skill an app installed elsewhere is updated with the app.
 
 ## Installing local LLMs
 
-Right-click a local LLM on the map. Not installed (grey): **Install…** downloads the official release
+Use a local LLM's card on Setup (once installed, also its right-click menu on the map). Not installed (grey card): **Install…** downloads the official release
 into a program folder you choose (one folder per version, a `current` link, the command in
 `~/.local/bin`) and sets up a user service, so no password is needed; you also choose the model
 folder (the one your other local LLMs use is suggested) and whether it starts at login. Installed
@@ -391,9 +366,8 @@ not match, is not installed.
 
 ### Agents AI Agents Map installs
 
-Three agents Omarchy's menu does not offer are installed the same way (right-click the agent on
-the map → **Install…**, **Update…**, **Uninstall…**; a version folder, the command in
-`~/.local/bin`):
+Three agents Omarchy's menu does not offer are installed the same way (their card on Setup, ⋯ →
+**Install…**, **Update…**, **Uninstall…**; a version folder, the command in `~/.local/bin`):
 
 - **DeepSeek Harness** (`dsh`, developer preview): from npm with install scripts switched off
   (`npm install --ignore-scripts`; needs Node.js). Lines to local LLMs go into its web profile's
@@ -417,7 +391,7 @@ the map → **Install…**, **Update…**, **Uninstall…**; a version folder, t
 
 ## Downloading models
 
-Right-click an installed local LLM → **Models…** (or click a folder's **+ Model** box). The page is
+Right-click an installed local LLM → **Models…** (or the **Add model** card on Setup). The page is
 laid out as LM Studio's model search: a list on the left, the chosen model's page on the right, in
 three tabs.
 
@@ -512,9 +486,20 @@ the backup and Undo), and the agent is told the same context. A context you set 
 
 ## Privacy and capabilities
 
-- Never asks for root or administrator rights. Every program it starts is run as an argv list
-  without a shell, and every program's output and every web answer is read with a size limit and
-  one overall deadline.
+- AI Agents Map itself never runs as root and never sees a password. The one exception to "no
+  administrator rights" is installing an agent that comes as a system package, on **Install** only,
+  after a dialog that shows the exact commands: Omarchy's own installers
+  (`omarchy-install-hermes-cli --now`, `omarchy-install-openclaw-cli --now`) or
+  `pacman -S --needed <package>` / `pacman -R <package>` through `sudo` (package names checked
+  against a strict pattern), run in a terminal window you watch (or a terminal tab in the window),
+  where the password is asked. Every program it starts is run as an argv list without a shell (the
+  terminal's command line is built with every word quoted), and every program's output and every
+  web answer is read with a size limit and one overall deadline.
+- **Agents are described as data**: `adapters/<command>.toml` (where each agent keeps its settings,
+  sessions, MCP servers and skills, how it is installed and signed in), plus a small
+  `adapters/<command>.py` for five agents whose facts a file cannot say (Hermes and OpenCode read
+  their own session databases read-only; Pi, DeepSeek Harness and OpenClaw their own settings).
+  These come with the plugin; nothing is downloaded or loaded from elsewhere.
 - **Reads** (to draw the setup): the agents' settings files, mise's install folders, the pacman
   database, user services (`~/.config/systemd/user`), model folders and this user's own processes
   (`/proc`, own UID only, including their GPU memory from DRM fdinfo), LM Studio's model index
@@ -574,6 +559,18 @@ the backup and Undo), and the agent is told the same context. A context you set 
   searches. All web requests go through `curl` with https only, at most a few https redirects
   (none for skills and the registry), size and time limits, and request headers handed over on
   stdin, never on the command line.
+- **Install, update, uninstall an agent** (its card on Setup, after the dialog with the commands):
+  `mise --yes use -g <tool>` / `mise --yes unuse -g <tool>` and `mise --yes uninstall --all <tool>`
+  in a terminal you watch (the tool from the plugin's adapters, every word checked), or the system
+  package way above.
+- **Sign in…** (an agent's card or box): the agent's own sign-in command from its adapter
+  (`claude auth login`, `codex login`, `cursor-agent login`, `opencode auth login`, `hermes setup`,
+  or the agent itself for its `/login`), in a terminal you watch. An API key you type is checked (one
+  word of plain characters) and then either handed on stdin to the agent's own
+  `codex login --with-api-key` (its answer read with a 4 KiB cap and one deadline, the key masked in
+  it) or written into the `.env` file the agent reads (`~/.gemini/.env`: only that variable
+  replaced, written as a new 0600 file with `mkstemp` and moved over the old one, never through a
+  link). The key never goes into an argv, a log, a backup or AI Agents Map's own settings.
 - **Starts**: `systemctl --user` start/stop/enable/disable/daemon-reload for the services it
   installed or that start a local LLM (service-management); the installers' `curl`, `tar`, the Jan
   AppImage's `--appimage-extract` (after its SHA-256 matched), `uv venv`/`uv pip install`,
