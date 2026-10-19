@@ -36,7 +36,7 @@ class SettingsPages:
     # --- settings ----------------------------------------------------------------
 
     def build_settings_page(self) -> Gtk.Widget:
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         header = Gtk.Box(spacing=8)
         back = Gtk.Button()
         back.add_css_class("flat")
@@ -57,7 +57,7 @@ class SettingsPages:
         rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         rule.add_css_class("am-settings-rule")
         page.append(rule)
-        self.settings_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18, margin_top=6, margin_bottom=12)
+        self.settings_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP, margin_bottom=12)
         self.settings_box.add_css_class("am-settings")
         # One column: at most 760 px wide, centred. Two columns: the whole width, half and half.
         # Pixels, not libadwaita's default "sp", so the page does not grow and shrink with the text size.
@@ -167,7 +167,7 @@ class SettingsPages:
 
     def source_picker(self, kind: str) -> Gtk.Widget:
         """Which site to search: the default or one the user added (kept in the settings)."""
-        column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP_TIGHT)
         row = Gtk.Box(spacing=8)
         row.add_css_class("am-line")         # compact dropdown, as on the settings page
         label = Gtk.Label(label=_("Search on"), xalign=0)
@@ -257,7 +257,7 @@ class SettingsPages:
     @staticmethod
     def settings_heading(box, text: str):
         """A section heading on a page (libadwaita's heading style)."""
-        label = Gtk.Label(label=text, xalign=0, margin_top=8)
+        label = Gtk.Label(label=text, xalign=0)
         label.add_css_class("heading")
         box.append(label)
 
@@ -281,8 +281,8 @@ class SettingsPages:
         self.settings_clamp.set_tightening_threshold(100000 if wide else 560)
         columns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL if wide else Gtk.Orientation.VERTICAL,
                           spacing=24 if wide else 18, homogeneous=wide)
-        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18, valign=Gtk.Align.START)
-        right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18, valign=Gtk.Align.START)
+        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP, valign=Gtk.Align.START)
+        right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP, valign=Gtk.Align.START)
         columns.append(left)
         columns.append(right)
         box.append(columns)
@@ -473,7 +473,7 @@ class SettingsPages:
                              "for the whole map."),
                            [_("Move to a free workspace"), _("Maximize where it is"), _("No hint")],
                            modes.index(self.widen_mode()), lambda i: self.set_widen_mode(modes[i]))
-            preview = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, margin_top=8)
+            preview = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
             preview.add_css_class("am-help-card")
             preview.set_halign(Gtk.Align.START)
             preview.append(previews.WidenSketch(lambda: self.theme.colors, self.widen_mode))
@@ -619,7 +619,7 @@ class SettingsPages:
         inst.set_models_folder(path)
 
     def build_reorganize_page(self) -> Gtk.Widget:
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         header = Gtk.Box(spacing=8)
         back = Gtk.Button()
         back.add_css_class("flat")
@@ -640,7 +640,7 @@ class SettingsPages:
         rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         rule.add_css_class("am-settings-rule")
         page.append(rule)
-        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         body.add_css_class("am-settings")
         self.reorg_intro = Gtk.Label(xalign=0, wrap=True, max_width_chars=1)
         self.reorg_intro.add_css_class("am-detail-value")
@@ -872,7 +872,7 @@ class SettingsPages:
     # --- help: the manual (for now: setting up by drawing) ---------------------------------------
 
     def build_help_page(self) -> Gtk.Widget:
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         header = Gtk.Box(spacing=8)
         back = Gtk.Button()
         back.add_css_class("flat")
@@ -893,7 +893,7 @@ class SettingsPages:
         rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         rule.add_css_class("am-settings-rule")
         page.append(rule)
-        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         body.add_css_class("am-settings")
         manual = self.help_manual_card()
         if manual is not None:
@@ -904,7 +904,7 @@ class SettingsPages:
         if monitor is not None:
             body.append(monitor)
         for addon_id, builder in self.addon_hooks("help"):
-            card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+            card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
             card.add_css_class("am-help-card")
             addon_api.call(addon_id, builder, addon_api.UI(self, addon_id), card)
             if card.get_first_child() is not None:
@@ -923,7 +923,7 @@ class SettingsPages:
         path = self.manual_path()
         if path is None:
             return None
-        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         card.add_css_class("am-help-card")
         top = Gtk.Box(spacing=10)
         heading = Gtk.Label(label=_("User manual").upper(), xalign=0, hexpand=True)
@@ -996,11 +996,11 @@ class SettingsPages:
         again.connect("clicked", lambda *_: self.measure_disk(force=True))
         top.append(again)
         card.append(top)
-        details = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_top=10)
+        details = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         self.note(details, _("How much room your AI setup takes and where it is. Programs can be installed again; data "
                              "holds settings, sessions and history; models are the largest files, and several local "
                              "LLMs can share one models folder."))
-        self.disk_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.disk_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         details.append(self.disk_box)
         revealer = Gtk.Revealer(child=details, reveal_child=True,
                                 transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN)
@@ -1070,17 +1070,34 @@ class SettingsPages:
             (_("Models"), size_text(sums["models"]), ngettext("1 folder", "{0} folders", sum(
                 1 for i in items if i.group == "models")).format(sum(1 for i in items if i.group == "models"))),
         ]))
-        colors = {"agents": "accent", "agent_data": "green", "runtimes": "yellow", "models": "outside"}
-        box.append(SpaceBar(self.side_map.color, [(_(label), sums[key], colors[key]) for key, label in self.SPACE_PARTS]))
+        # The bar is the whole space of the disks the AI setup is on: its parts, then what other
+        # files take, then what is free (the empty track).
+        size = sum(d.size for d in disks)
+        free = sum(d.free for d in disks)
+        other = max(0, size - free - total)
+        if size:
+            line = Gtk.Label(xalign=0, label=_("{0} of {1} on {2} for AI ({3}) · {4} free").format(
+                size_text(total), size_text(size), ngettext("this disk", "these {0} disks", len(disks)).format(len(disks)),
+                f"{100 * total / size:.1f} %", size_text(free)))
+            line.add_css_class("am-agent-detail")
+            box.append(line)
+        colors = {"agents": "accent", "agent_data": "green", "runtimes": "yellow", "models": "outside", "other": "muted"}
+        parts = [(_(label), sums[key], colors[key]) for key, label in self.SPACE_PARTS]
+        if size:
+            parts.append((_("Other files"), other, "muted"))
+        box.append(SpaceBar(self.side_map.color, parts, whole=size, rest=_("Free")))
         legend = Gtk.Box(spacing=14)
-        for key, label in self.SPACE_PARTS:
-            if not sums[key]:
+        entries = [(key, _(label), sums[key]) for key, label in self.SPACE_PARTS]
+        if size:
+            entries += [("other", _("Other files"), other), ("free", _("Free"), free)]
+        for key, label, amount in entries:
+            if not amount:
                 continue
             part = Gtk.Box(spacing=4)
-            dot = Gtk.Label(label="●")
+            dot = Gtk.Label(label="○" if key == "free" else "●")
             dot.add_css_class(f"am-space-{key}")
             part.append(dot)
-            text = Gtk.Label(label=f"{_(label)} {size_text(sums[key])}")
+            text = Gtk.Label(label=f"{label} {size_text(amount)}")
             text.add_css_class("am-agent-detail")
             part.append(text)
             legend.append(part)
@@ -1138,7 +1155,7 @@ class SettingsPages:
         head.set_cursor_from_name("pointer")
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)       # folded: no gap for the hidden part
         outer.append(head)
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=8)
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         revealer = Gtk.Revealer(child=content, reveal_child=shown,
                                 transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN)
         outer.append(revealer)
@@ -1207,7 +1224,7 @@ class SettingsPages:
         author's): its picture, the marketplace page and the command that installs it."""
         if desktop.NAME != "omarchy":
             return None
-        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         card.add_css_class("am-help-card")
         top = Gtk.Box(spacing=10)
         heading = Gtk.Label(label=_("Also for your bar: LLM Monitor").upper(), xalign=0, hexpand=True)
@@ -1246,7 +1263,7 @@ class SettingsPages:
 
     def help_setup_card(self) -> Gtk.Widget:
         """Setting up by drawing: an animation with dummy boxes, played on Start."""
-        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         card.add_css_class("am-help-card")
         top = Gtk.Box(spacing=10)
         heading = Gtk.Label(label=_("Set up by drawing").upper(), xalign=0, hexpand=True)

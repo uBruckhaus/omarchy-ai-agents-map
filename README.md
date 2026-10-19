@@ -28,23 +28,19 @@ graphics card's memory) or **Keep running**. When AI Agents Map ends, the agents
 with it.
 
 Requires Python with PyGObject, GTK4 and libadwaita in an Omarchy/Hyprland session; all come with a
-standard Omarchy install (libadwaita with Nautilus). Running agents inside the window (**Start here** on an agent's card) needs VTE for GTK4
+standard Omarchy install (libadwaita with Nautilus). Running agents inside the window (▶ on an agent's box, or **Start here** in its menu) needs VTE for GTK4
 (`sudo pacman -S vte4`); **Start in terminal** opens it in a terminal window of its own. Installing local LLMs uses `curl` and `tar` (and `uv` for
 vLLM); the MCP and skills search uses `curl`.
 
-## One view: cards and the map beside them
+## One view: the map, and My setup
 
-**My setup · + Available** in the header: My setup (the default, title "My AI Agents Map") shows
-only what is yours — installed agents and local LLMs, MCP servers an agent uses — in the cards and
-on the map. **+ Available** adds what you could set up: agents and local LLMs that are not
-installed and MCP servers no agent uses (also "Show N more you could set up" below the cards).
-Settings › **Start with** picks which one AI Agents Map opens with.
+The map shows what is set up: installed agents and local LLMs, the MCP servers and skill folders
+agents use, and models. **My setup** in the header lists every agent and local LLM the app knows
+(missing ones greyed out with **Install**), and every MCP server, skill folder and model, as cards
+with their menus: install, update, sign in, start, remove.
 
-**All · Online · Local LLMs** in the header picks the setup to show, in the cards and on the map
-alike: everything; only online providers (no local LLMs, their models or the GPU meters); or only
-local LLMs and the agents that can use them (the ones AI Agents Map connects, those tied to a
-local LLM, and any agent whose settings already have a local provider). Your own Show choices
-stay as they are underneath.
+The map always shows everything that is set up; the **Show** toggles above it leave whole
+categories out.
 
 The cards are a panel of their own beside the map. Each section (Agents, Local LLMs, MCP servers,
 Skills, Not installed) is a card of its own with its Add button. Its **Show ▾** list ticks the
@@ -656,8 +652,7 @@ links not followed; nothing is deleted from here.
 The gear (Ctrl+,) opens the settings: **Language** (system or one of English, Deutsch, Français,
 Español, Italiano, Português, Nederlands, Polski), **Look** (the colours from the Omarchy theme,
 or GNOME's Adwaita with the system's light/dark and accent colour), **Animate active lines**, **Terminal tabs above the map**, **Corners** (like windows, rounded or square, as
-in App Manager and Theme Manager), **Look up new agents**, **Show what you could set up** (the "Show
-N more you could set up" hint below the cards), **Start local LLMs with their agents**, **Too narrow for the map** (what the header's "Maximize to see the map" does: move the window to a
+in App Manager and Theme Manager), **Look up new agents**, **Start local LLMs with their agents**, **Too narrow for the map** (what the header's "Maximize for more room" does: move the window to a
 free workspace, maximize it where it is, or show no hint; with an animated preview), **In the app
 launcher** (the launcher entry; off removes it) and **Agents start in** (the folder for Start). Backspace or Esc goes back. Settings
 live in `~/.config/omarchy/ai-agents-map/settings.json`.

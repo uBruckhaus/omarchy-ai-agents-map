@@ -22,6 +22,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gdk, GLib, Gtk, Pango  # noqa: E402
 
+from ai_core import GAP  # noqa: E402
 from i18n import _  # noqa: E402
 
 _VTE = None
@@ -86,7 +87,7 @@ class TerminalPane(Gtk.Box):
     """Header (Back, title, state, Stop/Start again) over the agent's terminal."""
 
     def __init__(self, agent, cwd: str, colors: dict, on_back, on_state, argv: list | None = None):
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=GAP)
         Vte = vte()
         self.agent = agent
         self.argv = list(argv) if argv else None   # a fixed command (an install) instead of the agent

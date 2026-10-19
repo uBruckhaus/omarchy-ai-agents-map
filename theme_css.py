@@ -368,6 +368,8 @@ class ThemeCss:
         .am-space-agent_data {{ color: {green_hex}; }}
         .am-space-runtimes {{ color: {yellow_hex}; }}
         .am-space-models {{ color: {outside_hex}; }}
+        .am-space-other {{ color: {muted_hex}; }}
+        .am-space-free {{ color: {dim_hex}; }}
         .am-agent {{ padding: 0; }}
         .am-agent > box:first-child {{ padding: 10px 12px; }}
         .am-agent-chevron {{ color: {muted_hex}; }}

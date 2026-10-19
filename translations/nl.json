@@ -1731,5 +1731,12 @@
  "Look again at what is on this PC (F5)": "Opnieuw kijken wat er op deze pc staat (F5)",
  "Looked again.": "Opnieuw gekeken.",
  "Maximize for more room": "Maximaliseren voor meer ruimte",
- "What “Maximize for more room” in the header does when the window is tiled too narrow for the whole map.": "Wat ‘Maximaliseren voor meer ruimte’ in de kop doet als het venster te smal is getegeld voor de hele kaart."
+ "What “Maximize for more room” in the header does when the window is tiled too narrow for the whole map.": "Wat ‘Maximaliseren voor meer ruimte’ in de kop doet als het venster te smal is getegeld voor de hele kaart.",
+ "Map": "Kaart",
+ "Other files": "Andere bestanden",
+ "{0} of {1} on {2} for AI ({3}) · {4} free": "{0} van {1} op {2} voor AI ({3}) · {4} vrij",
+ "\u0004this disk": [
+  "deze schijf",
+  "deze {0} schijven"
+ ]
 }

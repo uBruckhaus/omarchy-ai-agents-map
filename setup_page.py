@@ -32,38 +32,16 @@ class SetupPage:
     # --- the page ---------------------------------------------------------------------------------
 
     def build_setup_page(self) -> Gtk.Widget:
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        self.setup_header = Gtk.Box(spacing=8)
-        back = Gtk.Button()
-        back.add_css_class("flat")
-        back.add_css_class("am-header-btn")
-        back.add_css_class("am-back-bordered")
-        back_box = Gtk.Box(spacing=6)
-        back_box.append(Gtk.Image.new_from_icon_name("go-previous-symbolic"))
-        back_box.append(Gtk.Label(label=_("Back")))
-        back_box.append(Gtk.Label(label="· Esc"))
-        back.set_child(back_box)
-        back.set_tooltip_text(_("Back to the map (Esc)"))
-        back.connect("clicked", lambda *_a: self.close_setup())
-        self.setup_header.append(back)
-        title = Gtk.Label(label=_("My setup").upper(), xalign=0, hexpand=True)
-        title.add_css_class("am-section-title")
-        self.setup_header.append(title)
-        refresh = Gtk.Button()
-        content = Gtk.Box(spacing=6)
-        content.append(Gtk.Image.new_from_icon_name("view-refresh-symbolic"))
-        content.append(Gtk.Label(label=_("Refresh")))
-        refresh.set_child(content)
-        refresh.add_css_class("am-small-btn")
-        refresh.set_tooltip_text(_("Look again at what is on this PC (F5)"))
-        refresh.connect("clicked", lambda *_a: self.reload_setup())
-        self.setup_header.append(refresh)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
+        # The same heading as the map's (title, Refresh, rule). No Back here: the header's Map
+        # button (and Esc) go back, as My setup does on the map.
+        self.setup_header = self.view_heading(_("My setup"), self.refresh_button())
         page.append(self.setup_header)
-        self.setup_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin_bottom=12)
+        self.setup_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP, margin_bottom=12)
         clamp = Adw.Clamp(maximum_size=980, child=self.setup_box, unit=Adw.LengthUnit.PX)
         page.append(self.page_scroller(clamp))
         page.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
-        buttons = Gtk.Box(spacing=8, margin_top=6, margin_bottom=6)
+        buttons = Gtk.Box(spacing=8, margin_bottom=6)
         self.setup_count = Gtk.Label(xalign=0, hexpand=True, wrap=True)
         self.setup_count.add_css_class("am-agent-detail")
         buttons.append(self.setup_count)
@@ -121,9 +99,21 @@ class SetupPage:
             GLib.idle_add(lambda: scroller.get_vadjustment().set_value(top) and False)
         return False
 
+    def refresh_button(self) -> Gtk.Widget:
+        """Refresh (F5), at the right of My setup's and the map's heading."""
+        refresh = Gtk.Button(valign=Gtk.Align.CENTER)
+        content = Gtk.Box(spacing=6)
+        content.append(Gtk.Image.new_from_icon_name("view-refresh-symbolic"))
+        content.append(Gtk.Label(label=_("Refresh")))
+        refresh.set_child(content)
+        refresh.add_css_class("am-small-btn")
+        refresh.set_tooltip_text(_("Look again at what is on this PC (F5)"))
+        refresh.connect("clicked", lambda *_a: self.reload_setup())
+        return refresh
+
     def reload_setup(self):
-        """Refresh (F5): what is installed, set up and signed in looked up again; the cards, the
-        map and the sidebar follow. Ticks not applied yet stay."""
+        """Refresh (F5, on the map and on My setup): what is installed, set up and signed in looked
+        up again; the map, the hints and My setup's cards follow. Ticks not applied yet stay."""
         self.collect()
         if self.with_addons():
             self.setup_installed = self.installed_adapters(self.adapter_addons())
@@ -155,7 +145,7 @@ class SetupPage:
     # --- agents and providers: add-on cards that are ticked (Asterism) ------------------------------
 
     def setup_hero(self, found: int) -> Gtk.Widget:
-        hero = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_top=18, margin_bottom=6)
+        hero = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP_TIGHT, margin_top=18, margin_bottom=6)
         icon = Gtk.Image.new_from_icon_name(desktop.app_id())
         icon.set_pixel_size(72)
         hero.append(icon)
@@ -220,8 +210,8 @@ class SetupPage:
 
     @staticmethod
     def setup_flow() -> Gtk.FlowBox:
-        return Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=True, column_spacing=10,
-                           row_spacing=10, min_children_per_line=2, max_children_per_line=5, valign=Gtk.Align.START)
+        return Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=True, column_spacing=ai_core.GAP,
+                           row_spacing=ai_core.GAP, min_children_per_line=2, max_children_per_line=5, valign=Gtk.Align.START)
 
     def setup_tile(self, addon, ticked: bool, state: str, online: bool, here: bool, welcome: bool = True,
                    update: str = "") -> Gtk.Widget:
@@ -498,7 +488,7 @@ class SetupPage:
         saved = set(self.setup_folded())
         # Folded by default (closed): remembered as "<key>:open" once unfolded; else as "<key>" once folded.
         folded = f"{key}:open" not in saved if closed else key in saved
-        head = Gtk.Button(halign=Gtk.Align.START, margin_top=8)
+        head = Gtk.Button(halign=Gtk.Align.START)
         head.add_css_class("flat")
         head.add_css_class("am-setup-section")
         row = Gtk.Box(spacing=8)
@@ -514,7 +504,7 @@ class SetupPage:
             row.append(number)
         head.set_child(row)
         head.set_tooltip_text(_("Fold or unfold"))
-        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, visible=not folded)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP, visible=not folded)
 
         def toggle(_button):
             shown = not body.get_visible()

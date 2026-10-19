@@ -31,14 +31,16 @@ def size_text(n: int) -> str:
 
 class SpaceBar(Gtk.DrawingArea):
     """One stacked bar: parts (label, bytes, colour name) side by side, as wide as their share.
-    Hovering a part tells its name and size."""
+    whole: the bar's full width in bytes (a disk's size); what the parts leave is the empty
+    track, named rest (e.g. "Free"). Hovering a part tells its name and size."""
 
     HEIGHT = 14
 
-    def __init__(self, color, parts):
+    def __init__(self, color, parts, whole: int = 0, rest: str = ""):
         super().__init__()
         self.color = color          # (name, alpha) -> rgba, the map's palette
         self.parts = [p for p in parts if p[1] > 0]
+        self.whole, self.rest = whole, rest
         self.spans = []
         self.set_content_height(self.HEIGHT)
         self.set_hexpand(True)
@@ -47,7 +49,8 @@ class SpaceBar(Gtk.DrawingArea):
         self.set_draw_func(self.on_draw)
 
     def on_draw(self, _area, cr, width, height):
-        total = sum(size for _l, size, _c in self.parts) or 1
+        used = sum(size for _l, size, _c in self.parts)
+        total = max(self.whole, used) or 1
         MapView.rounded(cr, 0, 0, width, height, 4)
         cr.set_source_rgba(*self.color("fg", 0.08))
         cr.fill()
@@ -63,6 +66,8 @@ class SpaceBar(Gtk.DrawingArea):
             cr.restore()
             self.spans.append((x, x + w, label, size))
             x += w
+        if self.rest and total > used:
+            self.spans.append((x, float(width) + 1, self.rest, total - used))
 
     def on_tooltip(self, _widget, x, _y, _keyboard, tooltip):
         for start, end, label, size in self.spans:

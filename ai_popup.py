@@ -482,7 +482,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         self.window = window
 
         # The cards beside the map need room: the card follows its own width.
-        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, hexpand=True, vexpand=True)
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP, hexpand=True, vexpand=True)
         card.add_css_class("am-card")
         frame = Gtk.Overlay()
         frame.set_child(card)
@@ -582,34 +582,19 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         self.view_buttons = {}
         # My setup: what is on the map is set up, updated and removed there (setup_page.py).
         self.setup_button = Gtk.Button(valign=Gtk.Align.CENTER)
+        # My setup on the map, Map on My setup: one button in one place that goes to the other view.
         content = Gtk.Box(spacing=6)
-        content.append(Gtk.Image.new_from_icon_name("view-grid-symbolic"))
-        content.append(Gtk.Label(label=_("My setup")))
+        self.setup_icon = Gtk.Image.new_from_icon_name("view-grid-symbolic")
+        content.append(self.setup_icon)
+        self.setup_label = Gtk.Label(label=_("My setup"))
+        content.append(self.setup_label)
         self.setup_button.set_child(content)
         self.setup_button.add_css_class("am-small-btn")
         self.setup_button.set_tooltip_text(_("Agents, LLMs, MCP servers, skills and models: add, update or remove "
                                              "them; the map shows what is set up"))
-        self.setup_button.connect("clicked", lambda *_: self.open_my_setup())
+        self.setup_button.connect("clicked", lambda *_: self.close_setup() if self.page_name() == "setup"
+                                  else self.open_my_setup())
         header.append(self.setup_button)
-        # Which setup to show, for the cards and the map alike: everything, only online
-        # providers (no local LLMs), or only local LLMs (and the agents that can use them).
-        self.view_switch = Gtk.Box(spacing=0, valign=Gtk.Align.CENTER)
-        self.view_switch.add_css_class("am-segmented")
-        self.mode_buttons = {}
-        tips = {"all": _("Everything: online providers and local LLMs"),
-                "online": _("Only online providers: no local LLMs, models or GPU meters"),
-                "local": _("Only local LLMs, and the agents that can use them")}
-        group = None
-        for mode, label in (("all", _("All")), ("online", _("Online")), ("local", _("Local LLMs"))):
-            button = Gtk.ToggleButton(label=label, group=group)
-            group = group or button
-            button.add_css_class("am-segment")
-            button.set_tooltip_text(tips[mode])
-            button.connect("toggled", lambda b, m=mode: b.get_active() and self.set_setup_mode(m))
-            self.view_switch.append(button)
-            self.mode_buttons[mode] = button
-        self.mode_buttons[self.setup_mode()].set_active(True)
-        header.append(self.view_switch)
 
         # The legend (as in App Manager): what the map's dots, lines and marks mean.
         legend_button = Gtk.MenuButton()
@@ -744,7 +729,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         return scroller
 
     def empty_state(self, icon: str, title: str, hint: str) -> Gtk.Widget:
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         box.set_valign(Gtk.Align.CENTER)
         box.set_vexpand(True)
         image = Gtk.Image.new_from_icon_name(icon)
@@ -760,8 +745,8 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         return box
 
     def build_main_page(self) -> Gtk.Widget:
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        page.append(self.view_heading(_("AI setup")))
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
+        page.append(self.view_heading(_("AI setup"), self.refresh_button()))
         # Downloads and installs running in the background (or interrupted): one line each.
         self.jobs_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self.jobs_box.add_css_class("am-jobs")
@@ -802,14 +787,14 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         # Above the map: an empty Asterism's welcome, and the hints (new on this PC, new versions…).
         self.empty_area = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, visible=False)
         page.append(self.empty_area)
-        self.hint_area = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, visible=False)
+        self.hint_area = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP_TIGHT, visible=False)
         self.hint_area.add_css_class("am-hint-area")
         page.append(self.hint_area)
         self.health_report = None
         self.health_running = False
         body = Gtk.Box(spacing=0)
         # The map, the whole width (My setup has a card for everything on it).
-        side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, hexpand=True)
+        side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP, hexpand=True)
         side.add_css_class("am-map-pane")
         self.gpu_line = self.build_gpu_line()
         side.append(self.gpu_line)
@@ -922,8 +907,8 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         """Above the map and the terminals, only while an agent has a terminal here: a legend
         (as in App Manager) over one tab per terminal with a dot: working, running or ended.
         A click shows it; the terminal in view has its tab marked."""
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        box.set_margin_bottom(12)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP_TIGHT)
+        box.set_margin_bottom(ai_core.GAP)
         top = Gtk.Box(spacing=10)
         heading = Gtk.Label(label=_("Terminals").upper(), xalign=0, hexpand=True)
         heading.add_css_class("am-section-title")
@@ -998,10 +983,10 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         temperature, power, a bar; green while a model is generating)."""
         colors = lambda name, alpha=1.0: self.side_map.color(name, alpha)
         line = Gtk.Box(spacing=24, homogeneous=True)
-        line.set_margin_bottom(18)       # air before the Show line
+        line.set_margin_bottom(0)
 
         def block(title):
-            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, hexpand=True)
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP_TIGHT, hexpand=True)
             heading = Gtk.Label(label=title.upper(), xalign=0)
             heading.add_css_class("am-section-title")
             box.append(heading)
@@ -1109,7 +1094,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
     def show_gpu(self, usage, runtimes):
         gib = gpu_usage.gib
         total = usage.vram_total
-        self.gpu_line.set_visible(total > 0 and "local" not in self.mode_rules()[0])
+        self.gpu_line.set_visible(total > 0)
         if total:
             free = max(0, total - usage.vram_used)
             self.gpu_memory.set_parts([(usage.llm_vram / total, "accent", 1.0), (usage.other_vram / total, "fg", 0.45)])
@@ -1597,7 +1582,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         """No vte4: ask whether to fix that (its details page shows how) or to start the
         agent in a separate terminal this time."""
         popover = Gtk.Popover()
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP_TIGHT)
         box.set_margin_top(10)
         box.set_margin_bottom(10)
         box.set_margin_start(12)
@@ -1746,7 +1731,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
     # --- agent and local LLM details (the (i) on their cards) -----------------------------------
 
     def build_status_page(self) -> Gtk.Widget:
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         header = Gtk.Box(spacing=8)
         back = Gtk.Button()
         back.add_css_class("flat")
@@ -1767,7 +1752,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         rule.add_css_class("am-settings-rule")
         page.append(rule)
-        self.status_body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.status_body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         self.status_body.add_css_class("am-settings")
         page.append(self.page_scroller(self.status_body))
         self.status_showing = None
@@ -1840,7 +1825,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         body.append(self.status_hero(state, sentence, now))
         if panes is not None:
             # herdr's live state, read again every few seconds while this page shows.
-            self.herdr_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            self.herdr_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP_TIGHT)
             body.append(self.herdr_box)
             self.fill_herdr_panes(agent, panes)
             self.watch_herdr(agent)
@@ -1898,7 +1883,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
 
         body.append(self.health_security_card(agent, checks, security))
         self.settings_heading(body, _("Configuration"))
-        config = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        config = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         config.add_css_class("am-boxed")
         self.fill_agent(config, agent, summary=True)
         body.append(config)
@@ -2076,7 +2061,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         body.append(self.stat_tiles(tiles))
         body.append(self.health_security_card(None, checks, agent_security.runtime_report(rt)))
         self.settings_heading(body, _("Configuration"))
-        config = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        config = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         config.add_css_class("am-boxed")
         self.fill_runtime(config, rt, names, summary=True)
         body.append(config)
@@ -2189,7 +2174,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         """Health (is it set up and working), security settings (what it may do without asking,
         each choice explained, changeable with a preview), risk management (what the settings mean
         together and what lowers each risk) and the words explained."""
-        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         card.add_css_class("am-help-card")
         top = Gtk.Box(spacing=8)
         top.append(Gtk.Image.new_from_icon_name("security-high-symbolic"))
@@ -2339,7 +2324,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
     # --- MCP server details (the (i) on its card) ---------------------------------------------------
 
     def build_mcp_page(self) -> Gtk.Widget:
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         page.add_css_class("am-add-page")       # one text scale (see the CSS)
         header = Gtk.Box(spacing=8)
         back = Gtk.Button()
@@ -2361,7 +2346,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         rule.add_css_class("am-settings-rule")
         page.append(rule)
-        self.mcp_body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.mcp_body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         self.mcp_body.add_css_class("am-settings")
         page.append(self.page_scroller(self.mcp_body))
         return page
@@ -2670,14 +2655,14 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
     @staticmethod
     def section_heading(box, text: str):
         """A section heading of the Add pages and the MCP / skills pages: one style for all."""
-        label = Gtk.Label(label=text.upper(), xalign=0, margin_top=6)
+        label = Gtk.Label(label=text.upper(), xalign=0)
         label.add_css_class("am-section-heading")
         box.append(label)
         return label
 
     def intro_card(self, box, title: str, lines):
         """A short explanation at the top of a page: what this is and how it is used."""
-        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP_TIGHT)
         card.add_css_class("am-model-card")
         head = Gtk.Label(label=title, xalign=0, wrap=True, max_width_chars=1)
         head.add_css_class("am-intro-title")
@@ -2693,7 +2678,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         """Laid out like the models page: what MCP is, tabs (Recommended, the MCP registry, On this
         PC, By hand), a list on the left and the chosen server's page on the right, with how it
         runs, what it needs and the agents that get it."""
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         page.add_css_class("am-add-page")       # one text scale (see the CSS)
         header = Gtk.Box(spacing=8)
         back = Gtk.Button()
@@ -2743,14 +2728,14 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
             left.set_size_request(MODEL_LIST_WIDTH, -1)
             pane.append(Adw.Clamp(maximum_size=MODEL_LIST_WIDTH, child=left, unit=Adw.LengthUnit.PX,
                                   halign=Gtk.Align.START, hexpand=False))
-            detail = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+            detail = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
             scroller = self.scrolled(detail, hexpand=True)
             pane.append(scroller)
             self.add_details[key] = (scroller, detail)
             self.add_stack.add_named(pane, key)
 
         # Recommended: the reference servers and official ones of well-known makers.
-        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         self.add_picks = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
         self.add_picks.add_css_class("am-list")
         pick_cards(self.add_picks)
@@ -2759,7 +2744,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         two_panes("picks", left)
 
         # The MCP registry (or a registry the user added).
-        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         left.append(self.source_picker("mcp"))
         self.add_query = Gtk.SearchEntry(hexpand=True, placeholder_text=_("Search servers, e.g. postgres, notion"))
         self.add_query.connect("activate", lambda *_: self.search_mcp())
@@ -2779,7 +2764,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         two_panes("web", left)
 
         # On this PC: programs that offer an MCP server and are not set up yet.
-        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         top = Gtk.Box(spacing=8)
         self.add_found_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1, hexpand=True)
         self.add_found_status.add_css_class("am-agent-detail")
@@ -2814,16 +2799,16 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         two_panes("local", left)
 
         # By hand: only the form.
-        hand = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        hand = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         self.note(hand, _("For a server you know the command or address of, e.g. from its README."))
         hand_scroller = self.scrolled(hand, hexpand=True)
         self.add_details["hand"] = (hand_scroller, hand)
         self.add_stack.add_named(hand_scroller, "hand")
 
         # The setup, moved to the page shown: what it needs, the agents, the command, Test / Add.
-        self.add_setup = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.add_setup = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         self.add_form_heading = self.section_heading(self.add_setup, _("Set it up"))
-        self.add_needs = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.add_needs = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         self.add_setup.append(self.add_needs)
         self.add_key_link = Gtk.LinkButton(label=_("Where do I get it?"), halign=Gtk.Align.START, visible=False)
         self.add_setup.append(self.add_key_link)
@@ -2837,7 +2822,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         self.setting_line(self.add_setup, _("Name"), _("Letters, digits, - _ . (the agents know it by this name)"),
                           self.add_name)
         self.add_name.set_halign(Gtk.Align.FILL)
-        self.add_form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.add_form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         self.add_advanced = Gtk.Expander(label=_("Command and settings"))
         self.add_advanced.set_child(self.add_form)
         self.add_setup.append(self.add_advanced)
@@ -3088,7 +3073,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
             warn.add_css_class("am-warning-text")
             box.append(warn)
 
-        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         card.add_css_class("am-model-card")
         about = Gtk.Label(label=_(pick.about) if pick else server.description or _("No description."),
                           xalign=0, wrap=True, max_width_chars=1, selectable=True)
@@ -3383,7 +3368,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         title = Gtk.Label(label=candidate.name, xalign=0, wrap=True, max_width_chars=1)
         title.add_css_class("am-model-title")
         box.append(title)
-        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         card.add_css_class("am-model-card")
         self.note(card, _("A program on this PC that offers an MCP server. It runs with your rights, like the "
                           "program itself."))
@@ -3781,7 +3766,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
     # --- add skills: found on this PC or from the web ------------------------------------------------
 
     def build_add_skills_page(self) -> Gtk.Widget:
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         page.add_css_class("am-add-page")       # one text scale (see the CSS)
         header = Gtk.Box(spacing=8)
         back = Gtk.Button()
@@ -3810,13 +3795,13 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
             _("Skills live in a folder; every agent that reads the folder has them at once. Pick skills from this "
               "PC or the web, choose the folder, then Add. Then just ask for the task: the agent finds the skill."),
         ])
-        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         body.add_css_class("am-settings")
         scroller_holder = [self.page_scroller(body)]
         page.append(scroller_holder[0])
 
-        local_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        web_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        local_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
+        web_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         body.append(self.where_switch("skills", local_box, web_box))
         body.append(local_box)
         body.append(web_box)
@@ -4123,49 +4108,6 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
             self.layer_buttons[layer] = button
         return row
 
-    # --- the setup choice in the header (All · Online · Local LLMs) ----------------------------
-
-    def setup_mode(self) -> str:
-        mode = ai_core.load_settings().get("setup_mode", "all")
-        return mode if mode in ("all", "online", "local") else "all"
-
-    def local_capable(self, agent) -> bool:
-        """An agent that can work with a local LLM: one AI Agents Map connects, one tied
-        to a local LLM, or one whose settings have a local provider already."""
-        if agent.command in connect.SUPPORTED or agent.command in connect.FIXED:
-            return True
-        return any(agent.command in rt.agents for rt in self.inventory.runtimes)
-
-    def mode_rules(self, mode: str | None = None) -> tuple[set, set]:
-        """(map categories left out, node ids left out) for a setup choice."""
-        mode = mode or self.setup_mode()
-        if mode == "online":
-            return {"local"}, set()
-        if mode == "local":
-            return {"online"}, {f"agent:{a.command}" for a in self.agent_list if not self.local_capable(a)}
-        return set(), set()
-
-    def set_setup_mode(self, mode: str):
-        if getattr(self, "side_map", None) is None:
-            return                 # the header is built before the map: the saved choice is applied with it
-        if mode == self.setup_mode() and getattr(self, "mode_applied", False):
-            return
-        self.save_setting(setup_mode=mode)
-        self.apply_setup_mode()
-        self.refresh_overview()
-
-    def apply_setup_mode(self):
-        """The choice on the map: the Show chip of a category it leaves out goes, the
-        GPU meters too when there are no local LLMs."""
-        self.mode_applied = True
-        off, hidden = self.mode_rules()
-        self.side_map.set_mode(off, hidden)
-        for layer, button in getattr(self, "layer_buttons", {}).items():
-            button.set_visible(layer not in off)
-        if getattr(self, "gpu_line", None) is not None:
-            self.gpu_line.set_visible("local" not in off)
-        self.set_selection([i for i in self.selection if i not in hidden])
-
     def model_users(self) -> dict:
         """Model box id -> names of the agents that use it (their default model)."""
         built = getattr(getattr(self, "side_map", None), "graph", None)
@@ -4248,16 +4190,20 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
             view.group_titles = {"mcp": _("MCP servers"), "skills": _("Skills"), "online": _("Online")}
             view.set_graph(built, headers)
             view.set_layers(self.map_view.layers)
-        self.apply_setup_mode()
         ids = {n.id for n in built.nodes}
         self.set_selection([i for i in self.selection if i in ids])
 
     @staticmethod
-    def view_heading(text: str) -> Gtk.Widget:
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        label = Gtk.Label(label=text.upper(), xalign=0)
+    def view_heading(text: str, end: Gtk.Widget | None = None) -> Gtk.Widget:
+        """A view's title over a rule; end goes at the right of the title (the map's Refresh)."""
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP_TIGHT)
+        row = Gtk.Box(spacing=8)
+        label = Gtk.Label(label=text.upper(), xalign=0, hexpand=True)
         label.add_css_class("am-section-title")
-        box.append(label)
+        row.append(label)
+        if end is not None:
+            row.append(end)
+        box.append(row)
         rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         rule.add_css_class("am-settings-rule")
         box.append(rule)
@@ -4285,25 +4231,14 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
 
     def update_header(self):
         page = self.page_name()
-        # My setup is a view of its own: the header's buttons stay on it.
-        on_settings = page in ("settings", "help", "addons", "reorganize", "connect", "install", "models", "mcp",
-                               "addmcp", "addskills", "health")
-        # Faded out rather than hidden: the header keeps its height, so the
-        # card does not jump when the settings page opens.
-        for widget in [self.settings_button, self.help_button, self.view_switch, self.setup_button] + \
-                ([self.addons_button] if self.addons_button is not None else []):
-            widget.set_opacity(0 if on_settings else 1)
-            widget.set_can_target(not on_settings)
-            widget.set_can_focus(not on_settings)
-            widget.set_sensitive(not on_settings)
-        # The legend explains the map's marks: only while the map is in view (faded, so nothing moves).
-        legend = getattr(self, "legend_button", None)
-        if legend is not None:
-            on_map = page == "main"
-            legend.set_opacity(1 if on_map else 0)
-            legend.set_can_target(on_map)
-            legend.set_can_focus(on_map)
-            legend.set_sensitive(on_map)
+        # Every header button (My setup or Map, the legend, add-ons, Help, Settings) stays visible and
+        # usable on every page.
+        on_setup = page == "setup"
+        self.setup_icon.set_from_icon_name("mark-location-symbolic" if on_setup else "view-grid-symbolic")
+        self.setup_label.set_label(_("Map") if on_setup else _("My setup"))
+        self.setup_button.set_tooltip_text(_("Back to the map (Esc)") if on_setup else
+                                           _("Agents, LLMs, MCP servers, skills and models: add, update or remove "
+                                             "them; the map shows what is set up"))
         self.updating_buttons = True
         for name, button in self.view_buttons.items():
             button.set_active(name == page)
@@ -4312,7 +4247,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
     # --- connecting (a line drawn on the map) -----------------------------------------------
 
     def build_connect_page(self) -> Gtk.Widget:
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         header = Gtk.Box(spacing=8)
         back = Gtk.Button()
         back.add_css_class("flat")
@@ -4337,7 +4272,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         self.connect_intro = Gtk.Label(xalign=0, wrap=True, max_width_chars=1)
         self.connect_intro.add_css_class("am-detail-value")
         page.append(self.connect_intro)
-        self.connect_form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.connect_form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         self.connect_form.add_css_class("am-settings")
         page.append(self.connect_form)
 
@@ -4915,7 +4850,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         area.x, area.y, area.width, area.height = (int(v) for v in rect)
         popover.set_pointing_to(area)
         popover.set_position(Gtk.PositionType.BOTTOM)
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         box.add_css_class("am-provider-list")
         box.set_size_request(420, -1)
         title = (_("Not connected") if not entry["applied"] else
@@ -4992,7 +4927,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         chosen model's page on the right. Tabs: Installed (info, context, Remove to the trash),
         Get from Hugging Face (search, model page, download options), On this PC (GGUF files
         other local LLMs or Downloads have)."""
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         header = Gtk.Box(spacing=8)
         back = Gtk.Button()
         back.add_css_class("flat")
@@ -5037,7 +4972,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
 
         # Installed: the list, and the chosen model's page.
         installed = Gtk.Box(spacing=18)
-        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         left.set_size_request(MODEL_LIST_WIDTH, -1)
         self.models_have_heading = Gtk.Label(xalign=0)
         self.models_have_heading.add_css_class("am-group-heading")
@@ -5049,13 +4984,13 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         left.append(self.scrolled(self.models_installed))
         installed.append(Adw.Clamp(maximum_size=MODEL_LIST_WIDTH, child=left, unit=Adw.LengthUnit.PX,
                                halign=Gtk.Align.START, hexpand=False))
-        self.models_installed_detail = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.models_installed_detail = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         installed.append(self.scrolled(self.models_installed_detail, hexpand=True))
         self.models_stack.add_named(installed, "installed")
 
         # Get from Hugging Face: search on the left, the model's page on the right.
         web = Gtk.Box(spacing=18)
-        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         left.set_size_request(MODEL_LIST_WIDTH, -1)
         self.models_pull_row = Gtk.Box(spacing=8)
         self.models_pull_entry = Gtk.Entry(hexpand=True, max_length=200,
@@ -5083,7 +5018,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         left.append(self.scrolled(self.models_repos))
         web.append(Adw.Clamp(maximum_size=MODEL_LIST_WIDTH, child=left, unit=Adw.LengthUnit.PX,
                                halign=Gtk.Align.START, hexpand=False))
-        self.models_web_detail = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.models_web_detail = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         web.append(self.scrolled(self.models_web_detail, hexpand=True))
         self.models_stack.add_named(web, "web")
         # Kept across fills of the model page: the download options and their button.
@@ -5102,7 +5037,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         self.models_get.connect("clicked", lambda *_: self.start_model_download(pull=False))
 
         # On this PC: GGUF files the local LLM does not have yet (other LLMs' folders, Downloads, …).
-        local_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        local_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         top = Gtk.Box(spacing=8)
         self.models_local_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1, hexpand=True)
         self.models_local_status.add_css_class("am-agent-detail")
@@ -5422,7 +5357,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         title = Gtk.Label(label=name, xalign=0, wrap=True, max_width_chars=1, selectable=True)
         title.add_css_class("am-model-title")
         box.append(title)
-        facts = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        facts = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         box.append(facts)
         if rt.key in ("llamacpp", "koboldcpp", "lmstudio"):
             try:
@@ -5472,7 +5407,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
     def removal_box(self, box, rt, name: str):
         """Remove: asks first, says what goes where (the trash; links only; Ollama's own store)."""
         self.detail_heading(box, _("Remove"))
-        area = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        area = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         box.append(area)
         if rt.key not in ("llamacpp", "koboldcpp", "lmstudio", "ollama"):
             note = Gtk.Label(label=_("Remove it in {0} itself.").format(rt.name), xalign=0)
@@ -5756,7 +5691,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
                                              "is refused."), xalign=0, wrap=True, max_width_chars=1)
                     note.add_css_class("am-warning-text")
                     box.append(note)
-                card_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+                card_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
                 card_box.add_css_class("am-model-card")
                 active = model_names.SIZE_MOE.search(repo) or re.search(r"[-_]A(\d+(?:\.\d+)?)B(?![A-Za-z])", repo)
                 self.facts_grid(card_box, [
@@ -6074,7 +6009,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
     # --- health check: what works, what to fix, what this setup is good for --------------------------
 
     def build_health_page(self) -> Gtk.Widget:
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         header = Gtk.Box(spacing=8)
         back = Gtk.Button()
         back.add_css_class("flat")
@@ -6099,7 +6034,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         rule.add_css_class("am-settings-rule")
         page.append(rule)
-        self.health_body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        self.health_body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         self.health_body.add_css_class("am-settings")
         page.append(self.page_scroller(self.health_body))
         return page
@@ -6214,7 +6149,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         # What you can do with it: one tile per use.
         self.section_in(body, _("What you can do with it"))
         tiles = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=3, min_children_per_line=1,
-                            column_spacing=10, row_spacing=10, homogeneous=True)
+                            column_spacing=ai_core.GAP, row_spacing=ai_core.GAP, homogeneous=True)
         for use in report.uses:
             tiles.append(self.use_tile(use))
         body.append(tiles)
@@ -6230,7 +6165,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         self.settings_heading(body, title)
 
     def use_tile(self, use) -> Gtk.Widget:
-        tile = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        tile = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP_TIGHT)
         tile.add_css_class("card")
         tile.add_css_class("am-use-tile")
         top = Gtk.Box(spacing=8)
@@ -6464,7 +6399,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
     # --- installing local LLMs (right-click → Install… / Update… / Model folder… / Uninstall…) --------
 
     def build_install_page(self) -> Gtk.Widget:
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         header = Gtk.Box(spacing=8)
         back = Gtk.Button()
         back.add_css_class("flat")
@@ -6488,7 +6423,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         self.install_intro = Gtk.Label(xalign=0, wrap=True, max_width_chars=1)
         self.install_intro.add_css_class("am-detail-value")
         page.append(self.install_intro)
-        self.install_form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.install_form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         self.install_form.add_css_class("am-settings")
         page.append(self.install_form)
         self.install_bar = Gtk.ProgressBar(show_text=False)
@@ -7443,7 +7378,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         if keyval == Gdk.KEY_F1 and page != "help":
             self.open_help()
             return True
-        if keyval == Gdk.KEY_F5 and page == "setup" and not self.setup_welcome:
+        if keyval == Gdk.KEY_F5 and (page == "main" or page == "setup" and not self.setup_welcome):
             self.reload_setup()
             return True
         if page == "help" and keyval in (Gdk.KEY_Escape, Gdk.KEY_BackSpace):

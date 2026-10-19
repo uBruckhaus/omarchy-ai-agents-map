@@ -1731,5 +1731,12 @@
  "Look again at what is on this PC (F5)": "Volver a mirar qué hay en este PC (F5)",
  "Looked again.": "Revisado de nuevo.",
  "Maximize for more room": "Maximizar para tener más espacio",
- "What “Maximize for more room” in the header does when the window is tiled too narrow for the whole map.": "Qué hace «Maximizar para tener más espacio» en la cabecera cuando la ventana queda demasiado estrecha para todo el mapa."
+ "What “Maximize for more room” in the header does when the window is tiled too narrow for the whole map.": "Qué hace «Maximizar para tener más espacio» en la cabecera cuando la ventana queda demasiado estrecha para todo el mapa.",
+ "Map": "Mapa",
+ "Other files": "Otros archivos",
+ "{0} of {1} on {2} for AI ({3}) · {4} free": "{0} de {1} en {2} para IA ({3}) · {4} libres",
+ "\u0004this disk": [
+  "este disco",
+  "estos {0} discos"
+ ]
 }
