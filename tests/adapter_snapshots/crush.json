@@ -35,6 +35,9 @@
   "~/.local/share/crush"
  ],
  "homepage": "https://github.com/charmbracelet/crush",
+ "ask": [],
+ "games": [],
+ "effort": [],
  "access": {
   "how": "An API key for a provider, or a local LLM from the map",
   "login": "crush",

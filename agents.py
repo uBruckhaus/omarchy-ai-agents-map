@@ -222,6 +222,18 @@ def detect(command: str, bin_dir: Path = BIN_DIR, mise_dir: Path = MISE_DIR,
     return False, "", ""
 
 
+def install_stamp(bin_dir: Path = BIN_DIR, mise_dir: Path = MISE_DIR, db: Path = PACMAN_DB) -> tuple:
+    """When the places agents are installed to last changed (mise's installs, ~/.local/bin, pacman's
+    database): a different stamp means an agent was installed or removed, also outside the app."""
+    stamp = []
+    for path in (mise_dir / "installs", bin_dir, db):
+        try:
+            stamp.append(path.stat().st_mtime_ns)
+        except OSError:
+            stamp.append(0)
+    return tuple(stamp)
+
+
 def list_agents(menu_file: Path | None = None, agent_file: Path | None = None, bin_dir: Path = BIN_DIR,
                 mise_dir: Path = MISE_DIR, db: Path = PACMAN_DB) -> list[Agent]:
     """Every agent the desktop offers (desktop.agent_catalog(), else FALLBACK; or the

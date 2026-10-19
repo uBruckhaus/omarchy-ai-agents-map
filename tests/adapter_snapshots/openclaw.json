@@ -53,6 +53,9 @@
   "~/.openclaw"
  ],
  "homepage": "https://github.com/openclaw/openclaw",
+ "ask": [],
+ "games": [],
+ "effort": [],
  "access": null,
  "security": null,
  "sessions": null,

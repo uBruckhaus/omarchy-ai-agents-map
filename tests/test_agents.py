@@ -106,6 +106,24 @@ class AgentsTest(unittest.TestCase):
 
 
 
+class InstallStampTest(unittest.TestCase):
+    def test_changes_when_an_agent_comes_or_goes(self):
+        with tempfile.TemporaryDirectory() as root:
+            base = Path(root)
+            bin_dir, mise, db = base / "bin", base / "mise", base / "db"
+            for folder in (bin_dir, mise / "installs", db):
+                folder.mkdir(parents=True)
+            first = agents.install_stamp(bin_dir, mise, db)
+            self.assertEqual(first, agents.install_stamp(bin_dir, mise, db))
+            (mise / "installs/cursor-agent").mkdir()
+            os.utime(mise / "installs", ns=(1, 10 ** 18))
+            second = agents.install_stamp(bin_dir, mise, db)
+            self.assertNotEqual(first, second)
+            os.utime(bin_dir, ns=(1, 2 * 10 ** 18))
+            self.assertNotEqual(second, agents.install_stamp(bin_dir, mise, db))
+            self.assertEqual(agents.install_stamp(base / "none", base / "none", base / "none"), (0, 0, 0))
+
+
 class MiseLeftoverTest(unittest.TestCase):
     def test_only_links_left_is_not_installed(self):
         import tempfile

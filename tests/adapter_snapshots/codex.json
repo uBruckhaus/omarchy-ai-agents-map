@@ -34,6 +34,50 @@
   "~/.codex"
  ],
  "homepage": "https://github.com/openai/codex",
+ "ask": [
+  "codex",
+  "exec",
+  "--sandbox",
+  "read-only",
+  "--skip-git-repo-check",
+  "--ephemeral",
+  "--color",
+  "never",
+  "{prompt}"
+ ],
+ "games": [
+  "chess"
+ ],
+ "effort": [
+  [
+   "quick",
+   [
+    "-c",
+    "model_reasoning_effort=low"
+   ]
+  ],
+  [
+   "normal",
+   [
+    "-c",
+    "model_reasoning_effort=medium"
+   ]
+  ],
+  [
+   "deep",
+   [
+    "-c",
+    "model_reasoning_effort=high"
+   ]
+  ],
+  [
+   "max",
+   [
+    "-c",
+    "model_reasoning_effort=high"
+   ]
+  ]
+ ],
  "access": {
   "how": "A ChatGPT plan (Plus, Pro, Business), or an API key from platform.openai.com",
   "login": "codex login",

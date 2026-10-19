@@ -39,10 +39,17 @@ TOP = {"command": STR, "name": STR, "label": STR, "full_name": STR, "icon": STR,
        "offered": BOOL, "short_model_flag": BOOL, "fixed_provider": STR, "self_served": BOOL, "homepage": STR,
        "data": STRS, "install": TABLES, "update": TABLE, "sessions": TABLE, "skills": TABLE, "mcp": TABLE,
        "access": TABLE, "security": TABLE, "login_status": TABLE, "installer": STR, "usage": STR,
-       "local_llm": TABLE}
+       "local_llm": TABLE, "ask": TABLE}
 WAY = {"kind": STR, "spec": STR, "tool": STR, "argv": STRS, "sudo": BOOL, "url": STR, "note": STR,
        "update": STRS, "packages": "a list of [manager, name]"}
 UPDATE = {"self": STRS, "latest": STR}
+# One prompt, one answer, without tools: argv with "{prompt}" where the text goes, and the games the
+# app may play with it (an agent's menu › Play chess opens the app's chess page).
+ASK = {"argv": STRS, "note": STR, "games": STRS, "effort": TABLE}
+GAMES = ("chess",)
+# How long the agent may think (the chess page's Thinking time): per level, its own options for how
+# hard the model thinks (ask.effort), put in before the prompt.
+THINKING = ("quick", "normal", "deep", "max")
 SESSIONS = {"reader": STR, "hook": BOOL, "note": STR, "note_args": STRS}
 SKILLS = {"dirs": STRS, "own": STR, "listed": TABLE_OR_HOOK, "settings_list": BOOL, "settings_file": STR,
           "write": HOOK}
@@ -64,7 +71,7 @@ RULE = {"key": STR, "title": STR, "also": STR, "keys_where": TABLE}   # also: a 
 REQUIRED = {"top": ("command", "name"), "way": ("kind",), "login": ("label", "argv"), "key": ("var",),
             "setting": ("key", "title", "explain", "choices"), "choice": ("label", "explain"),
             "rule": ("key", "title"), "security": ("file", "format"), "access": ("how",), "skills": ("dirs", "own"),
-            "listed": ("file", "format", "key"), "login_status": ("argv", "no", "yes")}
+            "listed": ("file", "format", "key"), "login_status": ("argv", "no", "yes"), "ask": ("argv",)}
 
 # Readers and version sources the app has; a file names them.
 READERS = {"claude-files": ("claude_sessions", "collect_by_id")}
@@ -116,6 +123,25 @@ def check(data: dict, name: str) -> None:
     for i, way in enumerate(data.get("install", [])):
         _check(way, WAY, f"{name}: install[{i}]", REQUIRED["way"])
     _check(data.get("update", {}), UPDATE, f"{name}: update")
+    if "ask" in data:
+        _check(data["ask"], ASK, f"{name}: ask", REQUIRED["ask"])
+        argv = data["ask"]["argv"]
+        # The agent itself, the prompt as one argument of its own: never a shell, never another program.
+        if not argv or argv[0] != data["command"] or argv.count("{prompt}") != 1 \
+                or any("{prompt}" in a and a != "{prompt}" for a in argv) or argv.count("{effort}") > 1 \
+                or any("{effort}" in a and a != "{effort}" for a in argv):
+            raise AdapterError(f"{name}: ask.argv must start with “{data['command']}” and hold “{{prompt}}” "
+                               "once (and “{effort}” at most once), each as an argument of its own")
+        for level, args in data["ask"].get("effort", {}).items():
+            if level not in THINKING:
+                raise AdapterError(f"{name}: ask.effort “{level}” is not one the app has ({', '.join(THINKING)})")
+            if not _fits(args, STRS) or not args or not args[0].startswith("-") \
+                    or any("{prompt}" in a or "{effort}" in a for a in args):
+                raise AdapterError(f"{name}: ask.effort.{level} must be options (starting with “-”), "
+                                   "without “{prompt}”")
+        for game in data["ask"].get("games", []):
+            if game not in GAMES:
+                raise AdapterError(f"{name}: ask.games “{game}” is not one the app has ({', '.join(GAMES)})")
     sessions = data.get("sessions", {})
     _check(sessions, SESSIONS, f"{name}: sessions")
     if "reader" in sessions and sessions["reader"] not in READERS:
@@ -328,6 +354,10 @@ def harness(data: dict, name: str = "adapter", hooks=None) -> Harness:
         self_update=tuple(update.get("self", ())),
         latest=ref(*LATEST[update["latest"]]) if update.get("latest") else None,
         install=tuple(_way(w) for w in data.get("install", ())),
+        ask=tuple(data["ask"]["argv"]) if "ask" in data else (),
+        games=tuple(data["ask"].get("games", ())) if "ask" in data else (),
+        effort=tuple((level, tuple(args)) for level, args in data["ask"].get("effort", {}).items())
+        if "ask" in data else (),
         data=tuple(data.get("data", ())), **simple)
 
 

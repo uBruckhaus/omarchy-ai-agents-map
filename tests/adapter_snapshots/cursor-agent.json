@@ -42,6 +42,9 @@
   "~/.config/cursor"
  ],
  "homepage": "https://cursor.com/cli",
+ "ask": [],
+ "games": [],
+ "effort": [],
  "access": {
   "how": "A Cursor account (cursor.com)",
   "login": "cursor-agent login",

@@ -33,6 +33,7 @@ class RuntimeUse:
     running: bool = False
     vram: int = 0
     models: dict = field(default_factory=dict)      # lower-case name -> loaded | loading | sleeping
+    serving: bool = True     # its API server answers (False: LM Studio open without its server)
 
 
 @dataclass
@@ -221,6 +222,34 @@ def port_of(rt) -> int:
     return int(port) if port.isdigit() else 0
 
 
+LMS_EVERY = 20           # seconds between two `lms ps` runs
+_lms_cache = [0.0, {}]
+
+
+def lms_loaded(runner=None) -> dict:
+    """LM Studio's loaded models from its own CLI (`lms ps --json`), for when its server is off;
+    asked at most every LMS_EVERY seconds, since the CLI takes a moment to start."""
+    import time
+    now = time.monotonic()
+    if runner is None and _lms_cache[0] and now - _lms_cache[0] < LMS_EVERY:
+        return dict(_lms_cache[1])
+    import ai_core
+    import runtime_ctl
+    found, binary = {}, runtime_ctl.lms_binary()
+    if binary:
+        out, ok = (runner or ai_core.read_bounded_output)([binary, "ps", "--json"], max_bytes=MAX_REPLY, timeout=5)
+        try:
+            rows = json.loads(out) if ok and out else []
+        except ValueError:
+            rows = []
+        for row in (rows if isinstance(rows, list) else [])[:100]:
+            if isinstance(row, dict) and row.get("type") == "llm" and isinstance(row.get("identifier"), str):
+                found[row["identifier"].lower()[:200]] = "loaded"
+    if runner is None:
+        _lms_cache[:] = [now, found]
+    return found
+
+
 def loaded_models(rt) -> dict:
     """lower-case model name -> state, from the runtime's own API."""
     port, found = port_of(rt), {}
@@ -234,6 +263,8 @@ def loaded_models(rt) -> dict:
             if isinstance(row, dict) and row.get("name"):
                 found[str(row["name"]).lower()] = "loaded"
     elif rt.key == "lmstudio":
+        if not _own_port(port):
+            return lms_loaded()            # the app is open without its server
         for row in (http_json(port, "/api/v0/models") or {}).get("data", [])[:500]:
             if isinstance(row, dict) and row.get("state") == "loaded":
                 found[str(row.get("id", "")).lower()] = "loaded"
@@ -268,6 +299,8 @@ def snapshot(runtimes, processes=None) -> Usage:
         use = RuntimeUse(running=bool(pids), vram=sum(proc_vram(pid) for pid in pids))
         if pids:
             use.models = loaded_models(rt)
+            if rt.key == "lmstudio":
+                use.serving = _own_port(port_of(rt))
         usage.runtimes[rt.key] = use
     return usage
 

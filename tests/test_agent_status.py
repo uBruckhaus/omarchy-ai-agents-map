@@ -200,6 +200,27 @@ class ChecksTest(unittest.TestCase):
         self.assertEqual(titles["No account needed"].state, "ok")
         self.assertEqual(titles["llama.cpp has no models"].state, "missing")
 
+    def test_a_provider_not_in_use_is_no_problem(self):
+        """Hermes uses llama.cpp; Ollama is only set up (a line it could switch to): Ollama without
+        models is a note, not a problem, and the agent shows no problem."""
+        hermes = agents.Agent(command="hermes", name="Hermes", icon="x", installed=True)
+        inv = invmod.Inventory(runtimes=[
+            invmod.Runtime("llamacpp", "llama.cpp", True, True, "llama-server", models=["gemma"]),
+            invmod.Runtime("ollama", "Ollama", True, False, "ollama", models=[])])
+        info = ad.Details(model="gemma (llama-local)", providers=[ad.Provider("llama-local", True, "llama.cpp", 1),
+                                                                    ad.Provider("ollama-local", True, "Ollama", 0,
+                                                                                active=False)])
+        checks = st.agent_checks(hermes, info, {}, inv, {}, root=self.home, environ={})
+        titles = {c.title: c for c in checks}
+        self.assertEqual(titles["Ollama has no models"].state, "info")
+        self.assertIn("Not in use", titles["Ollama has no models"].detail)
+        self.assertNotEqual(st.summary_line(checks)[0], "missing")
+        # The one it uses still counts.
+        info.providers[0] = ad.Provider("llama-local", True, "llama.cpp", 1)
+        inv.runtimes[0].models = []
+        checks = st.agent_checks(hermes, info, {}, inv, {}, root=self.home, environ={})
+        self.assertEqual({c.title: c for c in checks}["llama.cpp has no models"].state, "missing")
+
     def test_failed_link_shows_up(self):
         pi = agents.Agent(command="pi", name="Pi", icon="x", installed=True)
         hints = {"agent:pi|mcp:photo": {"kind": "mcp", "hints": [{"level": "error", "text": "handshake failed"}]}}

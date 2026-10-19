@@ -57,6 +57,9 @@ NODE_W_MIN = 120
 PIN_W = 14               # the pin's square at a box's top right
 PIN, PIN_OUTLINE = "\U000F0403", "\U000F0931"   # Nerd Font pin, pin-outline
 PLAY, CONSOLE = "\U000F040A", "\U000F018D"      # Nerd Font play, console: an agent's start button
+STOP_VRAM = 256 * 1024 ** 2                        # a local LLM holding this much GPU memory gets a stop button
+STOP = "\U000F04DB"
+CHESS = "\U000F0858"                             # Nerd Font chess knight: back to the game against this agent                              # Nerd Font stop: beside the console while it runs here
 ANIMATION_MODES = ("all", "agents", "off")    # Settings › Map animations
 START_W = 18             # the start button's square, left of where the pin and the tick go
 # The categories whose boxes each column holds (a column with none of them on is gone).
@@ -68,7 +71,9 @@ TILE_GLYPHS = {"cloud": "cloud", "runtime": "chip", "model": "model", "more": "f
                "mcp": "app", "agent": "robot"}
 TILE_TONES = {"mcp": "yellow", "skills": "green", "model": "muted", "more": "muted"}
 # "available": set up but not in use (dotted), in the alert colour of the header's ! (the legend too).
-EDGE_COLORS = {"uses": "accent", "available": "red", "serves": "muted", "mcp": "yellow", "skills": "green"}
+# "loaded": a provider → model line while that model is loaded but no agent uses it (solid, light).
+EDGE_COLORS = {"uses": "accent", "available": "red", "serves": "muted", "mcp": "yellow", "skills": "green",
+               "loaded": "fg"}
 
 
 def rgba(hex_code: str, alpha: float = 1.0):
@@ -103,10 +108,16 @@ class MapView(Gtk.DrawingArea):
         self.pin_rects = {}      # node id -> rectangle of its pin, for clicks
         self.pin_tips = ("Pin", "Unpin")   # tooltips (pin, unpin), translated by the window
         self.start_rects = {}    # agent box id -> rectangle of its start button, for clicks
+        self.stop_rects = {}     # agent box id -> rectangle of its stop button (while it runs here)
+        self.chess_node = None   # the agent box playing chess (the page may be closed): a button back to it
+        self.chess_rect = None   # (node id, rectangle) of that button
+        self.on_chess = None     # on_chess(node id): open the game
+        self.chess_tip = ""
         self.batteries = {}      # box id -> (left 0..1, colour, tooltip): an online agent's limits, a local LLM's GPU
         self.battery_rects = {}  # agent box id -> rectangle of its battery, for the tooltip
         self.start_state = None  # start_state(node id) -> "start", "show" (runs here) or "" (no button)
         self.on_start = None     # on_start(node id): start it, or show its terminal
+        self.on_stop = None      # on_stop(node id): stop it (it runs here)
         self.start_tips = ("Start", "Show terminal")   # translated by the window
         self.group_rects = {}    # model folder -> rectangle of its group in the models column
         self.move_target_ok = None  # callback(model id, folder) -> bool: may the model go there
@@ -171,6 +182,22 @@ class MapView(Gtk.DrawingArea):
         parts = node.id.split(":", 3)
         key = parts[1] if node.kind == "runtime" else (parts[2] if len(parts) > 3 and parts[1] == "runtime" else "")
         return self.usage.runtimes.get(key)
+
+    def model_state(self, node, use=None) -> str | None:
+        """A model box's state in its local LLM now: "loaded", "loading", "sleeping" or None."""
+        use = use or self.runtime_use(node)
+        if use is None:
+            return None
+        return use.models.get(node.label.lower()) or next(
+            (value for name, value in use.models.items() if graph_model.model_key(name) == graph_model.model_key(node.label)),
+            None)                    # listed by folder or file name, loaded under its id
+
+    def loaded_edge(self, edge) -> bool:
+        """A local LLM's line to a model it has loaded now (whether or not an agent uses it)."""
+        if edge.kind != "serves" or edge.failed or not edge.source.startswith("runtime:"):
+            return False
+        node = next((n for n in self.graph.nodes if n.id == edge.target), None)
+        return node is not None and node.kind == "model" and self.model_state(node) == "loaded"
 
     def set_graph(self, graph, headers):
         self.graph = graph
@@ -629,7 +656,12 @@ class MapView(Gtk.DrawingArea):
         start = self.start_at(x, y)
         battery = next((n for n, (bx, by, bw, bh) in self.battery_rects.items()
                         if bx <= x <= bx + bw and by <= y <= by + bh and n in self.batteries), None)
-        if start is not None and self.start_state is not None:
+        stop = self.stop_at(x, y)
+        if self.chess_at(x, y) is not None:
+            self.set_tooltip_text(self.chess_tip)
+        elif stop is not None and len(self.start_tips) > 2:
+            self.set_tooltip_text(self.start_tips[3 if stop.startswith("runtime:") and len(self.start_tips) > 3 else 2])
+        elif start is not None and self.start_state is not None:
             self.set_tooltip_text(self.start_tips[1 if self.start_state(start) == "show" else 0])
         elif battery is not None:
             self.set_tooltip_text(self.batteries[battery][2])
@@ -640,6 +672,19 @@ class MapView(Gtk.DrawingArea):
         """The node whose pin is at (x, y) in map units, or None."""
         for node_id, (px, py, pw, ph) in self.pin_rects.items():
             if px <= x <= px + pw and py <= y <= py + ph:
+                return node_id
+        return None
+
+    def chess_at(self, x, y):
+        if self.chess_rect is not None:
+            node_id, (cx, cy, cw, ch) = self.chess_rect
+            if cx <= x <= cx + cw and cy <= y <= cy + ch:
+                return node_id
+        return None
+
+    def stop_at(self, x, y):
+        for node_id, (sx, sy, sw, sh) in self.stop_rects.items():
+            if sx <= x <= sx + sw and sy <= y <= sy + sh:
                 return node_id
         return None
 
@@ -736,6 +781,14 @@ class MapView(Gtk.DrawingArea):
         pin = self.pin_at(x, y)
         if pin is not None:
             self.toggle_pin(pin)
+            return
+        chess = self.chess_at(x, y)
+        if chess is not None and self.on_chess is not None:
+            self.on_chess(chess)
+            return
+        stop = self.stop_at(x, y)
+        if stop is not None and self.on_stop is not None:
+            self.on_stop(stop)
             return
         start = self.start_at(x, y)
         if start is not None and self.on_start is not None:
@@ -1036,7 +1089,8 @@ class MapView(Gtk.DrawingArea):
                 alpha = 0.3 if moving else 1.0
             active = index in active_edges
             outside = not active and self.outside_edge(edge)
-            if (active or outside) and not picked and not (lit_edges is not None and index not in lit_edges):
+            loaded = not active and not outside and self.loaded_edge(edge)
+            if (active or outside or loaded) and not picked and not (lit_edges is not None and index not in lit_edges):
                 alpha = 1.0
             if edge.failed:
                 # Failed (red) or with warnings (yellow), dotted, until it is removed by hand.
@@ -1046,9 +1100,11 @@ class MapView(Gtk.DrawingArea):
                 cr.set_line_cap(cairo.LINE_CAP_ROUND)
                 cr.set_dash([0.1, 5])
             else:
+                # Loaded in its local LLM but no agent's: solid and light (EDGE_COLORS["loaded"]).
                 cr.set_source_rgba(*self.color("accent" if active else "outside" if outside
-                                               else EDGE_COLORS.get(edge.kind, "muted"), alpha))
-                cr.set_line_width(3.2 if picked else 2.8 if active or outside else
+                                               else EDGE_COLORS.get("loaded" if loaded else edge.kind, "muted"),
+                                               0.85 if loaded and alpha == 1.0 else alpha))
+                cr.set_line_width(3.2 if picked else 2.8 if active or outside else 2.2 if loaded else
                                   2.0 if lit_edges is not None and index in lit_edges else 1.4)
                 # Dashed: set up but not in use (an agent's second provider).
                 cr.set_dash([5, 4] if edge.kind == "available" else [])
@@ -1078,6 +1134,8 @@ class MapView(Gtk.DrawingArea):
 
         self.pin_rects = {}
         self.start_rects = {}
+        self.stop_rects = {}
+        self.chess_rect = None
         self.battery_rects = {}
         for node in self.graph.nodes:
             if node.id not in self.boxes:
@@ -1110,15 +1168,19 @@ class MapView(Gtk.DrawingArea):
             use = self.runtime_use(node)
             detail = node.detail or (self.outside_label(node.id) if node.kind == "model" else "")
             right = 0                # room kept free at the right for the loaded mark or the start button
-            if node.kind == "agent" and self.start_state is not None and self.start_state(node.id):
+            if node.kind == "agent" and ((self.start_state is not None and self.start_state(node.id))
+                                         or node.id == self.chess_node):
                 right = self.draw_start(cr, layout, node.id, x, y, w, h, faded)
+            elif node.kind == "runtime" and self.on_stop is not None and use is not None and use.running \
+                    and use.vram >= STOP_VRAM:
+                right = self.draw_runtime_stop(cr, layout, node.id, x, y, w, h, faded)
             if node.kind in ("agent", "runtime") and node.id in self.batteries:
                 right += self.draw_battery(cr, node.id, x + w - PIN_W - (24 if selected else 4) - right, y, h, faded)
             text_x = self.draw_tile(cr, layout, node, x, y, h, faded, alpha, use)
             if node.kind == "runtime" and use is not None and use.vram >= 64 * 1024 ** 2:
                 detail = " · ".join(filter(None, [detail, f"{use.vram / 1024 ** 3:.1f} GB GPU"]))
             if node.kind == "model" and use is not None:
-                state = use.models.get(node.label.lower())
+                state = self.model_state(node, use)
                 if state:
                     # Loaded (green), loading (yellow), asleep (a grey ring: listed, GPU memory free).
                     cx, cy = x + w - PIN_W - (30 if selected else 8), y + h / 2
@@ -1226,7 +1288,7 @@ class MapView(Gtk.DrawingArea):
             cr.move_to(tx + (size - glyph_w) / 2, ty + (size - glyph_h) / 2)
             PangoCairo.show_layout(cr, layout)
         if node.status:
-            name = {"running": "green", "stopped": "yellow"}.get(node.status, "muted")
+            name = {"running": "green", "stopped": "yellow", "noserver": "yellow"}.get(node.status, "muted")
             cx, cy = tx + size - 1, ty + size - 1
             cr.set_source_rgba(*self.color("bg", 1.0))
             cr.arc(cx, cy, 5.5, 0, 2 * math.pi)
@@ -1256,23 +1318,51 @@ class MapView(Gtk.DrawingArea):
         PangoCairo.show_layout(cr, layout)
 
     def draw_start(self, cr, layout, node_id, x, y, w, h, faded) -> int:
-        """An agent's start button (▶; a console while it runs here), left of the tick; returns the
-        room it takes from the text."""
-        state = self.start_state(node_id)
+        """An agent's start button (▶), left of the tick; while it runs here or plays chess a stop
+        button in its place, and left of it a console and/or a chess knight. Returns the room they
+        take from the text."""
+        state = self.start_state(node_id) if self.start_state is not None else ""
+        playing = node_id == self.chess_node
         sx = x + w - PIN_W - (24 if node_id in self.selected else 4) - START_W
         sy = y + (h - START_W) / 2
-        self.start_rects[node_id] = (sx, sy, START_W, START_W)
         hot = node_id == self.hover
+        if state != "show" and not playing:
+            self.start_rects[node_id] = (sx, sy, START_W, START_W)
+            self.draw_square_button(cr, layout, sx, sy, PLAY, "fg", False, hot, faded)
+            return START_W + 4
+        # Running here or playing chess: stop where ▶ was (it ends both), then left of it the
+        # console (show its terminal) and the chess knight (back to the game).
+        self.stop_rects[node_id] = (sx, sy, START_W, START_W)
+        self.draw_square_button(cr, layout, sx, sy, STOP, "red", True, hot, faded)
+        left = sx
+        if state == "show":
+            left -= START_W + 4
+            self.start_rects[node_id] = (left, sy, START_W, START_W)
+            self.draw_square_button(cr, layout, left, sy, CONSOLE, "accent", True, hot, faded)
+        if playing:
+            left -= START_W + 4
+            self.chess_rect = (node_id, (left, sy, START_W, START_W))
+            self.draw_square_button(cr, layout, left, sy, CHESS, "accent", True, hot, faded)
+        return int(sx - left) + START_W + 4
+
+    def draw_runtime_stop(self, cr, layout, node_id, x, y, w, h, faded) -> int:
+        """A local LLM holding GPU memory: a stop button (it asks: stop, or only free the memory)."""
+        sx = x + w - PIN_W - (24 if node_id in self.selected else 4) - START_W
+        sy = y + (h - START_W) / 2
+        self.stop_rects[node_id] = (sx, sy, START_W, START_W)
+        self.draw_square_button(cr, layout, sx, sy, STOP, "red", True, node_id == self.hover, faded)
+        return START_W + 4
+
+    def draw_square_button(self, cr, layout, sx, sy, glyph_, tone, lit, hot, faded):
+        """A small square button with a glyph: tinted in `tone` when lit (a running agent's)."""
         self.rounded(cr, sx, sy, START_W, START_W, min(self.radius, 4))
-        cr.set_source_rgba(*self.color("accent" if state == "show" else "fg",
-                                       (0.18 if state == "show" else 0.08) * (0.4 if faded else 1)))
+        cr.set_source_rgba(*self.color(tone if lit else "fg", (0.18 if lit else 0.08) * (0.4 if faded else 1)))
         cr.fill_preserve()
-        cr.set_source_rgba(*self.color("accent" if hot or state == "show" else "fg", (0.9 if hot else 0.3)
+        cr.set_source_rgba(*self.color(tone if hot or lit else "fg", (0.9 if hot else 0.3)
                                        * (0.4 if faded else 1)))
         cr.set_line_width(1)
         cr.stroke()
-        colour = self.color("accent" if hot or state == "show" else "fg", 0.4 if faded else 1.0)
-        glyph_ = CONSOLE if state == "show" else PLAY
+        colour = self.color(tone if hot or lit else "fg", 0.4 if faded else 1.0)
         if not self.draw_icon(cr, glyph_, "", sx + 3, sy + 3, START_W - 6, colour):
             layout.set_font_description(Pango.FontDescription.from_string("JetBrainsMono Nerd Font, Symbols Nerd Font 9"))
             layout.set_width(-1)
@@ -1282,7 +1372,6 @@ class MapView(Gtk.DrawingArea):
             cr.set_source_rgba(*colour)
             cr.move_to(sx + (START_W - text_w) / 2, sy + (START_W - text_h) / 2)
             PangoCairo.show_layout(cr, layout)
-        return START_W + 4
 
     def draw_battery(self, cr, node_id, right, y, h, faded) -> int:
         """A small battery ending at `right`: filled to what is left of the tightest limit, green,
@@ -1591,7 +1680,7 @@ class LegendSample(Gtk.DrawingArea):
             active = value == "active"
             cr.set_source_rgba(*self.colors("accent" if active else EDGE_COLORS.get(value, "muted"),
                                             1.0 if active else 0.8))
-            cr.set_line_width(2.8 if active else 1.6)
+            cr.set_line_width(2.8 if active else 2.2 if value == "loaded" else 1.6)
             cr.set_dash([5, 4] if value == "available" else [])
             cr.move_to(2, mid)
             cr.line_to(width - 2, mid)

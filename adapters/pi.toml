@@ -29,6 +29,12 @@ write = "hook"
 [mcp]
 path = "~/.pi/agent/mcp.json"
 
+[ask]                                  # one prompt, one answer, no tools (the chess page)
+argv = ["pi", "-p", "--no-tools", "--no-approve", "{prompt}"]
+games = ["chess"]                      # its menu offers Play chess
+effort = { quick = ["--thinking", "low"], normal = ["--thinking", "medium"], deep = ["--thinking", "high"], max = ["--thinking", "max"] }   # Thinking time
+note = "no tools, project files ignored"
+
 [access]
 how = "Sign in inside Pi (/login: Claude, ChatGPT, Copilot …), an API key, or a local LLM from the map"
 login = "pi  →  /login"

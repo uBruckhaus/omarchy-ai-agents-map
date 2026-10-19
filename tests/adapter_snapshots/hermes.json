@@ -64,6 +64,48 @@
   "~/.hermes"
  ],
  "homepage": "https://github.com/NousResearch/hermes-agent",
+ "ask": [
+  "hermes",
+  "{effort}",
+  "-t",
+  "todo",
+  "--ignore-rules",
+  "-z",
+  "{prompt}"
+ ],
+ "games": [
+  "chess"
+ ],
+ "effort": [
+  [
+   "quick",
+   [
+    "--reasoning",
+    "low"
+   ]
+  ],
+  [
+   "normal",
+   [
+    "--reasoning",
+    "medium"
+   ]
+  ],
+  [
+   "deep",
+   [
+    "--reasoning",
+    "high"
+   ]
+  ],
+  [
+   "max",
+   [
+    "--reasoning",
+    "max"
+   ]
+  ]
+ ],
  "access": {
   "how": "A provider key (hermes setup), or a local LLM from the map",
   "login": "hermes setup",

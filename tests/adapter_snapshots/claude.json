@@ -38,6 +38,48 @@
   "~/.claude.json"
  ],
  "homepage": "https://github.com/anthropics/claude-code",
+ "ask": [
+  "claude",
+  "-p",
+  "--tools",
+  "",
+  "--strict-mcp-config",
+  "--no-session-persistence",
+  "{prompt}"
+ ],
+ "games": [
+  "chess"
+ ],
+ "effort": [
+  [
+   "quick",
+   [
+    "--effort",
+    "low"
+   ]
+  ],
+  [
+   "normal",
+   [
+    "--effort",
+    "medium"
+   ]
+  ],
+  [
+   "deep",
+   [
+    "--effort",
+    "high"
+   ]
+  ],
+  [
+   "max",
+   [
+    "--effort",
+    "max"
+   ]
+  ]
+ ],
  "access": {
   "how": "A Claude Pro or Max subscription (claude.ai), or an API key from console.anthropic.com",
   "login": "claude auth login",

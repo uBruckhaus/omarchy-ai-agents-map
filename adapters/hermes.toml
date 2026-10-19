@@ -48,6 +48,12 @@ path = "~/.hermes/config.yaml"
 format = "yaml"
 key = "mcp_servers"
 
+[ask]                                  # one prompt, one answer, no tools (the chess page)
+argv = ["hermes", "{effort}", "-t", "todo", "--ignore-rules", "-z", "{prompt}"]
+games = ["chess"]                      # its menu offers Play chess
+effort = { quick = ["--reasoning", "low"], normal = ["--reasoning", "medium"], deep = ["--reasoning", "high"], max = ["--reasoning", "max"] }   # Thinking time
+note = "only its in-memory task list (no files, terminal, web or MCP), no project rules or memory"
+
 [access]
 how = "A provider key (hermes setup), or a local LLM from the map"
 login = "hermes setup"

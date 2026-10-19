@@ -104,6 +104,7 @@ from connect_page import ConnectPage
 from skills_page import SkillsPage
 from mcp_pages import McpPages
 from details_pages import DetailsPages
+from chess_page import ChessPage
 try:
     from addons_page import AddonsPage      # Asterism only: the Add-ons page (not in the Omarchy plugin)
 except ImportError:
@@ -149,7 +150,7 @@ class AppWindow(Adw.ApplicationWindow):
             GLib.idle_add(self.on_width, width)
 
 
-class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, DetailsPages, McpPages, SkillsPage, ConnectPage, ModelsPage,
+class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, DetailsPages, ChessPage, McpPages, SkillsPage, ConnectPage, ModelsPage,
                 Adw.Application):
     def __init__(self):
         super().__init__(application_id=desktop.app_id())
@@ -415,6 +416,7 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
         stack.set_vhomogeneous(True)
         stack.add_named(self.build_main_page(), "main")
         stack.add_named(self.build_settings_page(), "settings")
+        stack.add_named(self.build_chess_page(), "chess")         # a page of its own, as Settings
         stack.add_named(self.build_help_page(), "help")
         stack.add_named(self.build_reorganize_page(), "reorganize")
         stack.add_named(self.build_setup_page(), "setup")
@@ -508,6 +510,17 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
         self.problem_button.add_css_class("am-problem-btn")
         self.problem_button.connect("clicked", lambda *_: self.open_health())
         header.append(self.problem_button)
+        # A chess game going (the page may be closed): back to it. Gone when the game ends.
+        self.chess_button = Gtk.Button(valign=Gtk.Align.CENTER, visible=False)
+        knight = Gtk.Label(label="\U000F0858")
+        knight.add_css_class("am-gear")
+        self.chess_button.set_child(knight)
+        self.chess_button.add_css_class("flat")
+        self.chess_button.add_css_class("am-header-btn")
+        self.chess_button.add_css_class("am-gear-btn")
+        self.chess_button.set_tooltip_text(_("Back to the chess game"))
+        self.chess_button.connect("clicked", lambda *_: self.chess_agent is not None and self.open_chess(self.chess_agent))
+        header.append(self.chess_button)
 
         # The legend (as in App Manager): what the map's dots, lines and marks mean.
         legend_button = Gtk.MenuButton()
@@ -584,6 +597,7 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
                 ("line:uses", _("The agent uses this provider")),
                 ("line:available", _("Set up, but not in use")),
                 ("line:serves", _("A provider or server offers this model")),
+                ("line:loaded", _("The provider has this model loaded in GPU memory; no agent uses it now")),
                 ("line:mcp", _("MCP server connected to the agent")),
                 ("line:skills", _("The agent's skills")),
                 ("line:error", _("Does not work: click the line for hints")),
@@ -737,7 +751,14 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
         self.side_map.on_context = lambda node_id, rect, v=self.side_map: self.show_context(v, node_id, rect)
         self.side_map.start_state = self.map_start_state
         self.side_map.on_start = self.map_start
-        self.side_map.start_tips = (_("Start here"), _("Show terminal"))
+        self.side_map.on_stop = lambda node_id: (self.ask_stop_runtime(node_id.partition(":")[2])
+                                                 if node_id.startswith("runtime:") else
+                                                 self.stop_agent(node_id.partition(":")[2], end_game=True))
+        self.side_map.on_chess = lambda node_id: self.open_chess(
+            next(a for a in self.agent_list if a.command == node_id.partition(":")[2]))
+        self.side_map.chess_tip = _("Back to the chess game")
+        self.side_map.start_tips = (_("Start here"), _("Show terminal"), _("Stop"),
+                                    _("Stop it or only free the GPU memory…"))
         map_scroller = self.page_scroller(self.side_map.with_flow_layer(), bar_room=False)   # the lights on running agents' paths on top
         map_scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)   # zoomed in: sideways too
         side.append(map_scroller)
@@ -951,6 +972,10 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
                 usage = gpu_usage.snapshot(runtimes)
             except Exception:
                 usage = None
+            try:
+                stamp = (inventory.models_stamp(runtimes), agents.install_stamp())
+            except Exception:
+                stamp = None
             pids = {}
             running = self.running_now(pids)
             try:
@@ -961,9 +986,9 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
                 outside = self.outside_now(usage, runtimes)
             except Exception:
                 outside = {}
-            GLib.idle_add(done, usage, running, working, outside)
+            GLib.idle_add(done, usage, running, working, outside, stamp)
 
-        def done(usage, running, working, outside):
+        def done(usage, running, working, outside, stamp):
             self.gpu_reading = False
             self.side_map.set_working(working)
             self.side_map.set_outside({rid: {mid: _("in use · {0}").format(names) for mid, names in models.items()}
@@ -973,6 +998,15 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
                 self.update_terminal_tabs()
             if usage is not None and self.window.is_visible():
                 self.show_gpu(usage, runtimes)
+            # A model or an agent came or went (also outside the app: Omarchy's menu, mise, pacman), or
+            # LM Studio rewrote its model index: read them again, and check the setup for the header's "!".
+            known = getattr(self, "models_stamp", None)
+            if stamp is not None and known is not None and stamp != known and runtimes is self.inventory.runtimes \
+                    and self.window.is_visible() and self.side_map.link is None and self.page_name() == "main":
+                self.collect()
+                self.refresh_overview()
+                self.refresh_map()
+                self.run_health()
             if running != self.running and self.window.is_visible():
                 # An agent was opened or closed: its dot, its model and its card change.
                 self.running = running
@@ -1011,7 +1045,9 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
                               for level in [agent_details.gpu_battery(free, usage.vram_total, use.vram)] if level}
         self.show_batteries()
         # The watcher (or something else) started or stopped a local LLM: show it.
-        changed = any(rt.running != usage.runtimes[rt.key].running for rt in runtimes if rt.key in usage.runtimes)
+        changed = any(rt.running != usage.runtimes[rt.key].running
+                      or (rt.running and rt.server_off == usage.runtimes[rt.key].serving)
+                      for rt in runtimes if rt.key in usage.runtimes)
         if changed and runtimes is self.inventory.runtimes and self.side_map.link is None \
                 and self.page_name() == "main":
             self.collect()
@@ -1022,6 +1058,10 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
         """Everything both views show (file system and /proc only, ~0.1 s)."""
         self.agent_list = agents.list_agents()
         self.inventory = inventory.collect(self.agent_list)
+        try:
+            self.models_stamp = (inventory.models_stamp(self.inventory.runtimes), agents.install_stamp())
+        except Exception:
+            self.models_stamp = None
         self.configured_now = None     # installed_mcp() reads the settings again
         self.running = self.running_now()
         try:
@@ -1301,7 +1341,7 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
         if command in self.researching:
             return
         self.researching.add(command)
-        self.fill_card(f"agent:{command}")
+        self.refresh_overview()                      # its card says it is being looked up
         installed = {a.command for a in self.agent_list if a.installed}
 
         def work():
@@ -1421,7 +1461,7 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
 
     def fill_runtime(self, box, rt, names, summary: bool = False):
         self.detail_grid(box, [
-            (_("Status"), {"running": _("running"), "stopped": _("installed, not running")}
+            (_("Status"), {"running": _("running"), "noserver": _("open, server off"), "stopped": _("installed, not running")}
              .get(graph.runtime_status(rt), _("not installed")), ""),
             (_("Address"), rt.address, ""),
             (_("Service"), rt.service, _("The user service that starts it (systemctl --user).")),
@@ -1474,10 +1514,13 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
         self.show_notice(_("{0} opened in your terminal").format(agent.name) if ok
                          else _("No terminal found (xdg-terminal-exec)"))
 
-    def stop_agent(self, command: str):
+    def stop_agent(self, command: str, end_game: bool = False):
+        """End the agent running here; from its card's stop button also its chess game."""
         pane = self.sessions.get(command)
         if pane is not None:
             pane.stop()
+        if end_game and self.chess_agent is not None and self.chess_agent.command == command:
+            self.end_chess()
 
     def ask_start_outside(self, agent, path: str, folder: str, anchor):
         """No vte4: ask whether to fix that (its details page shows how) or to start the
@@ -1934,7 +1977,8 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
         labels = {"skills": lambda n: ngettext("1 skill", "{0} skills", n).format(n),
                   "more": lambda n: _("+{0} more").format(n),
                   "running": lambda n: _("running") if n == 1 else _("{0} running").format(n),
-                  "in_use": lambda names: _("in use · {0}").format(names)}
+                  "in_use": lambda names: _("in use · {0}").format(names),
+                  "server_off": _("server off")}
         # Only what is set up: adding, updating and removing happen on Setup.
         built = graph.build(self.agent_list, details, self.inventory, labels, link_hints.load(), self.running)
         headers = [_("MCP servers · skills"), _("Agents"), _("LLM providers"), _("Models")]
@@ -2076,8 +2120,10 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
     def run_health(self, show: bool = False):
         """In the background: the agents' and local LLMs' own setup checks, the PC, then health.check."""
         if self.health_running:
+            self.health_again = True        # the setup changed meanwhile: check once more when this one ends
             return
         self.health_running = True
+        self.health_again = False
         if show and self.health_report is None:
             while (child := self.health_body.get_first_child()) is not None:
                 self.health_body.remove(child)
@@ -2113,6 +2159,8 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
             self.health_running = False
             self.health_report = report
             self.update_problem_button()
+            if getattr(self, "health_again", False):
+                GLib.idle_add(lambda: self.run_health() and False)
             if self.page_name() == "setup":
                 self.refill_setup_health()
             if self.page_name() == "health":
@@ -2772,7 +2820,7 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
 
     def runtime_menu(self, rt, popover) -> tuple[str, list]:
         """A local LLM: install, update, models, start, stop, free GPU memory, start at login."""
-        state = {"running": _("running"), "stopped": _("installed, not running")}.get(graph.runtime_status(rt),
+        state = {"running": _("running"), "noserver": _("open, server off"), "stopped": _("installed, not running")}.get(graph.runtime_status(rt),
                                                                                        _("not installed"))
         items = []
         inst = install_ctl.installer(rt.key)
@@ -2810,7 +2858,11 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
             return f"{rt.name} · {state}", items
         if rt.running and self.runtime_users(rt.key):
             items.insert(0, self.menu_note(_("In use by {0}").format(self.runtime_users(rt.key))))
-        if rt.running:
+        if rt.server_off:
+            items.append(self.menu_item(_("Start server"), popover,
+                                        lambda: self.control_runtime(rt, runtime_ctl.start, _("Start server")),
+                                        _("The app is open, but agents reach it only through its server (lms server start).")))
+        elif rt.running:
             items.append(self.menu_item(_("Stop"), popover, lambda: self.control_runtime(rt, runtime_ctl.stop, _("Stop"))))
             items.append(self.menu_item(_("Free GPU memory"), popover,
                                         lambda: self.control_runtime(rt, runtime_ctl.unload, _("Free GPU memory")),
@@ -2855,6 +2907,37 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
                 self.menu_item(_("Look up again on the web"), popover, lambda: self.start_research(agent),
                                enabled=agent.command not in self.researching)]
 
+    def ask_stop_runtime(self, key: str):
+        """The stop button of a local LLM holding GPU memory: stop it, or only unload its models."""
+        rt = next((r for r in self.inventory.runtimes if r.key == key), None)
+        if rt is None:
+            return
+        users = self.runtime_users(rt.key)
+        lms = rt.key == "lmstudio"
+        body = _("{0}: {1}").format(_("Free GPU memory"),
+                                    _("Unloads its models; it keeps running and loads one again when asked."))
+        if runtime_ctl.can_control(rt):
+            body += " " + (_("Stop server ends its server; the app stays open with its models loaded.") if lms
+                           else _("Stop ends it; agents using it cannot reach it until it is started again."))
+        if users:
+            body += "\n\n" + _("In use by {0}").format(users)
+        dialog = Adw.AlertDialog(heading=_("Stop {0}?").format(rt.name), body=body)
+        dialog.add_response("cancel", _("Cancel"))
+        dialog.add_response("free", _("Free GPU memory"))
+        if runtime_ctl.can_control(rt):
+            dialog.add_response("stop", _("Stop server") if lms else _("Stop"))
+            dialog.set_response_appearance("stop", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("free")
+        dialog.set_close_response("cancel")
+
+        def answered(_dialog, response):
+            if response == "free":
+                self.control_runtime(rt, runtime_ctl.unload, _("Free GPU memory"))
+            elif response == "stop":
+                self.control_runtime(rt, runtime_ctl.stop, _("Stop server") if lms else _("Stop"))
+        dialog.connect("response", answered)
+        dialog.present(self.window)
+
     def control_runtime(self, rt, action, label: str):
         """Run a start/stop on a thread; look again once it has had a moment."""
         self.show_note(_("{0}: {1}…").format(rt.name, label))
@@ -2867,7 +2950,7 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
             self.collect()
             self.refresh_overview()
             self.refresh_map()
-            status = {"running": _("running"), "stopped": _("installed, not running")}.get(
+            status = {"running": _("running"), "noserver": _("open, server off"), "stopped": _("installed, not running")}.get(
                 graph.runtime_status(next(r for r in self.inventory.runtimes if r.key == rt.key)), "")
             self.show_note(_("{0}: {1}").format(rt.name, status) if ok else
                            _("{0}: {1} failed ({2})").format(rt.name, label, message))
@@ -2983,6 +3066,15 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
                                                  _("Start {0} in {1}, in a terminal window of its own")
                                                  .format(agent.name, self.agent_folder())))
             details.append(self.menu_item(_("Details"), popover, lambda: self.open_agent_status(agent)))
+            # A game, where the agent's adapter says it plays one and it is set up (adapters' ask.games).
+            if self.can_play_chess(agent):
+                rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+                rule.add_css_class("am-menu-rule")
+                details.append(rule)
+                details.append(self.menu_item(_("Back to the chess game") if self.chess_game_with(agent)
+                                              else _("Play chess"), popover, lambda: self.open_chess(agent),
+                                              _("A game of chess against {0}; it is asked for each move").format(
+                                                  agent.name)))
         elif kind == "runtime":
             details.append(self.menu_item(_("Details"), popover, lambda: self.open_runtime_status(ident)))
         elif kind == "mcp" and any(m.name == ident for m in self.inventory.mcp):
@@ -3224,6 +3316,8 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
                 self.close_status()
             elif page == "health":
                 self.close_health()
+            elif page == "chess":
+                self.close_chess()
             elif page == "addmcp":
                 self.close_add_mcp()
             elif page == "addskills":
@@ -3239,11 +3333,11 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
                 self.close_add_mcp() if page == "addmcp" else self.close_add_skills()
                 return True
             return False          # typing in the search fields
-        if page in ("settings", "connect", "install", "mcp", "status", "health"):
+        if page in ("settings", "connect", "install", "mcp", "status", "health", "chess"):
             if keyval == Gdk.KEY_BackSpace:
                 {"settings": self.close_settings, "connect": self.close_connect,
                  "install": self.close_install, "mcp": self.close_mcp_details,
-                 "status": self.close_status, "health": self.close_health}[page]()
+                 "status": self.close_status, "health": self.close_health, "chess": self.close_chess}[page]()
                 return True
             return False          # Tab and arrows move between the controls
         if ctrl and keyval == Gdk.KEY_comma:

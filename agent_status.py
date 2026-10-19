@@ -507,12 +507,20 @@ def agent_checks(agent, info, record: dict, inventory, hints: dict, logged_in: b
         if not p.local:
             continue
         rt = by_name.get(p.runtime)
+        # Only the local LLM the agent uses now can stand in its way; one it is merely set up for
+        # (a line it could be switched to on the map) gets a note instead.
+        problem = "missing" if p.active else "info"
+        unused = "" if p.active else _("Not in use: it only matters when the agent is switched to it.")
         if rt is None or not rt.installed:
-            checks.append(Check("missing", _("{0} is not installed").format(p.runtime or p.name), "",
+            checks.append(Check(problem, _("{0} is not installed").format(p.runtime or p.name), unused,
                                 _("Install it: its card on Setup → Install.")))
         elif not rt.models:
-            checks.append(Check("missing", _("{0} has no models").format(rt.name), "",
+            checks.append(Check(problem, _("{0} has no models").format(rt.name), unused,
                                 _("Download one: Add model on Setup, or Models… in its menu on the map.")))
+        elif p.active and getattr(rt, "server_off", False):
+            checks.append(Check("missing", _("{0}'s server is off").format(rt.name),
+                                _("The app is open, but the agent reaches it only through its server."),
+                                _("Start server in its menu on the map (lms server start).")))
         elif p.active and not rt.running:
             checks.append(Check("ok", rt.name, _("starts with the agent") if rt.service or rt.key == "lmstudio"
                                 else _("installed, not running")))

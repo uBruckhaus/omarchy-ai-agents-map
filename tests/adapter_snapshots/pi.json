@@ -34,6 +34,46 @@
   "~/.pi"
  ],
  "homepage": "https://github.com/badlogic/pi-mono",
+ "ask": [
+  "pi",
+  "-p",
+  "--no-tools",
+  "--no-approve",
+  "{prompt}"
+ ],
+ "games": [
+  "chess"
+ ],
+ "effort": [
+  [
+   "quick",
+   [
+    "--thinking",
+    "low"
+   ]
+  ],
+  [
+   "normal",
+   [
+    "--thinking",
+    "medium"
+   ]
+  ],
+  [
+   "deep",
+   [
+    "--thinking",
+    "high"
+   ]
+  ],
+  [
+   "max",
+   [
+    "--thinking",
+    "max"
+   ]
+  ]
+ ],
  "access": {
   "how": "Sign in inside Pi (/login: Claude, ChatGPT, Copilot …), an API key, or a local LLM from the map",
   "login": "pi  →  /login",

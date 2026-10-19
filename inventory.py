@@ -40,6 +40,7 @@ class Runtime:
     models: list = field(default_factory=list)
     agents: list = field(default_factory=list)   # agents with a provider pointing at it
     active_agents: list = field(default_factory=list)   # of those, the ones using it now (their model is here)
+    server_off: bool = False  # the app runs but its API server does not (LM Studio without `lms server start`)
 
 
 @dataclass
@@ -335,6 +336,10 @@ def lmstudio(processes) -> Runtime:
         exe = Path(argv[0]).name.lower() if argv else ""
         if comm.lower().startswith("lm studio") or comm == "lm-studio" or exe in ("lm-studio", "lm studio"):
             rt.running = True
+    if rt.running:
+        import models_ctl
+        owners = models_ctl.loopback_listeners(1234)
+        rt.server_off = not owners or any(uid != os.getuid() for uid in owners)
     settings = ad.read_json(root / "settings.json")
     folder = settings.get("downloadsFolder") if isinstance(settings.get("downloadsFolder"), str) else ""
     path = Path(os.path.expanduser(folder)) if folder else root / "models"
@@ -355,6 +360,25 @@ def lmstudio(processes) -> Runtime:
     # ("gemma-4-12B-it-QAT-GGUF", which LM Studio does not know).
     rt.models = dedupe_models(lmstudio_identifiers(root) or names)
     return rt
+
+
+def models_stamp(runtimes) -> tuple:
+    """When the places runtimes' models are listed from last changed (LM Studio's model index, each
+    models folder): a different stamp means a model came or went, or LM Studio rewrote its index
+    (it does so a little after it starts, which a look at the start alone can miss)."""
+    paths = []
+    for rt in runtimes:
+        if rt.key == "lmstudio":
+            paths.append(HOME / ".lmstudio/.internal/model-index-cache.json")
+        if rt.models_dir:
+            paths.append(Path(os.path.expanduser(rt.models_dir)))
+    stamp = []
+    for path in paths:
+        try:
+            stamp.append((str(path), path.stat().st_mtime_ns))
+        except OSError:
+            stamp.append((str(path), 0))
+    return tuple(stamp)
 
 
 def lmstudio_identifiers(root: Path) -> list[str]:

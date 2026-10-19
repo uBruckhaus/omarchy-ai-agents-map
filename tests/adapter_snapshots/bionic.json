@@ -34,6 +34,9 @@
   "~/.lmstudio/apps/bionic"
  ],
  "homepage": "https://lmstudio.ai",
+ "ask": [],
+ "games": [],
+ "effort": [],
  "access": {
   "how": "Nothing: it runs models on this computer",
   "login": "",

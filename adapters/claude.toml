@@ -28,6 +28,12 @@ path = "~/.claude.json"
 format = "claude"
 shape = "claude"
 
+[ask]                                  # one prompt, one answer, no tools (the chess page)
+argv = ["claude", "-p", "--tools", "", "--strict-mcp-config", "--no-session-persistence", "{prompt}"]
+games = ["chess"]                      # its menu offers Play chess
+effort = { quick = ["--effort", "low"], normal = ["--effort", "medium"], deep = ["--effort", "high"], max = ["--effort", "max"] }   # Thinking time
+note = "no tools, no MCP servers, no session kept"
+
 [access]
 how = "A Claude Pro or Max subscription (claude.ai), or an API key from console.anthropic.com"
 login = "claude auth login"

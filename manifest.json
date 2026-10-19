@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "ubruckhaus.ai-agents-map",
   "name": "AI Agents Map",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "author": "Uwe Bruckhaus",
   "license": "MIT",
-  "description": "Your AI setup on one map: coding agents with plan, limits and usage, local LLMs (llama.cpp, Ollama, LM Studio, vLLM, Jan, KoboldCpp) and their models, MCP servers and skills. Setup installs, updates and signs in everything as cards; connect by drawing a line, with preview and Undo. A red ! lists open problems and how to fix them, batteries show limits and free GPU memory, and the map lights up while an agent works. Healthy & Security check per agent. 8 languages.",
+  "description": "Your AI setup on one map: coding agents with plan, limits and usage, local LLMs (llama.cpp, Ollama, LM Studio, vLLM, Jan, KoboldCpp) and their models, MCP servers and skills. Setup installs, updates and signs in everything; connect by drawing a line, with preview and Undo. A red ! lists open problems, batteries show limits and free GPU memory, local LLMs get a stop button. New: play chess against Claude Code, Codex, Hermes or Pi. 8 languages.",
   "kinds": [
     "bar-widget"
   ],

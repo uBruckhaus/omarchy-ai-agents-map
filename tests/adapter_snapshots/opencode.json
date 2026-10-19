@@ -35,6 +35,9 @@
   "~/.config/opencode"
  ],
  "homepage": "https://opencode.ai",
+ "ask": [],
+ "games": [],
+ "effort": [],
  "access": {
   "how": "An account or API key for any provider, or a local LLM from the map",
   "login": "opencode auth login",

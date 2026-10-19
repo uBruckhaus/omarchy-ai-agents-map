@@ -153,6 +153,9 @@ class Harness:
     data: tuple = ()                  # "~/…" folders with its settings and sessions: never removed by us
     latest: Callable | None = None    # latest(channel) -> newest version for self_update
     homepage: str = ""                # its web page (the Add-ons page's Homepage button)
+    ask: tuple = ()                   # argv for one prompt and one answer without tools ("{prompt}" in it)
+    games: tuple = ()                 # games it can play through `ask` ("chess"): its menu offers them
+    effort: tuple = ()                # ((level, options), …): how hard it thinks per Thinking time level
 
 
 # --- helpers for the adapters ----------------------------------------------------------------------

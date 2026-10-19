@@ -34,6 +34,9 @@
   "~/.dsh"
  ],
  "homepage": "https://www.npmjs.com/package/@deepseek-ai/dsh",
+ "ask": [],
+ "games": [],
+ "effort": [],
  "access": {
   "how": "An API key from platform.deepseek.com, or a local LLM from the map",
   "login": "dsh web",

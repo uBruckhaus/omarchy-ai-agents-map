@@ -22,6 +22,12 @@ format = "toml"
 key = "mcp_servers"
 shape = "codex"
 
+[ask]                                  # one prompt, one answer, no tools (the chess page)
+argv = ["codex", "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral", "--color", "never", "{prompt}"]
+games = ["chess"]                      # its menu offers Play chess
+effort = { quick = ["-c", "model_reasoning_effort=low"], normal = ["-c", "model_reasoning_effort=medium"], deep = ["-c", "model_reasoning_effort=high"], max = ["-c", "model_reasoning_effort=high"] }   # Thinking time
+note = "read-only sandbox, no session kept"
+
 [access]
 how = "A ChatGPT plan (Plus, Pro, Business), or an API key from platform.openai.com"
 login = "codex login"

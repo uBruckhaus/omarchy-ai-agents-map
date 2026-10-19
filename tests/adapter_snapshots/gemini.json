@@ -34,6 +34,9 @@
   "~/.gemini"
  ],
  "homepage": "https://github.com/google-gemini/gemini-cli",
+ "ask": [],
+ "games": [],
+ "effort": [],
  "access": {
   "how": "A Google account (free tier), or an API key from aistudio.google.com",
   "login": "gemini",

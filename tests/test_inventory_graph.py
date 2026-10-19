@@ -175,6 +175,45 @@ class GraphTest(unittest.TestCase):
         g = graph.build([pi, claude], details, inv, running={"claude": ["anthropic/sonnet"]})
         self.assertEqual({n.id: n for n in g.nodes}["model:cloud:anthropic:sonnet"].status, "running")
 
+    def test_a_model_under_another_spelling_still_gets_its_line(self):
+        """LM Studio not running lists its models by folder ("gemma-4-12B-it-QAT-GGUF"); the agent
+        names the id ("gemma-4-12b-it-qat"). Same model: the default line and the "in use" mark."""
+        hermes = agents.Agent(command="hermes", name="Hermes", icon="h", installed=True)
+        details = {"hermes": ad.Details(model="gemma-4-12b-it-qat (lmstudio-local)",
+                                        providers=[ad.Provider("lmstudio-local", True, "LM Studio", 2, active=True)])}
+        inv = invmod.Inventory(runtimes=[invmod.Runtime("lmstudio", "LM Studio", True, False, address="127.0.0.1:1234",
+                                                        models=["Qwen3.8-27B-GGUF", "gemma-4-12B-it-QAT-GGUF"])])
+        g = graph.build([hermes], details, inv, running={"hermes": [""]})
+        folder = "model:runtime:lmstudio:gemma-4-12b-it-qat-gguf"
+        self.assertIn(("agent:hermes", folder, "default"), {(e.source, e.target, e.kind) for e in g.edges})
+        nodes = {n.id: n for n in g.nodes}
+        self.assertTrue(nodes[folder].active)
+        self.assertEqual(nodes[folder].status, "running")
+        self.assertFalse(nodes["model:runtime:lmstudio:qwen3.8-27b-gguf"].active)
+        # Another model is not taken for it.
+        details["hermes"] = ad.Details(model="gemma-4-12b-it (lmstudio-local)", providers=details["hermes"].providers)
+        g = graph.build([hermes], details, inv)
+        self.assertFalse([e for e in g.edges if e.source == "agent:hermes" and e.kind == "default"])
+
+    def test_models_stamp_follows_the_index_and_the_folders(self):
+        with tempfile.TemporaryDirectory() as home:
+            index = Path(home) / ".lmstudio/.internal/model-index-cache.json"
+            index.parent.mkdir(parents=True)
+            index.write_text("{}")
+            folder = Path(home) / "models"
+            folder.mkdir()
+            runtimes = [invmod.Runtime("lmstudio", "LM Studio", True, True),
+                        invmod.Runtime("llamacpp", "llama.cpp", True, True, models_dir=str(folder))]
+            with mock.patch.object(invmod, "HOME", Path(home)):
+                first = invmod.models_stamp(runtimes)
+                self.assertEqual(first, invmod.models_stamp(runtimes))
+                os.utime(index, ns=(1, 10 ** 18))
+                second = invmod.models_stamp(runtimes)
+                self.assertNotEqual(first, second)
+                (folder / "new-model").mkdir()
+                os.utime(folder, ns=(1, 2 * 10 ** 18))
+                self.assertNotEqual(second, invmod.models_stamp(runtimes))
+
     def test_idle_folders_folded(self):
         """A model folder none of whose models an agent uses or runs is idle (the health check
         names it); one whose model an open agent runs is not."""

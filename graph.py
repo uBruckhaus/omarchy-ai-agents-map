@@ -8,6 +8,7 @@ Providers are the cloud services the agents talk to and the local runtimes
 (llama.cpp, Ollama, …). Pure data: map_view.py draws it, tests check it.
 """
 
+import re
 from dataclasses import dataclass, field
 
 import providers
@@ -27,6 +28,21 @@ providers.on_change(_rebuild)
 
 
 MAX_MODELS_PER_PROVIDER = 10
+
+# What a model's name may carry besides the model itself: a publisher ("lmstudio-community/…"),
+# the file format ("…-GGUF", "….gguf") and the quantisation ("…-Q4_K_M", "…-Q8_0", "…-IQ3_XS").
+_QUANT = re.compile(r"[-_.](?:i?q\d(?:_[0-9a-z]+)*|f16|bf16|f32|fp16)$")
+
+
+def model_key(name: str) -> str:
+    """A model's name for matching across sources: an agent's settings name the id a runtime
+    answers to ("gemma-4-12b-it-qat"), a runtime that is not running is listed by its folders
+    ("gemma-4-12B-it-QAT-GGUF") or files ("gemma-4-12B-it-QAT-Q4_0")."""
+    key = str(name or "").strip().lower().rsplit("/", 1)[-1]
+    for suffix in (".gguf", "-gguf", "_gguf"):
+        if key.endswith(suffix):
+            key = key[: -len(suffix)]
+    return _QUANT.sub("", key)
 
 # Categories the map can show or hide, in toolbar order, and what each needs.
 LAYERS = ("agents", "online", "local", "models", "mcp", "skills")
@@ -114,7 +130,14 @@ class Graph:
 
 
 def runtime_status(rt) -> str:
-    return "running" if rt.running else "stopped" if rt.installed else "missing"
+    """"running", "noserver" (the app runs, its API server does not), "stopped" or "missing"."""
+    if rt.running:
+        return "noserver" if getattr(rt, "server_off", False) else "running"
+    return "stopped" if rt.installed else "missing"
+
+
+def runtime_detail(rt, labels: dict) -> str:
+    return " · ".join([rt.address, labels["server_off"]]) if runtime_status(rt) == "noserver" else rt.address
 
 
 def provider_name(raw: str) -> str:
@@ -142,7 +165,7 @@ def build(agent_list, details: dict, inventory, labels: dict | None = None, fail
     running: command -> the model of each open instance ("" = its settings')."""
     labels = {"skills": "{0} skills".format, "more": "+{0} more".format, "running": lambda n: "running" if n == 1
               else f"{n} running", "in_use": "in use · {0}".format,
-              **(labels or {})}
+              "server_off": "server off", **(labels or {})}
     running = running or {}
     graph = Graph()
     runtimes = {rt.name: rt for rt in inventory.runtimes}
@@ -169,7 +192,7 @@ def build(agent_list, details: dict, inventory, labels: dict | None = None, fail
                 local_names[provider.name] = provider.runtime
                 rt = runtimes[provider.runtime]
                 rid = f"runtime:{rt.key}"
-                graph.add(Node(rid, 2, rt.name, rt.address, "runtime", status=runtime_status(rt)))
+                graph.add(Node(rid, 2, rt.name, runtime_detail(rt, labels), "runtime", status=runtime_status(rt)))
                 graph.link(aid, rid, "uses" if provider.active else "available")
 
         # The cloud service: the configured provider when it is not local, else the agent's own.
@@ -229,7 +252,7 @@ def build(agent_list, details: dict, inventory, labels: dict | None = None, fail
         if not rt.installed:
             continue
         rid = f"runtime:{rt.key}"
-        graph.add(Node(rid, 2, rt.name, rt.address, "runtime", status=runtime_status(rt)))
+        graph.add(Node(rid, 2, rt.name, runtime_detail(rt, labels), "runtime", status=runtime_status(rt)))
         shown = rt.models[:MAX_MODELS_PER_PROVIDER]
         for model in shown:
             mid = f"model:{rid}:{model.lower()}"
@@ -240,6 +263,29 @@ def build(agent_list, details: dict, inventory, labels: dict | None = None, fail
             graph.add(Node(mid, 3, labels["more"](len(rt.models) - len(shown)), "", "more", dim=True,
                            group=rt.models_dir or rt.name))
             graph.link(rid, mid, "serves")
+
+    # A link to a runtime's model under another spelling of its name (folders while LM Studio is
+    # not running, files in llama.cpp's folder): to the model the runtime lists.
+    by_key = {}
+    for node in graph.nodes:
+        if node.kind == "model" and node.id.startswith("model:runtime:"):
+            runtime = node.id.split(":", 3)[2]
+            by_key.setdefault((runtime, model_key(node.label)), node.id)
+    known = {n.id for n in graph.nodes}
+
+    def listed(model_id: str) -> str:
+        if model_id in known or not model_id.startswith("model:runtime:"):
+            return model_id
+        _m, _r, runtime, name = model_id.split(":", 3)
+        return by_key.get((runtime, model_key(name)), model_id)
+
+    for edge in graph.edges:
+        edge.target = listed(edge.target)
+    for model_id in list(live):
+        found = listed(model_id)
+        if found != model_id:
+            live.setdefault(found, [])
+            live[found] += [n for n in live.pop(model_id) if n not in live[found]]
 
     for node in graph.nodes:
         if node.id in live:

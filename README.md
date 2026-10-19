@@ -160,6 +160,28 @@ server's details show each agent's settings file, command or address (names only
 variables and headers) and, on request, the server's tools; **Remove** takes it from every agent. A
 skill folder's details list every skill with its description and how each agent gets the folder.
 
+## Playing chess
+
+Agents that can answer a single prompt without tools (Claude Code, Codex, Hermes and Pi; the agent's
+adapter says so in its `[ask]` table) can play chess against you: right-click a fully set-up agent ›
+**Play chess**. The chess page opens in the window, like Settings.
+
+- **New game with White** / **New game with Black** starts a game at once; with Black the board is
+  turned, so your pieces are always at the bottom. **Define position**: pick a piece in the cards (or
+  drag it onto the board) and click squares, a right click empties one; then **Play it with White**
+  or **Play it with Black**.
+- Drag a piece to move it, or click it and then its target square. The pieces each side still has
+  are shown above and below the board, the captured ones beside it.
+- **Thinking time** (30 s to 6 min) is how long the agent may take for a move; longer also lets its
+  model think harder and asks it to play more strongly.
+- After each of your moves the agent is asked once for its move (see *Privacy and capabilities*). An
+  answer without a legal move is asked once more, then **Ask again** appears. The **Game** card at
+  the bottom shows whose move it is, what the agent said and the moves; it folds.
+- **Back** keeps the game running: a chess button in the header and on the agent's box lead back to
+  it, as does **Back to the chess game** in the agent's menu. **×** on the page, or the stop button
+  the agent's box shows during a game, ends it. An agent on a local LLM plays with that model
+  (Hermes needs a context window of at least 64K tokens).
+
 ## Connecting by drawing
 
 Every change below shows exactly which lines of which file change before anything is written, keeps
@@ -180,7 +202,11 @@ the old file in `~/.local/state/ai-agents-map/backups/`, and can be undone from 
   `~/.agents/skills`) cannot be taken from that one agent; the page says so.
 - **Local LLMs**: right-click to **Start** or **Stop** one or to start it at login (its user
   service, or `lms server` for LM Studio), or **Free GPU memory**: its models are unloaded, it keeps
-  running and loads one again when asked (vLLM cannot unload, so it is stopped).
+  running and loads one again when asked (vLLM cannot unload, so it is stopped). A local LLM that
+  holds GPU memory gets a stop button on its box that asks first: **Free GPU memory** or **Stop**
+  (for LM Studio **Stop server**: the app stays open with its models). LM Studio open without its
+  server says *server off* (yellow dot) and offers **Start server**; a model a local LLM has loaded
+  but no agent uses is joined to it by a solid light line.
 
 ### When a connection fails
 
@@ -517,6 +543,16 @@ the backup and Undo), and the agent is told the same context. A context you set 
   `manifest.json` (a plain plugin id only), an agent by its name, else the program's name. Nothing
   of what they send is read. AI Agents Map itself and LLM Monitor (status reads only) are left out.
   At most 16 names per local LLM, each forgotten 30 s after its last request; shown as plain text.
+- **Playing chess** runs, for each of the agent's moves and only while you play, the agent's own
+  one-prompt command from its adapter (`claude -p --tools "" --strict-mcp-config
+  --no-session-persistence`, `codex exec --sandbox read-only --skip-git-repo-check --ephemeral`,
+  `hermes -t todo --ignore-rules -z`, `pi -p --no-tools --no-approve`, with its thinking level), as an argv list without a shell, in a new empty private folder (`mkdtemp`, 0700, removed
+  afterwards), so it sees no project. The prompt (on its command line, so visible in `ps` to this
+  computer's users) holds only the position, the moves and the legal answers; the answer is read
+  with a 64 KiB limit and the thinking time's deadline, and only a legal move from it is played.
+  The agent sends the prompt to its provider as any of its prompts.
+- **LM Studio without its server**: while the LM Studio app runs but nothing of yours listens on its
+  port, `lms ps --json` is read (at most every 20 s, 64 KiB, 5 s) to mark the loaded model.
 - **Healthy & Security check** reads only the security keys of the agents' settings files named in
   the card (never credential files). **Disk space** walks the agents' program and data folders and
   the local LLMs' program, data and model folders with `lstat` only (no file is opened, links are

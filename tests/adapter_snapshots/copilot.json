@@ -34,6 +34,9 @@
   "~/.copilot"
  ],
  "homepage": "https://github.com/github/copilot-cli",
+ "ask": [],
+ "games": [],
+ "effort": [],
  "access": {
   "how": "A GitHub Copilot subscription (github.com/features/copilot)",
   "login": "copilot  →  /login",
