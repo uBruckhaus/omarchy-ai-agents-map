@@ -34,13 +34,14 @@ import math
 import cairo
 
 import graph as graph_model
+from glyphs import MCP_GLYPHS, glyph
 
 import gi
 
 gi.require_version("PangoCairo", "1.0")
 from gi.repository import Gdk, GLib, Gtk, Pango, PangoCairo  # noqa: E402
 
-NODE_H = 38
+NODE_H = 42
 NODE_GAP = 8
 GROUP_GAP = 22           # column 0: between the MCP servers and the skill sets
 GROUP_LABEL_H = 16       # the small heading above each group
@@ -54,10 +55,13 @@ NODE_W_MIN = 120
 PIN_W = 14               # the pin's square at a box's top right
 PIN, PIN_OUTLINE = "\U000F0403", "\U000F0931"   # Nerd Font pin, pin-outline
 # The categories whose boxes each column holds (a column with none of them on is gone).
-COLUMN_LAYERS = {0: {"mcp", "skills"}, 1: {"agents"}, 2: {"online", "local"}, 3: {"models"}}
 # Categories: selecting in one hides that category's other boxes.
 CATEGORY = {"agent": "agent", "cloud": "provider", "runtime": "provider", "model": "model", "more": "model",
             "mcp": "tool", "skills": "tool"}
+# The icon tile at a box's start: its glyph and the colour of the kind's lines.
+TILE_GLYPHS = {"cloud": "cloud", "runtime": "chip", "model": "model", "more": "folder", "skills": "skill",
+               "mcp": "app", "agent": "robot"}
+TILE_TONES = {"mcp": "yellow", "skills": "green", "model": "muted", "more": "muted"}
 EDGE_COLORS = {"uses": "accent", "available": "accent", "serves": "muted", "mcp": "yellow", "skills": "green"}
 
 
@@ -99,12 +103,8 @@ class MapView(Gtk.DrawingArea):
         self.marker_points = []    # ((source, target), x, y) of the "!" on failed lines, for clicks
         self.shift = False       # Shift held: hidden boxes come back to be added
         self.layers = set(graph_model.LAYERS)   # categories switched on
-        self.hidden_ids = set()  # node ids unticked in the column headings' lists
         self.mode_off = set()    # categories the header's setup choice (All · Online · Local LLMs) leaves out
         self.mode_hidden = set() # boxes it leaves out (agents that cannot use local LLMs)
-        self.on_header = None    # callback(column, (x, y, w, h)) for a click on a column heading
-        self.on_add = None       # callback(kind, node, (x, y, w, h)): a dashed "+" box clicked (mcp, skills, model)
-        self.header_rects = {}   # column -> heading rectangle, for clicks
         self.column_x = {}       # column -> x of its boxes, for the headings
         self.zoom = 1.0          # drawing scale (ZOOM_STEPS)
         self.on_zoom = None      # callback(zoom) after Ctrl+scroll
@@ -175,13 +175,12 @@ class MapView(Gtk.DrawingArea):
         skill sets, column 3 one group per model folder ("+ Model" box last)."""
         nodes = self.shown(column)
         if column == 0:
-            mcp = ("mcp", "add-mcp")
-            return [g for g in ([n for n in nodes if n.kind in mcp], [n for n in nodes if n.kind not in mcp]) if g]
+            return [g for g in ([n for n in nodes if n.kind == "mcp"], [n for n in nodes if n.kind != "mcp"]) if g]
         if column == 3:
             folders = {}
             for node in nodes:
                 folders.setdefault(node.group, []).append(node)
-            return [sorted(g, key=lambda n: n.kind == "add-model") for g in folders.values()]
+            return list(folders.values())
         return [nodes] if nodes else []
 
     def titled(self, column: int) -> bool:
@@ -190,12 +189,9 @@ class MapView(Gtk.DrawingArea):
 
     def group_title(self, nodes) -> str:
         first = nodes[0]
-        if first.kind == "add-folders":
-            return ""                  # the folded-away folders' box: no heading of its own
         if first.column == 3:
             return first.group or self.group_titles.get("online", "").upper()
-        kind = {"add-mcp": "mcp", "add-skills": "skills"}.get(first.kind, first.kind)
-        return self.group_titles.get(kind, "")
+        return self.group_titles.get(first.kind, "")
 
     def column_height(self, column: int) -> int:
         groups = self.groups(column)
@@ -218,12 +214,6 @@ class MapView(Gtk.DrawingArea):
             return 0, 0
         # Only columns with something to show take room; they share the width.
         active = [c for c in range(4) if self.shown(c)]
-        # A column keeps its heading (and its list) when every box in it is unticked.
-        layers = graph_model.effective_layers(self.layers)
-        for column, needs in COLUMN_LAYERS.items():
-            if column not in active and needs & layers and \
-                    any(n.id in self.hidden_ids for n in self.graph.column(column)):
-                active = sorted(active + [column])
         count = max(1, len(active))
         node_w = max(NODE_W_MIN, min(NODE_W_MAX, (width - 2 * PAD - (count - 1) * COLUMN_GAP_MIN) // count))
         gap = max(COLUMN_GAP_MIN, (width - 2 * PAD - count * node_w) // max(1, count - 1))
@@ -236,7 +226,7 @@ class MapView(Gtk.DrawingArea):
         self.group_labels = []
         self.group_rects = {}
         for slot, column in enumerate(active):
-            y = self.column_top(self.column_height(column), height)
+            y = self.column_top(self.column_height(column), height, hub=column == 1)
             x = left + slot * (node_w + gap)
             self.column_x[column] = x
             titled = self.titled(column)
@@ -260,7 +250,7 @@ class MapView(Gtk.DrawingArea):
         if self.graph is None:
             return set()
         off = graph_model.hidden_by_layers(self.graph, self.layers - self.mode_off,
-                                           self.hidden_ids | self.mode_hidden)
+                                           self.mode_hidden)
         if not self.selected or self.shift:
             return off
         return off | self.selection_hidden()
@@ -270,14 +260,6 @@ class MapView(Gtk.DrawingArea):
         picked = {CATEGORY.get(by_id[i].kind) for i in self.selected if i in by_id}
         return {n.id for n in self.graph.nodes
                 if CATEGORY.get(n.kind) in picked and n.id not in self.selected}
-
-    def set_hidden_ids(self, ids):
-        self.hidden_ids = set(ids)
-        off = self.hidden()
-        if any(i in off for i in self.selected):
-            self.selected = [i for i in self.selected if i not in off]
-            self.selection_changed()
-        self.relayout()
 
     def set_mode(self, off_layers, hidden_ids):
         """The header's setup choice: categories and boxes left out, on top of the
@@ -289,7 +271,7 @@ class MapView(Gtk.DrawingArea):
         self.layers = set(layers)
         if self.graph is not None:
             off = graph_model.hidden_by_layers(self.graph, self.layers - self.mode_off,
-                                               self.hidden_ids | self.mode_hidden)
+                                               self.mode_hidden)
             if any(i in off for i in self.selected):
                 self.selected = [i for i in self.selected if i not in off]
                 self.selection_changed()
@@ -322,14 +304,15 @@ class MapView(Gtk.DrawingArea):
             return 0.0, height
         return adjustment.get_value() / self.zoom, adjustment.get_page_size() / self.zoom
 
-    def column_top(self, column_height: float, height: float) -> float:
+    def column_top(self, column_height: float, height: float, hub: bool = False) -> float:
         """A column that fits the view sits in its middle (below the headings while they
-        show); a taller one starts under its heading and scrolls with the map."""
+        show); a taller one starts under its heading and scrolls with the map. The agents
+        (hub) are always centred: taller than the view, in the middle of the whole map."""
         top, visible = self.visible_rows(height)
         area_top = max(HEADER_H, top + PAD)
         area_h = top + visible - PAD - area_top
         if column_height > area_h:
-            return HEADER_H
+            return max(HEADER_H, (HEADER_H + height - PAD - column_height) / 2) if hub else HEADER_H
         y = area_top + (area_h - column_height) / 2
         return max(HEADER_H, min(y, height - PAD - column_height))
 
@@ -619,8 +602,7 @@ class MapView(Gtk.DrawingArea):
         x, y = x / self.zoom, y / self.zoom
         self.set_shift(bool(controller.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK))
         found = self.node_at(x, y)
-        on_heading = any(hx <= x <= hx + hw and hy <= y <= hy + hh for hx, hy, hw, hh in self.header_rects.values())
-        self.set_cursor_from_name("pointer" if found or on_heading else None)
+        self.set_cursor_from_name("pointer" if found else None)
         self.set_hover(found)
         pin = self.pin_at(x, y)
         if pin is not None:
@@ -720,10 +702,6 @@ class MapView(Gtk.DrawingArea):
         if pin is not None:
             self.toggle_pin(pin)
             return
-        for column, (hx, hy, hw, hh) in self.header_rects.items():
-            if hx <= x <= hx + hw and hy <= y <= hy + hh and self.on_header is not None:
-                self.on_header(column, self.to_pixels((hx, hy, hw, hh)))
-                return
         node_id = self.node_at(x, y)
         edge = self.edge_at(x, y) if node_id is None else None
         # A "!" clicked: its own line, even where other lines cross it.
@@ -739,11 +717,6 @@ class MapView(Gtk.DrawingArea):
                     self.on_failed_edge(edge, self.to_pixels((x - 4, y - 4, 8, 8)))
                 return
         if node_id is None:
-            return
-        if (self.kind_of(node_id) or "").startswith("add-"):
-            if self.on_add is not None:
-                node = next(n for n in self.graph.nodes if n.id == node_id)
-                self.on_add(node.kind[4:], node, self.to_pixels(self.boxes[node_id]))
             return
         pick = self.model_pick(node_id)
         if pick is not None and self.on_pick_model is not None:
@@ -973,16 +946,11 @@ class MapView(Gtk.DrawingArea):
         layout = PangoCairo.create_layout(cr)
 
         # Column headings.
-        self.header_rects = {}
         for column, title in enumerate(self.headers):
             if column not in self.column_x:
                 continue
             x = self.column_x[column]
             text = title.upper()
-            # A list to choose the boxes shown in this column.
-            boxes = graph_model.listable(self.graph, column)
-            shown = len([n for n in boxes if n.id not in self.hidden_ids])
-            text += f" ({shown}/{len(boxes)}) ▾" if shown < len(boxes) else " ▾"
             layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 8"))
             layout.set_text(text, -1)
             layout.set_width(node_w * Pango.SCALE)
@@ -990,8 +958,6 @@ class MapView(Gtk.DrawingArea):
             cr.set_source_rgba(*self.color("accent"))
             cr.move_to(x, 6)
             PangoCairo.show_layout(cr, layout)
-            text_w, text_h = layout.get_pixel_size()
-            self.header_rects[column] = (x - 4, 2, text_w + 8, text_h + 8)
 
         # Small headings above the groups of column 0.
         layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 7"))
@@ -1072,75 +1038,39 @@ class MapView(Gtk.DrawingArea):
             x, y, w, h = self.boxes[node.id]
             faded = lit_nodes is not None and node.id not in lit_nodes
             alpha = 0.25 if faded else (0.55 if node.dim or node.status == "missing" else 1.0)
-            if node.kind.startswith("add-"):
-                # Dashed, empty: a place to add something, not a thing.
-                self.rounded(cr, x, y, w, h, self.radius)
-                cr.set_dash([5, 4])
-                cr.set_source_rgba(*self.color("accent" if node.id == self.hover else "fg",
-                                               0.9 if node.id == self.hover else 0.35 * (0.4 if faded else 1)))
-                cr.set_line_width(1.2)
-                cr.stroke()
-                cr.set_dash([])
-                layout.set_font_description(Pango.FontDescription.from_string("Sans 9"))
-                layout.set_width(int((w - 20) * Pango.SCALE))
-                layout.set_ellipsize(Pango.EllipsizeMode.END)
-                layout.set_text(node.label, -1)
-                cr.set_source_rgba(*self.color("accent" if node.id == self.hover else "dim"))
-                cr.move_to(x + 10, y + (h - layout.get_pixel_size()[1]) / 2)
-                PangoCairo.show_layout(cr, layout)
-                continue
+            selected = node.id in self.selected
+            # A card: the theme's background, a light tint (stronger for agents), a thin frame.
             self.rounded(cr, x, y, w, h, self.radius)
             cr.set_source_rgba(*self.color("bg", 1.0))
             cr.fill_preserve()
-            fill = 0.10 if node.kind == "agent" else 0.05
+            fill = 0.09 if node.kind == "agent" else 0.05
             cr.set_source_rgba(*self.color("fg", fill * (0.4 if faded else 1.0)))
             cr.fill_preserve()
-            if node.id in self.selected:
-                cr.set_source_rgba(*self.color("accent", 0.40))
+            if selected:
+                cr.set_source_rgba(*self.color("accent", 0.20))
                 cr.fill_preserve()
             # A model an app outside the map generates with now: framed in that light's colour.
             outside = node.kind == "model" and bool(self.outside_label(node.id))
             border = "accent" if node.id == self.hover or node.id in self.defaults or node.kind == "agent" \
-                or node.id in self.selected else "outside" if outside else "fg"
-            cr.set_source_rgba(*self.color(border, (0.18 if border == "fg" else 0.9) * (0.3 if faded else 1)))
-            cr.set_line_width(2.5 if node.id in self.selected else 2 if node.id in active_models or outside else 1)
+                or selected else "outside" if outside else "fg"
+            cr.set_source_rgba(*self.color(border, (0.16 if border == "fg" else 0.9) * (0.3 if faded else 1)))
+            cr.set_line_width(2.2 if selected else 2 if node.id in active_models or outside else 1)
             cr.stroke()
-            if node.id in self.selected:
-                # A check mark in the corner: selected, not just highlighted.
-                layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 10"))
-                layout.set_width(-1)
-                layout.set_text("✓", -1)
-                cr.set_source_rgba(*self.color("accent"))
-                text_w, text_h = layout.get_pixel_size()
-                cr.move_to(x + w - text_w - PIN_W - 6, y + (h - text_h) / 2)
-                PangoCairo.show_layout(cr, layout)
+            if selected:
+                self.draw_check(cr, layout, x + w - PIN_W - 22, y + (h - 16) / 2)
             self.draw_pin(cr, layout, node.id, x, y, w, faded)
 
-            text_x = x + 10
             use = self.runtime_use(node)
             detail = node.detail or (self.outside_label(node.id) if node.kind == "model" else "")
             right = 0                # room kept free at the right for the loaded mark
-            if node.status:
-                # Status dot: green running, yellow installed but stopped, grey not installed.
-                name = {"running": "green", "stopped": "yellow"}.get(node.status, "muted")
-                cr.set_source_rgba(*self.color(name, 0.35 if faded else 1.0))
-                cr.arc(text_x + 4, y + h / 2, 4, 0, 2 * math.pi)
-                cr.fill()
-                if node.kind == "runtime" and use is not None and use.vram >= 256 * 1024 ** 2 \
-                        and self.usage.generating:
-                    # Working: a ring around the dot, as LLM Monitor's "generating".
-                    cr.set_source_rgba(*self.color("accent", 0.35 if faded else 1.0))
-                    cr.set_line_width(1.5)
-                    cr.arc(text_x + 4, y + h / 2, 7, 0, 2 * math.pi)
-                    cr.stroke()
-                text_x += 16
+            text_x = self.draw_tile(cr, layout, node, x, y, h, faded, alpha, use)
             if node.kind == "runtime" and use is not None and use.vram >= 64 * 1024 ** 2:
                 detail = " · ".join(filter(None, [detail, f"{use.vram / 1024 ** 3:.1f} GB GPU"]))
             if node.kind == "model" and use is not None:
                 state = use.models.get(node.label.lower())
                 if state:
                     # Loaded (green), loading (yellow), asleep (a grey ring: listed, GPU memory free).
-                    cx, cy = x + w - PIN_W - (30 if node.id in self.selected else 8), y + h / 2
+                    cx, cy = x + w - PIN_W - (30 if selected else 8), y + h / 2
                     if state == "sleeping":
                         cr.set_source_rgba(*self.color("muted", 0.35 if faded else 1.0))
                         cr.set_line_width(1.5)
@@ -1153,28 +1083,21 @@ class MapView(Gtk.DrawingArea):
                         cr.arc(cx, cy, 4, 0, 2 * math.pi)
                         cr.fill()
                     right = 14
-            if node.icon:
-                family = "omarchy" if node.icon_font == "omarchy" else "JetBrainsMono Nerd Font, Symbols Nerd Font"
-                layout.set_font_description(Pango.FontDescription.from_string(f"{family} 13"))
-                layout.set_width(-1)
-                layout.set_text(node.icon, -1)
-                cr.set_source_rgba(*self.color("accent", alpha))
-                cr.move_to(text_x, y + (h - layout.get_pixel_size()[1]) / 2)
-                PangoCairo.show_layout(cr, layout)
-                text_x += 24
             layout.set_width(int((x + w - PIN_W - (24 if node.id in self.selected else 4) - right - text_x)
                                  * Pango.SCALE))
             layout.set_ellipsize(Pango.EllipsizeMode.END)
             if detail:
                 layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 9"))
                 layout.set_text(node.label, -1)
+                top_h = layout.get_pixel_size()[1]
+                top = y + (h - 2 * top_h + 1) / 2
                 cr.set_source_rgba(*self.color("fg", alpha))
-                cr.move_to(text_x, y + 4)
+                cr.move_to(text_x, top)
                 PangoCairo.show_layout(cr, layout)
                 layout.set_font_description(Pango.FontDescription.from_string("Sans 8"))
                 layout.set_text(detail, -1)
                 cr.set_source_rgba(*self.color("outside" if outside and not node.detail else "dim", alpha))
-                cr.move_to(text_x, y + h / 2 + 1)
+                cr.move_to(text_x, top + top_h)
                 PangoCairo.show_layout(cr, layout)
             else:
                 weight = "Bold " if node.kind in ("agent", "cloud", "runtime") else ""
@@ -1185,6 +1108,63 @@ class MapView(Gtk.DrawingArea):
                 PangoCairo.show_layout(cr, layout)
 
         self.draw_link(cr)
+
+    def tile_glyph(self, node) -> tuple[str, str]:
+        """(glyph, font) of a box's icon tile: an agent's own icon, else one for its kind."""
+        if node.icon:
+            return node.icon, node.icon_font
+        if node.kind == "mcp":
+            return glyph(MCP_GLYPHS.get(node.label, "app")), ""
+        return glyph(TILE_GLYPHS.get(node.kind, "package")), ""
+
+    def draw_tile(self, cr, layout, node, x, y, h, faded, alpha, use) -> float:
+        """The icon tile at a box's start, tinted in the colour of the kind's lines, with the status
+        dot on its corner (green running, yellow stopped, grey not installed; a ring while
+        generating). Returns where the text starts."""
+        size = h - 14
+        tx, ty = x + 7, y + (h - size) / 2
+        tone = TILE_TONES.get(node.kind, "accent")
+        self.rounded(cr, tx, ty, size, size, min(self.radius, 7))
+        cr.set_source_rgba(*self.color(tone, 0.18 * (0.4 if faded else 1.0)))
+        cr.fill()
+        text, font = self.tile_glyph(node)
+        family = "omarchy" if font == "omarchy" else "JetBrainsMono Nerd Font, Symbols Nerd Font"
+        layout.set_font_description(Pango.FontDescription.from_string(f"{family} 13"))
+        layout.set_width(-1)
+        layout.set_text(text, -1)
+        glyph_w, glyph_h = layout.get_pixel_size()
+        cr.set_source_rgba(*self.color(tone if tone != "muted" else "fg", alpha))
+        cr.move_to(tx + (size - glyph_w) / 2, ty + (size - glyph_h) / 2)
+        PangoCairo.show_layout(cr, layout)
+        if node.status:
+            name = {"running": "green", "stopped": "yellow"}.get(node.status, "muted")
+            cx, cy = tx + size - 1, ty + size - 1
+            cr.set_source_rgba(*self.color("bg", 1.0))
+            cr.arc(cx, cy, 5.5, 0, 2 * math.pi)
+            cr.fill()
+            cr.set_source_rgba(*self.color(name, 0.35 if faded else 1.0))
+            cr.arc(cx, cy, 4, 0, 2 * math.pi)
+            cr.fill()
+            if node.kind == "runtime" and use is not None and use.vram >= 256 * 1024 ** 2 and self.usage.generating:
+                # Working: a ring around the dot, as LLM Monitor's "generating".
+                cr.set_source_rgba(*self.color("accent", 0.35 if faded else 1.0))
+                cr.set_line_width(1.5)
+                cr.arc(cx, cy, 7.5, 0, 2 * math.pi)
+                cr.stroke()
+        return tx + size + 9
+
+    def draw_check(self, cr, layout, x, y):
+        """A selected box's badge: ✓ on the accent colour (round, or square with Square corners)."""
+        self.rounded(cr, x, y, 16, 16, 8 if self.radius else 0)
+        cr.set_source_rgba(*self.color("accent"))
+        cr.fill()
+        layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 8"))
+        layout.set_width(-1)
+        layout.set_text("✓", -1)
+        text_w, text_h = layout.get_pixel_size()
+        cr.set_source_rgba(*self.color("bg"))
+        cr.move_to(x + (16 - text_w) / 2, y + (16 - text_h) / 2)
+        PangoCairo.show_layout(cr, layout)
 
     def draw_pin(self, cr, layout, node_id, x, y, w, faded):
         """The pin at the top right: filled when pinned, an outline while the box is hovered."""
@@ -1378,14 +1358,23 @@ class LegendSample(Gtk.DrawingArea):
         kind, _sep, value = self.sample.partition(":")
         mid = height / 2
         if kind in ("dot", "ring"):
+            # As on a box: the icon tile with the status dot on its corner.
             self.box(cr, width, height)
+            size = height - 6
+            MapView.rounded(cr, 3, 3, size, size, 3)
+            cr.set_source_rgba(*self.colors("accent", 0.18))
+            cr.fill()
+            cx, cy = 3 + size - 1, 3 + size - 1
+            cr.set_source_rgba(*self.colors("bg"))
+            cr.arc(cx, cy, 5, 0, 2 * math.pi)
+            cr.fill()
             cr.set_source_rgba(*self.colors("green" if kind == "ring" else value))
-            cr.arc(10, mid, 4, 0, 2 * math.pi)
+            cr.arc(cx, cy, 3.5, 0, 2 * math.pi)
             cr.fill()
             if kind == "ring":
                 cr.set_source_rgba(*self.colors("accent"))
                 cr.set_line_width(1.5)
-                cr.arc(10, mid, 7, 0, 2 * math.pi)
+                cr.arc(cx, cy, 6.5, 0, 2 * math.pi)
                 cr.stroke()
         elif kind == "model":
             self.box(cr, width, height)
@@ -1407,14 +1396,21 @@ class LegendSample(Gtk.DrawingArea):
         elif kind == "check":
             self.box(cr, width, height)
             MapView.rounded(cr, 1, 1, width - 2, height - 2, 4)
-            cr.set_source_rgba(*self.colors("accent", 0.4))
+            cr.set_source_rgba(*self.colors("accent", 0.2))
+            cr.fill_preserve()
+            cr.set_source_rgba(*self.colors("accent"))
+            cr.set_line_width(1.5)
+            cr.stroke()
+            badge = height - 6
+            MapView.rounded(cr, width - badge - 4, 3, badge, badge, badge / 2)
+            cr.set_source_rgba(*self.colors("accent"))
             cr.fill()
             layout = PangoCairo.create_layout(cr)
-            layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 10"))
+            layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 7"))
             layout.set_text("✓", -1)
             text_w, text_h = layout.get_pixel_size()
-            cr.set_source_rgba(*self.colors("accent"))
-            cr.move_to(width - text_w - 6, (height - text_h) / 2)
+            cr.set_source_rgba(*self.colors("bg"))
+            cr.move_to(width - badge - 4 + (badge - text_w) / 2, 3 + (badge - text_h) / 2)
             PangoCairo.show_layout(cr, layout)
         elif kind == "line":
             if value in ("error", "warning"):

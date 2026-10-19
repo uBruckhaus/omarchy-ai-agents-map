@@ -58,15 +58,11 @@ def _unit_name() -> str:
 
 UNIT_NAME = _unit_name()
 UNIT_FILE = HOME / ".config/systemd/user" / UNIT_NAME
-RUNTIMES = ("llamacpp", "ollama", "lmstudio", "vllm", "jan", "koboldcpp")
-# Kept running between agents: it starts too slowly for an agent's first request
-# (KoboldCpp ~6 s) and costs no video memory while no model is loaded, so the
-# watcher unloads its model instead of stopping it (UNLOADS).
-STAYS_UP = {"koboldcpp"}
-# Agents tied to a local LLM that run its models themselves: never a reason to start it
-# (LM Studio Bionic uses LM Studio's engine and models with or without LM Studio running).
-SELF_SERVED = {"bionic"}
-UNLOADS = {"koboldcpp": ("/api/admin/reload_config", {"filename": "unload_model"})}
+# What the watcher knows of each local LLM comes with its config entry (written by the app from
+# its provider adapters, providers.py): its service and port, and whether it stays up between
+# agents (KoboldCpp: too slow to start for an agent's first request, no video memory without a
+# model), then its model is unloaded with the "unload" request instead of stopping it.
+UNLOAD_PATH_RE = re.compile(r"^/[A-Za-z0-9/_.-]{1,100}$")
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}$")
 UNIT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9@_.-]{0,99}$")
 INTERPRETERS = ("node", "bun", "deno", "python", "python3")
@@ -85,15 +81,34 @@ def log(text: str):
 
 # --- the configuration ----------------------------------------------------------------------
 
+def _unload(value) -> dict | None:
+    """A checked {"path": "/…", "body": {str: str}} unload request, or None."""
+    if not isinstance(value, dict) or not isinstance(value.get("path"), str) \
+            or not UNLOAD_PATH_RE.fullmatch(value["path"]) or not isinstance(value.get("body"), dict):
+        return None
+    body = value["body"]
+    if len(body) > 8 or not all(isinstance(k, str) and NAME_RE.fullmatch(k) and isinstance(v, str) and len(v) <= 100
+                                for k, v in body.items()):
+        return None
+    return {"path": value["path"], "body": dict(body)}
+
+
 def _entry(key, entry) -> dict | None:
-    """A checked {"service": unit, "port": int} for a runtime key, or None."""
-    if key not in RUNTIMES or not isinstance(entry, dict):
+    """A checked {"service": unit, "port": int[, "stays_up": True, "unload": {...}]} for a runtime
+    key, or None."""
+    if not isinstance(key, str) or not NAME_RE.fullmatch(key) or not isinstance(entry, dict):
         return None
     service = entry.get("service") if isinstance(entry.get("service"), str) else ""
     port = entry.get("port") if isinstance(entry.get("port"), int) and 0 < entry.get("port") < 65536 else 0
     if service and not UNIT_RE.fullmatch(service):
         return None
-    return {"service": service, "port": port} if service or key == "lmstudio" else None
+    if not service and key != "lmstudio":
+        return None
+    checked = {"service": service, "port": port}
+    unload_request = _unload(entry.get("unload"))
+    if entry.get("stays_up") is True and unload_request is not None:
+        checked.update(stays_up=True, unload=unload_request)
+    return checked
 
 
 def read_config(path: Path = CONFIG) -> tuple[dict, dict]:
@@ -123,14 +138,20 @@ def write_config(inventory, path: Path = CONFIG) -> bool:
     only the provider of its current model is started with it, not every one it is
     connected to). Every connected LLM is listed under "runtimes", so the watcher
     knows how to stop it. Returns True when the file changed."""
+    import harnesses      # app side only: the watcher itself never writes its config
+    import providers
+    self_served = {h.command for h in harnesses.all_harnesses() if h.self_served}
     runtimes, agents = {}, {}
     for rt in inventory.runtimes:
         if not rt.installed or not rt.agents or not (rt.service or rt.key == "lmstudio"):
             continue
         port = rt.address.rpartition(":")[2]
         runtimes[rt.key] = {"service": rt.service, "port": int(port) if port.isdigit() else 0}
+        provider = providers.get(rt.key)
+        if provider is not None and provider.stays_up and provider.unload:
+            runtimes[rt.key].update(stays_up=True, unload={"path": provider.unload[0], "body": provider.unload[1]})
         for agent in getattr(rt, "active_agents", rt.agents):
-            if agent not in SELF_SERVED:
+            if agent not in self_served:
                 agents.setdefault(agent, []).append(rt.key)
     text = json.dumps({"agents": agents, "runtimes": runtimes}, indent=2, sort_keys=True) + "\n"
     try:
@@ -235,12 +256,16 @@ def agent_instances(names, proc: str = "/proc", pids: dict | None = None) -> dic
 
 # Options that name the model an instance runs with ("-m" only where it means the model).
 MODEL_OPTIONS = ("--model",)
-SHORT_MODEL_AGENTS = {"codex", "opencode", "hermes", "crush"}
 
 
-def instance_model(agent: str, args) -> str:
-    """The model an instance was started with (`--model x`, `--model=x`), "" = its settings'."""
-    options = MODEL_OPTIONS + (("-m",) if agent in SHORT_MODEL_AGENTS else ())
+def instance_model(agent: str, args, short_model=None) -> str:
+    """The model an instance was started with (`--model x`, `--model=x`), "" = its settings'.
+    short_model: agents where -m names the model (default: from the agent adapters; app side
+    only, the watcher never asks)."""
+    if short_model is None:
+        import harnesses
+        short_model = {h.command for h in harnesses.all_harnesses() if h.short_model_flag}
+    options = MODEL_OPTIONS + (("-m",) if agent in short_model else ())
     for index, arg in enumerate(args):
         if arg in options and index + 1 < len(args):
             return args[index + 1].strip()[:200]
@@ -337,10 +362,10 @@ def own_listener(port: int, proc: str = "/proc/net") -> bool:
     return bool(owners) and owners == {os.getuid()}
 
 
-def unload(key: str, port: int) -> bool:
-    """Free the GPU memory of a runtime that stays up (STAYS_UP)."""
+def unload(entry: dict, port: int) -> bool:
+    """Free the GPU memory of a runtime that stays up (its config entry's "unload" request)."""
     import http.client
-    path, body = UNLOADS[key]
+    path, body = entry["unload"]["path"], entry["unload"]["body"]
     if not port or not own_listener(port):
         return False
     try:
@@ -654,8 +679,8 @@ class Watcher:
             return True
         if self.busy(entry.get("port", 0), self.sockets(self.background)):
             return False            # another program is using it: wait until it is done
-        if key in STAYS_UP:
-            ok = unload(key, entry.get("port", 0))
+        if entry.get("stays_up"):
+            ok = unload(entry, entry.get("port", 0))
             log(f"unload {key} ({why}): {'ok' if ok else 'not running'}")
             self.started.pop(key, None)
             self.started.pop(f"{key}:ok", None)

@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import ai_core  # noqa: E402
 import install_ctl as ic  # noqa: E402
 
 
@@ -22,6 +23,9 @@ class InstallTest(unittest.TestCase):
             self.addCleanup(patcher.stop)
         self.calls = []
         patcher = mock.patch.object(ic, "_systemctl", lambda *a: (self.calls.append(a), (True, ""))[1])
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        patcher = mock.patch.object(ai_core, "settings_file", return_value=self.home / "settings.json")
         patcher.start()
         self.addCleanup(patcher.stop)
         self.ollama = ic.Ollama()
@@ -78,6 +82,17 @@ class InstallTest(unittest.TestCase):
         self.assertFalse((folder / "v9.9.9").exists())
         self.assertFalse((self.home / ".local/bin/ollama").exists())
         self.assertFalse(self.ollama.env_file.exists())
+
+    def test_reinstall_offers_the_earlier_model_folder(self):
+        root = self.home / "Models"
+        (root / "ollama/blobs").mkdir(parents=True)
+        llama = mock.Mock(models_dir=str(root / "llama.cpp-router"))
+        # Reorganize's <root>/ollama comes first, before the shared root.
+        self.assertEqual(ic.models_suggestions([llama], None, "ollama")[:2], [root / "ollama", root])
+        self.assertEqual(ic.models_suggestions([llama], None, "vllm")[0], root)
+        self.install(self.home / "o", self.home / "kept")
+        self.ollama.uninstall()
+        self.assertEqual(ic.models_suggestions([llama], None, "ollama")[0], self.home / "kept")
 
     def test_hand_install_is_not_touched(self):
         (self.home / ".local/bin").mkdir(parents=True)

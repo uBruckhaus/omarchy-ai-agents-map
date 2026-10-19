@@ -16,7 +16,7 @@ import i18n
 
 SETTINGS_MAX_BYTES = 256 * 1024
 MIN_WINDOW_SIZE = (420, 320)   # the card's width and its page height, logical px
-VIEWS = ("main",)    # one view since the Map view went (its map is beside the cards); the rest are sub-pages
+VIEWS = ("main", "setup")    # the cards with the map beside them, and My setup; the rest are sub-pages
 
 
 # Variables an agent session sets for what runs inside it (Claude Code: CLAUDECODE, CLAUDE_CODE_*
@@ -197,12 +197,17 @@ def map_layers(path: Path | None = None) -> list:
     return list(MAP_LAYERS)
 
 
-def hidden_nodes(path: Path | None = None) -> list:
-    """Map box ids unticked in the column headings' lists ("agent:pi", "cloud:anthropic",
-    "model:runtime:ollama:qwen3", "mcp:photocraft", …). Older settings kept only providers."""
-    settings = load_settings(path)
-    value = settings.get("hidden_nodes", settings.get("hidden_providers"))
-    return [v for v in value if isinstance(v, str) and len(v) < 300][:500] if isinstance(value, list) else []
+# What Hide, the column lists, the overview's Show list and My setup · + Available kept: the map
+# shows what is set up now (My setup adds and removes), so these are dropped on the first start.
+RETIRED_SETTINGS = ("hidden_items", "hidden_nodes", "hidden_providers", "card_hidden", "start_scope",
+                    "show_more_hint")
+
+
+def drop_retired_settings(path: Path | None = None) -> None:
+    path = path or settings_file()
+    stale = [key for key in RETIRED_SETTINGS if key in load_settings(path)]
+    if stale:
+        update_settings(path, **{key: None for key in stale})
 
 
 # --- clipboard ---------------------------------------------------------------------------------

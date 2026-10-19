@@ -51,9 +51,13 @@ class ConfigTest(unittest.TestCase):
         self.path.write_text(json.dumps({
             "agents": {"opencode": ["llamacpp"], "../x": ["llamacpp"], "pi": ["nope"]},
             "runtimes": {"llamacpp": {"service": "llama; rm -rf ~", "port": 8080},
-                         "ollama": {"service": "ollama", "port": "x"}, "evil": {"service": "a"}}}))
+                         "ollama": {"service": "ollama", "port": "x"}, "../evil": {"service": "a"},
+                         "kobold": {"service": "k", "port": 5001, "stays_up": True,
+                                    "unload": {"path": "http://elsewhere/x", "body": {}}}}}))
         agents, runtimes = pw.read_config(self.path)
-        self.assertEqual(runtimes, {"ollama": {"service": "ollama", "port": 0}})
+        # Any well-formed provider key is accepted (local LLMs from add-ons too); a bad unload request
+        # means it is simply stopped.
+        self.assertEqual(runtimes, {"ollama": {"service": "ollama", "port": 0}, "kobold": {"service": "k", "port": 5001}})
         self.assertEqual(agents, {})
 
 

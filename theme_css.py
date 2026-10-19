@@ -166,6 +166,67 @@ class ThemeCss:
         .am-help-card {{ background: alpha({fg_hex}, 0.03); border: 1px solid alpha({fg_hex}, 0.10);
             border-radius: {radius}px; padding: 12px 14px; }}
         .am-help-mark {{ font-weight: 700; }}
+        .am-addon-card {{ background: alpha({fg_hex}, 0.04); border: 1px solid alpha({fg_hex}, 0.10);
+            border-radius: {radius}px; padding: 10px 12px; min-height: 96px; }}
+        .am-addon-card:hover {{ background: alpha({fg_hex}, 0.07); }}
+        .am-addon-suggested {{ border-color: alpha({accent_hex}, 0.7); }}
+        .am-addon-refused {{ border-color: alpha({red_hex}, 0.6); }}
+        .am-addon-name {{ font-size: 13px; font-weight: 600; }}
+        .am-addon-badge {{ font-size: 10px; font-weight: 600; border-radius: {min(radius, 4)}px; padding: 1px 6px; }}
+        .am-addon-builtin {{ color: {dim_hex}; background: alpha({fg_hex}, 0.07); }}
+        .am-addon-on {{ color: {bg_hex}; background: {accent_hex}; }}
+        .am-addon-off {{ color: {fg_hex}; background: alpha({fg_hex}, 0.12); }}
+        .am-addon-failed {{ color: {red_hex}; background: alpha({red_hex}, 0.16); }}
+        .am-addon-available {{ color: {accent_hex}; border: 1px solid alpha({accent_hex}, 0.5); }}
+        .am-setup-tile {{ background: alpha({fg_hex}, 0.04); border: 1px solid alpha({fg_hex}, 0.10);
+            border-radius: {radius}px; padding: 12px 14px; color: {fg_hex}; }}
+        .am-setup-absent .am-setup-glyph {{ color: {dim_hex}; }}
+        .am-setup-absent {{ background: transparent; border-style: dashed; }}
+        .am-setup-absent .am-addon-name, .am-setup-absent .am-agent-detail {{ color: {dim_hex}; }}
+        button.am-setup-section {{ padding: 2px 6px; min-height: 0; }}
+        button.am-setup-section:hover {{ background: alpha({fg_hex}, 0.08); }}
+        button.am-setup-action {{ min-width: 84px; }}
+        .am-setup-explain {{ background: alpha({fg_hex}, 0.04); border: 1px solid alpha({fg_hex}, 0.10);
+            border-radius: {radius}px; padding: 6px 14px 12px 8px; }}
+        .am-explain-situation {{ font-weight: 600; font-size: 13px; }}
+        .am-agent-detail.am-setup-here {{ color: {green_hex}; }}
+        .am-setup-tile:hover {{ background: alpha({fg_hex}, 0.08); }}
+        /* Highlighted only when it is installed; a tick (switched on) shows as the ✓ alone. */
+        .am-setup-tile:checked {{ background: alpha({fg_hex}, 0.04); color: {fg_hex}; }}
+        .am-setup-tile:checked:hover {{ background: alpha({fg_hex}, 0.08); }}
+        .am-setup-tile.am-setup-installed {{ background: alpha({accent_hex}, 0.14); border: 2px solid {accent_hex};
+            padding: 11px 13px; color: {fg_hex}; }}
+        .am-setup-tile.am-setup-installed.am-setup-small {{ padding: 7px 9px; }}
+        .am-setup-tile.am-setup-installed:hover {{ background: alpha({accent_hex}, 0.20); }}
+        .am-agent-icon.am-setup-glyph {{ font-size: 30px; min-width: 36px; }}
+        .am-setup-check {{ color: {bg_hex}; background: {accent_hex}; border-radius: {pill}px; min-width: 20px;
+            min-height: 20px; font-size: 11px; font-weight: 700; }}
+        .am-setup-title {{ font-size: 22px; font-weight: 700; }}
+        .am-setup-small {{ padding: 8px 10px; }}
+        .am-agent-icon.am-setup-glyph-sm {{ font-size: 20px; min-width: 24px; }}
+        .am-setup-add {{ background: transparent; border: 1px solid alpha({fg_hex}, 0.16); box-shadow: none; }}
+        .am-setup-add .am-setup-glyph, .am-setup-add .am-setup-glyph-sm {{ color: {dim_hex}; }}
+        .am-setup-add:hover {{ border-color: {accent_hex}; background: alpha({accent_hex}, 0.06); }}
+        .am-setup-add:hover .am-setup-glyph, .am-setup-add:hover .am-setup-glyph-sm {{ color: {accent_hex}; }}
+        .am-setup-update {{ color: {bg_hex}; background: {yellow_hex}; border-radius: {pill}px; padding: 1px 8px;
+            font-size: 11px; font-weight: 700; }}
+        button.am-setup-more {{ min-height: 0; min-width: 0; padding: 0 8px; font-size: 14px; color: {dim_hex};
+            border-radius: {radius}px; }}
+        button.am-setup-more:hover {{ color: {fg_hex}; background: alpha({fg_hex}, 0.10); }}
+        list.am-pick-cards {{ background: transparent; }}
+        list.am-pick-cards > row {{ background: alpha({fg_hex}, 0.04); border: 1px solid alpha({fg_hex}, 0.10);
+            border-radius: {radius}px; margin: 0 2px 6px 2px; padding: 2px 4px; }}
+        list.am-pick-cards > row:hover {{ background: alpha({fg_hex}, 0.08); }}
+        list.am-pick-cards > row:selected {{ background: alpha({accent_hex}, 0.14); border: 2px solid {accent_hex};
+            padding: 1px 3px; }}
+        list.am-pick-cards > row.am-pick-heading {{ background: none; border: none; margin-bottom: 0; }}
+        .am-agent-icon.am-pick-glyph {{ font-size: 22px; min-width: 30px; }}
+        .am-choice.am-choice-card {{ background: alpha({fg_hex}, 0.04); border: 1px solid alpha({fg_hex}, 0.10);
+            border-radius: {radius}px; padding: 8px 10px; margin-bottom: 2px; }}
+        .am-choice.am-choice-card:hover {{ background: alpha({fg_hex}, 0.08); }}
+        .am-addon-privacy {{ font-size: 10px; color: {dim_hex}; }}
+        .am-addon-chip {{ font-size: 11px; min-height: 0; padding: 2px 12px; border-radius: 999px; }}
+        .am-addon-chip:checked {{ background: {accent_hex}; color: {bg_hex}; }}
         .am-stat-value {{ font-size: 17px; font-weight: 600; }}
         .am-group-heading {{ font-size: 10px; font-weight: 700; letter-spacing: 1px; color: {dim_hex};
             margin-top: 4px; }}
@@ -298,7 +359,7 @@ class ThemeCss:
         row.combo box.suffixes {{ margin-left: 24px; padding: 3px 6px 3px 10px; border: 1px solid alpha({fg_hex}, 0.28);
             border-radius: {min(radius, 8)}px; }}
         row.combo:hover box.suffixes {{ border-color: alpha({fg_hex}, 0.45); }}
-        .am-card list.am-list:not(.boxed-list) {{ background: alpha({fg_hex}, 0.03); border-radius: {radius}px; }}
+        .am-card list.am-list:not(.boxed-list):not(.am-pick-cards) {{ background: alpha({fg_hex}, 0.03); border-radius: {radius}px; }}
         .am-card list.am-list row:selected {{ background: alpha({accent_hex}, 0.22); }}
         .am-card-check {{ color: {accent_hex}; font-weight: 700; }}
         /* Omarchy's default agent: its "Default" badge says so; no border that looks like a selection. */

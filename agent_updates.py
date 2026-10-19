@@ -26,6 +26,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import ai_core
+import harnesses
 import netfetch
 
 TAGS_URL = "https://registry.npmjs.org/-/package/@anthropic-ai/claude-code/dist-tags"
@@ -136,15 +137,19 @@ def check(agent_list, runtimes, now: float | None = None, cache: Path = CACHE, s
             if agent is not None and agent.command in mise_agents:
                 found.append(Update("agent", agent.command, agent.name, current, latest,
                                     command=["mise", "upgrade", tool]))
-    # Claude Code: its own channel, as its "Update available!" message (mise's version list can lag
-    # behind it for hours; the mise upgrade then reads GitHub directly, see run_in_terminal).
-    claude = installed.get("claude")
-    command = ["claude", "update"] if claude is not None and claude.source == "own" and shutil.which("claude") \
-        else ["mise", "upgrade", "claude"] if claude is not None and claude.source == "mise" else None
-    if command and not any(u.key == "claude" for u in found):
-        latest = (sources.get("claude") or claude_channel_latest)(channel())
-        if latest and newer(latest, claude.version):
-            found.append(Update("agent", "claude", claude.name, claude.version, latest, command=command))
+    # Agents with an updater of their own (Claude Code: its own channel, as its "Update available!"
+    # message; mise's version list can lag behind it for hours, the mise upgrade then reads GitHub
+    # directly, see run_in_terminal). The channel is Claude Code's setting, the only such agent so far.
+    for h in harnesses.all_harnesses():
+        agent = installed.get(h.command)
+        if not h.self_update or h.latest is None or agent is None:
+            continue
+        command = list(h.self_update) if agent.source == "own" and shutil.which(h.self_update[0]) \
+            else ["mise", "upgrade", h.command] if agent.source == "mise" else None
+        if command and not any(u.key == h.command for u in found):
+            latest = (sources.get(h.command) or h.latest)(channel())
+            if latest and newer(latest, agent.version):
+                found.append(Update("agent", h.command, agent.name, agent.version, latest, command=command))
     # ours: local LLMs and agents AI Agents Map installed
     ours = [(k, a.name, "agent") for k, a in installed.items() if k in install_ctl.AGENT_INSTALLERS] + \
            [(rt.key, rt.name, "runtime") for rt in runtimes if rt.installed]
@@ -166,12 +171,21 @@ def check(agent_list, runtimes, now: float | None = None, cache: Path = CACHE, s
     return found
 
 
+# The only commands an update may run: mise's upgrade, or a built-in agent's own updater. Fixed
+# when this module loads, from the built-in adapters only (agents an add-on brings later add nothing).
+SELF_UPDATES = tuple(list(h.self_update) for h in harnesses.all_harnesses() if h.self_update)
+
+
+def _allowed(argv: list) -> bool:
+    return argv[:2] == ["mise", "upgrade"] or any(argv[:len(u)] == u for u in SELF_UPDATES)
+
+
 def _usable(u) -> bool:
     if not isinstance(u, dict) or set(u) != set(Update.__dataclass_fields__):
         return False
     command = u.get("command")
     return u["kind"] in ("agent", "runtime") and all(isinstance(u[k], str) for k in ("key", "name", "current", "available")) \
-        and isinstance(command, list) and (command == [] or command[:2] in (["mise", "upgrade"], ["claude", "update"]))
+        and isinstance(command, list) and (command == [] or _allowed(command))
 
 
 def still_open(found: list[Update], agent_list, runtimes) -> list[Update]:
@@ -202,8 +216,7 @@ def forget(cache: Path = CACHE):
 
 def run_in_terminal(argv: list[str]) -> bool:
     """argv in a terminal window of its own that waits at the end (desktop.run_in_terminal)."""
-    if not argv or argv[:2] not in (["mise", "upgrade"], ["claude", "update"]) \
-            or not all(_TOOL.fullmatch(a) for a in argv):
+    if not argv or not _allowed(argv) or not all(_TOOL.fullmatch(a) for a in argv):
         return False
     # mise's version service can lag behind a release; read the versions from the source (still checksummed).
     import desktop

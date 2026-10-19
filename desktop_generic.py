@@ -214,6 +214,18 @@ def run_in_terminal(argv: list, env: dict | None = None) -> bool:
     return open_terminal(["bash", "-c", script], str(HOME))
 
 
+def run_steps_in_terminal(steps: list) -> bool:
+    """Several commands, one after the other while each succeeds, in one terminal that stays open
+    until Enter (every word quoted for bash)."""
+    from i18n import _
+    steps = [list(map(str, s)) for s in steps if s]
+    if not steps:
+        return False
+    prompt = _("Done. Press Enter to close.")
+    script = " && ".join(shlex.join(s) for s in steps) + f"; echo; read -r -p {shlex.quote(prompt)} _"
+    return open_terminal(["bash", "-c", script], str(HOME))
+
+
 # --- agents ---------------------------------------------------------------------------------------
 
 def agent_catalog():

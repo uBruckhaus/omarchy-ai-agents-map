@@ -32,6 +32,7 @@ The interface (each implementation provides all of it):
     maximize(app_id) -> bool      maximize where it is
     open_terminal(argv, cwd) -> bool              a program in the user's terminal (a new window)
     run_in_terminal(command) -> bool              a fixed command in a terminal that waits at the end
+    run_steps_in_terminal(commands) -> bool       several, one after the other while each succeeds
     agent_catalog() -> list[(command, label, icon, icon font)] | None   None: use the built-in list
     default_agent() -> str        the desktop's default agent command ("" when none)
     usage_dir() -> Path | None    where usage records are (None: the desktop keeps none)

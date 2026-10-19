@@ -85,10 +85,11 @@ def open_outside(path: str, cwd: str) -> bool:
 class TerminalPane(Gtk.Box):
     """Header (Back, title, state, Stop/Start again) over the agent's terminal."""
 
-    def __init__(self, agent, cwd: str, colors: dict, on_back, on_state):
+    def __init__(self, agent, cwd: str, colors: dict, on_back, on_state, argv: list | None = None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         Vte = vte()
         self.agent = agent
+        self.argv = list(argv) if argv else None   # a fixed command (an install) instead of the agent
         self.cwd = cwd
         self.on_state = on_state          # called when it starts or ends
         self.pid = None
@@ -146,14 +147,14 @@ class TerminalPane(Gtk.Box):
 
     def start(self):
         Vte = vte()
-        path = program(self.agent.command)
+        path = self.argv[0] if self.argv else program(self.agent.command)
         if path is None:
             self.set_state(False, _("{0} was not found").format(self.agent.command))
             return
         self.terminal.reset(True, True)
         self.started = time.monotonic()
         self.set_state(True, _("starting…"))
-        self.terminal.spawn_async(Vte.PtyFlags.DEFAULT, self.cwd, [path], child_env(),
+        self.terminal.spawn_async(Vte.PtyFlags.DEFAULT, self.cwd, self.argv or [path], child_env(),
                                   GLib.SpawnFlags.DEFAULT, None, None, -1, None, self.on_spawned)
 
     def on_spawned(self, _terminal, pid, error, *_rest):

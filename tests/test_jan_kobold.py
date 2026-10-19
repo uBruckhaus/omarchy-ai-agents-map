@@ -185,13 +185,14 @@ class WatcherTest(unittest.TestCase):
 
     def test_stays_up_is_unloaded_not_stopped(self):
         watcher = provider_watch.Watcher.__new__(provider_watch.Watcher)
-        watcher.runtimes = {"koboldcpp": {"service": "koboldcpp", "port": 5001}}
+        request = {"path": "/api/admin/reload_config", "body": {"filename": "unload_model"}}
+        watcher.runtimes = {"koboldcpp": {"service": "koboldcpp", "port": 5001, "stays_up": True, "unload": request}}
         watcher.known, watcher.started, watcher.background = {}, {}, set()
         watcher.busy = lambda *a: False
         watcher.sockets = lambda *a: set()
         ran = []
         watcher.run = ran.append
-        with mock.patch.object(provider_watch, "unload", lambda key, port: (key, port) == ("koboldcpp", 5001)):
+        with mock.patch.object(provider_watch, "unload", lambda entry, port: (entry["unload"], port) == (request, 5001)):
             self.assertTrue(watcher.stop("koboldcpp", "test"))
         self.assertEqual(ran, [])                      # no systemctl stop
 

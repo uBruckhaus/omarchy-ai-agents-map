@@ -349,6 +349,18 @@ never `~/.ssh`, `~/.gnupg` or credential files; JSON, TOML or YAML only; a fixed
 names; nothing in it is ever run) and kept in `~/.config/omarchy/ai-agents-map/agents/`. Settings →
 **Look up new agents** switches this off; right-click the agent on the map to look it up again.
 
+### Skills for an MCP server
+
+A skill written for an MCP server (its folder has the server's name, or its SKILL.md calls the
+server's tools as `mcp__<server>`) is listed on that server's page with whether it still matches the
+server's tools. After an app update moved its server to a new version, the note says which skills
+may need an update. **Update skill…** asks the server for its tools, then Claude Code rewrites the
+SKILL.md to match them (`claude -p` with no tools at all: `--tools ""`, no MCP servers, no session
+kept; else Codex `codex exec` in its read-only sandbox). The old skill and the tool list go in on
+stdin; the answer must be a SKILL.md with the same name (size-capped) and is only shown as a preview,
+written after your OK with a backup and Undo. Only your own SKILL.md files under your home folder are
+offered; a skill an app installed elsewhere is updated with the app.
+
 ## Installing local LLMs
 
 Right-click a local LLM on the map. Not installed (grey): **Install…** downloads the official release
@@ -585,7 +597,7 @@ the backup and Undo), and the agent is told the same context. A context you set 
   `omarchy-agent-usage-update <agent>` when an agent card's usage is older than ten minutes; an MCP
   server's command when you click **Test** or ask for its tools, or right after you connect an agent
   to it (the check above; in its own process group, stopped afterwards); an AppImage's `--appimage-extract` only on **Look inside…**, when adding a server
-  from it, or for a newer version of an app looked into before; `claude -p` or `codex exec` for a new agent; `wl-paste`,
+  from it, or for a newer version of an app looked into before; `claude -p` or `codex exec` for a new agent and on **Update skill…**; `wl-paste`,
   `lspci`, `hyprctl`; `herdr [--session <name>] api snapshot` while an agent's details page is open
   and a herdr server of yours runs (never starts one), and `herdr agent focus <pane>` on a click on
   a herdr pane (the pane id checked against a strict pattern), then `hyprctl` focuses the window of

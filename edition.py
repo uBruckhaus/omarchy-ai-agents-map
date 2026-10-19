@@ -1,28 +1,23 @@
 """How much of a harness's sessions this edition may show.
 
     NUMBERS  counts, times, tokens, lines changed, cost (harnesses.py and its adapters)
-    TITLES   the titles a harness gave its sessions itself (session_topics.py)
-    SUMMARY  titles and numbers sent to the user's own Claude Code on a click (session_topics.py)
+    TITLES   the titles a harness gave its sessions itself (an add-on, e.g. Insights)
+    SUMMARY  titles and numbers sent to the user's own Claude Code on a click (an add-on, e.g. Insights)
 
-The level follows from the code that ships, not from a setting: session_topics.py is Asterism-only
-(tools/vendor-into-plugin.sh leaves it out of the AI Agents Map plugin), so the plugin can show
-numbers only, because the code that reads titles is not in it at all.
+The level is the highest privacy level of the add-ons loaded now (addons.py, Asterism only), at
+least NUMBERS. Without add-ons, and always in the AI Agents Map plugin (no add-on loader), it is
+NUMBERS: the code that reads titles is not part of the app at all.
 """
 
 NUMBERS, TITLES, SUMMARY = 1, 2, 3
 
-_maximum = None
-
-
 def maximum() -> int:
-    global _maximum
-    if _maximum is None:
-        try:
-            import session_topics  # noqa: F401
-            _maximum = SUMMARY
-        except ImportError:
-            _maximum = NUMBERS
-    return _maximum
+    try:
+        import addon_api
+        loaded = addon_api.loaded_privacy()
+    except ImportError:                 # the AI Agents Map plugin: no add-ons
+        loaded = 0
+    return max(NUMBERS, loaded)
 
 
 def allows(level: int) -> bool:

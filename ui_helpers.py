@@ -2,7 +2,23 @@
 
 from gi.repository import Gtk
 
+from glyphs import GLYPHS, MCP_GLYPHS, MCP_GROUP_GLYPHS, RUN_GLYPHS, glyph  # noqa: F401  (shared)
 from map_view import MapView
+
+
+def glyph_label(name: str) -> Gtk.Label:
+    """A card's icon: a Nerd Font glyph in the accent colour."""
+    label = Gtk.Label(label=glyph(name), valign=Gtk.Align.CENTER)
+    label.add_css_class("am-agent-icon")
+    label.add_css_class("am-pick-glyph")
+    return label
+
+
+def pick_cards(listbox: Gtk.ListBox) -> Gtk.ListBox:
+    """A list whose rows are cards (spaced, framed, the selected one in the accent colour)."""
+    listbox.remove_css_class("boxed-list")
+    listbox.add_css_class("am-pick-cards")
+    return listbox
 
 
 def size_text(n: int) -> str:

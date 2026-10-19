@@ -31,13 +31,26 @@ CLIENT = {"name": "ai-agents-map", "version": "1"}
 _NAME = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 
 
+def _params(schema) -> list:
+    """Parameter names of a tool (its inputSchema's properties) or a prompt (its
+    arguments), a few and short: what a skill about the server needs to name."""
+    if isinstance(schema, dict):
+        names = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
+    elif isinstance(schema, list):
+        names = [a.get("name") for a in schema if isinstance(a, dict)]
+    else:
+        names = []
+    return [n[:64] for n in names if isinstance(n, str) and _NAME.match(n[:64])][:40]
+
+
 def _clean(items, kind: str) -> list:
     found = []
     for item in items if isinstance(items, list) else []:
         if isinstance(item, dict) and isinstance(item.get("name"), str):
             text = item.get("description") if isinstance(item.get("description"), str) else ""
             text = " ".join(text.split())
-            found.append({"name": item["name"][:100], "description": text[:400], "kind": kind})
+            found.append({"name": item["name"][:100], "description": text[:400], "kind": kind,
+                          "params": _params(item.get("inputSchema" if kind == "tool" else "arguments"))})
     return found[:MAX_TOOLS]
 
 

@@ -10,12 +10,13 @@ from pathlib import Path
 
 from gi.repository import Adw, Gio, GLib, Gtk, Pango
 
+import json
+
 import ai_core
 import app_entry
 import corners
 import desktop
 import disk_usage
-import graph
 import i18n
 import install_ctl
 import inventory
@@ -25,6 +26,10 @@ import provider_watch
 import web_sources
 from i18n import _, N_, ngettext
 from ui_helpers import SpaceBar, size_text
+try:
+    import addon_api            # Asterism only (not in the Omarchy plugin); hooks are empty without it
+except ImportError:
+    addon_api = None
 
 
 class SettingsPages:
@@ -285,7 +290,55 @@ class SettingsPages:
         if desktop.launcher_entry():
             self.fill_launcher_setting(right)
             right.reorder_child_after(right.get_last_child(), None)     # the app's own entry first on the right
+        if hasattr(self, "open_addons"):
+            group = self.preference_group(right, _("Add-ons"))
+            self.switch_row(group, _("Look for add-ons online"),
+                            _("Reads the list of add-ons (signed by Uwe Bruckhaus) from GitHub every few hours, to "
+                              "suggest one when a harness it knows is on this PC. Nothing is sent but the request."),
+                            ai_core.load_settings().get("addons_online") is not False,
+                            lambda on: self.save_setting(addons_online=on))
+            self.button_row(group, _("Add-ons"), _("Agents, providers and features: what is built in, installed "
+                                                   "and available."), _("Open"), self.open_addons)
+            if self.adapter_addons():
+                self.button_row(group, _("My setup"), _("Switch agents and providers on or off, update or remove "
+                                                         "them, and your MCP servers, skills and models."), _("Open"),
+                                self.open_my_setup)
+        for addon_id, builder in self.addon_hooks("settings"):
+            addon_api.call(addon_id, builder, addon_api.UI(self, addon_id), right)
+        group = self.preference_group(right, _("About"))
+        self.button_row(group, _("About {0}").format(desktop.app_name()),
+                        _("Version, author, license and the project on GitHub."), _("About"), self.show_about)
         self.settings_ready = True
+
+    # --- About: name, version, author, license and the GitHub project ------------------------------
+
+    ASTERISM_URL = "https://github.com/uBruckhaus/Asterism"
+    PLUGIN_URL = "https://github.com/uBruckhaus/omarchy-ai-agents-map"
+
+    @classmethod
+    def about_facts(cls) -> tuple[str, str]:
+        """(version, project page): the plugin's manifest.json when the app runs as the Omarchy
+        plugin (it lies next to this file there), else Asterism's own version."""
+        try:
+            manifest = json.loads((Path(__file__).resolve().parent / "manifest.json").read_text())
+            return str(manifest.get("version", "")), cls.PLUGIN_URL
+        except (OSError, ValueError):
+            pass
+        try:
+            import addons            # Asterism only
+            return addons.ASTERISM_VERSION, cls.ASTERISM_URL
+        except ImportError:
+            return "", cls.ASTERISM_URL
+
+    def show_about(self):
+        version, url = self.about_facts()
+        about = Adw.AboutDialog(
+            application_name=desktop.app_name(), application_icon=desktop.app_id(), version=version,
+            developer_name="Uwe Bruckhaus", copyright="© 2026 Uwe Bruckhaus", license_type=Gtk.License.MIT_X11,
+            # No comments: with them libadwaita moves the website into Details; this way the GitHub
+            # project page is a row on the dialog's first page.
+            website=url, issue_url=url + "/issues")
+        about.present(self.window)
 
     def preference_group(self, box, title: str) -> Adw.PreferencesGroup:
         group = Adw.PreferencesGroup(title=GLib.markup_escape_text(title))
@@ -370,12 +423,6 @@ class SettingsPages:
         self.switch_row(group, _("Health check line"),
                         _("On the main page when something needs fixing (× hides it until the next start)."),
                         settings.get("health_line", True) is not False, self.set_health_line)
-        self.combo_row(group, _("Start with"),
-                       _("What the cards and the map show when AI Agents Map opens; My setup and + Available "
-                         "in the header switch for the moment."),
-                       [_("My setup: installed and set up"), _("Everything you could add too")],
-                       graph.SCOPES.index(self.start_scope()),
-                       lambda i: (self.save_setting(start_scope=graph.SCOPES[i]), self.set_scope(graph.SCOPES[i])))
         self.window_rounding = desktop.window_rounding()
         like = _("Like windows ({0} px)").format(self.window_rounding) if self.window_rounding is not None \
             else _("Like windows")
@@ -401,13 +448,6 @@ class SettingsPages:
                         _("When a new agent is installed, Claude Code or Codex finds out on the web where it keeps "
                           "MCP servers and skills (once, a few minutes in the background)."),
                         settings.get("look_up_new_agents", True), lambda on: self.save_setting(look_up_new_agents=on))
-        self.switch_row(group, _("Show what you could set up"),
-                        _("In My setup, a hint below the cards: “{0}” (agents and local LLMs that are not "
-                          "installed, MCP servers no agent uses). + Available in the header shows them either "
-                          "way.").format(ngettext("1 more you could set up", "{0} more you could set up",
-                                                  2).format("N")),
-                        settings.get("show_more_hint", True),
-                        lambda on: (self.save_setting(show_more_hint=on), self.refresh_overview()))
         self.switch_row(group, _("Animate active lines"),
                         _("Light runs along a running agent's line to its provider and model on the map. Off: "
                           "the lines stay still. Also off when the system turns animations off."),
@@ -868,6 +908,12 @@ class SettingsPages:
         monitor = self.help_llm_monitor_card()
         if monitor is not None:
             body.append(monitor)
+        for addon_id, builder in self.addon_hooks("help"):
+            card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+            card.add_css_class("am-help-card")
+            addon_api.call(addon_id, builder, addon_api.UI(self, addon_id), card)
+            if card.get_first_child() is not None:
+                body.append(card)
         page.append(self.page_scroller(body))
         return page
 

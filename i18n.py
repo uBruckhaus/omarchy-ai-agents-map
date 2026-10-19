@@ -119,15 +119,19 @@ def ngettext(one, other, n):
     """Plural: tables store a list of forms under PLURAL_PREFIX + the English
     `one` text ([one, other], or [one, few, many] for Polish)."""
     lang = current()
-    forms = STRINGS.get(lang, {}).get(PLURAL_PREFIX + one)
-    if not isinstance(forms, list):
-        return _named(one if n == 1 else other)
+    return _named(pick_plural(lang, STRINGS.get(lang, {}).get(PLURAL_PREFIX + one), n, one, other))
+
+
+def pick_plural(lang: str, forms, n: int, one: str, other: str) -> str:
+    """The form for n from a table's list ([one, other], or [one, few, many] for Polish)."""
+    if not isinstance(forms, list) or not forms or not all(isinstance(f, str) for f in forms):
+        return one if n == 1 else other
     if lang == "pl" and len(forms) == 3:
         m10, m100 = n % 10, n % 100
-        return _named(forms[0] if n == 1 else forms[1] if 2 <= m10 <= 4 and not 12 <= m100 <= 14 else forms[2])
+        return forms[0] if n == 1 else forms[1] if 2 <= m10 <= 4 and not 12 <= m100 <= 14 else forms[2]
     if lang in ("fr", "pt"):
-        return _named(forms[0] if n <= 1 else forms[-1])
-    return _named(forms[0] if n == 1 else forms[-1])
+        return forms[0] if n <= 1 else forms[-1]
+    return forms[0] if n == 1 else forms[-1]
 
 
 # The tables: translations/<code>.json beside this file, one per language ({msgid: text}, plural

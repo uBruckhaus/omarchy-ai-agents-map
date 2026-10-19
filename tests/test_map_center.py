@@ -50,5 +50,12 @@ class ColumnTopTest(unittest.TestCase):
         self.assertEqual(view.column_top(100, 2000), 400 + P + (300 - 2 * P - 100) / 2)
 
 
+    def test_tall_agents_column_sits_in_the_middle_of_the_map(self):
+        view = Centring(0, 600)
+        self.assertEqual(view.column_top(800, 2000), H)
+        self.assertEqual(view.column_top(800, 2000, hub=True), (H + 2000 - P - 800) / 2)
+        self.assertEqual(view.column_top(2000 - P - H, 2000, hub=True), H)
+
+
 if __name__ == "__main__":
     unittest.main()

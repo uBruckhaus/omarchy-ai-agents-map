@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 
 import agent_details as ad
 import mcp_ctl
+import providers
 import skills_ctl
 
 HOME = Path.home()
@@ -583,8 +584,7 @@ def skills_in(folder: Path, depth: int = 0) -> list[tuple[Path, Path]]:
 def collect(agent_list) -> Inventory:
     inv = Inventory()
     processes = own_processes()
-    inv.runtimes = [llamacpp(processes), ollama(processes), lmstudio(processes), vllm(processes), jan(processes),
-                    koboldcpp(processes)]
+    inv.runtimes = [p.detect(processes) for p in providers.local() if p.detect is not None]
     by_port = {}
     for rt in inv.runtimes:
         port = rt.address.rsplit(":", 1)[-1]

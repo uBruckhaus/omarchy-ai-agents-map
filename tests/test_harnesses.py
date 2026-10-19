@@ -124,6 +124,7 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual(harnesses.get("opencode").name, "OpenCode")
         self.assertIsNone(harnesses.get("nope"))
         self.assertEqual({h.command for h in harnesses.with_sessions()}, {"claude", "hermes", "opencode"})
+        self.assertEqual(len(commands), 16)
 
     def test_notes_name_the_harness(self):
         self.assertIn("Hermes", harnesses.get("hermes").sessions.note())
@@ -138,23 +139,106 @@ class RegistryTest(unittest.TestCase):
                 self.assertNotIn(column, sql.lower().replace("metadata", ""), (module.__name__, column))
 
 
-class EditionTest(unittest.TestCase):
-    def setUp(self):
-        edition._maximum = None
-        self.addCleanup(setattr, edition, "_maximum", None)
 
-    def test_without_session_topics_numbers_only(self):
-        with mock.patch.dict(sys.modules, {"session_topics": None}):
+class AgentTablesTest(unittest.TestCase):
+    """agents.py builds its tables from the adapters; they equal what it had written out."""
+
+    def test_same_as_before(self):
+        import agents
+        self.assertEqual([c for c, *_r in agents.FALLBACK],
+                         ["claude", "codex", "copilot", "crush", "cursor-agent", "gemini", "grok", "hermes", "muse",
+                          "omp", "openclaw", "opencode", "pi"])
+        self.assertEqual([c for c, *_r in agents.EXTRA], ["dsh", "bionic", "agy"])
+        self.assertEqual(agents.NAMES, {"claude": "Claude Code", "copilot": "GitHub Copilot", "gemini": "Gemini CLI",
+                                        "omp": "Oh My Pi", "pi": "Pi"})
+        self.assertEqual(agents.SPECS, {
+            "omp": "github:can1357/oh-my-pi", "grok": "npm:@xai-official/grok",
+            "muse": "http:muse[url=https://api.meta.ai/muse-launcher.sh,bin=muse]",
+            "hermes": "pipx:hermes-agent[extras=all]"})
+        self.assertEqual(agents.FALLBACK[0], ("claude", "Claude", "\U000f06c4", ""))
+        self.assertEqual(agents.FALLBACK[1], ("codex", "Codex", "\ue905", "omarchy"))
+
+    def test_every_agent_complete(self):
+        import install_ctl
+        for h in harnesses.all_harnesses():
+            self.assertTrue(h.label and h.icon, h.command)
+            if h.installer is not None:
+                self.assertIs(type(install_ctl.AGENT_INSTALLERS[h.command]), type(h.installer()))
+        self.assertEqual(set(install_ctl.AGENT_INSTALLERS), {"dsh", "bionic", "agy"})
+
+
+
+class CapabilityTablesTest(unittest.TestCase):
+    """The feature modules build their per-agent tables from the adapters; same values as before."""
+
+    def test_security_status_connect(self):
+        import agent_security
+        import agent_status
+        import connect
+        self.assertEqual(set(agent_security.READERS),
+                         {"claude", "codex", "copilot", "cursor-agent", "hermes", "opencode", "pi"})
+        self.assertEqual(set(agent_status.READERS), {"hermes", "opencode", "pi"})
+        self.assertEqual(agent_status.STATUS_COMMANDS,
+                         {"cursor-agent": (("cursor-agent", "status"), "not logged in", "logged in")})
+        self.assertEqual(set(agent_status.access_table()), {
+            "claude", "codex", "gemini", "copilot", "cursor-agent", "opencode", "hermes", "pi", "dsh", "grok",
+            "crush", "bionic"})
+        self.assertEqual(set(connect.SUPPORTED), {"hermes", "pi", "opencode", "dsh"})
+        self.assertEqual(connect.FIXED, {"bionic": "lmstudio"})
+
+    def test_skills(self):
+        import skills_ctl
+        self.assertEqual(skills_ctl.OWN["codex"], "~/.codex/skills")
+        self.assertEqual(skills_ctl.NATIVE["codex"], ["~/.agents/skills", "~/.codex/skills"])
+        self.assertEqual(skills_ctl.NATIVE["bionic"], ["~/.lmstudio/skills"])
+        self.assertEqual(set(skills_ctl.SETTINGS_LIST), {"pi", "hermes"})
+        self.assertEqual(len(skills_ctl.NATIVE), 15)
+
+    def test_mcp(self):
+        import mcp_ctl
+        self.assertEqual(mcp_ctl.SUPPORTED, ("claude", "codex", "copilot", "crush", "cursor-agent", "gemini", "grok",
+                                             "hermes", "muse", "omp", "openclaw", "opencode", "pi", "dsh"))
+        self.assertEqual(mcp_ctl.IN_APP, {"bionic": "Settings › Connected apps"})
+        self.assertEqual(mcp_ctl.paths_for("claude"), [])
+        self.assertEqual(mcp_ctl.paths_for("codex"), [Path.home() / ".codex/config.toml"])
+        self.assertEqual(mcp_ctl.paths_for("lmstudio"), [Path.home() / ".lmstudio/mcp.json"])
+        shapes = {h.mcp.shape for h in harnesses.all_harnesses() if h.mcp and not h.mcp.in_app}
+        self.assertEqual(shapes, {"plain", "claude", "codex", "copilot", "crush", "gemini", "muse", "omp",
+                                  "openclaw", "opencode"})
+        own = {h.command for h in harnesses.all_harnesses() if h.mcp and (h.mcp.read or h.mcp.write or h.mcp.native)}
+        self.assertEqual(own, {"dsh", "muse", "openclaw"})
+
+    def test_short_model_flag(self):
+        import provider_watch
+        self.assertEqual({h.command for h in harnesses.all_harnesses() if h.short_model_flag},
+                         {"codex", "opencode", "hermes", "crush"})
+        self.assertEqual(provider_watch.instance_model("codex", ["-m", "gpt-5"]), "gpt-5")
+        self.assertEqual(provider_watch.instance_model("claude", ["-m", "x"]), "")
+
+    def test_update_whitelist_unchanged(self):
+        import agent_updates
+        self.assertEqual(agent_updates.SELF_UPDATES, (["claude", "update"],))
+        self.assertTrue(agent_updates._allowed(["claude", "update"]))
+        self.assertTrue(agent_updates._allowed(["mise", "upgrade", "x"]))
+        self.assertFalse(agent_updates._allowed(["claude", "mcp", "add"]))
+        self.assertFalse(agent_updates._allowed(["rm", "-rf"]))
+
+
+class EditionTest(unittest.TestCase):
+    def test_without_add_ons_numbers_only(self):
+        with mock.patch.dict(sys.modules, {"addon_api": None}):          # the plugin: no add-on loader
             self.assertEqual(edition.maximum(), edition.NUMBERS)
-            self.assertTrue(edition.allows(edition.NUMBERS))
             self.assertFalse(edition.allows(edition.TITLES))
 
-    def test_asterism_allows_titles_and_summary(self):
+    def test_follows_loaded_add_ons(self):
         try:
-            import session_topics  # noqa: F401
+            import addon_api
         except ImportError:
-            self.skipTest("the AI Agents Map plugin ships without session_topics.py")
-        self.assertTrue(edition.allows(edition.SUMMARY))
+            self.skipTest("the AI Agents Map plugin has no add-ons")
+        with mock.patch.object(addon_api, "loaded_privacy", return_value=edition.SUMMARY):
+            self.assertTrue(edition.allows(edition.SUMMARY))
+        with mock.patch.object(addon_api, "loaded_privacy", return_value=0):
+            self.assertEqual(edition.maximum(), edition.NUMBERS)
 
 
 if __name__ == "__main__":

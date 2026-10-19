@@ -10,25 +10,28 @@ Providers are the cloud services the agents talk to and the local runtimes
 
 from dataclasses import dataclass, field
 
-# The cloud service behind each agent unless its settings point elsewhere.
-CLOUD = {
-    "claude": "Anthropic", "codex": "OpenAI", "copilot": "GitHub Copilot", "cursor-agent": "Cursor",
-    "gemini": "Google", "grok": "xAI", "muse": "Meta", "openclaw": "OpenClaw",
-}
-# Provider ids in agent settings ("anthropic/claude-…", pi's defaultProvider, Hermes's provider).
-PROVIDER_NAMES = {
-    "anthropic": "Anthropic", "openai": "OpenAI", "openai-codex": "OpenAI", "google": "Google",
-    "gemini": "Google", "github-copilot": "GitHub Copilot", "xai": "xAI", "nous": "Nous Research",
-    "openrouter": "OpenRouter", "groq": "Groq", "mistral": "Mistral", "deepseek": "DeepSeek",
-    "fireworks": "Fireworks", "together": "Together AI", "opencode": "OpenCode Zen", "zai": "Z.ai",
-}
+import providers
+
+
+def _rebuild():
+    """Tables from the adapters (run again when add-ons add or remove some)."""
+    global CLOUD, PROVIDER_NAMES
+    # The online provider behind each agent unless its settings point elsewhere, and provider ids in
+    # agent settings ("anthropic/claude-…", pi's defaultProvider, Hermes's provider): provider_online.py.
+    CLOUD = providers.cloud_of_agent()
+    PROVIDER_NAMES = providers.online_names()
+
+
+_rebuild()
+providers.on_change(_rebuild)
+
+
 MAX_MODELS_PER_PROVIDER = 10
 
 # Categories the map can show or hide, in toolbar order, and what each needs.
 LAYERS = ("agents", "online", "local", "models", "mcp", "skills")
 LAYER_OF = {"agent": "agents", "cloud": "online", "runtime": "local", "model": "models", "more": "models",
-            "mcp": "mcp", "add-mcp": "mcp", "skills": "skills", "add-skills": "skills", "add-model": "models",
-            "add-folders": "models"}
+            "mcp": "mcp", "skills": "skills"}
 REQUIRES = {"models": ("online", "local"), "mcp": ("agents",), "skills": ("agents",)}   # any one of them
 
 
@@ -40,9 +43,8 @@ def effective_layers(enabled) -> set:
 
 
 def hidden_by_layers(graph, enabled, hidden_ids=()) -> set:
-    """Node ids the switched-off categories hide, plus hidden_ids (boxes
-    unticked in a column's list). A model (or a folder's "+ Model" box) also
-    goes when none of the providers serving it is shown, an MCP server or
+    """Node ids the switched-off categories hide, plus hidden_ids (what the
+    header's setup choice leaves out). A model also goes when none of the providers serving it is shown, an MCP server or
     skill set when none of the agents using it is (unused ones stay)."""
     shown = effective_layers(enabled)
     hidden = {n.id for n in graph.nodes if LAYER_OF.get(n.kind) not in shown or n.id in hidden_ids}
@@ -53,60 +55,18 @@ def hidden_by_layers(graph, enabled, hidden_ids=()) -> set:
                 linked = [getattr(e, side) for e in graph.edges if e.target == node.id and e.kind in kinds]
                 if linked and all(p in hidden for p in linked):
                     hidden.add(node.id)
-    for node in graph.nodes:
-        if node.kind == "add-model" and node.owners and all(o in hidden for o in node.owners):
-            hidden.add(node.id)
     return hidden
-
-
-SCOPES = ("mine", "all")    # My setup · + Available
-
-
-def scope_extras(agent_list, inventory) -> set:
-    """Card and box ids "My setup" leaves out: agents and local LLMs that are not
-    installed, MCP servers no agent uses (all of them stay one click away)."""
-    return ({f"agent:{a.command}" for a in agent_list if not a.installed}
-            | {f"runtime:{rt.key}" for rt in inventory.runtimes if not rt.installed}
-            | {f"mcp:{m.name}" for m in inventory.mcp if not m.agents})
-
-
-def provider_users(graph, shown: dict) -> dict:
-    """Provider box id -> names of the shown agents fully connected to it: a line from the agent to
-    the provider and one of the provider's models in use by that agent. Hide is refused for those
-    providers; a line without a model (Hermes → Ollama) does not count. shown: agent box id -> name."""
-    serves, models, providers = {}, {}, {}
-    for edge in graph.edges:
-        if edge.kind == "serves":
-            serves.setdefault(edge.source, set()).add(edge.target)
-        elif edge.kind == "default":
-            models.setdefault(edge.source, set()).add(edge.target)
-        elif edge.kind in ("uses", "available"):
-            providers.setdefault(edge.source, set()).add(edge.target)
-    users = {}
-    for agent_id, name in shown.items():
-        for provider in sorted(providers.get(agent_id, ())):
-            if serves.get(provider, set()) & models.get(agent_id, set()):
-                users.setdefault(provider, []).append(name)
-    return users
-
-
-FOLDERS_BOX = "add:folders"
 
 
 def idle_folders(graph) -> dict:
     """Model folders (of local LLMs) none of whose models an agent uses or runs:
-    {folder: ids of its boxes, "+ Model" and "+n more" included}."""
+    {folder: ids of its boxes, "+n more" included}."""
     folders = {}
     for node in graph.column(3):
-        if node.group and node.kind in ("model", "more", "add-model"):
+        if node.group and node.kind in ("model", "more"):
             folders.setdefault(node.group, []).append(node)
     return {folder: {n.id for n in nodes} for folder, nodes in folders.items()
             if not any(n.active for n in nodes)}
-
-
-def listable(graph, column: int) -> list:
-    """The boxes a column's heading list can tick: everything but the "+" boxes."""
-    return [n for n in graph.column(column) if not n.kind.startswith("add-")]
 
 
 @dataclass
@@ -121,7 +81,6 @@ class Node:
     dim: bool = False        # drawn faded
     status: str = ""         # local runtimes: "running", "stopped" (installed) or "missing"
     group: str = ""          # models: the folder they live in ("" = an online provider's)
-    owners: tuple = ()       # "+ Model" boxes: the local LLM node ids using that folder
     active: bool = False     # models: an agent's model, or one an open agent runs
 
 
@@ -177,11 +136,11 @@ def split_model(model: str) -> tuple[str, str]:
 
 def build(agent_list, details: dict, inventory, labels: dict | None = None, failures: dict | None = None,
           running: dict | None = None) -> Graph:
-    """agent_list: agents.Agent (installed ones are drawn); details: command ->
+    """Only what is set up: installed agents and local LLMs, the MCP servers and skill
+    sets agents use, models. agent_list: agents.Agent (installed ones are drawn); details: command ->
     agent_details.Details; labels: functions n -> translated text ("skills", "more");
     running: command -> the model of each open instance ("" = its settings')."""
-    labels = {"skills": "{0} skills".format, "more": "+{0} more".format, "add_mcp": "+ MCP server",
-              "add_skills": "+ Skills", "add_model": "+ Model", "running": lambda n: "running" if n == 1
+    labels = {"skills": "{0} skills".format, "more": "+{0} more".format, "running": lambda n: "running" if n == 1
               else f"{n} running", "in_use": "in use · {0}".format,
               **(labels or {})}
     running = running or {}
@@ -265,12 +224,13 @@ def build(agent_list, details: dict, inventory, labels: dict | None = None, fail
             graph.add(Node(sid, 0, path, labels["skills"](count), "skills"))
             graph.link(aid, sid, "skills")
 
-    # Every local runtime, installed or not (something to connect agents to),
-    # with the models of the installed ones.
+    # Every installed local runtime (something to connect agents to), with its models.
     for rt in inventory.runtimes:
+        if not rt.installed:
+            continue
         rid = f"runtime:{rt.key}"
-        graph.add(Node(rid, 2, rt.name, rt.address if rt.installed else "", "runtime", status=runtime_status(rt)))
-        shown = rt.models[:MAX_MODELS_PER_PROVIDER] if rt.installed else []
+        graph.add(Node(rid, 2, rt.name, rt.address, "runtime", status=runtime_status(rt)))
+        shown = rt.models[:MAX_MODELS_PER_PROVIDER]
         for model in shown:
             mid = f"model:{rid}:{model.lower()}"
             graph.add(Node(mid, 3, model, "", "model", group=rt.models_dir or rt.name))
@@ -281,24 +241,6 @@ def build(agent_list, details: dict, inventory, labels: dict | None = None, fail
                            group=rt.models_dir or rt.name))
             graph.link(rid, mid, "serves")
 
-    # A box per model folder to download a model into it (the local LLMs sharing it pick one).
-    folders = {}
-    for rt in inventory.runtimes:
-        if rt.installed:
-            folders.setdefault(rt.models_dir or rt.name, []).append(f"runtime:{rt.key}")
-    for folder, owners in folders.items():
-        graph.add(Node(f"add:model:{folder}", 3, labels["add_model"], folder, "add-model", dim=True,
-                       group=folder, owners=tuple(owners)))
-
-    # MCP servers no agent uses (any more): still listed, to connect again.
-    for server in inventory.mcp:
-        if not server.agents:
-            graph.add(Node(f"mcp:{server.name}", 0, server.name, labels.get("unused", "not used"), "mcp", dim=True))
-
-    # A box to add a new MCP server (on the map: opens the add page).
-    graph.add(Node("add:mcp", 0, labels["add_mcp"], "", "add-mcp", dim=True))
-    graph.add(Node("add:skills", 0, labels["add_skills"], "", "add-skills", dim=True))
-
     for node in graph.nodes:
         if node.id in live:
             node.status = "running"
@@ -306,10 +248,6 @@ def build(agent_list, details: dict, inventory, labels: dict | None = None, fail
     chosen = {e.target for e in graph.edges if e.kind == "default"}
     for node in graph.nodes:
         node.active = node.kind == "model" and (node.id in chosen or node.id in live)
-    idle = idle_folders(graph)
-    if idle and "folders" in labels:
-        # My setup folds these away behind one box (ai_popup.scope_hidden); a click unfolds them.
-        graph.add(Node(FOLDERS_BOX, 3, labels["folders"](len(idle)), "", "add-folders", dim=True, group=FOLDERS_BOX))
 
     # A default model that points at a model the runtime does not list: drop the link.
     ids = {n.id for n in graph.nodes}
@@ -352,7 +290,7 @@ def order_columns(graph: Graph):
 
     place(0, 1)
     # MCP servers above skill sets: two groups (the map leaves a gap between them).
-    left = sorted(graph.column(0), key=lambda n: {"mcp": 0, "add-mcp": 1, "add-skills": 3}.get(n.kind, 2))
+    left = sorted(graph.column(0), key=lambda n: n.kind != "mcp")
     graph.nodes = [n for n in graph.nodes if n.column != 0] + left
     place(2, 1)
     place(3, 2)

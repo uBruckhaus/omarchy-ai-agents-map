@@ -22,30 +22,26 @@ from pathlib import Path
 
 import agent_profiles
 import connect
+import harnesses
 
 HOME = Path.home()
 SHARED = "~/.agents/skills"
-NATIVE = {
-    "claude": ["~/.claude/skills"],
-    "codex": [SHARED, "~/.codex/skills"],
-    "copilot": ["~/.copilot/skills", SHARED],
-    "cursor-agent": ["~/.cursor/skills", SHARED, "~/.claude/skills", "~/.codex/skills"],
-    "gemini": ["~/.gemini/skills", SHARED],
-    "opencode": ["~/.config/opencode/skills", "~/.claude/skills", SHARED],
-    "pi": ["~/.pi/agent/skills", SHARED],
-    "omp": ["~/.omp/agent/skills"],
-    "hermes": ["~/.hermes/skills"],
-    "crush": ["~/.config/crush/skills", "~/.config/agents/skills", SHARED, "~/.claude/skills"],
-    "grok": ["~/.grok/skills"],
-    "openclaw": ["~/.openclaw/skills", SHARED],
-    "dsh": ["~/.dsh/skills", SHARED],
-    "bionic": ["~/.lmstudio/skills"],          # global skills, shared with LM Studio
-    "muse": ["~/.config/muse/skills", SHARED, "~/.claude/skills", "~/.codex/skills"],
-}
-# The agent's own folder: where its links go.
-OWN = {agent: dirs[0] for agent, dirs in NATIVE.items()}
-OWN["codex"] = "~/.codex/skills"
-SETTINGS_LIST = ("pi", "hermes")       # a folder list in their settings we write
+
+
+def _rebuild():
+    """Tables from the adapters (run again when add-ons add or remove some)."""
+    global NATIVE, OWN, SETTINGS_LIST
+    # The folders each agent reads by itself, its own folder (where its links go) and the agents whose
+    # settings keep a folder list we write (Harness.skills).
+    with_skills = [h for h in harnesses.all_harnesses() if h.skills is not None]
+    NATIVE = {h.command: list(h.skills.dirs) for h in with_skills}
+    OWN = {h.command: h.skills.own for h in with_skills}
+    SETTINGS_LIST = tuple(h.command for h in with_skills if h.skills.settings_list)
+
+
+_rebuild()
+harnesses.on_change(_rebuild)
+
 MAX_SKILLS = 200
 
 
@@ -79,36 +75,11 @@ def _json(path: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def hermes_dirs(text: str) -> list[str]:
-    block = connect._top_block(text, "skills")
-    if block is None:
-        return []
-    body = text[block[0]:block[1]]
-    found = re.search(r"^  external_dirs:[ \t]*\n((?:    - .*\n?)*)", body, re.MULTILINE)
-    if found is None:
-        inline = re.search(r"^  external_dirs:[ \t]*\[(.*)\]", body, re.MULTILINE)
-        return [d.strip().strip("'\"") for d in inline.group(1).split(",") if d.strip()] if inline else []
-    return [line[6:].strip().strip("'\"") for line in found.group(1).splitlines() if line.strip()]
-
-
 def config_dirs(agent: str) -> list[str]:
-    """Extra skill folders the agent's settings list."""
+    """Extra skill folders the agent's settings list (harnesses.Skills.listed)."""
+    h = harnesses.get(agent)
     try:
-        if agent in ("pi", "omp"):
-            found = _json(HOME / f".{agent}/agent/settings.json").get("skills")
-        elif agent == "hermes":
-            found = hermes_dirs(connect._read(HOME / ".hermes/config.yaml"))
-        elif agent == "crush":
-            options = _json(HOME / ".config/crush/crush.json").get("options")
-            found = options.get("skills_paths") if isinstance(options, dict) else None
-        elif agent == "grok":
-            import tomllib
-            found = tomllib.loads(connect._read(HOME / ".grok/config.toml")).get("skills", {}).get("paths")
-        elif agent == "openclaw":
-            load = _json(HOME / ".openclaw/openclaw.json").get("skills", {})
-            found = load.get("load", {}).get("extraDirs") if isinstance(load, dict) else None
-        else:
-            found = None
+        found = h.skills.listed() if h is not None and h.skills is not None and h.skills.listed else None
     except (OSError, ValueError, AttributeError):
         found = None
     return [d for d in found[:20] if isinstance(d, str) and d] if isinstance(found, list) else []
@@ -160,49 +131,6 @@ def skills_of(folder: Path) -> list[Path]:
 
 
 # --- settings lists ------------------------------------------------------------------------------
-
-def hermes_text(text: str, folder: str, remove: bool) -> str:
-    """skills.external_dirs in config.yaml, as text: one `- path` line."""
-    item = f"    - {folder}\n"
-    block = connect._top_block(text, "skills")
-    if block is None:
-        if remove:
-            return text
-        return text + ("" if text.endswith("\n") or not text else "\n") + "skills:\n  external_dirs:\n" + item
-    start, end = block
-    body = text[start:end]
-    listed = re.search(r"^  external_dirs:[ \t]*\n((?:    - .*\n?)*)", body, re.MULTILINE)
-    if listed is None:
-        if remove:
-            return text
-        if re.search(r"^  external_dirs:", body, re.MULTILINE):
-            raise ValueError("skills.external_dirs is written in a form this cannot edit")
-        body = body.rstrip("\n") + "\n  external_dirs:\n" + item
-        return text[:start] + body + ("\n" if text[end:] and not body.endswith("\n") else "") + text[end:]
-    lines = [line for line in listed.group(1).splitlines(keepends=True) if line.strip()]
-    keep = [line for line in lines if line[6:].strip().strip("'\"") not in (folder, tilde(folder))]
-    if not remove:
-        keep.append(item)
-    if keep:
-        new_list = "  external_dirs:\n" + "".join(l if l.endswith("\n") else l + "\n" for l in keep)
-    else:
-        new_list = ""
-    body = body[:listed.start()] + new_list + body[listed.end():]
-    return text[:start] + body + text[end:]
-
-
-def pi_text(text: str, folder: str, remove: bool) -> str:
-    data = connect._json(text)
-    dirs = data.get("skills") if isinstance(data.get("skills"), list) else []
-    dirs = [d for d in dirs if not (isinstance(d, str) and str(expand(d)) == folder)]
-    if not remove:
-        dirs.append(folder)
-    if dirs:
-        data["skills"] = dirs
-    else:
-        data.pop("skills", None)
-    return connect._dump(data)
-
 
 # --- plan ---------------------------------------------------------------------------------------
 
@@ -280,9 +208,10 @@ def plan(agent: str, folder: str, remove: bool = False) -> connect.Plan:
 
 
 def _settings_change(agent: str, folder: str, remove: bool) -> list:
-    file = HOME / (".pi/agent/settings.json" if agent == "pi" else ".hermes/config.yaml")
+    skills = harnesses.get(agent).skills
+    file = expand(skills.settings_file)
     old = connect._read(file)
-    new = pi_text(old, folder, remove) if agent == "pi" else hermes_text(old, folder, remove)
+    new = skills.write(old, folder, remove)
     return [connect.Change(file, old, new)] if new != old else []
 
 

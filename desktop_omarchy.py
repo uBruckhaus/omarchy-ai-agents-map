@@ -297,6 +297,29 @@ def run_in_terminal(argv: list, env: dict | None = None) -> bool:
     return True
 
 
+def run_steps_in_terminal(steps: list) -> bool:
+    """Several fixed commands, one after the other while each succeeds, in one terminal window that
+    waits at the end. Every word must be plain (checked by the caller): the floating terminal runs
+    them as one line through bash."""
+    steps = [list(map(str, s)) for s in steps if s]
+    if not steps:
+        return False
+    floating = shutil.which(FLOATING_TERMINAL)
+    if floating:
+        launcher = [floating, " && ".join(" ".join(s) for s in steps)]
+    elif shutil.which("xdg-terminal-exec"):
+        import shlex
+        launcher = [shutil.which("xdg-terminal-exec"), "bash", "-c", " && ".join(shlex.join(s) for s in steps)]
+    else:
+        return False
+    try:
+        subprocess.Popen(launcher, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError:
+        return False
+    return True
+
+
 # --- texts that name the desktop -------------------------------------------------------------------
 
 def text(key: str) -> str:

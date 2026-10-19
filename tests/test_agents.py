@@ -105,5 +105,18 @@ class AgentsTest(unittest.TestCase):
             self.assertNotEqual(name, ".")
 
 
+
+class MiseLeftoverTest(unittest.TestCase):
+    def test_only_links_left_is_not_installed(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "installs" / "opencode"
+            folder.mkdir(parents=True)
+            (folder / "latest").symlink_to(folder / "2.0.32")           # mise uninstall --all leaves this
+            self.assertIsNone(agents.mise_install("opencode", Path(tmp)))
+            (folder / "2.0.32").mkdir()
+            self.assertEqual(agents.mise_install("opencode", Path(tmp)), folder)
+
+
 if __name__ == "__main__":
     unittest.main()

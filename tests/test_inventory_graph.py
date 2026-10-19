@@ -117,8 +117,8 @@ class GraphTest(unittest.TestCase):
         g = graph.build([pi, claude, missing], details, inv)
         self.assertEqual([n.label for n in g.column(1)], ["Pi", "Claude Code"])
         self.assertEqual({n.label for n in g.column(2)}, {"llama.cpp", "Anthropic"})
-        self.assertEqual({n.label for n in g.column(3)}, {"opus", "qwen", "gemma", "+ Model"})
-        self.assertEqual({n.label for n in g.column(0)}, {"photo", "~/.agents/skills", "+ MCP server", "+ Skills"})
+        self.assertEqual({n.label for n in g.column(3)}, {"opus", "qwen", "gemma"})
+        self.assertEqual({n.label for n in g.column(0)}, {"photo", "~/.agents/skills"})
         links = {(e.source, e.target, e.kind) for e in g.edges}
         self.assertIn(("agent:pi", "runtime:llamacpp", "uses"), links)
         self.assertIn(("agent:pi", "model:runtime:llamacpp:qwen", "default"), links)
@@ -130,12 +130,23 @@ class GraphTest(unittest.TestCase):
         inv.runtimes[0].models_dir = "~/Models"
         g = graph.build([pi, claude, missing], details, inv)
         groups = {n.label: n.group for n in g.column(3)}
-        self.assertEqual(groups, {"opus": "", "qwen": "~/Models", "gemma": "~/Models", "+ Model": "~/Models"})
-        add = next(n for n in g.column(3) if n.kind == "add-model")
-        self.assertEqual(add.owners, ("runtime:llamacpp",))
-        # The folder's "+ Model" box goes with its last local LLM.
-        self.assertIn(add.id, graph.hidden_by_layers(g, set(graph.LAYERS), {"runtime:llamacpp"}))
-        self.assertNotIn("+ MCP server", [n.label for n in graph.listable(g, 0)])
+        self.assertEqual(groups, {"opus": "", "qwen": "~/Models", "gemma": "~/Models"})
+
+    def test_only_what_is_set_up(self):
+        """The map has no places to add things: no local LLM that is not installed, no MCP server
+        no agent uses, no "+" boxes (My setup adds and removes)."""
+        claude = agents.Agent(command="claude", name="Claude Code", icon="c", installed=True)
+        inv = invmod.Inventory(
+            runtimes=[invmod.Runtime("ollama", "Ollama", True, False, models=["gemma"], models_dir="/m"),
+                      invmod.Runtime("jan", "Jan", False, False)],
+            mcp=[invmod.McpServer("github", "command", "gh", ["claude"]), invmod.McpServer("old", "command", "x", [])],
+            agent_mcp={"claude": ["github"]})
+        ids = {n.id for n in graph.build([claude], {"claude": ad.Details(model="opus")}, inv).nodes}
+        self.assertIn("runtime:ollama", ids)
+        self.assertIn("mcp:github", ids)
+        self.assertNotIn("runtime:jan", ids)
+        self.assertNotIn("mcp:old", ids)
+        self.assertFalse([i for i in ids if i.startswith("add:")])
 
     def test_running_instances(self):
         """An open agent gets a green dot; the model it runs with says who uses it now."""
@@ -165,8 +176,8 @@ class GraphTest(unittest.TestCase):
         self.assertEqual({n.id: n for n in g.nodes}["model:cloud:anthropic:sonnet"].status, "running")
 
     def test_idle_folders_folded(self):
-        """A model folder none of whose models an agent uses or runs is idle (My setup folds
-        it behind one box); one whose model an open agent runs is not."""
+        """A model folder none of whose models an agent uses or runs is idle (the health check
+        names it); one whose model an open agent runs is not."""
         pi = agents.Agent(command="pi", name="Pi", icon="p", installed=True)
         details = {"pi": ad.Details(model="qwen (local)", providers=[ad.Provider("local", True, "llama.cpp", 2)])}
         inv = invmod.Inventory(runtimes=[
@@ -174,20 +185,12 @@ class GraphTest(unittest.TestCase):
                            models_dir="/m/llama"),
             invmod.Runtime("ollama", "Ollama", True, False, address="127.0.0.1:11434", models=["gemma"],
                            models_dir="/m/ollama")])
-        labels = {"folders": "+{0} folders".format}
-        g = graph.build([pi], details, inv, labels)
-        idle = graph.idle_folders(g)
-        self.assertEqual(idle, {"/m/ollama": {"model:runtime:ollama:gemma", "add:model:/m/ollama"}})
-        box = next(n for n in g.nodes if n.id == graph.FOLDERS_BOX)
-        self.assertEqual((box.label, box.column, box.kind), ("+1 folders", 3, "add-folders"))
-        self.assertNotIn(box, graph.listable(g, 3))
-        # An open Pi runs gemma from Ollama right now: nothing idle, no box.
+        g = graph.build([pi], details, inv)
+        self.assertEqual(graph.idle_folders(g), {"/m/ollama": {"model:runtime:ollama:gemma"}})
+        # An open Pi runs gemma from Ollama right now: nothing idle.
         details["pi"].providers.append(ad.Provider("ollama", True, "Ollama", 1))
-        g = graph.build([pi], details, inv, labels, running={"pi": ["gemma (ollama)"]})
+        g = graph.build([pi], details, inv, running={"pi": ["gemma (ollama)"]})
         self.assertEqual(graph.idle_folders(g), {})
-        self.assertNotIn(graph.FOLDERS_BOX, {n.id for n in g.nodes})
-        # Without the label (callers that do not fold) no box is added.
-        self.assertNotIn(graph.FOLDERS_BOX, {n.id for n in graph.build([pi], details, inv).nodes})
 
     def test_split_model(self):
         self.assertEqual(graph.split_model("qwen (llama-local)"), ("qwen", "llama-local"))

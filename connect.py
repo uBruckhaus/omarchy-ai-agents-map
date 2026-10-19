@@ -29,14 +29,29 @@ import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import harnesses
+import providers
+
 HOME = Path.home()
 BACKUP_ROOT = HOME / ".local/state/ai-agents-map/backups"
-KEYS = {"llamacpp": "llama-local", "ollama": "ollama-local", "lmstudio": "lmstudio-local", "vllm": "vllm-local",
-        "jan": "jan-local", "koboldcpp": "koboldcpp-local"}
-LABELS = {"llamacpp": "llama.cpp (local)", "ollama": "Ollama (local)", "lmstudio": "LM Studio (local)",
-          "vllm": "vLLM (local)", "jan": "Jan (local)", "koboldcpp": "KoboldCpp (local)"}
-SUPPORTED = ("hermes", "pi", "opencode", "dsh")
-FIXED = {"bionic": "lmstudio"}   # agents tied to one local LLM (nothing to set up, nothing else possible)
+
+
+def _rebuild():
+    """Tables from the adapters (run again when add-ons add or remove some)."""
+    global KEYS, LABELS, SUPPORTED, FIXED
+    # The provider id and label agents get for each local LLM (providers.py).
+    KEYS = providers.connect_keys()
+    LABELS = providers.connect_labels()
+    # Agents that can be pointed at a local LLM, and agents tied to one (nothing to set up, nothing
+    # else possible) (harnesses.py).
+    SUPPORTED = tuple(h.command for h in harnesses.all_harnesses() if h.local_llm)
+    FIXED = {h.command: h.fixed_provider for h in harnesses.all_harnesses() if h.fixed_provider}
+
+
+_rebuild()
+providers.on_change(_rebuild)
+harnesses.on_change(_rebuild)
+
 MAX_BYTES = 2 * 1024 * 1024
 RETIRED_DAYS = 7          # an app's old version, moved into a backup on update, is deleted after this
 
@@ -129,7 +144,7 @@ def _dump(data: dict) -> str:
     return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 
-# --- Hermes (YAML, edited as text: only our block changes) ---------------------------
+# --- YAML edited as text (Hermes): find a top-level block, so only our block changes ------------
 
 def _top_block(text: str, key: str):
     """(start, end) of a top-level `key:` block in YAML text, or None."""
@@ -143,170 +158,54 @@ def _top_block(text: str, key: str):
     return match.start(), len(text)
 
 
-def hermes_text(text: str, provider: str, label: str, url: str, models: list, context: dict,
-                model: str, use_now: bool, remove: bool = False) -> str:
-    entry = [f"  {provider}:", f"    name: {label}", f"    api: {url}", "    api_key: local",
-             f"    default_model: {model}", "    discover_models: false", "    models:"]
-    for name in models:
-        if context.get(name):
-            entry += [f"      {name}:", f"        context_length: {context[name]}"]
-        else:
-            entry.append(f"      {name}: {{}}")
-    entry_text = "\n".join(entry) + "\n"
-
-    block = _top_block(text, "providers")
-    if block is None:
-        if not remove:
-            text = text + ("" if text.endswith("\n") or not text else "\n") + "providers:\n" + entry_text
-    else:
-        start, end = block
-        body = text[start:end]
-        header, _nl, rest = body.partition("\n")
-        # Our entry: from "  <provider>:" to the next two-space key.
-        rest = re.sub(rf"^  {re.escape(provider)}:.*\n(?:(?:    |\t\t).*\n?|\s*\n)*", "", rest, flags=re.MULTILINE)
-        if not remove:
-            rest = rest.rstrip("\n") + ("\n" if rest.strip() else "") + entry_text
-        header = "providers:" if header.strip() in ("providers: {}", "providers:{}") else header
-        new_body = header + "\n" + rest if rest.strip() else ("" if remove else header + "\n")
-        text = text[:start] + new_body + text[end:]
-
-    if use_now and not remove:
-        block = _top_block(text, "model")
-        lines = [f"  default: {model}", f"  provider: {provider}", "  base_url: ''"]
-        if block is None:
-            text = "model:\n" + "\n".join(lines) + "\n" + text
-        else:
-            start, end = block
-            body = text[start:end]
-            for line in lines:
-                key = line.split(":", 1)[0].strip()
-                if re.search(rf"^  {key}:", body, re.MULTILINE):
-                    body = re.sub(rf"^  {key}:.*$", line, body, count=1, flags=re.MULTILINE)
-                else:
-                    body = body.rstrip("\n") + "\n" + line + "\n"
-            text = text[:start] + body + text[end:]
-    return text
-
-
-# --- Pi (JSON) -----------------------------------------------------------------------------
-
-def pi_texts(models_text: str, settings_text: str, provider: str, url: str, models: list, context: dict,
-             model: str, use_now: bool, remove: bool = False) -> tuple[str, str]:
-    data = _json(models_text)
-    providers = data.setdefault("providers", {})
-    if remove:
-        providers.pop(provider, None)
-    else:
-        entries = []
-        for name in models:
-            item = {"id": name, "name": name}
-            if context.get(name):
-                item["contextWindow"] = context[name]
-            entries.append(item)
-        providers[provider] = {"baseUrl": url, "api": "openai-completions", "apiKey": "local", "models": entries}
-    settings = _json(settings_text)
-    if remove:
-        if settings.get("defaultProvider") != provider:
-            return _dump(data), settings_text
-        # The default would point at a provider that is gone.
-        settings.pop("defaultProvider")
-        settings.pop("defaultModel", None)
-        return _dump(data), _dump(settings)
-    if use_now:
-        settings["defaultProvider"] = provider
-        settings["defaultModel"] = model
-    return _dump(data), (_dump(settings) if use_now else settings_text)
-
-
-# --- OpenCode (JSON) ---------------------------------------------------------------------------
-
-def opencode_text(text: str, provider: str, label: str, url: str, models: list, model: str,
-                  use_now: bool, remove: bool = False) -> str:
-    data = _json(text)
-    providers = data.setdefault("provider", {})
-    if remove:
-        providers.pop(provider, None)
-        if not providers:
-            data.pop("provider")
-        # Its model would point at a provider that is gone: OpenCode falls back to its own default.
-        if str(data.get("model", "")).startswith(provider + "/"):
-            data.pop("model")
-    else:
-        providers[provider] = {"npm": "@ai-sdk/openai-compatible", "name": label, "options": {"baseURL": url},
-                               "models": {name: {"name": name} for name in models}}
-        if use_now:
-            data["model"] = f"{provider}/{model}"
-    return _dump(data)
-
-
 # --- plan / apply / undo -------------------------------------------------------------------------
 
+def _llm(agent: str):
+    h = harnesses.get(agent)
+    return h.local_llm if h is not None else None
+
+
 def paths_for(agent: str) -> list[Path]:
-    return {"hermes": [HOME / ".hermes/config.yaml"],
-            "pi": [HOME / ".pi/agent/models.json", HOME / ".pi/agent/settings.json"],
-            "opencode": [HOME / ".config/opencode/opencode.json"],
-            "dsh": [HOME / ".dsh/profiles/web/cordis.patch.yml"]}.get(agent, [])
+    """The settings files a connection to a local LLM is written to (harnesses.LocalLlm.files)."""
+    llm = _llm(agent)
+    return [HOME / f[2:] if f.startswith("~/") else Path(f) for f in llm.files] if llm is not None else []
 
 
 def is_connected(agent: str, runtime: str) -> bool:
     provider = KEYS.get(runtime, "")
+    llm = _llm(agent)
+    if llm is None:
+        return False
     try:
-        if agent == "hermes":
-            block = _top_block(_read(paths_for(agent)[0]), "providers")
-            return bool(block) and re.search(rf"^  {re.escape(provider)}:", _read(paths_for(agent)[0])[block[0]:block[1]],
-                                             re.MULTILINE) is not None
-        if agent == "pi":
-            return provider in _json(_read(paths_for(agent)[0])).get("providers", {})
-        if agent == "opencode":
-            return provider in _json(_read(paths_for(agent)[0])).get("provider", {})
-        if agent == "dsh":
-            import dsh_ctl
-            return provider in dsh_ctl.providers(_read(paths_for(agent)[0]))
+        return bool(llm.connected([_read(p) for p in paths_for(agent)], provider))
     except (OSError, ValueError):
         return False
     except Exception:          # a dsh patch PyYAML cannot read
         return False
-    return False
 
 
 def _transform(agent: str, texts: list, runtime, model: str, use_now: bool, remove: bool, context: dict) -> list:
     provider = KEYS[runtime.key]
     url = base_url(runtime.address)
     models = chat_models(runtime.models) or ([model] if model else [])
-    if agent == "hermes":
-        return [hermes_text(texts[0], provider, LABELS[runtime.key], url, models, context, model, use_now, remove)]
-    if agent == "pi":
-        return list(pi_texts(texts[0], texts[1], provider, url, models, context, model, use_now, remove))
-    if agent == "dsh":
-        import dsh_ctl
-        return [dsh_ctl.connect_text(texts[0], provider, LABELS[runtime.key], url, models, context, model,
-                                     use_now, remove)]
-    return [opencode_text(texts[0], provider, LABELS[runtime.key], url, models, model, use_now, remove)]
+    return list(_llm(agent).transform(texts, provider, LABELS[runtime.key], url, models, context, model, use_now,
+                                      remove))
 
 
 def is_active(agent: str, runtime: str) -> bool:
     """The agent uses this runtime's provider right now (its current model)."""
     provider = KEYS.get(runtime, "")
+    if agent in FIXED:
+        return FIXED[agent] == runtime
+    llm = _llm(agent)
+    if llm is None:
+        return False
     try:
-        if agent == "hermes":
-            text = _read(paths_for(agent)[0])
-            block = _top_block(text, "model")
-            return bool(block) and re.search(rf"^  provider:\s*{re.escape(provider)}\s*$", text[block[0]:block[1]],
-                                             re.MULTILINE) is not None
-        if agent == "pi":
-            return _json(_read(paths_for(agent)[1])).get("defaultProvider") == provider
-        if agent == "opencode":
-            return str(_json(_read(paths_for(agent)[0])).get("model", "")).startswith(provider + "/")
-        if agent == "dsh":
-            import dsh_ctl
-            return dsh_ctl.default_model(_read(paths_for(agent)[0]))[0] == provider
-        if agent in FIXED:
-            return FIXED[agent] == runtime
+        return bool(llm.active([_read(p) for p in paths_for(agent)], provider))
     except (OSError, ValueError):
         return False
     except Exception:          # a dsh patch PyYAML cannot read
         return False
-    return False
 
 
 def plan(agent: str, runtime, model: str, use_now: bool, remove: bool = False, context: dict | None = None,

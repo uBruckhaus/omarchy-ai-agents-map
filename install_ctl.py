@@ -30,7 +30,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import ai_core
+import harnesses
 import netfetch
+import providers
 
 HOME = Path.home()
 BIN_DIR = HOME / ".local/bin"
@@ -584,6 +586,12 @@ class Installer:
             _systemctl("daemon-reload")
         (BIN_DIR / self.command).unlink(missing_ok=True)
         models = Path(self.models_folder()) if self.models_folder() else None
+        if models is not None:
+            # Its settings go now; a reinstall offers this folder first (models_suggestions).
+            kept = ai_core.load_settings().get("removed_models_folders")
+            kept = dict(kept) if isinstance(kept, dict) else {}
+            kept[self.key] = str(models)
+            ai_core.update_settings(removed_models_folders=kept)
         if self.env_file != HOME:
             self.env_file.unlink(missing_ok=True)
         self.unconfigure()
@@ -1084,8 +1092,6 @@ Terminal=false
         self.desktop.unlink(missing_ok=True)
 
 
-INSTALLERS = {"ollama": Ollama(), "llamacpp": LlamaCpp(), "lmstudio": LmStudio(), "vllm": Vllm(),
-              "jan": Jan(), "koboldcpp": KoboldCpp()}
 class Dsh(Installer):
     """DeepSeek Harness from npm into a version folder (npm install --prefix,
     install scripts off: no package code runs while installing), `dsh` in
@@ -1161,7 +1167,17 @@ class Agy(Installer):
         return Release(f"v{version}", [(name, url, 0)], {name: sha512})
 
 
-AGENT_INSTALLERS = {"bionic": Bionic(), "dsh": Dsh(), "agy": Agy()}   # agents installed the same way (not local LLMs)
+def _rebuild():
+    """One installer per local LLM (providers.py) and per agent this app installs itself
+    (harnesses.py); run again when add-ons add or remove some."""
+    global INSTALLERS, AGENT_INSTALLERS
+    INSTALLERS = {p.key: p.installer() for p in providers.local() if p.installer is not None}
+    AGENT_INSTALLERS = {h.command: h.installer() for h in harnesses.all_harnesses() if h.installer is not None}
+
+
+_rebuild()
+providers.on_change(_rebuild)
+harnesses.on_change(_rebuild)
 
 
 def installer(key: str):
@@ -1191,11 +1207,22 @@ def folder_suggestions(key: str, runtimes) -> list[Path]:
     return list(dict.fromkeys(found))
 
 
-def models_suggestions(runtimes, program_folder: Path | None = None) -> list[Path]:
-    """Model folders already in use (the shared one first), then one in the program folder."""
+def models_suggestions(runtimes, program_folder: Path | None = None, key: str = "") -> list[Path]:
+    """The runtime's own earlier model folder (still there), then model folders already in use (the
+    shared one first), then one in the program folder."""
     roots = [_models_root(Path(os.path.expanduser(rt.models_dir))) for rt in runtimes if rt.models_dir]
     roots.sort(key=lambda r: (-roots.count(r), str(r).startswith(str(HOME) + "/.")))
-    found = list(roots)
+    own = []
+    if key:
+        kept = ai_core.load_settings().get("removed_models_folders")
+        before = kept.get(key) if isinstance(kept, dict) else None
+        if isinstance(before, str) and before.startswith("/"):
+            own.append(Path(before))
+        # Where Reorganize (model_layout) puts the runtime's models in the shared root.
+        sub = {"ollama": "ollama", "llamacpp": "llama.cpp", "koboldcpp": "llama.cpp"}.get(key)
+        if sub:
+            own += [r / sub for r in dict.fromkeys(roots)]
+    found = [p for p in own if p.is_dir() and not p.is_symlink()] + roots
     if program_folder is not None:
         found.append(program_folder / "models")
     return list(dict.fromkeys(found))

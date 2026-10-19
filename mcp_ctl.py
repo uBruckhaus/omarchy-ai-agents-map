@@ -20,13 +20,31 @@ from pathlib import Path
 
 import agent_profiles
 import connect
+import harnesses
 
 HOME = Path.home()
-SUPPORTED = ("claude", "codex", "copilot", "crush", "cursor-agent", "gemini", "grok", "hermes", "muse", "omp",
-             "openclaw", "opencode", "pi", "dsh")
-# Agents whose MCP servers are set up only in their own app (no settings file to write).
-IN_APP = {"bionic": "Settings › Connected apps"}
+
+
+def _rebuild():
+    """Tables from the adapters (run again when add-ons add or remove some)."""
+    global SUPPORTED, IN_APP
+    # Where each agent keeps its MCP servers and how an entry looks there (Harness.mcp); agents whose
+    # servers are set up only in their own app are IN_APP.
+    SUPPORTED = tuple(h.command for h in harnesses.all_harnesses() if h.mcp is not None and not h.mcp.in_app)
+    IN_APP = {h.command: h.mcp.in_app for h in harnesses.all_harnesses() if h.mcp is not None and h.mcp.in_app}
+
+
+_rebuild()
+harnesses.on_change(_rebuild)
+
+LMSTUDIO_FILE = HOME / ".lmstudio/mcp.json"     # LM Studio (a local LLM) keeps MCP servers too
 NAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+
+
+def _spec(agent: str):
+    """The agent's harnesses.Mcp, or None (unknown agent, or set up in its own app)."""
+    h = harnesses.get(agent)
+    return h.mcp if h is not None and h.mcp is not None and not h.mcp.in_app else None
 
 
 def supported(agent: str) -> bool:
@@ -39,23 +57,14 @@ def _expand(path: str) -> Path:
 
 
 def paths_for(agent: str) -> list[Path]:
-    if agent not in SUPPORTED and agent != "lmstudio":
+    if agent == "lmstudio":
+        return [LMSTUDIO_FILE]
+    spec = _spec(agent)
+    if spec is None:
         profile = agent_profiles.mcp_profile(agent)
         return [_expand(profile["file"])] if profile else []
-    return {"codex": [HOME / ".codex/config.toml"],
-            "copilot": [HOME / ".copilot/mcp-config.json"],
-            "cursor-agent": [HOME / ".cursor/mcp.json"],
-            "gemini": [HOME / ".gemini/settings.json"],
-            "hermes": [HOME / ".hermes/config.yaml"],
-            "opencode": [HOME / ".config/opencode/opencode.json"],
-            "pi": [HOME / ".pi/agent/mcp.json"],
-            "omp": [HOME / ".omp/agent/mcp.json"],
-            "crush": [HOME / ".config/crush/crush.json"],
-            "grok": [HOME / ".grok/config.toml"],
-            "muse": [HOME / ".config/muse/settings.json"],
-            "openclaw": [HOME / ".openclaw/openclaw.json"],
-            "lmstudio": [HOME / ".lmstudio/mcp.json"],
-            "dsh": [HOME / ".dsh/profiles/web/cordis.patch.yml"]}.get(agent, [])
+    # Claude Code's file is changed only through _claude_json_change (never shown as a plain path).
+    return [] if spec.format == "claude" else [_expand(spec.path)]
 
 
 # --- reading: every agent's entries as one shape -------------------------------------------
@@ -124,40 +133,33 @@ def _profile_entries(profile: dict):
 
 def raw_entries(agent: str) -> dict:
     """name -> the agent's own entry (as stored), enabled or not."""
-    if agent not in SUPPORTED and agent != "lmstudio":
+    spec = _spec(agent)
+    if agent == "lmstudio":
+        found = _read_json(LMSTUDIO_FILE).get("mcpServers")
+    elif spec is None:
         profile = agent_profiles.mcp_profile(agent)
         found = _profile_entries(profile) if profile else None
-    elif agent == "claude":
-        found = _read_json(HOME / ".claude.json", 8 * 1024 * 1024).get("mcpServers")
-    elif agent in ("codex", "grok"):
+    elif spec.format == "claude":
+        found = _read_json(_expand(spec.path), 8 * 1024 * 1024).get(spec.key)
+    elif spec.format == "toml":
         import tomllib
         try:
-            found = tomllib.loads(connect._read(paths_for(agent)[0])).get("mcp_servers")
+            found = tomllib.loads(connect._read(_expand(spec.path))).get(spec.key)
         except (OSError, ValueError):
             found = None
-    elif agent == "dsh":
+    elif spec.read is not None:
         try:
-            import dsh_ctl
-            found = dsh_ctl.mcp_servers(connect._read(paths_for(agent)[0]))
-        except Exception:       # no PyYAML, or a patch it cannot read
+            found = spec.read(connect._read(_expand(spec.path)))
+        except Exception:       # a format its reader cannot read (e.g. no PyYAML)
             found = None
-    elif agent == "hermes":
+    elif spec.format == "yaml":
         try:
             import yaml
-            found = (yaml.safe_load(connect._read(paths_for(agent)[0])) or {}).get("mcp_servers")
+            found = (yaml.safe_load(connect._read(_expand(spec.path))) or {}).get(spec.key)
         except Exception:       # no PyYAML, or a file it cannot read
             found = None
-    elif agent in ("opencode", "crush"):
-        found = _read_json(paths_for(agent)[0]).get("mcp")
-    elif agent == "muse":
-        found = _read_json(paths_for(agent)[0]).get("mcp_servers")
-    elif agent == "openclaw":
-        mcp = _read_json(paths_for(agent)[0]).get("mcp")
-        found = mcp.get("servers") if isinstance(mcp, dict) else None
-    elif paths_for(agent):
-        found = _read_json(paths_for(agent)[0]).get("mcpServers")
-    else:
-        found = None
+    else:                       # json, openclaw: a (dotted) key in a JSON file
+        found = _dig(_read_json(_expand(spec.path)), spec.key)
     return {str(k): v for k, v in found.items() if isinstance(v, dict)} if isinstance(found, dict) else {}
 
 
@@ -200,26 +202,27 @@ def from_profile(profile: dict, e: dict) -> dict:
 
 def native(agent: str, e: dict) -> dict:
     stdio = e["transport"] == "stdio"
-    if agent not in SUPPORTED:
+    spec = _spec(agent)
+    if spec is None:
         return from_profile(agent_profiles.mcp_profile(agent), e)
-    if agent == "dsh":
-        import dsh_ctl
-        return dsh_ctl.mcp_config(e)
-    if agent in ("muse", "openclaw", "crush"):
+    if spec.native is not None:
+        return spec.native(e)
+    shape = spec.shape
+    if shape in ("muse", "openclaw", "crush"):
         if stdio:
             item = {"command": e["command"], "args": e["args"]}
             if e["env"]:
                 item["env"] = e["env"]
-            kind = {"muse": "transport", "openclaw": "", "crush": "type"}[agent]
+            kind = {"muse": "transport", "openclaw": "", "crush": "type"}[shape]
             return {kind: "stdio", **item} if kind else item
-        remote = {"muse": "streamable_http", "openclaw": "streamable-http", "crush": "http"}[agent]
+        remote = {"muse": "streamable_http", "openclaw": "streamable-http", "crush": "http"}[shape]
         if e["transport"] == "sse":
             remote = "sse"
-        item = {"transport" if agent != "crush" else "type": remote, "url": e["url"]}
+        item = {"transport" if shape != "crush" else "type": remote, "url": e["url"]}
         if e["headers"]:
             item["headers"] = e["headers"]
         return item
-    if agent == "opencode":
+    if shape == "opencode":
         if stdio:
             item = {"type": "local", "command": [e["command"], *e["args"]], "enabled": True}
             if e["env"]:
@@ -233,20 +236,20 @@ def native(agent: str, e: dict) -> dict:
         item = {"command": e["command"], "args": e["args"]}
         if e["env"]:
             item["env"] = e["env"]
-        if agent == "claude":
+        if shape == "claude":
             item = {"type": "stdio", **item, "env": e["env"]}
-        elif agent == "copilot":
+        elif shape == "copilot":
             item = {"type": "local", **item, "tools": ["*"]}
         return item
-    if agent == "gemini":
+    if shape == "gemini":
         item = {"httpUrl" if e["transport"] == "http" else "url": e["url"]}
-    elif agent in ("claude", "copilot", "omp"):
+    elif shape in ("claude", "copilot", "omp"):
         item = {"type": e["transport"], "url": e["url"]}
     else:
         item = {"url": e["url"]}
     if e["headers"]:
-        item["http_headers" if agent == "codex" else "headers"] = e["headers"]
-    if agent == "copilot":
+        item["http_headers" if shape == "codex" else "headers"] = e["headers"]
+    if shape == "copilot":
         item["tools"] = ["*"]
     return item
 
@@ -328,27 +331,6 @@ def hermes_text(text: str, name: str, item: dict | None, key: str = "mcp_servers
     return text[:start] + new_body + text[end:]
 
 
-def openclaw_text(text: str, name: str, item: dict | None) -> str:
-    """mcp.servers in ~/.openclaw/openclaw.json. The file may be JSON5 (comments):
-    then it is left alone and `openclaw mcp set` is the way."""
-    try:
-        data = connect._json(text)
-    except ValueError as error:
-        raise ValueError("~/.openclaw/openclaw.json is JSON5: use `openclaw mcp set`") from error
-    mcp = data.setdefault("mcp", {})
-    if not isinstance(mcp, dict):
-        raise ValueError("mcp is not an object")
-    servers_text = _json_text(json.dumps({"servers": mcp.get("servers", {})}), "servers", name, item)
-    servers = json.loads(servers_text).get("servers")
-    if servers:
-        mcp["servers"] = servers
-    else:
-        mcp.pop("servers", None)
-        if not mcp:
-            data.pop("mcp")
-    return connect._dump(data)
-
-
 def check_entry(entry: dict) -> dict:
     """A new server's entry (from the form, the scan or the registry), checked."""
     transport = entry.get("transport")
@@ -417,7 +399,8 @@ def plan(agent: str, name: str, sources=(), remove: bool = False, entry: dict | 
             raise ValueError(f"no agent has {name} set up")
         result.secrets = _secrets(entry)
         result.source = _source
-    if agent == "claude":
+    spec = _spec(agent)
+    if spec is not None and spec.format == "claude":
         # Never through `claude mcp add-json`: other accounts can read argv in
         # /proc/<pid>/cmdline, and keys hide in env, headers, args and the url.
         result.changes = _claude_json_change(name, None if remove else native("claude", entry))
@@ -425,7 +408,7 @@ def plan(agent: str, name: str, sources=(), remove: bool = False, entry: dict | 
     path = paths_for(agent)[0]
     old_text = connect._read(path)
     item = None if remove else native(agent, entry)
-    profile = agent_profiles.mcp_profile(agent) if agent not in SUPPORTED else None
+    profile = agent_profiles.mcp_profile(agent) if spec is None else None
     if profile is not None:
         if profile["format"] == "json":
             new_text = _json_dotted(old_text, profile["key"], name, item)
@@ -433,24 +416,14 @@ def plan(agent: str, name: str, sources=(), remove: bool = False, entry: dict | 
             new_text = codex_text(old_text, name, item, profile["key"])
         else:
             new_text = hermes_text(old_text, name, item, profile["key"])
-    elif agent in ("codex", "grok"):
-        if agent == "grok" and item and "http_headers" in item:
-            item["headers"] = item.pop("http_headers")
-        new_text = codex_text(old_text, name, item)
-    elif agent == "muse":
-        new_text = _json_text(old_text, "mcp_servers", name, item)
-        data = connect._json(new_text)
-        if "schema_version" not in data:      # Muse refuses a settings file without it
-            new_text = connect._dump({"schema_version": 1, **data})
-    elif agent == "openclaw":
-        new_text = openclaw_text(old_text, name, item)
-    elif agent == "hermes":
-        new_text = hermes_text(old_text, name, item)
-    elif agent == "dsh":
-        import dsh_ctl
-        new_text = dsh_ctl.mcp_text(old_text, name, item)
+    elif spec.format == "toml":
+        new_text = codex_text(old_text, name, item, spec.key)
+    elif spec.write is not None:
+        new_text = spec.write(old_text, name, item)
+    elif spec.format == "yaml":
+        new_text = hermes_text(old_text, name, item, spec.key)
     else:
-        new_text = _json_text(old_text, "mcp" if agent in ("opencode", "crush") else "mcpServers", name, item)
+        new_text = _json_text(old_text, spec.key, name, item)
     if new_text != old_text:
         result.changes = [connect.Change(path, old_text, new_text)]
     return result
