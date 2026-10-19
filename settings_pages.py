@@ -429,11 +429,6 @@ class SettingsPages:
         self.combo_row(group, _("Corners"), self.corners_tip(), [like, _("Rounded"), _("Square")],
                        corners.CHOICES.index(ai_core.saved_corners()),
                        lambda i: (self.save_setting(corners=corners.CHOICES[i]), self.apply_theme_css()))
-        self.combo_row(group, _("Sidebar"),
-                       _("Cards: a box per agent, local LLM, MCP server and skill folder. Tree: the same as a compact "
-                         "tree; an opened entry shows its facts and its buttons (arrow keys open and close)."),
-                       [_("Cards"), _("Tree")], 1 if self.sidebar_tree() else 0,
-                       lambda i: self.set_sidebar_style("tree" if i == 1 else "cards"))
         if desktop.NAME == "omarchy":
             look = self.combo_row(group, _("Look"),
                            _("The colours, light or dark: from the Omarchy theme, or GNOME's Adwaita (light or dark "
@@ -469,13 +464,13 @@ class SettingsPages:
                         self.agent_folder(), self.save_agent_folder)
         models_group = self.preference_group(side, _("Models"))
         if desktop.NAME == "omarchy":
-            # Hyprland tiles the window: what "Maximize to see the map" does, with its sketch below
+            # Hyprland tiles the window: what "Maximize for more room" does, with its sketch below
             # (last in the group: libadwaita puts what is not a row after the list).
             group = self.preference_group(side, _("Window"))
             modes = previews.WIDEN_MODES
             self.combo_row(group, _("Too narrow for the map"),
-                           _("What “Maximize to see the map” in the header does when the window is tiled too narrow "
-                             "for the map beside the cards."),
+                           _("What “Maximize for more room” in the header does when the window is tiled too narrow "
+                             "for the whole map."),
                            [_("Move to a free workspace"), _("Maximize where it is"), _("No hint")],
                            modes.index(self.widen_mode()), lambda i: self.set_widen_mode(modes[i]))
             preview = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, margin_top=8)

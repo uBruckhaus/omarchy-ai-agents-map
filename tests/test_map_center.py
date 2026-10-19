@@ -50,11 +50,12 @@ class ColumnTopTest(unittest.TestCase):
         self.assertEqual(view.column_top(100, 2000), 400 + P + (300 - 2 * P - 100) / 2)
 
 
-    def test_tall_agents_column_sits_in_the_middle_of_the_map(self):
-        view = Centring(0, 600)
-        self.assertEqual(view.column_top(800, 2000), H)
-        self.assertEqual(view.column_top(800, 2000, hub=True), (H + 2000 - P - 800) / 2)
-        self.assertEqual(view.column_top(2000 - P - H, 2000, hub=True), H)
+    def test_tall_agents_column_follows_the_view(self):
+        self.assertEqual(Centring(0, 600).column_top(800, 2000), H)
+        self.assertEqual(Centring(0, 600).column_top(800, 2000, hub=True), H)      # top: under the heading
+        middle = Centring(700, 600).column_top(800, 2000, hub=True)                 # scrolled: centred on the view
+        self.assertAlmostEqual(middle + 400, 700 + 300, delta=1)
+        self.assertEqual(Centring(1400, 600).column_top(800, 2000, hub=True), 2000 - P - 800)   # end: inside the map
 
 
 if __name__ == "__main__":

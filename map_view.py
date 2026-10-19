@@ -54,6 +54,8 @@ NODE_W_MAX = 260
 NODE_W_MIN = 120
 PIN_W = 14               # the pin's square at a box's top right
 PIN, PIN_OUTLINE = "\U000F0403", "\U000F0931"   # Nerd Font pin, pin-outline
+PLAY, CONSOLE = "\U000F040A", "\U000F018D"      # Nerd Font play, console: an agent's start button
+START_W = 18             # the start button's square, left of where the pin and the tick go
 # The categories whose boxes each column holds (a column with none of them on is gone).
 # Categories: selecting in one hides that category's other boxes.
 CATEGORY = {"agent": "agent", "cloud": "provider", "runtime": "provider", "model": "model", "more": "model",
@@ -96,6 +98,10 @@ class MapView(Gtk.DrawingArea):
         self.pinned = []         # node ids whose connections stay lit, whatever the pointer is over
         self.pin_rects = {}      # node id -> rectangle of its pin, for clicks
         self.pin_tips = ("Pin", "Unpin")   # tooltips (pin, unpin), translated by the window
+        self.start_rects = {}    # agent box id -> rectangle of its start button, for clicks
+        self.start_state = None  # start_state(node id) -> "start", "show" (runs here) or "" (no button)
+        self.on_start = None     # on_start(node id): start it, or show its terminal
+        self.start_tips = ("Start", "Show terminal")   # translated by the window
         self.group_rects = {}    # model folder -> rectangle of its group in the models column
         self.move_target_ok = None  # callback(model id, folder) -> bool: may the model go there
         self.on_move = None      # callback(model id, folder, (x, y, w, h)): a model dropped on a folder
@@ -307,12 +313,13 @@ class MapView(Gtk.DrawingArea):
     def column_top(self, column_height: float, height: float, hub: bool = False) -> float:
         """A column that fits the view sits in its middle (below the headings while they
         show); a taller one starts under its heading and scrolls with the map. The agents
-        (hub) are always centred: taller than the view, in the middle of the whole map."""
+        (hub) are always centred on the view: taller than it, their middle follows the view's
+        middle while scrolling, kept inside the map (so at the top they start under the heading)."""
         top, visible = self.visible_rows(height)
         area_top = max(HEADER_H, top + PAD)
         area_h = top + visible - PAD - area_top
-        if column_height > area_h:
-            return max(HEADER_H, (HEADER_H + height - PAD - column_height) / 2) if hub else HEADER_H
+        if column_height > area_h and not hub:
+            return HEADER_H
         y = area_top + (area_h - column_height) / 2
         return max(HEADER_H, min(y, height - PAD - column_height))
 
@@ -607,11 +614,21 @@ class MapView(Gtk.DrawingArea):
         pin = self.pin_at(x, y)
         if pin is not None:
             self.set_tooltip_text(self.pin_tips[1 if pin in self.pinned else 0])
+        start = self.start_at(x, y)
+        if start is not None and self.start_state is not None:
+            self.set_tooltip_text(self.start_tips[1 if self.start_state(start) == "show" else 0])
 
     def pin_at(self, x, y):
         """The node whose pin is at (x, y) in map units, or None."""
         for node_id, (px, py, pw, ph) in self.pin_rects.items():
             if px <= x <= px + pw and py <= y <= py + ph:
+                return node_id
+        return None
+
+    def start_at(self, x, y):
+        """The agent box whose start button is at (x, y) in map units, or None."""
+        for node_id, (sx, sy, sw, sh) in self.start_rects.items():
+            if sx <= x <= sx + sw and sy <= y <= sy + sh:
                 return node_id
         return None
 
@@ -701,6 +718,10 @@ class MapView(Gtk.DrawingArea):
         pin = self.pin_at(x, y)
         if pin is not None:
             self.toggle_pin(pin)
+            return
+        start = self.start_at(x, y)
+        if start is not None and self.on_start is not None:
+            self.on_start(start)
             return
         node_id = self.node_at(x, y)
         edge = self.edge_at(x, y) if node_id is None else None
@@ -1032,6 +1053,7 @@ class MapView(Gtk.DrawingArea):
                                    self.running_agents() | {key for key, _edges in outside} if allowed else set())
 
         self.pin_rects = {}
+        self.start_rects = {}
         for node in self.graph.nodes:
             if node.id not in self.boxes:
                 continue
@@ -1062,7 +1084,9 @@ class MapView(Gtk.DrawingArea):
 
             use = self.runtime_use(node)
             detail = node.detail or (self.outside_label(node.id) if node.kind == "model" else "")
-            right = 0                # room kept free at the right for the loaded mark
+            right = 0                # room kept free at the right for the loaded mark or the start button
+            if node.kind == "agent" and self.start_state is not None and self.start_state(node.id):
+                right = self.draw_start(cr, layout, node.id, x, y, w, h, faded)
             text_x = self.draw_tile(cr, layout, node, x, y, h, faded, alpha, use)
             if node.kind == "runtime" and use is not None and use.vram >= 64 * 1024 ** 2:
                 detail = " · ".join(filter(None, [detail, f"{use.vram / 1024 ** 3:.1f} GB GPU"]))
@@ -1165,6 +1189,32 @@ class MapView(Gtk.DrawingArea):
         cr.set_source_rgba(*self.color("bg"))
         cr.move_to(x + (16 - text_w) / 2, y + (16 - text_h) / 2)
         PangoCairo.show_layout(cr, layout)
+
+    def draw_start(self, cr, layout, node_id, x, y, w, h, faded) -> int:
+        """An agent's start button (▶; a console while it runs here), left of the tick; returns the
+        room it takes from the text."""
+        state = self.start_state(node_id)
+        sx = x + w - PIN_W - (24 if node_id in self.selected else 4) - START_W
+        sy = y + (h - START_W) / 2
+        self.start_rects[node_id] = (sx, sy, START_W, START_W)
+        hot = node_id == self.hover
+        self.rounded(cr, sx, sy, START_W, START_W, min(self.radius, 4))
+        cr.set_source_rgba(*self.color("accent" if state == "show" else "fg",
+                                       (0.18 if state == "show" else 0.08) * (0.4 if faded else 1)))
+        cr.fill_preserve()
+        cr.set_source_rgba(*self.color("accent" if hot or state == "show" else "fg", (0.9 if hot else 0.3)
+                                       * (0.4 if faded else 1)))
+        cr.set_line_width(1)
+        cr.stroke()
+        layout.set_font_description(Pango.FontDescription.from_string("JetBrainsMono Nerd Font, Symbols Nerd Font 9"))
+        layout.set_width(-1)
+        layout.set_ellipsize(Pango.EllipsizeMode.NONE)
+        layout.set_text(CONSOLE if state == "show" else PLAY, -1)
+        text_w, text_h = layout.get_pixel_size()
+        cr.set_source_rgba(*self.color("accent" if hot or state == "show" else "fg", 0.4 if faded else 1.0))
+        cr.move_to(sx + (START_W - text_w) / 2, sy + (START_W - text_h) / 2)
+        PangoCairo.show_layout(cr, layout)
+        return START_W + 4
 
     def draw_pin(self, cr, layout, node_id, x, y, w, faded):
         """The pin at the top right: filled when pinned, an outline while the box is hovered."""

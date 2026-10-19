@@ -245,18 +245,6 @@ class ThemeCss:
         .am-hint-error {{ color: {red_hex}; font-weight: bold; }}
         .am-model-name {{ font-weight: 600; }}
         .am-help-picture {{ border-radius: {min(radius, 8)}px; }}
-        list.am-tree {{ background: transparent; }}
-        list.am-tree row {{ padding: 2px 6px 2px 2px; min-height: 0; border-radius: {min(radius, 6)}px; }}
-        list.am-tree row:selected {{ background: alpha({accent_hex}, 0.22); }}
-        list.am-tree row.am-tree-section-row {{ padding-top: 10px; }}
-        .am-tree-section {{ font-size: 11px; font-weight: 800; letter-spacing: 1px; color: {accent_hex}; }}
-        .am-tree-title {{ font-weight: 600; font-size: 13px; }}
-        .am-tree-icon {{ font-size: 15px; min-width: 20px; }}
-        button.am-style-btn {{ padding: 1px 6px; min-height: 0; }}
-        .am-tree-arrow {{ color: {dim_hex}; }}
-        .am-tree-dot {{ font-size: 9px; }}
-        .am-tree-dot-off {{ color: transparent; }}
-        list.am-tree row.am-dim {{ opacity: 0.6; }}
         button.am-download-btn {{ padding: 6px 18px; font-weight: 700; }}
         .am-model-title {{ font-size: 17px; font-weight: 700; }}
         .am-model-card {{ background: alpha({fg_hex}, 0.05); border-radius: {min(radius, 8)}px; padding: 12px 14px; }}
@@ -404,15 +392,10 @@ class ThemeCss:
         .am-card button.am-chip:checked {{ background: alpha({accent_hex}, 0.18); border-color: {accent_hex};
             color: {fg_hex}; }}
         .am-card button.am-chip:disabled {{ opacity: 0.4; }}
-        .am-sidebar {{ background: alpha({fg_hex}, 0.03); border: 1px solid alpha({fg_hex}, 0.10);
-            border-radius: {radius}px; padding: 10px 10px 0 10px; }}
         .boxed-list .am-agent {{ background: none; border: none; border-radius: 0; }}
         .boxed-list .am-agent.am-agent-selected {{ background: alpha({accent_hex}, 0.18);
             box-shadow: inset 3px 0 {accent_hex}; }}
-        .am-hint-area {{ border-top: 1px solid alpha({fg_hex}, 0.10); padding: 8px 2px 10px 2px; }}
-        .am-side-handle {{ padding: 0 13px; }}
-        .am-side-handle:hover .am-side-rule {{ background: {accent_hex}; }}
-        .am-side-rule {{ margin: 0; background: alpha({fg_hex}, 0.14); min-width: 1px; }}
+        .am-hint-area {{ border-bottom: 1px solid alpha({fg_hex}, 0.10); padding: 4px 2px 8px 2px; }}
         .am-segmented {{ border: 1px solid alpha({fg_hex}, 0.22); border-radius: {pill}px; padding: 2px; }}
         .am-card button.am-segment {{ font-size: 11px; min-height: 0; padding: 2px 12px; border-radius: {pill}px;
             border: none; background: none; box-shadow: none; color: {dim_hex}; }}

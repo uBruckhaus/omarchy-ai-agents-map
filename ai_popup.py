@@ -67,7 +67,6 @@ import install_ctl
 import install_recipes
 import model_move
 import models_ctl
-import side_tree
 import model_names
 import context_ctl
 import time
@@ -115,14 +114,10 @@ SCROLLER_MIN_HEIGHT = 120
 SCREEN_MARGIN = 120    # space kept free above and below the card
 WINDOW_SIZE = (1600, 960)   # first open; afterwards the size it was closed with
 AGENT_SPACING = 8
-SPLIT_WIDTH = 1300        # from this window width the overview shows the map beside the cards
-LIST_PANE_WIDTH = 440
+SPLIT_WIDTH = 1300        # from this window width the whole map fits (narrower: the widen hint)
 MODEL_LIST_WIDTH = 460       # the models page's list (search results, installed models)
-SIDEBAR_WIDTH = 360        # the cards beside the map (drag the line between them to change it)
-SIDEBAR_MIN = 280
-MAP_MIN = 600              # what dragging leaves the map at least
-RIGHT_PAGES = ("connect", "install", "models", "mcp", "addmcp", "addskills", "status", "health", "terminal")   # open beside the cards
-DETAIL_LABEL_WIDTH = 90   # the dim labels in an opened agent card
+RIGHT_PAGES = ("connect", "install", "models", "mcp", "addmcp", "addskills", "status", "health", "terminal")   # open in the map's place
+DETAIL_LABEL_WIDTH = 90   # the dim labels of a compact detail grid
 
 
 def write_pid_file():
@@ -277,7 +272,6 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         self.scrollers = []        # every page's scroller follows the page height
         self.view = ai_core.last_view() if ai_core.start_view() == "last" else ai_core.start_view()
         self.settings_ready = False
-        self.expanded = set()      # commands of the agent cards shown with their details
         self.refreshing = set()    # commands whose usage Omarchy is collecting right now
         self.researching = set()   # new agents being looked up on the web (agent_profiles)
         self.asking_tools = set()  # MCP servers being asked for their tools (mcp_tools)
@@ -287,13 +281,10 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         self.scanning_mcp = False
         self.found_skills = None   # skills_scan results
         self.checking_new = False
-        self.detail_boxes = {}     # card key -> (details box, fill function)
         self.agent_list = []
         self.inventory = inventory.Inventory()
-        self.selection = []        # node ids selected in the maps and (wide overview) the cards
-        self.card_widgets = {}     # card key -> (card box, check mark label)
-        self.split = False         # wide overview: cards left, map right
-        self.sidebar_visible = True  # the cards beside the map (header toggle, Ctrl+B); shown on every open
+        self.selection = []        # node ids selected on the map
+        self.split = False         # the window is wide enough for the whole map (else the widen hint shows)
         self.sessions = {}           # agent command -> terminal_pane.TerminalPane (an agent started here)
         # Downloads and installs run on as background jobs when their page is left (jobs.py).
         self.jobs = jobs.Jobs(lambda job: GLib.idle_add(self.job_changed, job))
@@ -568,16 +559,6 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         header = Gtk.Box(spacing=8)
         self.header = header
         # Show or hide the cards beside the map (Overview, wide screens only).
-        sidebar_button = Gtk.ToggleButton(icon_name="sidebar-show-symbolic", active=True)
-        sidebar_button.set_tooltip_text(_("Show or hide the cards (Ctrl+B)"))
-        sidebar_button.add_css_class("flat")
-        sidebar_button.add_css_class("am-header-btn")
-        # Not focusable: as the first control it would hold the focus on open, and a stray
-        # Space (typing meant for another window) would hide the cards. Ctrl+B toggles it.
-        sidebar_button.set_focusable(False)
-        sidebar_button.connect("toggled", lambda b: self.set_sidebar(b.get_active()))
-        header.append(sidebar_button)
-        self.sidebar_button = sidebar_button
         title = Gtk.Label(label=_("My AI Agents Map"), xalign=0)
         title.add_css_class("am-title")
         title.set_ellipsize(Pango.EllipsizeMode.END)
@@ -590,7 +571,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         self.widen_hint = Gtk.Button(valign=Gtk.Align.CENTER, visible=False)
         content = Gtk.Box(spacing=6)
         content.append(Gtk.Image.new_from_icon_name("view-fullscreen-symbolic"))
-        content.append(Gtk.Label(label=_("Maximize to see the map")))
+        content.append(Gtk.Label(label=_("Maximize for more room")))
         self.widen_hint.set_child(content)
         self.widen_hint.add_css_class("am-small-btn")
         self.widen_hint.add_css_class("am-widen-hint")
@@ -818,71 +799,16 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         self.health_dismissed = False
         self.map_empty = False
         page.append(self.health_bar)
+        # Above the map: an empty Asterism's welcome, and the hints (new on this PC, new versions…).
+        self.empty_area = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, visible=False)
+        page.append(self.empty_area)
+        self.hint_area = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, visible=False)
+        self.hint_area.add_css_class("am-hint-area")
+        page.append(self.hint_area)
         self.health_report = None
         self.health_running = False
         body = Gtk.Box(spacing=0)
-        self.agents_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)   # between the groups
-        self.agents_box.add_css_class("am-agents")
-        scroller = self.page_scroller(self.agents_box)
-        scroller.set_vexpand(True)
-        self.agents_scroller = scroller
-        # The cards as a panel of their own: a heading line with its filter, a frame,
-        # and a rule between it and the map.
-        self.list_pane = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, hexpand=True)
-        self.list_pane.add_css_class("am-sidebar")
-        top = Gtk.Box(spacing=8)
-        heading = Gtk.Label(label=_("Overview").upper(), xalign=0, hexpand=True)
-        heading.add_css_class("am-section-title")
-        top.append(heading)
-        # Cards or tree, right here (also Settings › Sidebar).
-        style = Gtk.Box(spacing=0, valign=Gtk.Align.CENTER)
-        style.add_css_class("linked")
-        self.sidebar_buttons = {}
-        group = None
-        for key, icon, tip in (("cards", "view-grid-symbolic", _("Cards")), ("tree", "view-list-symbolic", _("Tree"))):
-            button = Gtk.ToggleButton(icon_name=icon, group=group, tooltip_text=tip)
-            group = group or button
-            button.add_css_class("am-small-btn")
-            button.add_css_class("am-style-btn")
-            style.append(button)
-            self.sidebar_buttons[key] = button
-        self.sidebar_buttons["tree" if self.sidebar_tree() else "cards"].set_active(True)
-        for key, button in self.sidebar_buttons.items():
-            button.connect("toggled", lambda b, k=key: b.get_active() and self.set_sidebar_style(k))
-        top.append(style)
-        self.list_pane.append(top)
-        self.list_pane.append(scroller)
-        # Hints get their own place at the bottom, outside the category cards.
-        self.hint_area = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, visible=False)
-        self.hint_area.add_css_class("am-hint-area")
-        # Its buttons end where the cards' Add buttons end (the cards keep room for the scroll bar).
-        self.hint_area.set_margin_end(12)
-        self.list_pane.append(self.hint_area)
-        body.append(self.list_pane)
-        # The line between the cards and the map: drag it to make the cards wider or narrower,
-        # double-click for the default width.
-        rule = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
-        rule.add_css_class("am-side-rule")
-        self.side_rule = Gtk.Box()
-        self.side_rule.add_css_class("am-side-handle")
-        self.side_rule.append(rule)
-        self.side_rule.set_cursor_from_name("col-resize")
-        self.side_rule.set_tooltip_text(_("Drag to change the width of the cards; double-click for the default"))
-        # On the row behind it, which stays put (the line itself moves while it is dragged,
-        # so offsets measured on it would shrink); only a press on the line starts it.
-        drag = Gtk.GestureDrag()
-        drag.connect("drag-begin", self.sidebar_drag_begin)
-        drag.connect("drag-update", lambda _g, dx, _dy: self.drag_width is not None
-                     and self.set_sidebar_width(self.drag_width + dx))
-        drag.connect("drag-end", self.sidebar_drag_end)
-        body.add_controller(drag)
-        self.drag_width = None
-        reset = Gtk.GestureClick()
-        reset.connect("pressed", lambda _g, n, *_: n == 2 and (self.set_sidebar_width(SIDEBAR_WIDTH),
-                                                               self.save_setting(sidebar_width=SIDEBAR_WIDTH)))
-        self.side_rule.add_controller(reset)
-        body.append(self.side_rule)
-        # Wide: the map beside the cards; a click on a card selects it there.
+        # The map, the whole width (My setup has a card for everything on it).
         side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, hexpand=True)
         side.add_css_class("am-map-pane")
         self.gpu_line = self.build_gpu_line()
@@ -933,6 +859,9 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         self.side_map.on_pick_model = self.on_map_pick_model
         self.side_map.on_failed_edge = self.show_link_hints
         self.side_map.on_context = lambda node_id, rect, v=self.side_map: self.show_context(v, node_id, rect)
+        self.side_map.start_state = self.map_start_state
+        self.side_map.on_start = self.map_start
+        self.side_map.start_tips = (_("Start here"), _("Show terminal"))
         map_scroller = self.page_scroller(self.side_map.with_flow_layer(), bar_room=False)   # the lights on running agents' paths on top
         map_scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)   # zoomed in: sideways too
         side.append(map_scroller)
@@ -981,19 +910,11 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
             self.render_jobs()
 
     def place_panes(self):
-        """Wide: the cards stay beside whatever is on the right. Narrow (cards only):
-        a page from the right takes the whole width while it is open."""
+        """The map, or the page opened in its place, takes the whole width."""
         if getattr(self, "right_stack", None) is None:
             return
-        on_right = self.page_name() in RIGHT_PAGES
-        if self.split:
-            self.right_column.set_visible(True)
-            self.list_pane.set_visible(self.sidebar_visible)
-            self.side_rule.set_visible(self.sidebar_visible)
-        else:
-            self.right_column.set_visible(on_right)
-            self.list_pane.set_visible(not on_right)
-            self.side_rule.set_visible(False)
+        # No list beside the map any more: the map (or a page in its place) takes the whole width.
+        self.right_column.set_visible(True)
 
     # --- the terminals started here, as tabs above the map ---------------------------------------
 
@@ -1307,32 +1228,20 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         threading.Thread(target=provider_watch.ensure_service, args=(wanted,), daemon=True).start()
 
     def refresh_overview(self):
-        """Rebuild the main view: agents, local LLMs, MCP servers, skills."""
-        box = self.agents_box
-        while (child := box.get_first_child()) is not None:
-            box.remove(child)
+        """What the main view shows above the map: the health line, an empty Asterism's welcome,
+        and the hints (new on this PC, new versions, updates)."""
         while (child := self.hint_area.get_first_child()) is not None:
             self.hint_area.remove(child)
         self.hint_area.set_visible(False)
         self.hint_buttons = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)   # one width for the hints' buttons
-        self.detail_boxes = {}
-        self.card_widgets = {}
-        # Only what is set up: the rest is added, updated and removed on My setup (setup_page.py).
-        off, hidden = self.mode_rules()
-        installed = [a for a in self.agent_list if a.installed and f"agent:{a.command}" not in hidden]
-        inv = self.inventory
-        names = self.agent_names()
-
-        runtimes = [] if "local" in off else \
-            [rt for rt in inv.runtimes if rt.installed and f"runtime:{rt.key}" not in hidden]
-        servers = [m for m in inv.mcp if f"mcp:{m.name}" not in hidden]
-        skill_sets = [s for s in inv.skill_sets if f"skills:{s.path}" not in hidden]
-        self.tree_list = None
         self.map_empty = not harnesses.all_harnesses() and not providers.all_providers() \
             and hasattr(self, "adapter_addons") and bool(self.adapter_addons())
         self.update_health_line()
+        while (child := self.empty_area.get_first_child()) is not None:
+            self.empty_area.remove(child)
+        self.empty_area.set_visible(self.map_empty)
         if self.map_empty:
-            # An empty Asterism: nothing switched on yet.
+            # An empty Asterism: nothing switched on yet (above the empty map).
             empty = self.empty_state("application-x-addon-symbolic", _("Nothing on the map yet"),
                                      _("Asterism shows the agents and local LLMs you switch on. Set up switches on "
                                        "the ones found on this PC with one click."))
@@ -1344,75 +1253,13 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
                 button.connect("clicked", lambda *_a, r=run: r())
                 row.append(button)
             empty.append(row)
-            box.append(empty)
-        if self.sidebar_tree():
-            self.render_tree(self.tree_nodes(installed, runtimes, servers, skill_sets, names))
-            new_mcp, new_skills = self.new_found()
-        else:
-            new_mcp, new_skills = self.overview_cards(installed, runtimes, servers, skill_sets, names)
-        self.overview_hints(new_mcp, new_skills)
+            self.empty_area.append(empty)
+        self.overview_hints(*self.new_found())
         if getattr(self, "stack", None) is not None and self.page_name() == "setup":
             GLib.idle_add(self.refresh_setup)       # My setup's cards follow too (a removal, an update)
 
-    def overview_cards(self, installed, runtimes, servers, skill_sets, names):
-        """The sidebar as cards, in categories (Settings › Sidebar: Cards)."""
-        inv = self.inventory
-        if installed:
-            group = self.section(_("Agents ({0})").format(len(installed)))
-            for agent in installed:
-                group.add(self.agent_card(agent))
-
-        if runtimes:
-            group = self.section(_("Local LLMs ({0})").format(len([rt for rt in runtimes if rt.installed])))
-        # Installed ones first; the others too, grey, as something to install and connect.
-        for rt in runtimes:
-            status = graph.runtime_status(rt)
-            state = {"running": _("running"), "stopped": _("installed, not running")}.get(status, _("not installed"))
-            sub = state if not rt.installed else \
-                " · ".join([state, ngettext("1 model", "{0} models", len(rt.models)).format(len(rt.models))])
-            group.add(self.expandable_card(f"runtime:{rt.key}", "\U000F061A", "", rt.name, sub,
-                                            lambda b, rt=rt: self.fill_runtime(b, rt, names),
-                                            dim=not rt.installed, status=status))
-
-        group = self.section(_("MCP servers ({0})").format(len(servers)))
-        if not inv.mcp:
-            self.section_hint(_("No agent has an MCP server set up."))
-        for server in servers:
-            users = ", ".join(names.get(a, a) for a in server.agents) or _("not used by any agent")
-            group.add(self.expandable_card(f"mcp:{server.name}", "\U000F0337", "", server.name, users,
-                                 lambda b, s=server: self.fill_mcp(b, s, names)))
-        new_mcp, new_skills = self.new_found()
-        add_sizes = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)    # both Add buttons one width
-        add = Gtk.Button(label=_("Add MCP server…") + (f" ({_('{0} new').format(len(new_mcp))})" if new_mcp else ""),
-                         valign=Gtk.Align.CENTER)
-        add.add_css_class("am-small-btn")
-        add.add_css_class("am-quiet-btn")
-        add.set_tooltip_text(_("Recommended servers, the MCP registry, programs on this PC, or by hand"))
-        add_sizes.add_widget(add)
-        add.connect("clicked", lambda *_: self.open_add_mcp())
-        group.set_header_suffix(add)
-
-        group = self.section(_("Skills ({0})").format(sum(len(s.skills) for s in skill_sets)))
-        if not inv.skill_sets:
-            self.section_hint(_("No skills found for the installed agents."))
-        for skill_set in skill_sets:
-            sub = ngettext("1 skill", "{0} skills", len(skill_set.skills)).format(len(skill_set.skills)) \
-                + " · " + ", ".join(names.get(a, a) for a in skill_set.agents)
-            group.add(self.expandable_card(f"skills:{skill_set.path}", "\U000F0EB3", "", skill_set.path, sub,
-                                 lambda b, s=skill_set: self.fill_skills(b, s, names)))
-        add = Gtk.Button(label=_("Add skills…") + (f" ({_('{0} new').format(len(new_skills))})" if new_skills else ""),
-                         valign=Gtk.Align.CENTER)
-        add.add_css_class("am-small-btn")
-        add.add_css_class("am-quiet-btn")
-        add.set_tooltip_text(_("Found on this PC or from the web"))
-        add_sizes.add_widget(add)
-        add.connect("clicked", lambda *_: self.open_add_skills())
-        group.set_header_suffix(add)
-
-        return new_mcp, new_skills
-
     def overview_hints(self, new_mcp, new_skills):
-        """The hint area at the bottom of the sidebar (cards or tree)."""
+        """The hint area above the map, one line each."""
         inv = self.inventory
         # The hint area: what was found on this PC, then what else could be set up.
         def listed(names, most):
@@ -1441,383 +1288,10 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
                            [(_("Update"), lambda u=update: self.run_update(u))])
 
 
-    # --- the sidebar as a tree (Settings › Sidebar: Tree) ---------------------------------------
-
-    TREE_INDENT = 18
-
-    def sidebar_tree(self) -> bool:
-        return ai_core.load_settings().get("sidebar") == "tree"
-
-    def set_sidebar_style(self, style: str):
-        """Cards or tree (the buttons in the sidebar's heading, or Settings › Sidebar)."""
-        if (style == "tree") == self.sidebar_tree():
-            return
-        self.save_setting(sidebar=style)
-        button = getattr(self, "sidebar_buttons", {}).get(style)
-        if button is not None and not button.get_active():
-            button.set_active(True)
-        self.refresh_overview()
-
-    def tree_nodes(self, installed, runtimes, servers, skill_sets, names) -> list:
-        """The categories and their boxes; what a box holds is made when it opens (tree_children)."""
-        T = side_tree.TreeNode
-        sections = []
-        if installed:
-            sections.append(T("section:agents", _("Agents ({0})").format(len(installed)), kind="section", children=[
-                T(f"agent:{a.command}", a.name, self.agent_subtitle(a), kind="agent", icon=a.icon,
-                  icon_font=a.icon_font, status="running" if self.running.get(a.command) else "",
-                  badge=_("Default") if a.default else "", lazy=True) for a in installed]))
-        if runtimes:
-            nodes = []
-            for rt in runtimes:
-                status = graph.runtime_status(rt)
-                state = {"running": _("running"), "stopped": _("installed, not running")}.get(status, _("not installed"))
-                sub = state if not rt.installed else " · ".join(
-                    [state, ngettext("1 model", "{0} models", len(rt.models)).format(len(rt.models))])
-                nodes.append(T(f"runtime:{rt.key}", rt.name, sub, kind="runtime", icon="\U000F061A",
-                               status=status, dim=not rt.installed, lazy=True))
-            sections.append(T("section:runtimes", _("Local LLMs ({0})").format(len([r for r in runtimes if r.installed])),
-                              kind="section", children=nodes))
-        sections.append(T("section:mcp", _("MCP servers ({0})").format(len(servers)), kind="section", children=[
-            T(f"mcp:{s.name}", s.name, ", ".join(names.get(a, a) for a in s.agents) or _("not used by any agent"),
-              kind="mcp", icon="\U000F0337", lazy=True) for s in servers]))
-        sections.append(T("section:skills", _("Skills ({0})").format(sum(len(s.skills) for s in skill_sets)),
-                          kind="section", children=[
-            T(f"skills:{s.path}", s.path, ngettext("1 skill", "{0} skills", len(s.skills)).format(len(s.skills))
-              + " · " + ", ".join(names.get(a, a) for a in s.agents), kind="skills", icon="\U000F0EB3", lazy=True)
-            for s in skill_sets]))
-        return sections
-
-    def agent_subtitle(self, agent) -> str:
-        subtitle = (agent.version or _("Installed")) if agent.installed else _("Not installed")
-        if agent.installed and self.instance_label(agent):
-            subtitle = " · ".join(filter(None, [agent.version, self.instance_label(agent)]))
-        return subtitle
-
-    def tree_children(self, node) -> list:
-        """What an opened box holds: its facts as label · value rows, its models or skills, its buttons."""
-        T = side_tree.TreeNode
-        inv, names = self.inventory, self.agent_names()
-
-        def info(label, value):
-            return T(f"{node.id}/{label}", label, kind="info", value=value) if value else None
-
-        more = lambda n: ngettext("+ 1 more", "+ {0} more", n).format(n)   # noqa: E731
-        key, _sep, ident = node.id.partition(":")
-        children = []
-        if key == "agent":
-            agent = next((a for a in self.agent_list if a.command == ident), None)
-            if agent is None:
-                return []
-            if agent.installed:
-                details = agent_details.details_for(ident)
-                providers = []
-                for provider in details.providers:
-                    providers.append(provider.name + (f" ({provider.runtime})" if provider.runtime and
-                                                      provider.runtime != provider.name else "")
-                                     + ("" if provider.active else " · " + _("ready to switch to")))
-                sets = inv.agent_skills.get(ident, [])
-                count = sum(len(s.skills) for s in inv.skill_sets if s.path in sets)
-                children = [info(_("Model"), details.model), info(_("Provider"), ", ".join(providers)),
-                            info(_("MCP servers"), ", ".join(inv.agent_mcp.get(ident, []))),
-                            info(_("Skills"), ngettext("1 skill", "{0} skills", count).format(count) if count else ""),
-                            info(_("Last used"), when(details.last_used))]
-                actions = (["start"] if terminal_pane.program(ident) else []) + ["details"]
-            else:
-                children = [info(_("Status"), _("Not installed"))]
-                actions = ["details"]
-        elif key == "runtime":
-            rt = next((r for r in inv.runtimes if r.key == ident), None)
-            if rt is None:
-                return []
-            children = [info(_("Address"), rt.address), info(_("Used by"), ", ".join(names.get(a, a) for a in rt.agents)),
-                        info(_("Models folder"), inventory.tilde(rt.models_dir) if rt.models_dir else "")]
-            children += side_tree.limited([T(f"{node.id}/model/{m}", m, kind="item") for m in rt.models], 12, more)
-            actions = ["details"] + (["models"] if rt.installed and rt.key != "vllm" else [])
-        elif key == "mcp":
-            server = next((s for s in inv.mcp if s.name == ident), None)
-            if server is None:
-                return []
-            kind = {"command": _("runs a program"), "url": _("remote server")}.get(server.kind, "")
-            children = [info(_("Runs"), server.target), info(_("Type"), kind),
-                        info(_("Used by"), ", ".join(names.get(a, a) for a in server.agents))]
-            actions = ["details"]
-        elif key == "skills":
-            skill_set = next((s for s in inv.skill_sets if s.path == ident), None)
-            if skill_set is None:
-                return []
-            children = [info(_("Read by"), ", ".join(names.get(a, a) for a in skill_set.agents))]
-            children += side_tree.limited([T(f"{node.id}/skill/{getattr(s, 'name', s)}", str(getattr(s, "name", s)),
-                                             kind="item") for s in skill_set.skills], 15, more)
-            actions = ["details"]
-        else:
-            return []
-        return [c for c in children if c is not None] + [T(f"{node.id}/actions", "", kind="actions", actions=actions)]
-
-    def render_tree(self, nodes):
-        """The tree in the sidebar: a list of rows with guide lines; arrows and Enter work as in a file tree."""
-        self.tree_roots = nodes
-        self.tree_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
-        self.tree_list.set_margin_end(14)        # room for the scroll bar, which overlays the right edge
-        self.tree_list.add_css_class("am-tree")
-        self.tree_list.connect("row-activated", lambda _l, row: self.on_tree_activate(row))
-        keys = Gtk.EventControllerKey()
-        keys.connect("key-pressed", self.on_tree_key)
-        self.tree_list.add_controller(keys)
-        self.agents_box.append(self.tree_list)
-        self.fill_tree()
-
-    def tree_open(self) -> set:
-        """Sections are open unless closed; boxes are open when in self.expanded (as the cards)."""
-        closed = getattr(self, "tree_closed", set())
-        return {n.id for n in self.tree_roots if n.id not in closed} | set(self.expanded)
-
-    def fill_tree(self, focus: str = ""):
-        listbox = self.tree_list
-        while (row := listbox.get_first_child()) is not None:
-            listbox.remove(row)
-        opened = self.tree_open()
-
-        def load(nodes):
-            for node in nodes:
-                if node.lazy and node.id in opened and not node.children:
-                    try:
-                        node.children = self.tree_children(node)
-                    except (OSError, ValueError):
-                        node.children = []
-                load(node.children)
-
-        load(self.tree_roots)
-        self.tree_rows = side_tree.flatten(self.tree_roots, opened)
-        chosen = None
-        for item in self.tree_rows:
-            row = self.tree_row(item, item.node.id in opened)
-            listbox.append(row)
-            if item.node.id == focus or (not focus and item.node.id in self.selection):
-                chosen = row
-        if chosen is not None:
-            listbox.select_row(chosen)
-            if focus:
-                chosen.grab_focus()
-
-    def tree_row(self, item, is_open: bool) -> Gtk.ListBoxRow:
-        node = item.node
-        row = Gtk.ListBoxRow()
-        row.node = node
-        row.item = item
-        line = Gtk.Box(spacing=6)
-        if item.depth:
-            guide = Gtk.DrawingArea()
-            guide.set_content_width(self.TREE_INDENT * item.depth)
-            guide.set_draw_func(lambda _a, cr, w, h, it=item: self.draw_tree_guide(cr, w, h, it))
-            line.append(guide)
-        arrow = Gtk.Image.new_from_icon_name(("pan-down-symbolic" if is_open else "pan-end-symbolic")
-                                             if node.expandable else "")
-        arrow.set_size_request(14, -1)
-        arrow.add_css_class("am-tree-arrow")
-        line.append(arrow)
-        if node.kind == "section":
-            label = Gtk.Label(label=node.title.upper(), xalign=0, hexpand=True)
-            label.add_css_class("am-tree-section")
-            line.append(label)
-            row.add_css_class("am-tree-section-row")
-        elif node.kind == "info":
-            key = Gtk.Label(label=node.title, xalign=0, valign=Gtk.Align.START)
-            key.set_size_request(92, -1)
-            key.add_css_class("am-line-label")
-            line.append(key)
-            value = Gtk.Label(label=node.value, xalign=0, hexpand=True, wrap=True, max_width_chars=1, selectable=True)
-            value.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            value.add_css_class("am-detail-value")
-            line.append(value)
-            row.set_activatable(False)
-        elif node.kind == "actions":
-            for action in node.actions:
-                line.append(self.tree_action(node, action))
-            row.set_activatable(False)
-            row.set_selectable(False)
-        elif node.kind in ("item", "more"):
-            label = Gtk.Label(label=node.title, xalign=0, hexpand=True)
-            label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
-            label.set_max_width_chars(1)
-            label.add_css_class("am-agent-detail" if node.kind == "more" else "am-detail-value")
-            line.append(label)
-            row.set_activatable(False)
-        else:
-            if not node.icon:
-                dot = Gtk.Label(label="●")
-                dot.add_css_class("am-tree-dot")
-                dot.add_css_class({"running": "am-state-ok", "stopped": "am-state-warn"}.get(node.status,
-                                                                                            "am-tree-dot-off"))
-                line.append(dot)
-            else:
-                # As on the cards: the icon itself turns green (running) or yellow (installed, not running).
-                icon = Gtk.Label(label=node.icon)
-                icon.add_css_class("am-agent-icon")
-                if node.status in ("running", "stopped"):
-                    icon.add_css_class(f"am-status-{node.status}")
-                if node.icon_font == "omarchy":
-                    icon.add_css_class("am-agent-icon-omarchy")
-                icon.add_css_class("am-tree-icon")
-                line.append(icon)
-            texts = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True)
-            title = Gtk.Label(label=node.title, xalign=0)
-            title.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
-            title.set_max_width_chars(1)
-            title.add_css_class("am-tree-title")
-            texts.append(title)
-            if node.subtitle:
-                sub = Gtk.Label(label=node.subtitle, xalign=0)
-                sub.set_ellipsize(Pango.EllipsizeMode.END)
-                sub.set_max_width_chars(1)
-                sub.add_css_class("am-agent-detail")
-                texts.append(sub)
-            line.append(texts)
-            if node.badge:
-                badge = Gtk.Label(label=node.badge, valign=Gtk.Align.CENTER)
-                badge.add_css_class("am-agent-badge")
-                line.append(badge)
-        if node.dim:
-            row.add_css_class("am-dim")
-        row.set_child(line)
-        return row
-
-    def draw_tree_guide(self, cr, width, height, item):
-        """│ for each ancestor that goes on below, then ├ or └ to this row."""
-        cr.set_source_rgba(*self.side_map.color("muted", 0.55))
-        cr.set_line_width(1)
-        step = self.TREE_INDENT
-        for level, goes_on in enumerate(item.guides):
-            if goes_on:
-                x = level * step + step / 2 + 0.5
-                cr.move_to(x, 0)
-                cr.line_to(x, height)
-        x = len(item.guides) * step + step / 2 + 0.5
-        cr.move_to(x, 0)
-        cr.line_to(x, height if not item.last else height / 2)
-        cr.move_to(x, height / 2 + 0.5)
-        cr.line_to(width, height / 2 + 0.5)
-        cr.stroke()
-
-    def tree_action(self, node, action: str) -> Gtk.Widget:
-        owner = node.id.rsplit("/", 1)[0]
-        key, _sep, ident = owner.partition(":")
-        if action == "start":
-            agent = next(a for a in self.agent_list if a.command == ident)
-            return self.start_button(agent)
-        if action == "models":
-            rt = next(r for r in self.inventory.runtimes if r.key == ident)
-            button = Gtk.Button(label=_("Models…"), halign=Gtk.Align.START)
-            button.add_css_class("flat")
-            button.add_css_class("am-small-btn")
-            button.connect("clicked", lambda *_: self.open_models(rt))
-            return button
-        opener = {"agent": lambda: self.open_agent_status(next(a for a in self.agent_list if a.command == ident)),
-                  "runtime": lambda: self.open_runtime_status(ident),
-                  "mcp": lambda: self.open_mcp_details(ident),
-                  "skills": lambda: self.open_skills_details(ident)}[key]
-        return self.details_button(lambda *_: opener())
-
-    def toggle_tree_node(self, node_id: str):
-        if node_id.startswith("section:"):
-            closed = getattr(self, "tree_closed", set())
-            closed.symmetric_difference_update({node_id})
-            self.tree_closed = closed
-        elif node_id in self.expanded:
-            self.expanded.discard(node_id)
-        else:
-            self.expanded.add(node_id)
-            self.toggle_card_hook(node_id)
-        self.fill_tree(focus=node_id)
-        if node_id in self.tree_open():
-            self.keep_tree_node_visible(node_id)
-
-    def keep_tree_node_visible(self, node_id: str):
-        """An opened node with all it holds in view (the rows below it that are deeper)."""
-        rows = list(self.tree_rows)
-        index = next((i for i, r in enumerate(rows) if r.node.id == node_id), None)
-        if index is None:
-            return
-        end = index
-        while end + 1 < len(rows) and rows[end + 1].depth > rows[index].depth:
-            end += 1
-        first, last = self.tree_list.get_row_at_index(index), self.tree_list.get_row_at_index(end)
-        if first is not None:
-            self.keep_visible(first, last)
-
-    def keep_visible(self, first, last=None, seconds: float = 1.0):
-        """Scroll the sidebar so first…last is all in view (first at the top when it is taller),
-        following it while it opens (the slide, details filled a moment later)."""
-        scroller, box, last = self.agents_scroller, self.agents_box, last or first
-        until = GLib.get_monotonic_time() + int(seconds * 1_000_000)
-
-        def tick():
-            top = first.translate_coordinates(box, 0, 0) if first.get_mapped() else None
-            bottom = last.translate_coordinates(box, 0, 0) if last.get_mapped() else None
-            if top is None or bottom is None:
-                return GLib.SOURCE_REMOVE
-            adjustment = scroller.get_vadjustment()
-            value, page = adjustment.get_value(), adjustment.get_page_size()
-            target = max(value, bottom[1] + last.get_height() + 8 - page)
-            target = max(0, min(target, top[1] - 8, adjustment.get_upper() - page))
-            if abs(target - value) > 0.5:
-                adjustment.set_value(target)
-            return GLib.get_monotonic_time() < until
-
-        GLib.timeout_add(30, tick)       # a timer, not a frame callback: it also runs before the first frame
-
-    def on_tree_activate(self, row):
-        node = row.node
-        if node.kind in ("agent", "runtime", "mcp", "skills") and self.split and node.id in self.map_node_ids():
-            self.set_selection([node.id])        # the map beside it shows this box's connections
-        if node.expandable:
-            self.toggle_tree_node(node.id)
-
-    def on_tree_key(self, _controller, keyval, _code, _state):
-        row = self.tree_list.get_selected_row()
-        if row is None:
-            return False
-        node, is_open = row.node, row.node.id in self.tree_open()
-        if keyval == Gdk.KEY_Right and node.expandable:
-            if not is_open:
-                self.toggle_tree_node(node.id)
-            else:
-                index = row.get_index() + 1
-                nxt = self.tree_list.get_row_at_index(index)
-                if nxt is not None:
-                    self.tree_list.select_row(nxt)
-                    nxt.grab_focus()
-            return True
-        if keyval == Gdk.KEY_Left:
-            if node.expandable and is_open:
-                self.toggle_tree_node(node.id)
-            elif row.item.parent:
-                self.fill_tree(focus=row.item.parent)
-            return True
-        if keyval == Gdk.KEY_space and node.expandable:
-            self.toggle_tree_node(node.id)
-            return True
-        return False
-
     def agent_names(self) -> dict:
         names = {a.command: a.name for a in self.agent_list}
         names["lmstudio"] = "LM Studio"
         return names
-
-    def section(self, title: str) -> Adw.PreferencesGroup:
-        """A category: a libadwaita group (title, its Add button in the header) whose cards are
-        the rows of its boxed list; returns the group to add() cards to."""
-        group = Adw.PreferencesGroup(title=GLib.markup_escape_text(title))
-        group.add_css_class("am-category")
-        self.agents_box.append(group)
-        return group
-
-    def section_hint(self, text: str):
-        """A hint goes to the area at the bottom of the cards, not between them."""
-        hint = Gtk.Label(label=text, xalign=0, wrap=True, max_width_chars=1)
-        hint.add_css_class("am-agent-detail")
-        self.hint_area.append(hint)
-        self.hint_area.set_visible(True)
 
     def run_update(self, update):
         """An update from the hint area: ours on the Update page, the others in a terminal of their own
@@ -1855,160 +1329,14 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         self.hint_area.append(line)
         self.hint_area.set_visible(True)
 
-    def expandable_card(self, key: str, icon: str, icon_font: str, title: str, subtitle: str, fill,
-             dim: bool = False, badge: str = "", badge_tip: str = "", highlight: bool = False,
-             status: str = "") -> Gtk.Widget:
-        """A card with an icon, a title and a dim line; a click shows or hides
-        what fill(box) puts into it."""
-        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        card.add_css_class("am-agent")
-        if dim:
-            card.add_css_class("am-agent-missing")
-        if highlight:
-            card.add_css_class("am-agent-default")
-        top = Gtk.Box(spacing=10)
-        top.set_cursor_from_name("pointer")
-        glyph = Gtk.Label(label=icon)
-        glyph.add_css_class("am-agent-icon")
-        if status:
-            glyph.add_css_class(f"am-status-{status}")   # green / yellow / grey, from the theme
-        if icon_font == "omarchy":
-            glyph.add_css_class("am-agent-icon-omarchy")
-        glyph.set_valign(Gtk.Align.CENTER)
-        top.append(glyph)
-        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        text.set_hexpand(True)
-        text.set_valign(Gtk.Align.CENTER)
-        name = Gtk.Label(label=title, xalign=0)
-        name.add_css_class("am-agent-name")
-        name.set_ellipsize(Pango.EllipsizeMode.END)
-        name.set_max_width_chars(1)
-        name.set_hexpand(True)
-        text.append(name)
-        line = Gtk.Box(spacing=6)
-        if badge:
-            mark = Gtk.Label(label=badge)
-            mark.add_css_class("am-agent-badge")
-            if badge_tip:
-                mark.set_tooltip_text(badge_tip)
-            line.append(mark)
-        detail = Gtk.Label(label=subtitle, xalign=0)
-        detail.add_css_class("am-agent-detail")
-        detail.set_ellipsize(Pango.EllipsizeMode.END)
-        detail.set_max_width_chars(1)
-        detail.set_hexpand(True)
-        line.append(detail)
-        text.append(line)
-        top.append(text)
-        check = Gtk.Label(label="✓")
-        check.add_css_class("am-card-check")
-        check.set_valign(Gtk.Align.CENTER)
-        check.set_visible(key in self.selection)
-        top.append(check)
-        if key in self.selection:
-            card.add_css_class("am-agent-selected")
-        self.card_widgets[key] = (card, check)
-        expanded = key in self.expanded
-        chevron = Gtk.Image.new_from_icon_name("pan-up-symbolic" if expanded else "pan-down-symbolic")
-        chevron.add_css_class("am-agent-chevron")
-        chevron.set_valign(Gtk.Align.CENTER)
-        top.append(chevron)
-        card.append(top)
-
-        revealer = Gtk.Revealer()
-        revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
-        revealer.set_transition_duration(150)
-        details = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        details.add_css_class("am-agent-details")
-        revealer.set_child(details)
-        card.append(revealer)
-        self.detail_boxes[key] = (details, fill)
-        if expanded:
-            self.fill_card(key)
-            revealer.set_reveal_child(True)
-
-        click = Gtk.GestureClick()
-        click.connect("released", lambda g, *_: self.on_card_click(g, key, revealer, chevron))
-        top.add_controller(click)
-        # Wide view: a click inside the opened details selects the card too.
-        body_click = Gtk.GestureClick()
-        body_click.connect("released", lambda g, *_: self.on_card_body_click(g, key))
-        details.add_controller(body_click)
-        return card
-
-    def on_card_click(self, gesture, key: str, revealer, chevron):
-        """Narrow: open or close the details. Wide (map beside the cards): a
-        click selects the card in the map and opens it; Shift+click adds or
-        removes it; clicking the only selected card again lets it go."""
-        selectable = self.split and key in self.map_node_ids()
-        if not selectable:
-            self.toggle_card(key, revealer, chevron)
-            return
-        if gesture.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK:
-            self.set_selection([k for k in self.selection if k != key] if key in self.selection
-                               else self.selection + [key])
-            return
-        if self.selection == [key]:
-            self.set_selection([])
-            if key in self.expanded:
-                self.toggle_card(key, revealer, chevron)
-            return
-        self.set_selection([key])
-        if key not in self.expanded:
-            self.toggle_card(key, revealer, chevron)
-
-    def on_card_body_click(self, gesture, key: str):
-        """Inside the details: select (Shift: add or remove), never close them."""
-        if not self.split or key not in self.map_node_ids():
-            return
-        if gesture.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK:
-            self.set_selection([k for k in self.selection if k != key] if key in self.selection
-                               else self.selection + [key])
-        elif self.selection != [key]:
-            self.set_selection([key])
-
-    def map_node_ids(self) -> set:
-        graph_now = self.map_view.graph
-        return {n.id for n in graph_now.nodes} if graph_now is not None else set()
-
     def set_selection(self, ids):
-        """One selection for both maps and the cards; one agent at most (the last one picked)."""
+        """The map's selection; one agent at most (the last one picked)."""
         ids = list(dict.fromkeys(ids))
         agents = [i for i in ids if i.startswith("agent:")]
         self.selection = [i for i in ids if not i.startswith("agent:") or i == agents[-1]]
         for view in (self.side_map,):
             view.set_selected(self.selection)
-        for key, (card, check) in self.card_widgets.items():
-            on = key in self.selection
-            check.set_visible(on)
-            if on:
-                card.add_css_class("am-agent-selected")
-            else:
-                card.remove_css_class("am-agent-selected")
         self.update_selection_labels()
-
-    def toggle_card(self, key: str, revealer, chevron):
-        if key in self.expanded:
-            self.expanded.discard(key)
-            revealer.set_reveal_child(False)
-            chevron.set_from_icon_name("pan-down-symbolic")
-            return
-        self.expanded.add(key)
-        self.fill_card(key)
-        revealer.set_reveal_child(True)
-        chevron.set_from_icon_name("pan-up-symbolic")
-        self.toggle_card_hook(key)
-        if key in self.card_widgets:
-            self.keep_visible(self.card_widgets[key][0])
-
-    def fill_card(self, key: str):
-        entry = self.detail_boxes.get(key)
-        if entry is None:
-            return
-        box, fill = entry
-        while (child := box.get_first_child()) is not None:
-            box.remove(child)
-        fill(box)
 
     @staticmethod
     def boxed_list() -> Gtk.ListBox:
@@ -2066,46 +1394,6 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         box.append(label)
 
     # --- agent cards -------------------------------------------------------------------
-
-    def agent_card(self, agent) -> Gtk.Widget:
-        key = f"agent:{agent.command}"
-        subtitle = (agent.version or _("Installed")) if agent.installed else _("Not installed")
-        if agent.installed and self.instance_label(agent):
-            subtitle = " · ".join(filter(None, [agent.version, self.instance_label(agent)]))
-        card = self.expandable_card(key, agent.icon, agent.icon_font, agent.name, subtitle,
-                         lambda b, a=agent: self.fill_agent(b, a), dim=not agent.installed,
-                         badge=_("Default") if agent.default else "", badge_tip=_("Omarchy's default agent"),
-                         highlight=agent.default,
-                         status="running" if agent.installed and self.running.get(agent.command) else "")
-        if key in self.expanded and agent.installed and agent_details.usage_is_stale(agent.command):
-            self.refresh_usage(agent)
-        return card
-
-    def toggle_card_hook(self, key: str):
-        """Opening an agent card asks Omarchy for fresh usage when it is old."""
-        if key.startswith("agent:") and key in self.expanded:
-            agent = next((a for a in self.agent_list if f"agent:{a.command}" == key), None)
-            if agent is not None and agent.installed and agent_details.usage_is_stale(agent.command):
-                self.refresh_usage(agent)
-
-    def refresh_usage(self, agent):
-        """Ask Omarchy for fresh usage on a thread; fill the card again after."""
-        command = agent.command
-        if command in self.refreshing:
-            return
-        self.refreshing.add(command)
-        self.fill_card(f"agent:{command}")
-
-        def work():
-            agent_details.refresh_usage(command)
-            GLib.idle_add(done)
-
-        def done():
-            self.refreshing.discard(command)
-            self.fill_card(f"agent:{command}")
-            return False
-
-        threading.Thread(target=work, daemon=True).start()
 
     # --- new agents: look up on the web how to set them up ------------------------------------
 
@@ -2274,27 +1562,6 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
             buttons = Gtk.Box(spacing=8)
             buttons.append(self.details_button(lambda *_: self.open_runtime_status(rt.key)))
             box.append(buttons)
-
-    def fill_mcp(self, box, server, names):
-        kind = {"command": _("runs a program"), "url": _("remote server")}.get(server.kind, "")
-        self.detail_grid(box, [
-            (_("Runs"), server.target, ""),
-            (_("Type"), kind, ""),
-            (_("Used by"), ", ".join(names.get(a, a) for a in server.agents), ""),
-        ])
-        buttons = Gtk.Box(spacing=8)
-        buttons.append(self.details_button(lambda *_: self.open_mcp_details(server.name)))
-        remove = Gtk.Button(halign=Gtk.Align.START)
-        content = Gtk.Box(spacing=6)
-        content.append(Gtk.Image.new_from_icon_name("user-trash-symbolic"))
-        content.append(Gtk.Label(label=_("Remove")))
-        remove.set_child(content)
-        remove.add_css_class("flat")
-        remove.add_css_class("am-small-btn")
-        remove.set_tooltip_text(_("Take it from every agent and from the list"))
-        remove.connect("clicked", lambda *_: self.open_mcp_delete(server.name))
-        buttons.append(remove)
-        box.append(buttons)
 
     def details_button(self, on_click) -> Gtk.Widget:
         """The (i) button that opens a card's full details page."""
@@ -2469,7 +1736,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
                           _("Show the terminal {0} runs in here").format(agent.name), "here")
         both = Gtk.Box(spacing=6)
         both.append(button("utilities-terminal-symbolic", _("Start here"),
-                           _("Start {0} in {1}, in a terminal beside the cards; Stop ends it").format(
+                           _("Start {0} in {1}, in a terminal in this window; Stop ends it").format(
                                agent.name, self.agent_folder()), "here"))
         both.append(button("window-new-symbolic", _("Start in terminal"),
                            _("Start {0} in {1}, in a terminal window of its own").format(
@@ -4804,14 +4071,6 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
     def close_mcp_details(self):
         self.show_view(getattr(self, "mcp_from", self.view), save=False)
 
-    def fill_skills(self, box, skill_set, names):
-        self.detail_grid(box, [
-            (_("Folder"), skill_set.path, ""),
-            (_("Used by"), ", ".join(names.get(a, a) for a in skill_set.agents), ""),
-        ])
-        self.note(box, ", ".join(skill_set.skills))
-        box.append(self.details_button(lambda *_: self.open_skills_details(skill_set.path)))
-
     def limit_row(self, limit) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         top = Gtk.Box(spacing=8)
@@ -4971,8 +4230,8 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
             self.side_filter.set_label(_("Selected: {0} · hold Shift and click to add or remove one")
                                        .format(", ".join(n.label for n in nodes)) + pick_hint)
         else:
-            self.side_filter.set_label(_("Click a card or a box to see only its connections; "
-                                         "Shift+click selects more than one."))
+            self.side_filter.set_label(_("Click a box to see only its connections; Shift+click selects more than one; "
+                                         "▶ starts an agent."))
         self.side_filter.set_tooltip_text(self.side_filter.get_label())
         self.map_show_all.set_visible(bool(nodes))
 
@@ -5045,8 +4304,6 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
             legend.set_can_target(on_map)
             legend.set_can_focus(on_map)
             legend.set_sensitive(on_map)
-        # The sidebar button only where there is a sidebar: the Overview with the map beside the cards.
-        self.sidebar_button.set_visible((page == "main" or page in RIGHT_PAGES) and self.split)
         self.updating_buttons = True
         for name, button in self.view_buttons.items():
             button.set_active(name == page)
@@ -7649,6 +6906,28 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         note.add_css_class("am-menu-note")
         return note
 
+    def map_start_state(self, node_id: str) -> str:
+        """An agent box's start button: "show" while it runs here, "start" when it can be started,
+        else "" (no button)."""
+        kind, _sep, ident = node_id.partition(":")
+        if kind != "agent":
+            return ""
+        agent = next((a for a in self.agent_list if a.command == ident), None)
+        if agent is None or not agent.installed or not terminal_pane.program(agent.command):
+            return ""
+        pane = self.sessions.get(agent.command)
+        return "show" if pane is not None and pane.running else "start"
+
+    def map_start(self, node_id: str):
+        """The start button on an agent's box: start it here, or show its terminal while it runs."""
+        state = self.map_start_state(node_id)
+        ident = node_id.partition(":")[2]
+        if state == "show":
+            self.show_terminal(ident)
+        elif state == "start":
+            agent = next(a for a in self.agent_list if a.command == ident)
+            self.start_agent(agent, None, "here")
+
     def card_actions(self, node_id: str, popover) -> tuple[list, list]:
         """The buttons of a box's card, as menu entries: (start entries, Details entries).
         An agent: Start here / Start in terminal (Show terminal / Stop while it runs here),
@@ -7669,7 +6948,7 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
                 else:
                     starts.append(self.menu_item(_("Start here"), popover,
                                                  lambda: self.start_agent(agent, None, "here"),
-                                                 _("Start {0} in {1}, in a terminal beside the cards; Stop ends it")
+                                                 _("Start {0} in {1}, in a terminal in this window; Stop ends it")
                                                  .format(agent.name, self.agent_folder())))
                     starts.append(self.menu_item(_("Start in terminal"), popover,
                                                  lambda: self.start_agent(agent, None, "terminal"),
@@ -8119,50 +7398,11 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
         return (max(CARD_WIDTH, width),
                 max(ai_core.MIN_WINDOW_SIZE[1], monitor_height() - 2 * SCREEN_MARGIN))
 
-    def set_sidebar(self, visible: bool):
-        """The cards left of the side map: hidden, the map takes the whole width."""
-        self.sidebar_visible = visible
-        if getattr(self, "list_pane", None) is None:
-            return
-        self.place_panes()
-        if self.sidebar_button.get_active() != visible:
-            self.sidebar_button.set_active(visible)
-        self.update_header()
-
-    def sidebar_drag_begin(self, gesture, x, y):
-        ok, bounds = self.side_rule.compute_bounds(gesture.get_widget())
-        if not (self.side_rule.get_visible() and ok and bounds.origin.x <= x <= bounds.origin.x + bounds.size.width):
-            self.drag_width = None
-            gesture.set_state(Gtk.EventSequenceState.DENIED)
-            return
-        gesture.set_state(Gtk.EventSequenceState.CLAIMED)
-        requested = self.list_pane.get_size_request()[0]     # what set_sidebar_width set (padding and border included)
-        self.drag_width = requested if requested > 0 else self.list_pane.get_width()
-
-    def sidebar_drag_end(self, *_):
-        if self.drag_width is not None:
-            self.drag_width = None
-            self.save_setting(sidebar_width=self.list_pane.get_size_request()[0])
-
-    def set_sidebar_width(self, width):
-        """The cards' width beside the map, kept between SIDEBAR_MIN and what leaves the map MAP_MIN."""
-        widest = max(SIDEBAR_MIN, (self.window.get_width() if self.window is not None and self.window.get_width()
-                                   else self.card_w) - MAP_MIN)
-        self.list_pane.set_size_request(int(max(SIDEBAR_MIN, min(widest, width))), -1)
-
     def fit(self):
         """As large as the screen allows (checked on every open: another monitor)."""
         self.card_w, self.list_h = self.size_limits()
         if getattr(self, "side_pane", None) is not None:
-            # A very small screen keeps the cards alone.
-            self.split = self.card_w >= SPLIT_WIDTH
-            self.list_pane.set_hexpand(not self.split)
-            if self.split:
-                saved = ai_core.load_settings().get("sidebar_width")
-                self.set_sidebar_width(saved if isinstance(saved, int) else SIDEBAR_WIDTH)
-            else:
-                self.list_pane.set_size_request(-1, -1)
-            self.set_sidebar(self.sidebar_visible)
+            self.split = self.card_w >= SPLIT_WIDTH     # narrower: the map scrolls, the widen hint shows
         for scroller in self.scrollers:
             # The card fills the window's height; the scrollers only need a small minimum.
             scroller.set_max_content_height(-1)
@@ -8265,9 +7505,6 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
             self.zoom_map(1 if keyval in (Gdk.KEY_plus, Gdk.KEY_equal, Gdk.KEY_KP_Add) else
                           -1 if keyval in (Gdk.KEY_minus, Gdk.KEY_KP_Subtract) else 0)
             return True
-        if ctrl and keyval in (Gdk.KEY_b, Gdk.KEY_B) and (page == "main" or page in RIGHT_PAGES) and self.split:
-            self.set_sidebar(not self.sidebar_visible)
-            return True
         return False
 
     # --- open / close ------------------------------------------------------------
@@ -8283,7 +7520,6 @@ class AgentsMap(SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, A
             desktop.focus_window(desktop.app_id())
 
     def open(self):
-        self.sidebar_visible = True
         self.fit()
         self.collect()
         self.refresh_overview()

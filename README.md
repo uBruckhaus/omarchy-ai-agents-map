@@ -91,12 +91,11 @@ installed, so **Update** installs what was named:
 Nothing is installed or run by the check itself (except `mise outdated`); an update starts only
 with a click on **Update**.
 
-The cards are on the left, the map on the right (in a window narrower than about 1300 px, such as
-half the screen, only the cards; pages then open over them). Drag the line between the cards and the map to make the cards wider or narrower (kept in the settings;
-double-click it for the default 360 px). The sidebar button left of the title (Ctrl+B) hides the cards so the map takes the whole
-width; every open shows them again. Pages opened from a card or from the map (ⓘ Details, adding
-MCP servers or skills, models, installing, connecting) open on the right in place of the map, so
-the cards stay beside them; **Back** brings the map back.
+The map takes the whole width; **My setup** in the header has a card for everything on it (install,
+update, remove, sign in). Hints (new on this PC, new versions, updates) show as lines above the map.
+In a window narrower than about 1300 px the map scrolls and **Maximize for more room** appears in the
+header. Pages opened from the map or from My setup (ⓘ Details, adding MCP servers or skills, models,
+installing, connecting) open in place of the map; **Back** returns to where they were opened from.
 
 **ⓘ Details** on an agent's card sums it up at the top: ready or not (and why), running now or
 when it was last used, today's and the last 7 days' tokens and sessions, the plan, a chart of
@@ -153,12 +152,10 @@ connect), and who can reach it (only this PC on 127.0.0.1, or your whole network
   you are working on (models need a provider category, MCP servers and skills need Agents); the
   choice is remembered. **− 100 % +** (Ctrl+scroll, Ctrl+plus/minus/0) zooms the map. Columns
   that fit stay in the middle of what you see while you scroll a long one.
-- **Cards or tree**: the buttons beside **Show ▾** (or Settings › **Sidebar**) show the same
-  categories as cards or as a compact tree with guide lines; an opened entry shows its facts and
-  its buttons, and the arrow keys open, close and move as in a file tree. An agent's card or entry
-  has **Start here** (a terminal beside the cards) and **Start in terminal** (a window of its own);
-  while it runs here, **Show terminal** and **Stop** (it ends the agent and what it started, such as
-  its MCP servers). **Hide** (also in a box's right-click menu on the map) leaves an agent or a provider out of
+- **Starting an agent**: the ▶ on an agent's box starts it in a terminal in this window; while it
+  runs there the button shows a terminal and brings it back. Its right-click menu also has **Start in
+  terminal** (a window of its own) and, while it runs here, **Show terminal** and **Stop** (it ends the
+  agent and what it started, such as MCP servers). **Hide** in a box's right-click menu on the map leaves an agent or a provider out of
   **My setup** (cards and map, with Undo); **+ Available** lists them under **Hidden**, above **Not
   installed**, with **Show again**. A provider can be hidden only while no shown agent uses one of
   its models through it (a line without a model, such as Hermes → Ollama, does not count); if one
@@ -658,7 +655,7 @@ links not followed; nothing is deleted from here.
 
 The gear (Ctrl+,) opens the settings: **Language** (system or one of English, Deutsch, Français,
 Español, Italiano, Português, Nederlands, Polski), **Look** (the colours from the Omarchy theme,
-or GNOME's Adwaita with the system's light/dark and accent colour), **Sidebar** (cards or tree), **Animate active lines**, **Terminal tabs above the map**, **Corners** (like windows, rounded or square, as
+or GNOME's Adwaita with the system's light/dark and accent colour), **Animate active lines**, **Terminal tabs above the map**, **Corners** (like windows, rounded or square, as
 in App Manager and Theme Manager), **Look up new agents**, **Show what you could set up** (the "Show
 N more you could set up" hint below the cards), **Start local LLMs with their agents**, **Too narrow for the map** (what the header's "Maximize to see the map" does: move the window to a
 free workspace, maximize it where it is, or show no hint; with an animated preview), **In the app
@@ -713,7 +710,7 @@ rm -rf ~/.config/omarchy/ai-agents-map ~/.local/state/ai-agents-map ~/.cache/ai-
 | `agent_profiles.py` | Looking up new agents on the web |
 | `install_ctl.py`, `runtime_ctl.py`, `models_ctl.py`, `context_ctl.py` | Local LLMs: install, start/stop, models, context size |
 | `netfetch.py` | The one bounded way to the web (curl) |
-| `agent_activity.py`, `side_tree.py`, `model_names.py` | Which agents are working now; the sidebar tree; what a model's name means |
+| `agent_activity.py`, `model_names.py` | Which agents are working now; what a model's name means |
 | `assets/drawing-demo.gif` | The animation above (rendered from `previews.SetupSketch`) |
 | `claude_sessions.py`, `herdr_state.py` | Claude Code's numbers per project and subagent; herdr's live state and pane focus |
 | `harnesses.py`, `harness_claude.py`, `harness_opencode.py`, `harness_hermes.py`, `edition.py` | One adapter per agent harness (session numbers per project for now); what this edition may show (numbers only in this plugin) |

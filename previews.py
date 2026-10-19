@@ -1,7 +1,7 @@
 """Animated sketches, drawn in the theme's colours (as App Manager's settings).
 
 - WidenSketch (Settings): a screen with a terminal and this window tiled narrow,
-  a click on "Maximize to see the map", then what the chosen option does.
+  a click on "Maximize for more room", then what the chosen option does.
 - SetupSketch (Help): how the AI setup is made by drawing on the map, with dummy
   boxes: agent → provider, a click on a model, agent → MCP server, agent → skills;
   then the agent's pin (its lines stay lit while the pointer moves on) and its
@@ -117,7 +117,7 @@ class Sketch(Gtk.DrawingArea):
         raise NotImplementedError
 
 
-# --- Settings: what the click on "Maximize to see the map" does ---------------------------------
+# --- Settings: what the click on "Maximize for more room" does ---------------------------------
 
 def widen_frame(t: float, mode: str) -> dict:
     """The picture at loop time t: where the pointer is, whether it clicks, how far the

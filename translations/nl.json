@@ -212,7 +212,7 @@
  "Claude Code, Codex or OpenCode: Omarchy's menu → Setup → Defaults → Agent.": "Claude Code, Codex of OpenCode: Omarchy-menu → Setup → Defaults → Agent.",
  "Clear selection": "Selectie wissen",
  "Clear the selection (Esc)": "Selectie wissen (Esc)",
- "Click a card or a box to see only its connections; Shift+click selects more than one.": "Klik op een kaart of vak om alleen zijn verbindingen te zien; Shift+klik selecteert er meer.",
+ "Click a box to see only its connections; Shift+click selects more than one; ▶ starts an agent.": "Klik op een vak om alleen de verbindingen ervan te zien; Shift+klik selecteert er meer; ▶ start een agent.",
  "Click a model of that provider: the agent uses it now.": "Klik op een model van die aanbieder: de agent gebruikt het vanaf nu.",
  "Click its dotted line on the map for all hints and Test again.": "Klik op de gestippelde lijn op de kaart voor alle tips en Opnieuw testen.",
  "Click its dotted red line on the map for what to do.": "Klik op de gestippelde rode lijn op de kaart om te zien wat je moet doen.",
@@ -359,7 +359,7 @@
  "In herdr now": "Nu in herdr",
  "Start here": "Hier starten",
  "Start in terminal": "In terminal starten",
- "Start {0} in {1}, in a terminal beside the cards; Stop ends it": "{0} starten in {1}, in een terminal naast de kaarten; Stop beëindigt hem",
+ "Start {0} in {1}, in a terminal in this window; Stop ends it": "Start {0} in {1}, in een terminal in dit venster; Stoppen beëindigt het",
  "Start {0} in {1}, in a terminal window of its own": "{0} starten in {1}, in een eigen terminalvenster",
  "A window of its own, as if you started it there.": "Een eigen venster, alsof je hem daar startte.",
  "Agents start": "Agents starten",
@@ -561,7 +561,6 @@
  "MCP servers give agents tools: files, a browser, your apps. + MCP server finds them on this PC and on the web.": "MCP-servers geven agents gereedschap: bestanden, een browser, je apps. + MCP-server vindt ze op deze pc en op het web.",
  "MCP servers · skills": "MCP-servers · skills",
  "Make it the agent's model right away. Off: only set it up, to switch later.": "Meteen het model van de agent maken. Uit: alleen instellen, om later te wisselen.",
- "Maximize to see the map": "Maximaliseer om de kaart te zien",
  "Maximize where it is": "Maximaliseren waar het is",
  "Model": "Model",
  "Model folder": "Modellenmap",
@@ -839,7 +838,6 @@
  "What the cards and the map show when AI Agents Map opens; My setup and + Available in the header switch for the moment.": "Wat de kaarten en de map tonen als AI Agents Map opent; Mijn setup en + Beschikbaar in de kopregel wisselen alleen voor nu.",
  "What works, what to fix, and what you can do with this setup": "Wat werkt, wat hersteld moet worden en wat je met deze configuratie kunt doen",
  "What you can do with it": "Wat je ermee kunt doen",
- "What “Maximize to see the map” in the header does when the window is tiled too narrow for the map beside the cards.": "Wat „Maximaliseer om de kaart te zien” in de kop doet als het venster te smal getegeld is voor de kaart naast de kaarten.",
  "When a new agent is installed, Claude Code or Codex finds out on the web where it keeps MCP servers and skills (once, a few minutes in the background).": "Als er een nieuwe agent wordt geïnstalleerd, zoekt Claude Code of Codex op het web uit waar hij MCP-servers en skills bewaart (eenmalig, een paar minuten op de achtergrond).",
  "When an agent connected to a local LLM starts, its LLM starts too; when the last such agent closes, the LLM stops and its GPU memory is free again. Works with this window closed and after a reboot (user service {0}).": "Start een agent die met een lokale LLM verbonden is, dan start de LLM ook; sluit de laatste zo'n agent, dan stopt de LLM en is zijn GPU-geheugen weer vrij. Werkt met dit venster gesloten en na een herstart (gebruikersdienst {0}).",
  "Where the models go. You can change it later (right-click → Model folder…).": "Waar de modellen komen. Later te wijzigen (rechtsklik → Modellenmap…).",
@@ -1731,5 +1729,7 @@
  "Sign in… on an agent's card starts its own login (subscription) or takes an API key.": "‘Aanmelden…’ op de kaart van een agent start zijn eigen aanmelding (abonnement) of neemt een API-sleutel aan.",
  "Refresh": "Vernieuwen",
  "Look again at what is on this PC (F5)": "Opnieuw kijken wat er op deze pc staat (F5)",
- "Looked again.": "Opnieuw gekeken."
+ "Looked again.": "Opnieuw gekeken.",
+ "Maximize for more room": "Maximaliseren voor meer ruimte",
+ "What “Maximize for more room” in the header does when the window is tiled too narrow for the whole map.": "Wat ‘Maximaliseren voor meer ruimte’ in de kop doet als het venster te smal is getegeld voor de hele kaart."
 }

@@ -490,15 +490,19 @@ class SetupPage:
                                           lambda r=rt: self.open_models(r), small=True))
             box.append(flow)
 
-    def setup_section(self, box, key: str, title: str, count: int | None, total: int | None = None) -> Gtk.Box:
+    def setup_section(self, box, key: str, title: str, count: int | None, total: int | None = None,
+                      closed: bool = False) -> Gtk.Box:
         """A section heading that folds the section away and back (a click; remembered in the
-        setting setup_collapsed), and the box the section's notes and cards go into."""
-        folded = set(self.setup_folded())
+        setting setup_collapsed; closed=True: folded until unfolded), and the box the section's notes
+        and cards go into."""
+        saved = set(self.setup_folded())
+        # Folded by default (closed): remembered as "<key>:open" once unfolded; else as "<key>" once folded.
+        folded = f"{key}:open" not in saved if closed else key in saved
         head = Gtk.Button(halign=Gtk.Align.START, margin_top=8)
         head.add_css_class("flat")
         head.add_css_class("am-setup-section")
         row = Gtk.Box(spacing=8)
-        arrow = Gtk.Image.new_from_icon_name("pan-end-symbolic" if key in folded else "pan-down-symbolic")
+        arrow = Gtk.Image.new_from_icon_name("pan-end-symbolic" if folded else "pan-down-symbolic")
         row.append(arrow)
         label = Gtk.Label(label=title, xalign=0)
         label.add_css_class("heading")
@@ -510,14 +514,17 @@ class SetupPage:
             row.append(number)
         head.set_child(row)
         head.set_tooltip_text(_("Fold or unfold"))
-        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, visible=key not in folded)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, visible=not folded)
 
         def toggle(_button):
             shown = not body.get_visible()
             body.set_visible(shown)
             arrow.set_from_icon_name("pan-down-symbolic" if shown else "pan-end-symbolic")
             now = set(self.setup_folded())
-            (now.discard if shown else now.add)(key)
+            if closed:
+                (now.add if shown else now.discard)(f"{key}:open")
+            else:
+                (now.discard if shown else now.add)(key)
             self.save_setting(setup_collapsed=sorted(now))
 
         head.connect("clicked", toggle)
@@ -552,7 +559,7 @@ class SetupPage:
                     (_("Local LLMs"), _("Always on the map as soon as they are installed on this PC."))] + common
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         card.add_css_class("am-setup-explain")
-        body = self.setup_section(card, "explain", _("How things get onto your map"), None)
+        body = self.setup_section(card, "explain", _("How things get onto your map"), None, closed=True)
         card.get_first_child().set_margin_top(0)
         body.set_spacing(8)
         body.set_margin_start(26)

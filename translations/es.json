@@ -212,7 +212,7 @@
  "Claude Code, Codex or OpenCode: Omarchy's menu → Setup → Defaults → Agent.": "Claude Code, Codex u OpenCode: menú de Omarchy → Setup → Defaults → Agent.",
  "Clear selection": "Quitar selección",
  "Clear the selection (Esc)": "Quitar la selección (Esc)",
- "Click a card or a box to see only its connections; Shift+click selects more than one.": "Haz clic en una tarjeta o una caja para ver solo sus conexiones; Mayús+clic selecciona varias.",
+ "Click a box to see only its connections; Shift+click selects more than one; ▶ starts an agent.": "Haz clic en una caja para ver solo sus conexiones; Mayús+clic selecciona varias; ▶ inicia un agente.",
  "Click a model of that provider: the agent uses it now.": "Haz clic en un modelo de ese proveedor: el agente lo usa desde ahora.",
  "Click its dotted line on the map for all hints and Test again.": "Haz clic en su línea punteada del mapa para ver todas las pistas y Probar de nuevo.",
  "Click its dotted red line on the map for what to do.": "Haz clic en su línea roja punteada del mapa para ver qué hacer.",
@@ -359,7 +359,7 @@
  "In herdr now": "Ahora en herdr",
  "Start here": "Iniciar aquí",
  "Start in terminal": "Iniciar en terminal",
- "Start {0} in {1}, in a terminal beside the cards; Stop ends it": "Iniciar {0} en {1}, en una terminal junto a las tarjetas; Detener lo termina",
+ "Start {0} in {1}, in a terminal in this window; Stop ends it": "Inicia {0} en {1}, en un terminal en esta ventana; Detener lo termina",
  "Start {0} in {1}, in a terminal window of its own": "Iniciar {0} en {1}, en su propia ventana de terminal",
  "A window of its own, as if you started it there.": "Una ventana propia, como si lo hubieras iniciado allí.",
  "Agents start": "Inicio de agentes",
@@ -561,7 +561,6 @@
  "MCP servers give agents tools: files, a browser, your apps. + MCP server finds them on this PC and on the web.": "Los servidores MCP dan herramientas a los agentes: archivos, un navegador, tus apps. + Servidor MCP los encuentra en este PC y en la web.",
  "MCP servers · skills": "Servidores MCP · skills",
  "Make it the agent's model right away. Off: only set it up, to switch later.": "Usarlo ya como modelo del agente. Desactivado: solo configurarlo para cambiar más tarde.",
- "Maximize to see the map": "Maximiza para ver el mapa",
  "Maximize where it is": "Maximizar donde está",
  "Model": "Modelo",
  "Model folder": "Carpeta de modelos",
@@ -839,7 +838,6 @@
  "What the cards and the map show when AI Agents Map opens; My setup and + Available in the header switch for the moment.": "Lo que muestran las tarjetas y el mapa al abrir AI Agents Map; Mi configuración y + Disponible en la cabecera cambian solo por el momento.",
  "What works, what to fix, and what you can do with this setup": "Qué funciona, qué arreglar y qué puedes hacer con esta configuración",
  "What you can do with it": "Lo que puedes hacer con ello",
- "What “Maximize to see the map” in the header does when the window is tiled too narrow for the map beside the cards.": "Qué hace «Maximiza para ver el mapa» en la cabecera cuando la ventana está en mosaico demasiado estrecha para el mapa junto a las tarjetas.",
  "When a new agent is installed, Claude Code or Codex finds out on the web where it keeps MCP servers and skills (once, a few minutes in the background).": "Al instalar un agente nuevo, Claude Code o Codex busca en la web dónde guarda servidores MCP y skills (una vez, unos minutos en segundo plano).",
  "When an agent connected to a local LLM starts, its LLM starts too; when the last such agent closes, the LLM stops and its GPU memory is free again. Works with this window closed and after a reboot (user service {0}).": "Cuando arranca un agente conectado a un LLM local, el LLM arranca también; cuando se cierra el último de esos agentes, el LLM se detiene y su memoria GPU queda libre. Funciona con esta ventana cerrada y tras reiniciar (servicio de usuario {0}).",
  "Where the models go. You can change it later (right-click → Model folder…).": "Dónde van los modelos. Se puede cambiar más tarde (clic derecho → Carpeta de modelos…).",
@@ -1731,5 +1729,7 @@
  "Sign in… on an agent's card starts its own login (subscription) or takes an API key.": "«Iniciar sesión…» en la tarjeta de un agente inicia su propio acceso (suscripción) o toma una clave API.",
  "Refresh": "Actualizar",
  "Look again at what is on this PC (F5)": "Volver a mirar qué hay en este PC (F5)",
- "Looked again.": "Revisado de nuevo."
+ "Looked again.": "Revisado de nuevo.",
+ "Maximize for more room": "Maximizar para tener más espacio",
+ "What “Maximize for more room” in the header does when the window is tiled too narrow for the whole map.": "Qué hace «Maximizar para tener más espacio» en la cabecera cuando la ventana queda demasiado estrecha para todo el mapa."
 }
