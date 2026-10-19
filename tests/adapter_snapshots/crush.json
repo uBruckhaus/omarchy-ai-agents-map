@@ -1,0 +1,93 @@
+{
+ "command": "crush",
+ "name": "Crush",
+ "label": "Crush",
+ "full_name": "",
+ "icon": "󰋑",
+ "icon_font": "",
+ "spec": "",
+ "package": "",
+ "package_only": false,
+ "own_install_counts": true,
+ "download": null,
+ "short_version": false,
+ "offered": true,
+ "login_status": null,
+ "fixed_provider": "",
+ "self_served": false,
+ "short_model_flag": true,
+ "self_update": [],
+ "install": [
+  {
+   "kind": "mise",
+   "spec": "crush",
+   "tool": "",
+   "argv": [],
+   "sudo": false,
+   "packages": [],
+   "url": "",
+   "note": "",
+   "update": []
+  }
+ ],
+ "data": [
+  "~/.config/crush",
+  "~/.local/share/crush"
+ ],
+ "homepage": "https://github.com/charmbracelet/crush",
+ "access": {
+  "how": "An API key for a provider, or a local LLM from the map",
+  "login": "crush",
+  "files": [
+   ".local/share/crush/crush.json"
+  ],
+  "env": [
+   "ANTHROPIC_API_KEY",
+   "OPENAI_API_KEY"
+  ],
+  "local_ok": true,
+  "logins": [
+   {
+    "label": "Inside Crush (it asks for a key)",
+    "argv": [
+     "crush"
+    ],
+    "note": ""
+   }
+  ],
+  "key": null
+ },
+ "security": null,
+ "sessions": null,
+ "usage": null,
+ "latest": null,
+ "installer": null,
+ "detect": false,
+ "limits": false,
+ "local_llm": null,
+ "skills": {
+  "dirs": [
+   "~/.config/crush/skills",
+   "~/.config/agents/skills",
+   "~/.agents/skills",
+   "~/.claude/skills"
+  ],
+  "own": "~/.config/crush/skills",
+  "settings_list": false,
+  "settings_file": "",
+  "listed": [
+   "~/y/skills"
+  ],
+  "write": null
+ },
+ "mcp": {
+  "path": "~/.config/crush/crush.json",
+  "format": "json",
+  "key": "mcp",
+  "shape": "crush",
+  "in_app": "",
+  "write": null,
+  "read": null,
+  "native": null
+ }
+}

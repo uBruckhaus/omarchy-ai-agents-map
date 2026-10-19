@@ -1,0 +1,58 @@
+# GitHub Copilot CLI (docs/adapter-format.md): facts only, nothing in this file runs.
+command = "copilot"
+name = "GitHub Copilot"
+label = "Copilot"
+full_name = "GitHub Copilot"
+icon = "U+F4B8"
+homepage = "https://github.com/github/copilot-cli"
+data = ["~/.copilot"]
+
+[[install]]
+kind = "mise"
+spec = "copilot"
+
+[skills]
+dirs = ["~/.copilot/skills", "~/.agents/skills"]
+own = "~/.copilot/skills"
+
+[mcp]
+path = "~/.copilot/mcp-config.json"
+shape = "copilot"
+
+[access]
+how = "A GitHub Copilot subscription (github.com/features/copilot)"
+login = "copilot  →  /login"
+files = [".copilot/config.json"]
+env = ["COPILOT_GITHUB_TOKEN", "GH_TOKEN"]
+
+[[access.logins]]
+label = "GitHub account"
+argv = ["copilot"]
+note = "Type /login in it."
+
+[security]
+file = "~/.copilot/settings.json"
+format = "json"
+
+[[security.settings]]
+key = "defaultPermissionMode"
+title = "Permission mode"
+explain = "How new interactive Copilot sessions start."
+default = "manual"
+recommended = "manual"
+terms = ["approval", "classifier", "bypass"]
+choices = [
+  { value = "manual", label = "Ask first", explain = "Asks before writes and commands; reading is allowed.", risk = 1 },
+  { value = "assisted", label = "Automatic review", explain = "An AI review approves what it judges safe and asks about the rest.", risk = 2 },
+  { value = "allow-all", label = "Allow everything", explain = "Approves everything, like --allow-all.", risk = 3 },
+]
+
+[[security.rules]]
+key = "trustedFolders"
+title = "Trusted folders"
+also = "~/.copilot/config.json"        # Copilot's managed file holds the list when the settings do not
+
+[[security.rules]]
+key = "allowedUrls"
+title = "Sites without asking"
+also = "~/.copilot/config.json"

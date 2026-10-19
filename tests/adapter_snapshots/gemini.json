@@ -1,0 +1,94 @@
+{
+ "command": "gemini",
+ "name": "Gemini CLI",
+ "label": "Gemini",
+ "full_name": "Gemini CLI",
+ "icon": "󰫢",
+ "icon_font": "",
+ "spec": "",
+ "package": "",
+ "package_only": false,
+ "own_install_counts": true,
+ "download": null,
+ "short_version": false,
+ "offered": true,
+ "login_status": null,
+ "fixed_provider": "",
+ "self_served": false,
+ "short_model_flag": false,
+ "self_update": [],
+ "install": [
+  {
+   "kind": "mise",
+   "spec": "gemini",
+   "tool": "",
+   "argv": [],
+   "sudo": false,
+   "packages": [],
+   "url": "",
+   "note": "",
+   "update": []
+  }
+ ],
+ "data": [
+  "~/.gemini"
+ ],
+ "homepage": "https://github.com/google-gemini/gemini-cli",
+ "access": {
+  "how": "A Google account (free tier), or an API key from aistudio.google.com",
+  "login": "gemini",
+  "files": [
+   ".gemini/oauth_creds.json",
+   ".gemini/.env"
+  ],
+  "env": [
+   "GEMINI_API_KEY",
+   "GOOGLE_API_KEY"
+  ],
+  "local_ok": false,
+  "logins": [
+   {
+    "label": "Google account",
+    "argv": [
+     "gemini"
+    ],
+    "note": "Choose “Sign in with Google” when it asks."
+   }
+  ],
+  "key": {
+   "var": "GEMINI_API_KEY",
+   "url": "https://aistudio.google.com/apikey",
+   "stdin": [],
+   "env_file": "~/.gemini/.env"
+  }
+ },
+ "security": null,
+ "sessions": null,
+ "usage": null,
+ "latest": null,
+ "installer": null,
+ "detect": false,
+ "limits": false,
+ "local_llm": null,
+ "skills": {
+  "dirs": [
+   "~/.gemini/skills",
+   "~/.agents/skills"
+  ],
+  "own": "~/.gemini/skills",
+  "settings_list": false,
+  "settings_file": "",
+  "listed": null,
+  "write": null
+ },
+ "mcp": {
+  "path": "~/.gemini/settings.json",
+  "format": "json",
+  "key": "mcpServers",
+  "shape": "gemini",
+  "in_app": "",
+  "write": null,
+  "read": null,
+  "native": null
+ }
+}

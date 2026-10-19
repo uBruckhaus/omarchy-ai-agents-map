@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import tarfile
 import tempfile
@@ -109,6 +110,52 @@ class InstallTest(unittest.TestCase):
 
     def test_models_root(self):
         self.assertEqual(ic._models_root(Path("/mnt/ai/Models/llama.cpp-router")), Path("/mnt/ai/Models"))
+
+
+class DeclaredInstallTest(unittest.TestCase):
+    """ic.Declared: an install an add-on describes as data (harnesses.Download)."""
+
+    def spec(self, **changes):
+        from harnesses import Download
+        base = dict(repo="acme/llm", assets=(("vulkan", r"llm-.*-vulkan-x64\.tar\.gz"), ("cpu", r"llm-.*-cpu-x64\.tar\.gz")),
+                    binary="bin/llm-server", command="llm-server", gpu_builds=(("amd", "vulkan"),),
+                    service=("{binary}", "--host", "{host}", "--port", "{port}", "--models", "{models}"),
+                    address="127.0.0.1:8090", env=(("LLM_MODELS", "{models}"),), models_env="LLM_MODELS")
+        base.update(changes)
+        return Download(**base)
+
+    def test_bad_data_is_refused(self):
+        for bad in (dict(repo="not a repo"), dict(binary="../../etc/passwd"), dict(binary="/usr/bin/x"),
+                    dict(service=("{binary}", "$(rm -rf ~)")), dict(service=("{binary}", "{secret}")),
+                    dict(env=(("lower", "x"),)), dict(address="0.0.0.0:80"), dict(assets=(("x", "("),)),
+                    dict(models_env="OTHER")):
+            with self.assertRaises((ValueError, re.error), msg=str(bad)):
+                ic.check_download(self.spec(**bad))
+
+    def test_release_build_and_checksum(self):
+        from unittest import mock
+        inst = ic.Declared("acme", "Acme LLM", self.spec(), True)
+        releases = [{"tag_name": "nightly", "assets": []},
+                    {"tag_name": "v2.0.0", "prerelease": True, "assets": []},
+                    {"tag_name": "v1.4.0", "assets": [
+                        {"name": "llm-1.4.0-cpu-x64.tar.gz", "browser_download_url": "https://x/c", "size": 5,
+                         "digest": "sha256:" + "a" * 64},
+                        {"name": "llm-1.4.0-vulkan-x64.tar.gz", "browser_download_url": "https://x/v", "size": 6,
+                         "digest": "sha256:" + "b" * 64}]}]
+        gpu = ic.Gpu(vendor="amd") if "vendor" in ic.Gpu.__dataclass_fields__ else mock.Mock(vendor="amd")
+        with mock.patch.object(ic, "_curl_json_any", lambda url: releases):
+            release = inst.latest(gpu)
+        self.assertEqual(release.version, "v1.4.0-vulkan")
+        self.assertEqual(release.assets, [("llm-1.4.0-vulkan-x64.tar.gz", "https://x/v", 6)])
+        self.assertEqual(release.digests, {"llm-1.4.0-vulkan-x64.tar.gz": "b" * 64})
+
+    def test_service_from_data(self):
+        inst = ic.Declared("acme", "Acme LLM", self.spec(), True)
+        unit = inst.unit_text(Path("/mnt/ai/Models"))
+        self.assertIn("--host 127.0.0.1 --port 8090 --models /mnt/ai/Models", unit)
+        self.assertIn("Description=Acme LLM (installed by AI Agents Map)", unit)
+        self.assertEqual(inst.service, "acme-ai-agents-map")
+        self.assertIn("LLM_MODELS=/mnt/ai/Models", inst.env_text(Path("/mnt/ai/Models"), None))
 
 
 if __name__ == "__main__":

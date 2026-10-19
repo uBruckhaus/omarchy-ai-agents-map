@@ -1,0 +1,72 @@
+{
+ "command": "muse",
+ "name": "Muse Code",
+ "label": "Muse Code",
+ "full_name": "",
+ "icon": "󰛤",
+ "icon_font": "",
+ "spec": "http:muse[url=https://api.meta.ai/muse-launcher.sh,bin=muse]",
+ "package": "",
+ "package_only": false,
+ "own_install_counts": true,
+ "download": null,
+ "short_version": false,
+ "offered": true,
+ "login_status": null,
+ "fixed_provider": "",
+ "self_served": false,
+ "short_model_flag": false,
+ "self_update": [],
+ "install": [
+  {
+   "kind": "mise",
+   "spec": "http:muse[url=https://api.meta.ai/muse-launcher.sh,bin=muse]",
+   "tool": "",
+   "argv": [],
+   "sudo": false,
+   "packages": [],
+   "url": "",
+   "note": "",
+   "update": []
+  }
+ ],
+ "data": [
+  "~/.config/muse"
+ ],
+ "homepage": "",
+ "access": null,
+ "security": null,
+ "sessions": null,
+ "usage": null,
+ "latest": null,
+ "installer": null,
+ "detect": false,
+ "limits": false,
+ "local_llm": null,
+ "skills": {
+  "dirs": [
+   "~/.config/muse/skills",
+   "~/.agents/skills",
+   "~/.claude/skills",
+   "~/.codex/skills"
+  ],
+  "own": "~/.config/muse/skills",
+  "settings_list": false,
+  "settings_file": "",
+  "listed": null,
+  "write": null
+ },
+ "mcp": {
+  "path": "~/.config/muse/settings.json",
+  "format": "json",
+  "key": "mcp_servers",
+  "shape": "muse",
+  "in_app": "",
+  "write": [
+   "{\n  \"schema_version\": 1,\n  \"mcp_servers\": {\n    \"old\": {\n      \"command\": \"a\"\n    },\n    \"new\": {\n      \"command\": \"b\"\n    }\n  }\n}\n",
+   "{\n  \"schema_version\": 1,\n  \"mcp_servers\": {\n    \"old\": {\n      \"command\": \"a\"\n    }\n  }\n}\n"
+  ],
+  "read": null,
+  "native": null
+ }
+}

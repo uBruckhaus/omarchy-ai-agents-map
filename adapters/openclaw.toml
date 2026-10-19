@@ -1,0 +1,31 @@
+# OpenClaw, the openclaw pacman package (docs/adapter-format.md). Its MCP entries are written by a
+# hook (openclaw.py): the file may be JSON5, which is then left alone.
+command = "openclaw"
+name = "OpenClaw"
+label = "OpenClaw"
+icon = "U+E90C"
+icon_font = "omarchy"
+package = "openclaw"
+package_only = true
+homepage = "https://github.com/openclaw/openclaw"
+data = ["~/.openclaw"]
+
+[[install]]
+kind = "command"
+argv = ["omarchy-install-openclaw-cli", "--now"]
+sudo = true
+
+[[install]]
+kind = "package"
+packages = [["pacman", "openclaw"]]
+
+[skills]
+dirs = ["~/.openclaw/skills", "~/.agents/skills"]
+own = "~/.openclaw/skills"
+listed = { file = "~/.openclaw/openclaw.json", format = "json", key = "skills.load.extraDirs" }
+
+[mcp]
+path = "~/.openclaw/openclaw.json"
+key = "mcp.servers"
+shape = "openclaw"
+write = "hook"

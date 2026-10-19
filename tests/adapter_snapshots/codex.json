@@ -1,0 +1,215 @@
+{
+ "command": "codex",
+ "name": "Codex",
+ "label": "Codex",
+ "full_name": "",
+ "icon": "",
+ "icon_font": "omarchy",
+ "spec": "",
+ "package": "",
+ "package_only": false,
+ "own_install_counts": true,
+ "download": null,
+ "short_version": false,
+ "offered": true,
+ "login_status": null,
+ "fixed_provider": "",
+ "self_served": false,
+ "short_model_flag": true,
+ "self_update": [],
+ "install": [
+  {
+   "kind": "mise",
+   "spec": "codex",
+   "tool": "",
+   "argv": [],
+   "sudo": false,
+   "packages": [],
+   "url": "",
+   "note": "",
+   "update": []
+  }
+ ],
+ "data": [
+  "~/.codex"
+ ],
+ "homepage": "https://github.com/openai/codex",
+ "access": {
+  "how": "A ChatGPT plan (Plus, Pro, Business), or an API key from platform.openai.com",
+  "login": "codex login",
+  "files": [
+   ".codex/auth.json"
+  ],
+  "env": [
+   "OPENAI_API_KEY"
+  ],
+  "local_ok": true,
+  "logins": [
+   {
+    "label": "ChatGPT plan",
+    "argv": [
+     "codex",
+     "login"
+    ],
+    "note": ""
+   }
+  ],
+  "key": {
+   "var": "OPENAI_API_KEY",
+   "url": "https://platform.openai.com/api-keys",
+   "stdin": [
+    "codex",
+    "login",
+    "--with-api-key"
+   ],
+   "env_file": ""
+  }
+ },
+ "security": {
+  "settings": [
+   {
+    "key": "approval_policy",
+    "title": "When Codex asks",
+    "explain": "When Codex stops and asks before running a command.",
+    "choices": [
+     {
+      "value": "untrusted",
+      "label": "Ask for everything but safe reads",
+      "explain": "Asks before every command that is not a known read-only one.",
+      "risk": 0
+     },
+     {
+      "value": "on-request",
+      "label": "When it needs more",
+      "explain": "Works inside the sandbox on its own and asks when it needs to leave it.",
+      "risk": 1
+     },
+     {
+      "value": "on-failure",
+      "label": "After a failure (old)",
+      "explain": "Asks only when a sandboxed command failed. Replaced by “When it needs more”.",
+      "risk": 1
+     },
+     {
+      "value": "never",
+      "label": "Never",
+      "explain": "Never asks; what the sandbox allows simply happens.",
+      "risk": 2
+     }
+    ],
+    "current": "never",
+    "default": "on-request",
+    "path": "~/.codex/config.toml",
+    "fmt": "toml",
+    "terms": [
+     "approval"
+    ],
+    "editable": true,
+    "recommended": "on-request"
+   },
+   {
+    "key": "sandbox_mode",
+    "title": "Sandbox",
+    "explain": "What commands Codex runs may touch.",
+    "choices": [
+     {
+      "value": "read-only",
+      "label": "Read only",
+      "explain": "Commands may read, not write or go online.",
+      "risk": 0
+     },
+     {
+      "value": "workspace-write",
+      "label": "Project folder",
+      "explain": "Commands may write in the project folder (and temp), nowhere else.",
+      "risk": 1
+     },
+     {
+      "value": "danger-full-access",
+      "label": "No sandbox",
+      "explain": "Commands may do anything you can do.",
+      "risk": 3
+     }
+    ],
+    "current": null,
+    "default": "workspace-write",
+    "path": "~/.codex/config.toml",
+    "fmt": "toml",
+    "terms": [
+     "sandbox"
+    ],
+    "editable": true,
+    "recommended": "workspace-write"
+   },
+   {
+    "key": "sandbox_workspace_write.network_access",
+    "title": "Network in the sandbox",
+    "explain": "Whether commands in the project-folder sandbox may reach the internet.",
+    "choices": [
+     {
+      "value": false,
+      "label": "Off",
+      "explain": "No internet for commands (web search of Codex itself still works).",
+      "risk": 0
+     },
+     {
+      "value": true,
+      "label": "On",
+      "explain": "Commands may download and upload.",
+      "risk": 2
+     }
+    ],
+    "current": true,
+    "default": false,
+    "path": "~/.codex/config.toml",
+    "fmt": "toml",
+    "terms": [
+     "network"
+    ],
+    "editable": true,
+    "recommended": false
+   }
+  ],
+  "rules": [
+   [
+    "Trusted folders",
+    "projects",
+    [
+     "/home/u/a"
+    ]
+   ]
+  ],
+  "files": [
+   "~/.codex/config.toml"
+  ],
+  "note": ""
+ },
+ "sessions": null,
+ "usage": null,
+ "latest": null,
+ "installer": null,
+ "detect": false,
+ "limits": false,
+ "local_llm": null,
+ "skills": {
+  "dirs": [
+   "~/.agents/skills",
+   "~/.codex/skills"
+  ],
+  "own": "~/.codex/skills",
+  "settings_list": false,
+  "settings_file": "",
+  "listed": null,
+  "write": null
+ },
+ "mcp": {
+  "path": "~/.codex/config.toml",
+  "format": "toml",
+  "key": "mcp_servers",
+  "shape": "codex",
+  "in_app": "",
+  "write": null,
+  "read": null,
+  "native": null
+ }
+}

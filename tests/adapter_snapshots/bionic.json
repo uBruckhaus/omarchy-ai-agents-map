@@ -1,0 +1,74 @@
+{
+ "command": "bionic",
+ "name": "LM Studio Bionic",
+ "label": "LM Studio Bionic",
+ "full_name": "",
+ "icon": "󰧑",
+ "icon_font": "",
+ "spec": "",
+ "package": "",
+ "package_only": false,
+ "own_install_counts": true,
+ "download": null,
+ "short_version": true,
+ "offered": false,
+ "login_status": null,
+ "fixed_provider": "lmstudio",
+ "self_served": true,
+ "short_model_flag": false,
+ "self_update": [],
+ "install": [
+  {
+   "kind": "installer",
+   "spec": "",
+   "tool": "",
+   "argv": [],
+   "sudo": false,
+   "packages": [],
+   "url": "",
+   "note": "",
+   "update": []
+  }
+ ],
+ "data": [
+  "~/.lmstudio/apps/bionic"
+ ],
+ "homepage": "https://lmstudio.ai",
+ "access": {
+  "how": "Nothing: it runs models on this computer",
+  "login": "",
+  "files": [],
+  "env": [],
+  "local_ok": true,
+  "logins": [],
+  "key": null
+ },
+ "security": null,
+ "sessions": null,
+ "usage": null,
+ "latest": null,
+ "installer": "Bionic",
+ "detect": false,
+ "limits": false,
+ "local_llm": null,
+ "skills": {
+  "dirs": [
+   "~/.lmstudio/skills"
+  ],
+  "own": "~/.lmstudio/skills",
+  "settings_list": false,
+  "settings_file": "",
+  "listed": null,
+  "write": null
+ },
+ "mcp": {
+  "path": "",
+  "format": "json",
+  "key": "mcpServers",
+  "shape": "plain",
+  "in_app": "Settings › Connected apps",
+  "write": null,
+  "read": null,
+  "native": null
+ }
+}

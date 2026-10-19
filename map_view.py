@@ -41,6 +41,8 @@ import gi
 gi.require_version("PangoCairo", "1.0")
 from gi.repository import Gdk, GLib, Gtk, Pango, PangoCairo  # noqa: E402
 
+import icons  # noqa: E402
+
 NODE_H = 42
 NODE_GAP = 8
 GROUP_GAP = 22           # column 0: between the MCP servers and the skill sets
@@ -55,6 +57,7 @@ NODE_W_MIN = 120
 PIN_W = 14               # the pin's square at a box's top right
 PIN, PIN_OUTLINE = "\U000F0403", "\U000F0931"   # Nerd Font pin, pin-outline
 PLAY, CONSOLE = "\U000F040A", "\U000F018D"      # Nerd Font play, console: an agent's start button
+ANIMATION_MODES = ("all", "agents", "off")    # Settings › Map animations
 START_W = 18             # the start button's square, left of where the pin and the tick go
 # The categories whose boxes each column holds (a column with none of them on is gone).
 # Categories: selecting in one hides that category's other boxes.
@@ -64,7 +67,8 @@ CATEGORY = {"agent": "agent", "cloud": "provider", "runtime": "provider", "model
 TILE_GLYPHS = {"cloud": "cloud", "runtime": "chip", "model": "model", "more": "folder", "skills": "skill",
                "mcp": "app", "agent": "robot"}
 TILE_TONES = {"mcp": "yellow", "skills": "green", "model": "muted", "more": "muted"}
-EDGE_COLORS = {"uses": "accent", "available": "accent", "serves": "muted", "mcp": "yellow", "skills": "green"}
+# "available": set up but not in use (dotted), in the alert colour of the header's ! (the legend too).
+EDGE_COLORS = {"uses": "accent", "available": "red", "serves": "muted", "mcp": "yellow", "skills": "green"}
 
 
 def rgba(hex_code: str, alpha: float = 1.0):
@@ -99,6 +103,8 @@ class MapView(Gtk.DrawingArea):
         self.pin_rects = {}      # node id -> rectangle of its pin, for clicks
         self.pin_tips = ("Pin", "Unpin")   # tooltips (pin, unpin), translated by the window
         self.start_rects = {}    # agent box id -> rectangle of its start button, for clicks
+        self.batteries = {}      # box id -> (left 0..1, colour, tooltip): an online agent's limits, a local LLM's GPU
+        self.battery_rects = {}  # agent box id -> rectangle of its battery, for the tooltip
         self.start_state = None  # start_state(node id) -> "start", "show" (runs here) or "" (no button)
         self.on_start = None     # on_start(node id): start it, or show its terminal
         self.start_tips = ("Start", "Show terminal")   # translated by the window
@@ -115,7 +121,7 @@ class MapView(Gtk.DrawingArea):
         self.zoom = 1.0          # drawing scale (ZOOM_STEPS)
         self.on_zoom = None      # callback(zoom) after Ctrl+scroll
         self.usage = None        # gpu_usage.Usage: GPU memory per local LLM, loaded models, activity
-        self.animate = True      # Settings → Animate active lines: light flows along a running agent's path
+        self.animate = "all"     # Settings › Map animations: "all" (agents and other apps), "agents", "off"
         self.flow_layer = None   # FlowLayer over the map (with_flow_layer)
         self.working = None      # agent commands working now (agent_activity); None: every running one flows
         self.outside = {}        # runtime id -> {model id: "in use · Video Trans"}: an app outside the map generates
@@ -147,6 +153,12 @@ class MapView(Gtk.DrawingArea):
         self.colors = dict(colors)
         self.radius = max(0, min(radius, 12))
         self.queue_draw()
+
+    def set_batteries(self, batteries: dict):
+        """{box id: (left, colour, tooltip)} from agent_details.battery or gpu_battery: drawn in the box."""
+        if batteries != self.batteries:
+            self.batteries = dict(batteries)
+            self.queue_draw()
 
     def set_usage(self, usage):
         self.usage = usage
@@ -615,8 +627,14 @@ class MapView(Gtk.DrawingArea):
         if pin is not None:
             self.set_tooltip_text(self.pin_tips[1 if pin in self.pinned else 0])
         start = self.start_at(x, y)
+        battery = next((n for n, (bx, by, bw, bh) in self.battery_rects.items()
+                        if bx <= x <= bx + bw and by <= y <= by + bh and n in self.batteries), None)
         if start is not None and self.start_state is not None:
             self.set_tooltip_text(self.start_tips[1 if self.start_state(start) == "show" else 0])
+        elif battery is not None:
+            self.set_tooltip_text(self.batteries[battery][2])
+        elif pin is None:
+            self.set_tooltip_text(None)        # no tooltip left over from a button the pointer left
 
     def pin_at(self, x, y):
         """The node whose pin is at (x, y) in map units, or None."""
@@ -822,13 +840,15 @@ class MapView(Gtk.DrawingArea):
 
     # --- flowing light on running agents' paths ------------------------------------------------
 
-    def set_animate(self, on: bool):
-        self.animate = bool(on)
+    def set_animate(self, mode):
+        """"all": light on running agents' lines and on lines other programs use; "agents": only
+        the agents'; "off" (or False): still lines."""
+        self.animate = mode if mode in ANIMATION_MODES else "all" if mode is True else "off"
         self.queue_draw()           # the map works out the flowing paths again and tells the layer
 
     def animations_allowed(self) -> bool:
         """The setting, and the desktop's own "animations" switch (reduced motion)."""
-        if not self.animate:
+        if self.animate == "off":
             return False
         settings = Gtk.Settings.get_default()
         return settings is None or bool(settings.get_property("gtk-enable-animations"))
@@ -871,17 +891,21 @@ class MapView(Gtk.DrawingArea):
 
     def flow_paths(self, active_edges, drawn, running_only: bool = True) -> list:
         """[(agent id, [edges agent → provider → model])] of the agents (the running ones, unless
-        running_only is off) whose active path is drawn bold now."""
+        running_only is off) whose active path is drawn bold now. With the agents hidden (Show) the
+        light runs on the part still drawn: provider → model."""
         agents = self.running_agents() if running_only else set(self.active)
         paths = []
         for agent in sorted(agents):
-            edges = [self.graph.edges[i] for i in self.active.get(agent, ())
-                     if i in active_edges and i in drawn]
+            edges = [self.graph.edges[i] for i in self.active.get(agent, ()) if i in active_edges]
+            drawn_edges = [self.graph.edges[i] for i in self.active.get(agent, ())
+                           if i in active_edges and i in drawn]
             first = [e for e in edges if e.source == agent]
             if not first:
                 continue
-            rest = [e for e in edges if e.source == first[0].target]
-            paths.append((agent, first[:1] + rest[:1]))
+            rest = [e for e in drawn_edges if e.source == first[0].target]
+            path = [e for e in first[:1] if e in drawn_edges] + rest[:1]
+            if path:
+                paths.append((agent, path))
         return paths
 
     FLOW_PERIOD = 2.6            # seconds for a light to run the whole path
@@ -1048,12 +1072,13 @@ class MapView(Gtk.DrawingArea):
         self.draw_markers(cr, markers)
         allowed = self.animations_allowed() and self.link is None
         if self.flow_layer is not None:
-            outside = self.outside_paths(drawn) if allowed else []
+            outside = self.outside_paths(drawn) if allowed and self.animate == "all" else []
             self.flow_layer.update(self.flow_paths(active_edges, drawn, running_only=False) + outside if allowed else [],
                                    self.running_agents() | {key for key, _edges in outside} if allowed else set())
 
         self.pin_rects = {}
         self.start_rects = {}
+        self.battery_rects = {}
         for node in self.graph.nodes:
             if node.id not in self.boxes:
                 continue
@@ -1087,6 +1112,8 @@ class MapView(Gtk.DrawingArea):
             right = 0                # room kept free at the right for the loaded mark or the start button
             if node.kind == "agent" and self.start_state is not None and self.start_state(node.id):
                 right = self.draw_start(cr, layout, node.id, x, y, w, h, faded)
+            if node.kind in ("agent", "runtime") and node.id in self.batteries:
+                right += self.draw_battery(cr, node.id, x + w - PIN_W - (24 if selected else 4) - right, y, h, faded)
             text_x = self.draw_tile(cr, layout, node, x, y, h, faded, alpha, use)
             if node.kind == "runtime" and use is not None and use.vram >= 64 * 1024 ** 2:
                 detail = " · ".join(filter(None, [detail, f"{use.vram / 1024 ** 3:.1f} GB GPU"]))
@@ -1141,6 +1168,41 @@ class MapView(Gtk.DrawingArea):
             return glyph(MCP_GLYPHS.get(node.label, "app")), ""
         return glyph(TILE_GLYPHS.get(node.kind, "package")), ""
 
+    _SVGS: dict = {}           # (icon name, colour) -> Rsvg.Handle with that colour's stylesheet
+
+    def draw_icon(self, cr, text: str, font: str, x: float, y: float, size: float, rgba) -> bool:
+        """A glyph from the app's own icons (icons.py) in one colour, in the square (x, y, size);
+        False when there is no stored icon for it (then the caller draws the font's glyph)."""
+        name = icons.name_for(text, font)
+        path = icons.path_for(name) if name else None
+        if path is None:
+            return False
+        try:
+            gi.require_version("Rsvg", "2.0")
+            from gi.repository import Rsvg
+        except (ImportError, ValueError):
+            return False
+        key = (name, tuple(round(c, 3) for c in rgba))
+        handle = self._SVGS.get(key)
+        if handle is None:
+            try:
+                handle = Rsvg.Handle.new_from_file(str(path))
+                r, g, b, a = (max(0.0, min(1.0, c)) for c in rgba)
+                handle.set_stylesheet(f"* {{ fill: rgba({r * 255:.0f},{g * 255:.0f},{b * 255:.0f},{a:.3f}) "
+                                      f"!important; stroke: none !important; }}".encode())
+            except Exception:
+                return False
+            if len(self._SVGS) > 400:
+                self._SVGS.clear()
+            self._SVGS[key] = handle
+        viewport = Rsvg.Rectangle()
+        viewport.x, viewport.y, viewport.width, viewport.height = x, y, size, size
+        try:
+            handle.render_document(cr, viewport)
+        except Exception:
+            return False
+        return True
+
     def draw_tile(self, cr, layout, node, x, y, h, faded, alpha, use) -> float:
         """The icon tile at a box's start, tinted in the colour of the kind's lines, with the status
         dot on its corner (green running, yellow stopped, grey not installed; a ring while
@@ -1152,14 +1214,17 @@ class MapView(Gtk.DrawingArea):
         cr.set_source_rgba(*self.color(tone, 0.18 * (0.4 if faded else 1.0)))
         cr.fill()
         text, font = self.tile_glyph(node)
-        family = "omarchy" if font == "omarchy" else "JetBrainsMono Nerd Font, Symbols Nerd Font"
-        layout.set_font_description(Pango.FontDescription.from_string(f"{family} 13"))
-        layout.set_width(-1)
-        layout.set_text(text, -1)
-        glyph_w, glyph_h = layout.get_pixel_size()
-        cr.set_source_rgba(*self.color(tone if tone != "muted" else "fg", alpha))
-        cr.move_to(tx + (size - glyph_w) / 2, ty + (size - glyph_h) / 2)
-        PangoCairo.show_layout(cr, layout)
+        colour = self.color(tone if tone != "muted" else "fg", alpha)
+        inner = size * 0.62
+        if not self.draw_icon(cr, text, font, tx + (size - inner) / 2, ty + (size - inner) / 2, inner, colour):
+            family = "omarchy" if font == "omarchy" else "JetBrainsMono Nerd Font, Symbols Nerd Font"
+            layout.set_font_description(Pango.FontDescription.from_string(f"{family} 13"))
+            layout.set_width(-1)
+            layout.set_text(text, -1)
+            glyph_w, glyph_h = layout.get_pixel_size()
+            cr.set_source_rgba(*colour)
+            cr.move_to(tx + (size - glyph_w) / 2, ty + (size - glyph_h) / 2)
+            PangoCairo.show_layout(cr, layout)
         if node.status:
             name = {"running": "green", "stopped": "yellow"}.get(node.status, "muted")
             cx, cy = tx + size - 1, ty + size - 1
@@ -1206,15 +1271,37 @@ class MapView(Gtk.DrawingArea):
                                        * (0.4 if faded else 1)))
         cr.set_line_width(1)
         cr.stroke()
-        layout.set_font_description(Pango.FontDescription.from_string("JetBrainsMono Nerd Font, Symbols Nerd Font 9"))
-        layout.set_width(-1)
-        layout.set_ellipsize(Pango.EllipsizeMode.NONE)
-        layout.set_text(CONSOLE if state == "show" else PLAY, -1)
-        text_w, text_h = layout.get_pixel_size()
-        cr.set_source_rgba(*self.color("accent" if hot or state == "show" else "fg", 0.4 if faded else 1.0))
-        cr.move_to(sx + (START_W - text_w) / 2, sy + (START_W - text_h) / 2)
-        PangoCairo.show_layout(cr, layout)
+        colour = self.color("accent" if hot or state == "show" else "fg", 0.4 if faded else 1.0)
+        glyph_ = CONSOLE if state == "show" else PLAY
+        if not self.draw_icon(cr, glyph_, "", sx + 3, sy + 3, START_W - 6, colour):
+            layout.set_font_description(Pango.FontDescription.from_string("JetBrainsMono Nerd Font, Symbols Nerd Font 9"))
+            layout.set_width(-1)
+            layout.set_ellipsize(Pango.EllipsizeMode.NONE)
+            layout.set_text(glyph_, -1)
+            text_w, text_h = layout.get_pixel_size()
+            cr.set_source_rgba(*colour)
+            cr.move_to(sx + (START_W - text_w) / 2, sy + (START_W - text_h) / 2)
+            PangoCairo.show_layout(cr, layout)
         return START_W + 4
+
+    def draw_battery(self, cr, node_id, right, y, h, faded) -> int:
+        """A small battery ending at `right`: filled to what is left of the tightest limit, green,
+        yellow (a quarter or less) or red (under a tenth). Returns the room it takes."""
+        left, colour, _tip = self.batteries[node_id]
+        bw, bh = 20, 10
+        bx, by = right - bw - 5, y + (h - bh) / 2
+        self.battery_rects[node_id] = (bx - 2, by - 4, bw + 6, bh + 8)
+        alpha = 0.4 if faded else 1.0
+        cr.set_source_rgba(*self.color("fg", 0.55 * alpha))
+        cr.set_line_width(1)
+        cr.rectangle(bx + 0.5, by + 0.5, bw - 1, bh - 1)
+        cr.stroke()
+        cr.rectangle(bx + bw, by + 3, 2, bh - 6)          # the nub
+        cr.fill()
+        cr.set_source_rgba(*self.color(colour, alpha))
+        cr.rectangle(bx + 2, by + 2, max(1.5, (bw - 4) * left), bh - 4)
+        cr.fill()
+        return bw + 9
 
     def draw_pin(self, cr, layout, node_id, x, y, w, faded):
         """The pin at the top right: filled when pinned, an outline while the box is hovered."""
@@ -1222,10 +1309,13 @@ class MapView(Gtk.DrawingArea):
         self.pin_rects[node_id] = (x + w - PIN_W - 2, y + 1, PIN_W, PIN_W)
         if not pinned and node_id != self.hover:
             return
+        colour = self.color("accent" if pinned else "dim", 0.4 if faded and not pinned else 1.0)
+        if self.draw_icon(cr, PIN if pinned else PIN_OUTLINE, "", x + w - PIN_W - 1, y + 2, PIN_W - 2, colour):
+            return
         layout.set_font_description(Pango.FontDescription.from_string("JetBrainsMono Nerd Font, Symbols Nerd Font 9"))
         layout.set_width(-1)
         layout.set_text(PIN if pinned else PIN_OUTLINE, -1)
-        cr.set_source_rgba(*self.color("accent" if pinned else "dim", 0.4 if faded and not pinned else 1.0))
+        cr.set_source_rgba(*colour)
         text_w, _text_h = layout.get_pixel_size()
         cr.move_to(x + w - PIN_W - 2 + (PIN_W - text_w) / 2, y + 2)
         PangoCairo.show_layout(cr, layout)

@@ -1,0 +1,252 @@
+{
+ "command": "opencode",
+ "name": "OpenCode",
+ "label": "OpenCode",
+ "full_name": "",
+ "icon": "",
+ "icon_font": "omarchy",
+ "spec": "",
+ "package": "",
+ "package_only": false,
+ "own_install_counts": true,
+ "download": null,
+ "short_version": false,
+ "offered": true,
+ "login_status": null,
+ "fixed_provider": "",
+ "self_served": false,
+ "short_model_flag": true,
+ "self_update": [],
+ "install": [
+  {
+   "kind": "mise",
+   "spec": "opencode",
+   "tool": "",
+   "argv": [],
+   "sudo": false,
+   "packages": [],
+   "url": "",
+   "note": "",
+   "update": []
+  }
+ ],
+ "data": [
+  "~/.local/share/opencode",
+  "~/.config/opencode"
+ ],
+ "homepage": "https://opencode.ai",
+ "access": {
+  "how": "An account or API key for any provider, or a local LLM from the map",
+  "login": "opencode auth login",
+  "files": [
+   ".local/share/opencode/auth.json"
+  ],
+  "env": [],
+  "local_ok": true,
+  "logins": [
+   {
+    "label": "A provider (account or key)",
+    "argv": [
+     "opencode",
+     "auth",
+     "login"
+    ],
+    "note": ""
+   }
+  ],
+  "key": null
+ },
+ "security": {
+  "settings": [
+   {
+    "key": "permission.edit",
+    "title": "Edit files",
+    "explain": "Writing and changing files.",
+    "choices": [
+     {
+      "value": "ask",
+      "label": "Ask",
+      "explain": "Asks you each time.",
+      "risk": 0
+     },
+     {
+      "value": "allow",
+      "label": "Allow",
+      "explain": "Does it without asking.",
+      "risk": 2
+     },
+     {
+      "value": "deny",
+      "label": "Never",
+      "explain": "The agent cannot do it.",
+      "risk": 0
+     }
+    ],
+    "current": "ask",
+    "default": "allow",
+    "path": "~/.config/opencode/opencode.json",
+    "fmt": "json",
+    "terms": [
+     "approval"
+    ],
+    "editable": true,
+    "recommended": "ask"
+   },
+   {
+    "key": "permission.bash",
+    "title": "Run commands",
+    "explain": "Shell commands, with all your rights.",
+    "choices": [
+     {
+      "value": "ask",
+      "label": "Ask",
+      "explain": "Asks you each time.",
+      "risk": 0
+     },
+     {
+      "value": "allow",
+      "label": "Allow",
+      "explain": "Does it without asking.",
+      "risk": 3
+     },
+     {
+      "value": "deny",
+      "label": "Never",
+      "explain": "The agent cannot do it.",
+      "risk": 0
+     }
+    ],
+    "current": "allow",
+    "default": "allow",
+    "path": "~/.config/opencode/opencode.json",
+    "fmt": "json",
+    "terms": [
+     "approval",
+     "rules"
+    ],
+    "editable": true,
+    "recommended": "ask"
+   },
+   {
+    "key": "permission.webfetch",
+    "title": "Fetch web pages",
+    "explain": "Reading web pages.",
+    "choices": [
+     {
+      "value": "ask",
+      "label": "Ask",
+      "explain": "Asks you each time.",
+      "risk": 0
+     },
+     {
+      "value": "allow",
+      "label": "Allow",
+      "explain": "Does it without asking.",
+      "risk": 1
+     },
+     {
+      "value": "deny",
+      "label": "Never",
+      "explain": "The agent cannot do it.",
+      "risk": 0
+     }
+    ],
+    "current": {
+     "git *": "allow",
+     "*": "ask"
+    },
+    "default": "allow",
+    "path": "~/.config/opencode/opencode.json",
+    "fmt": "json",
+    "terms": [
+     "injection"
+    ],
+    "editable": true,
+    "recommended": "allow"
+   },
+   {
+    "key": "permission.external_directory",
+    "title": "Outside the project",
+    "explain": "Reading or writing files outside the folder it was started in.",
+    "choices": [
+     {
+      "value": "ask",
+      "label": "Ask",
+      "explain": "Asks you each time.",
+      "risk": 0
+     },
+     {
+      "value": "allow",
+      "label": "Allow",
+      "explain": "Does it without asking.",
+      "risk": 2
+     },
+     {
+      "value": "deny",
+      "label": "Never",
+      "explain": "The agent cannot do it.",
+      "risk": 0
+     }
+    ],
+    "current": null,
+    "default": "ask",
+    "path": "~/.config/opencode/opencode.json",
+    "fmt": "json",
+    "terms": [
+     "approval"
+    ],
+    "editable": true,
+    "recommended": "ask"
+   }
+  ],
+  "rules": [],
+  "files": [
+   "~/.config/opencode/opencode.json"
+  ],
+  "note": ""
+ },
+ "sessions": {
+  "collect": "own",
+  "note": "Numbers from OpenCode's session database (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs."
+ },
+ "usage": "agent_status.opencode",
+ "latest": null,
+ "installer": null,
+ "detect": false,
+ "limits": false,
+ "local_llm": {
+  "files": [
+   "~/.config/opencode/opencode.json"
+  ],
+  "added": [
+   "{\n  \"provider\": {\n    \"llamacpp\": {\n      \"npm\": \"@ai-sdk/openai-compatible\",\n      \"name\": \"llama.cpp\",\n      \"options\": {\n        \"baseURL\": \"http://127.0.0.1:8080/v1\"\n      },\n      \"models\": {\n        \"m1\": {\n          \"name\": \"m1\"\n        },\n        \"m2\": {\n          \"name\": \"m2\"\n        }\n      }\n    }\n  },\n  \"model\": \"llamacpp/m1\"\n}\n"
+  ],
+  "connected": true,
+  "active": true,
+  "removed": [
+   "{}\n"
+  ]
+ },
+ "skills": {
+  "dirs": [
+   "~/.config/opencode/skills",
+   "~/.claude/skills",
+   "~/.agents/skills"
+  ],
+  "own": "~/.config/opencode/skills",
+  "settings_list": false,
+  "settings_file": "",
+  "listed": null,
+  "write": null
+ },
+ "mcp": {
+  "path": "~/.config/opencode/opencode.json",
+  "format": "json",
+  "key": "mcp",
+  "shape": "opencode",
+  "in_app": "",
+  "write": null,
+  "read": null,
+  "native": null
+ }
+}

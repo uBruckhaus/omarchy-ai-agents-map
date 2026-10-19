@@ -1,0 +1,33 @@
+# Charm's Crush (docs/adapter-format.md): facts only, nothing in this file runs.
+command = "crush"
+name = "Crush"
+label = "Crush"
+icon = "U+F02D1"
+short_model_flag = true
+homepage = "https://github.com/charmbracelet/crush"
+data = ["~/.config/crush", "~/.local/share/crush"]
+
+[[install]]
+kind = "mise"
+spec = "crush"
+
+[skills]
+dirs = ["~/.config/crush/skills", "~/.config/agents/skills", "~/.agents/skills", "~/.claude/skills"]
+own = "~/.config/crush/skills"
+listed = { file = "~/.config/crush/crush.json", format = "json", key = "options.skills_paths" }
+
+[mcp]
+path = "~/.config/crush/crush.json"
+key = "mcp"
+shape = "crush"
+
+[access]
+how = "An API key for a provider, or a local LLM from the map"
+login = "crush"
+files = [".local/share/crush/crush.json"]
+env = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"]
+local_ok = true
+
+[[access.logins]]
+label = "Inside Crush (it asks for a key)"
+argv = ["crush"]

@@ -203,7 +203,7 @@ def check(agent_list, details: dict, inventory, built, pc: PC, agent_checks: dic
     area = Area("agents", _("Agents"), "\U000f06a9")
     if not installed:
         area.findings.append(Finding("warn", _("No agent installed"),
-                                     desktop.text("install_agent_first")))
+                                     desktop.text("install_agent_first"), ("setup",)))
     ready = []
     for agent in installed:
         checks = agent_checks.get(agent.command, [])
@@ -276,7 +276,7 @@ def check(agent_list, details: dict, inventory, built, pc: PC, agent_checks: dic
     for (source, target), hint in sorted(failed_links.items()) if isinstance(failed_links, dict) else []:
         area.findings.append(Finding("warn", _("A connection does not work: {0} → {1}").format(
             names.get(str(source).split(":", 1)[-1], str(source).split(":", 1)[-1]), str(target).split(":", 1)[-1]),
-            _("Click its dotted red line on the map for what to do.")))
+            _("Click its dotted red line on the map for what to do."), ("link", str(source), str(target))))
     unused = [m.name for m in inventory.mcp if not m.agents]
     if used_mcp:
         area.findings.append(Finding("ok", ngettext("1 MCP server in use", "{0} MCP servers in use", len(used_mcp))

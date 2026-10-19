@@ -8,8 +8,11 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import claude_sessions  # noqa: E402
 import edition  # noqa: E402
-import harness_hermes  # noqa: E402
-import harness_opencode  # noqa: E402
+import adapter_data  # noqa: E402
+
+# Their session readers are hooks now (adapters/<command>.py).
+harness_hermes = adapter_data.hooks_module("hermes")
+harness_opencode = adapter_data.hooks_module("opencode")
 import harnesses  # noqa: E402
 
 T0 = 1_790_000_000.0            # a fixed moment (epoch seconds)
@@ -61,7 +64,7 @@ class OpenCodeTest(unittest.TestCase):
         opencode_db(self.db)
 
     def test_numbers_per_session(self):
-        sessions = harness_opencode.collect(self.db)
+        sessions = harness_opencode.sessions(self.db)
         self.assertEqual(set(sessions), {"a", "c"})          # the child run is not a session of its own
         a = sessions["a"]
         self.assertEqual(a.cwd, "/home/u/proj")
@@ -72,20 +75,20 @@ class OpenCodeTest(unittest.TestCase):
         self.assertEqual(sessions["c"].cwd, "")              # not an absolute folder: unknown
 
     def test_projects_and_busiest_work_on_it(self):
-        rows = claude_sessions.projects(list(harness_opencode.collect(self.db).values()))
+        rows = claude_sessions.projects(list(harness_opencode.sessions(self.db).values()))
         self.assertEqual(rows[0].cwd, "/home/u/proj")
         self.assertEqual(rows[0].subagent_runs, 1)
-        self.assertIsNotNone(claude_sessions.busiest(list(harness_opencode.collect(self.db).values())))
+        self.assertIsNotNone(claude_sessions.busiest(list(harness_opencode.sessions(self.db).values())))
 
     def test_missing_or_foreign_db(self):
-        self.assertEqual(harness_opencode.collect(self.db.with_name("none.db")), {})
+        self.assertEqual(harness_opencode.sessions(self.db.with_name("none.db")), {})
         bad = self.db.with_name("bad.db")
         bad.write_bytes(b"not sqlite")
-        self.assertEqual(harness_opencode.collect(bad), {})
+        self.assertEqual(harness_opencode.sessions(bad), {})
 
     def test_never_writes(self):
         before = self.db.read_bytes()
-        harness_opencode.collect(self.db)
+        harness_opencode.sessions(self.db)
         self.assertEqual(self.db.read_bytes(), before)
         self.assertFalse(self.db.with_name("opencode.db-journal").exists())
 
@@ -98,7 +101,7 @@ class HermesTest(unittest.TestCase):
         hermes_db(self.db)
 
     def test_numbers_per_session(self):
-        sessions = harness_hermes.collect(self.db)
+        sessions = harness_hermes.sessions(self.db)
         self.assertEqual(set(sessions), {"h1"})
         h1 = sessions["h1"]
         self.assertEqual(h1.cwd, "/srv/app")
@@ -113,7 +116,7 @@ class HermesTest(unittest.TestCase):
         db.execute("DELETE FROM messages")
         db.commit()
         db.close()
-        h1 = harness_hermes.collect(self.db)["h1"]
+        h1 = harness_hermes.sessions(self.db)["h1"]
         self.assertEqual((h1.first, h1.last), (T0, T0 + 200))
 
 
@@ -217,7 +220,7 @@ class CapabilityTablesTest(unittest.TestCase):
 
     def test_update_whitelist_unchanged(self):
         import agent_updates
-        self.assertEqual(agent_updates.SELF_UPDATES, (["claude", "update"],))
+        self.assertEqual(agent_updates.self_updates(), (["claude", "update"],))
         self.assertTrue(agent_updates._allowed(["claude", "update"]))
         self.assertTrue(agent_updates._allowed(["mise", "upgrade", "x"]))
         self.assertFalse(agent_updates._allowed(["claude", "mcp", "add"]))
@@ -239,6 +242,37 @@ class EditionTest(unittest.TestCase):
             self.assertTrue(edition.allows(edition.SUMMARY))
         with mock.patch.object(addon_api, "loaded_privacy", return_value=0):
             self.assertEqual(edition.maximum(), edition.NUMBERS)
+
+
+class ExtendTest(unittest.TestCase):
+    """harnesses.extend: facts an extension add-on adds to an agent."""
+
+    def tearDown(self):
+        harnesses.remove_added()
+
+    def test_empty_fields_only_first_wins(self):
+        reader = lambda: ("Pro", [])          # noqa: E731
+        other = lambda: ("Max", [])           # noqa: E731
+        self.assertEqual(harnesses.extend("opencode", {"limits": reader}, "ext-a"), [])
+        harnesses.extend("opencode", {"limits": other}, "ext-b")
+        self.assertIs(harnesses.get("opencode").limits, reader)
+        self.assertEqual(harnesses.conflicts(), {"ext-b": ["opencode.limits"]})
+
+    def test_a_set_fact_is_never_replaced(self):
+        mine = harnesses.get("opencode").usage
+        harnesses.extend("opencode", {"usage": lambda: None}, "ext-a")
+        self.assertIs(harnesses.get("opencode").usage, mine)
+        self.assertEqual(harnesses.conflicts(), {"ext-a": ["opencode.usage"]})
+
+    def test_refused_fields(self):
+        self.assertEqual(sorted(harnesses.extend("opencode", {"installer": 1, "command": "x"}, "ext-a")),
+                         ["command", "installer"])
+        self.assertEqual(harnesses.get("opencode").command, "opencode")
+
+    def test_removing_the_addon_removes_its_facts(self):
+        harnesses.extend("opencode", {"limits": lambda: ("x", [])}, "ext-a")
+        harnesses.remove_added("ext-a")
+        self.assertIsNone(harnesses.get("opencode").limits)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,36 @@
+# DeepSeek Harness (docs/adapter-format.md), installed by the app (install_ctl.Dsh). Connecting a local
+# LLM and its MCP servers (a YAML profile) are hooks (dsh.py) over dsh_ctl.
+command = "dsh"
+name = "DeepSeek Harness"
+label = "DeepSeek Harness"
+icon = "U+F0E7B"
+installer = "dsh"
+offered = false
+homepage = "https://www.npmjs.com/package/@deepseek-ai/dsh"
+data = ["~/.dsh"]
+
+[[install]]
+kind = "installer"
+
+[skills]
+dirs = ["~/.dsh/skills", "~/.agents/skills"]
+own = "~/.dsh/skills"
+
+[mcp]
+path = "~/.dsh/profiles/web/cordis.patch.yml"
+format = "yaml"
+key = ""
+read = "hook"
+write = "hook"
+native = "hook"
+
+[local_llm]
+files = ["~/.dsh/profiles/web/cordis.patch.yml"]
+hooks = true
+
+[access]
+how = "An API key from platform.deepseek.com, or a local LLM from the map"
+login = "dsh web"
+files = [".dsh/.credentials.yaml"]
+env = ["DEEPSEEK_API_KEY"]
+local_ok = true

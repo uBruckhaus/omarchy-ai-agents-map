@@ -106,12 +106,21 @@ class ThemeCss:
         window#aiagentsmap-window {{ background: {bg_hex}; }}
         .am-card {{ background: {bg_hex}; color: {fg_hex}; border: none;
             border-radius: 0; padding: 17px; }}
-        .am-title {{ font-size: 15px; font-weight: 600; }}
+        /* Four text styles (fewer formats read easier): the title; controls and values (Map, Setup,
+           Open ›, Refresh, "1.3 of 24.0 GB in use", card names); group headings (AI SETUP, GPU MEMORY);
+           hints. The header sits outside .am-card in a header bar (Asterism), so these are unscoped. */
+        .am-title {{ font-size: 17px; font-weight: 700; }}
+        .am-headerbar {{ background: {bg_hex}; color: {fg_hex}; }}
+        .am-header-row {{ padding: 8px 17px; min-height: 34px; }}   /* 17 px: the card's padding (AI SETUP) */
+        button.am-view-btn label, headerbar button.am-view-btn label, .am-control-text,
+        button.am-control-btn label, .am-card button.am-small-btn.am-control-btn label {{ font-size: 13px;
+            font-weight: 600; }}
+        button.am-view-btn:checked, headerbar button.am-view-btn:checked {{ color: {accent_hex};
+            background: alpha({accent_hex}, 0.14); }}
         .am-header-hint {{ font-size: 10px; color: {dim_hex}; }}
         .am-hint {{ color: {muted_hex}; font-size: 13px; }}
         .am-card button.am-header-btn {{ padding: 4px; min-width: 0; min-height: 0; margin-right: 4px; }}
         .am-card button.am-view-btn {{ margin-right: 0; }}
-        .am-card button.am-view-btn:checked {{ color: {accent_hex}; background: alpha({accent_hex}, 0.14); }}
         .am-view-switch {{ margin-right: 4px; }}
         .am-card button.am-gear-btn {{ border: 1px solid alpha({fg_hex}, 0.35); border-radius: {radius}px;
             padding: 1px 6px; margin-right: 0; }}
@@ -160,11 +169,16 @@ class ThemeCss:
         .am-command-line {{ background: alpha({fg_hex}, 0.06); border-radius: {min(radius, 6)}px; padding: 2px 4px 2px 10px;
             margin-top: 3px; }}
         .am-command {{ font-family: "JetBrainsMono Nerd Font", monospace; font-size: 12px; }}
-        .am-card button.am-widen-hint {{ color: {accent_hex}; border: 1px solid alpha({accent_hex}, 0.45);
-            padding: 1px 10px; }}
+        button.am-widen-hint, headerbar button.am-widen-hint {{ color: {dim_hex};
+            border: 1px solid alpha({fg_hex}, 0.18); padding: 1px 8px; min-height: 0; }}
+        button.am-widen-hint label, headerbar button.am-widen-hint label {{ font-size: 11px; font-weight: 400;
+            color: {dim_hex}; }}
+        button.am-widen-hint image, headerbar button.am-widen-hint image {{ color: {dim_hex}; -gtk-icon-size: 12px; }}
+        button.am-widen-hint:hover label, button.am-widen-hint:hover image {{ color: {fg_hex}; }}
         .am-undo button.suggested-action {{ background: {accent_hex}; color: {bg_hex}; border: none; }}
         .am-help-card {{ background: alpha({fg_hex}, 0.03); border: 1px solid alpha({fg_hex}, 0.10);
-            border-radius: {radius}px; padding: 12px 14px; }}
+            border-radius: {radius}px; padding: 8px 12px; }}
+        .am-help-card.am-group-card {{ padding: 4px 12px; }}   /* group cards: a low header, to save room */
         .am-help-mark {{ font-weight: 700; }}
         .am-addon-card {{ background: alpha({fg_hex}, 0.04); border: 1px solid alpha({fg_hex}, 0.10);
             border-radius: {radius}px; padding: 10px 12px; min-height: 96px; }}
@@ -185,10 +199,16 @@ class ThemeCss:
         .am-setup-absent .am-addon-name, .am-setup-absent .am-agent-detail {{ color: {dim_hex}; }}
         button.am-setup-section {{ padding: 2px 6px; min-height: 0; }}
         button.am-setup-section:hover {{ background: alpha({fg_hex}, 0.08); }}
+        button.am-setup-section.am-setup-bar {{ background: alpha({fg_hex}, 0.04); border: 1px solid alpha({fg_hex}, 0.10);
+            border-radius: {radius}px; padding: 6px 12px 6px 6px; }}
+        button.am-setup-section.am-setup-bar:hover {{ background: alpha({fg_hex}, 0.08); }}
         button.am-setup-action {{ min-width: 84px; }}
         .am-setup-explain {{ background: alpha({fg_hex}, 0.04); border: 1px solid alpha({fg_hex}, 0.10);
-            border-radius: {radius}px; padding: 6px 14px 12px 8px; }}
-        .am-explain-situation {{ font-weight: 600; font-size: 13px; }}
+            border-radius: {radius}px; padding: 2px 12px 2px 6px; }}   /* low like the group cards */
+        .am-step-number {{ min-width: 26px; min-height: 26px; border-radius: 13px; font-size: 13px; font-weight: 700;
+            color: {accent_hex}; background: alpha({accent_hex}, 0.16); }}
+        .am-step-title {{ font-size: 14px; font-weight: 600; }}
+        .am-step-text {{ font-size: 13px; color: {muted_hex}; }}
         .am-agent-detail.am-setup-here {{ color: {green_hex}; }}
         .am-setup-tile:hover {{ background: alpha({fg_hex}, 0.08); }}
         /* Highlighted only when it is installed; a tick (switched on) shows as the ✓ alone. */
@@ -208,6 +228,11 @@ class ThemeCss:
         .am-setup-add .am-setup-glyph, .am-setup-add .am-setup-glyph-sm {{ color: {dim_hex}; }}
         .am-setup-add:hover {{ border-color: {accent_hex}; background: alpha({accent_hex}, 0.06); }}
         .am-setup-add:hover .am-setup-glyph, .am-setup-add:hover .am-setup-glyph-sm {{ color: {accent_hex}; }}
+        button.am-problem-btn, headerbar button.am-problem-btn {{ color: {accent_hex}; font-weight: 800; font-size: 17px;
+            min-width: 26px; }}
+        button.am-problem-btn.am-problem-open {{ color: {red_hex}; }}
+        .am-setup-problem {{ color: {bg_hex}; background: {red_hex}; border-radius: 9px; min-width: 18px;
+            min-height: 18px; font-size: 12px; font-weight: 800; }}
         .am-setup-update {{ color: {bg_hex}; background: {yellow_hex}; border-radius: {pill}px; padding: 1px 8px;
             font-size: 11px; font-weight: 700; }}
         button.am-setup-more {{ min-height: 0; min-width: 0; padding: 0 8px; font-size: 14px; color: {dim_hex};
@@ -265,7 +290,11 @@ class ThemeCss:
         button.am-small-btn.am-quiet-btn {{ font-size: 11px; font-weight: 400; min-height: 0; padding: 2px 10px;
             color: {dim_hex}; }}
         button.am-small-btn.am-quiet-btn label {{ font-size: 11px; font-weight: 400; color: {dim_hex}; }}
-        button.am-small-btn.am-quiet-btn:hover, button.am-small-btn.am-quiet-btn:hover label {{ color: {fg_hex}; }}
+        button.am-small-btn.am-quiet-btn image {{ color: {dim_hex}; }}
+        button.am-refresh-btn {{ color: {dim_hex}; margin-right: 0; }}
+        button.am-refresh-btn:hover {{ color: {fg_hex}; }}
+        button.am-small-btn.am-quiet-btn:hover, button.am-small-btn.am-quiet-btn:hover label,
+        button.am-small-btn.am-quiet-btn:hover image {{ color: {fg_hex}; }}
         .am-section-heading {{ font-size: 11px; font-weight: 700; letter-spacing: 1px; color: {dim_hex}; }}
         .am-add-page .am-model-title {{ font-size: 15px; font-weight: 700; }}
         .am-add-page label.am-model-name, .am-add-page .am-intro-title,
@@ -302,7 +331,7 @@ class ThemeCss:
         .am-provider-list checkbutton.am-list-group label {{ font-size: 11px; font-weight: 700; color: {dim_hex}; }}
         .am-card entry.am-path {{ font-family: monospace; font-size: 12px; min-height: 0; padding: 3px 8px; }}
         .am-card entry.am-path.error {{ border-color: {red_hex}; }}
-        button.am-health-line {{ padding: 6px 10px; border-radius: {radius}px; background: alpha({fg_hex}, 0.04);
+        button.am-health-line {{ padding: 2px 12px; min-height: 0; border-radius: {radius}px; background: alpha({fg_hex}, 0.04);
                                  border: 1px solid alpha({fg_hex}, 0.10); }}
         .am-health-mark {{ font-size: 15px; font-weight: 700; min-width: 18px; }}
         .am-health-ok {{ color: {green_hex}; }}
@@ -355,6 +384,7 @@ class ThemeCss:
             font-size: 22px; color: {accent_hex}; min-width: 28px; }}
         .am-agent-icon.am-agent-icon-omarchy {{ font-family: "omarchy"; }}
         .am-agent-missing .am-agent-icon {{ color: {fg_hex}; }}
+        image.am-icon {{ min-width: 0; }}
         .am-agent-name {{ font-size: 13px; font-weight: 600; }}
         .am-agent-detail {{ font-size: 11px; color: {dim_hex}; }}
         .am-agent-badge {{ font-size: 10px; font-weight: 600; color: {bg_hex}; background: {accent_hex};
@@ -424,4 +454,6 @@ class ThemeCss:
         provider = Gtk.CssProvider()
         provider.load_from_string(css)
         Gtk.StyleContext.add_provider_for_display(display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        import icons
+        icons.setup(display)              # the app's own icons (icons/Asterism), for this process only
         self.style_provider = provider

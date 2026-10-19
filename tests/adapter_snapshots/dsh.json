@@ -1,0 +1,94 @@
+{
+ "command": "dsh",
+ "name": "DeepSeek Harness",
+ "label": "DeepSeek Harness",
+ "full_name": "",
+ "icon": "󰹻",
+ "icon_font": "",
+ "spec": "",
+ "package": "",
+ "package_only": false,
+ "own_install_counts": true,
+ "download": null,
+ "short_version": false,
+ "offered": false,
+ "login_status": null,
+ "fixed_provider": "",
+ "self_served": false,
+ "short_model_flag": false,
+ "self_update": [],
+ "install": [
+  {
+   "kind": "installer",
+   "spec": "",
+   "tool": "",
+   "argv": [],
+   "sudo": false,
+   "packages": [],
+   "url": "",
+   "note": "",
+   "update": []
+  }
+ ],
+ "data": [
+  "~/.dsh"
+ ],
+ "homepage": "https://www.npmjs.com/package/@deepseek-ai/dsh",
+ "access": {
+  "how": "An API key from platform.deepseek.com, or a local LLM from the map",
+  "login": "dsh web",
+  "files": [
+   ".dsh/.credentials.yaml"
+  ],
+  "env": [
+   "DEEPSEEK_API_KEY"
+  ],
+  "local_ok": true,
+  "logins": [],
+  "key": null
+ },
+ "security": null,
+ "sessions": null,
+ "usage": null,
+ "latest": null,
+ "installer": "Dsh",
+ "detect": false,
+ "limits": false,
+ "local_llm": {
+  "files": [
+   "~/.dsh/profiles/web/cordis.patch.yml"
+  ],
+  "added": [
+   "# Your patch layer for this dsh profile, applied after every bundle layer:\n# a top-level YAML array of loader patch entries (id-targeted config\n# overrides, disables, and insert lists; `!!js` expressions allowed).\n- id: llm-pi-ai\n  name: '@deepseek-ai/dsh-llm-pi-ai'\n  config:\n    providers:\n      llamacpp:\n        displayName: llama.cpp\n        api: openai-completions\n        baseURL: http://127.0.0.1:8080/v1\n        headers:\n          Authorization: Bearer local\n        models:\n        - id: m1\n          contextWindow: 8192\n        - id: m2\n- id: agent-default-model\n  name: '@deepseek-ai/dsh-agent-default-model'\n  config:\n    provider: llamacpp\n    model: m1\n"
+  ],
+  "connected": true,
+  "active": true,
+  "removed": [
+   "# Your patch layer for this dsh profile, applied after every bundle layer:\n# a top-level YAML array of loader patch entries (id-targeted config\n# overrides, disables, and insert lists; `!!js` expressions allowed).\n[]\n"
+  ]
+ },
+ "skills": {
+  "dirs": [
+   "~/.dsh/skills",
+   "~/.agents/skills"
+  ],
+  "own": "~/.dsh/skills",
+  "settings_list": false,
+  "settings_file": "",
+  "listed": null,
+  "write": null
+ },
+ "mcp": {
+  "path": "~/.dsh/profiles/web/cordis.patch.yml",
+  "format": "yaml",
+  "key": "",
+  "shape": "plain",
+  "in_app": "",
+  "write": [
+   "# Your patch layer for this dsh profile, applied after every bundle layer:\n# a top-level YAML array of loader patch entries (id-targeted config\n# overrides, disables, and insert lists; `!!js` expressions allowed).\n- insert:\n  - id: mcp-new\n    name: '@deepseek-ai/dsh-mcp-client'\n    config:\n      serverName: new\n      command: b\n",
+   "# Your patch layer for this dsh profile, applied after every bundle layer:\n# a top-level YAML array of loader patch entries (id-targeted config\n# overrides, disables, and insert lists; `!!js` expressions allowed).\n[]\n"
+  ],
+  "read": {},
+  "native": "error: KeyError: 'transport'"
+ }
+}

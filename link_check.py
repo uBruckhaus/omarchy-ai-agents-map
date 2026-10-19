@@ -70,7 +70,7 @@ def offered_models(rt) -> list | None:
 def check_provider(agent: str, agent_name: str, rt, model: str, with_agents: bool | None = None) -> list:
     hints = []
     if with_agents is None:
-        with_agents = bool(ai_core.load_settings().get("providers_with_agents", True))
+        with_agents = bool(ai_core.setting("providers_with_agents"))
     if not connect.is_connected(agent, rt.key):
         hints.append(hint("error", _("{0}'s settings do not have {1} after writing them: another program may "
                                      "have changed them at the same time. Draw the line again.").format(agent_name, rt.name)))

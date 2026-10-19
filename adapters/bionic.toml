@@ -1,0 +1,27 @@
+# LM Studio Bionic (docs/adapter-format.md): facts only, nothing in this file runs. The app installs it
+# with an installer of its own (install_ctl.Bionic); it always runs LM Studio's engine and models.
+command = "bionic"
+name = "LM Studio Bionic"
+label = "LM Studio Bionic"
+icon = "U+F09D1"
+installer = "bionic"
+short_version = true
+offered = false
+fixed_provider = "lmstudio"
+self_served = true
+homepage = "https://lmstudio.ai"
+data = ["~/.lmstudio/apps/bionic"]
+
+[[install]]
+kind = "installer"
+
+[skills]
+dirs = ["~/.lmstudio/skills"]
+own = "~/.lmstudio/skills"
+
+[mcp]
+in_app = "Settings › Connected apps"
+
+[access]
+how = "Nothing: it runs models on this computer"
+local_ok = true

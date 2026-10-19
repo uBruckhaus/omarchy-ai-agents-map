@@ -91,6 +91,83 @@ class UsageTest(unittest.TestCase):
         self.assertIsNone(st.hermes(TODAY, self.home))
 
 
+class ClaudeUsageTest(unittest.TestCase):
+    """Claude Code's own session files when Omarchy keeps no record (Asterism on any desktop)."""
+
+    def test_days_models_and_sessions(self):
+        from claude_sessions import Session
+        sessions = [
+            Session(first=at(TODAY, 9), last=at(TODAY, 10), tokens={"claude-opus-4": [100, 50, 1000, 10],
+                                                                   "claude-haiku-4": [5, 5, 0, 0]}, cost=1.5),
+            Session(first=at(TODAY - dt.timedelta(days=2)), last=at(TODAY - dt.timedelta(days=2), 13),
+                    tokens={"claude-opus-4": [10, 10, 0, 0]}),
+            Session(first=at(TODAY - dt.timedelta(days=30)), last=at(TODAY - dt.timedelta(days=30)),
+                    tokens={"claude-opus-4": [1, 1, 0, 0]}),
+        ]
+        usage = st.claude(TODAY, sessions)
+        self.assertEqual(usage.today_tokens, 100 + 50 + 10 + 10)
+        self.assertEqual(usage.week_tokens, 170 + 20)
+        self.assertEqual((usage.sessions_today, usage.sessions_week, usage.sessions_total), (1, 2, 3))
+        self.assertEqual(usage.by_model["claude-opus-4"], [111, 61, 10])
+        self.assertEqual(usage.cost, 1.5)
+        self.assertEqual(usage.source, "Claude Code")
+
+    def test_no_sessions_no_card(self):
+        self.assertIsNone(st.claude(TODAY, []))
+
+    def test_derived_from_sessions_for_any_agent_without_a_reader(self):
+        from claude_sessions import Session
+        sessions = {"a": Session(first=at(TODAY), last=at(TODAY), tokens={"m": [1, 2, 0, 3]}, cost=0.5)}
+        usage = st.usage_for("claude", {}, sessions)          # Claude Code has no reader of its own now
+        self.assertEqual(usage.source, "Claude Code")
+        self.assertTrue(usage.api_value)
+        self.assertEqual(usage.sessions_total, 1)
+
+    def test_record_and_own_reader_come_first(self):
+        record = {"hasLocalStats": True, "recentDays": [{"date": TODAY.isoformat(), "messageCount": 5}]}
+        found = st.usage_for("claude", record, {})
+        self.assertIsNotNone(found)
+        self.assertNotEqual(found.source, "Claude Code")
+
+
+class LimitsFactTest(unittest.TestCase):
+    """A harness's limits() fact (an adapter's or an extension's) when the desktop has no record."""
+
+    def tearDown(self):
+        import harnesses
+        harnesses.remove_added()
+
+    def test_used_only_without_record_limits(self):
+        import harnesses
+        resets = dt.datetime(2026, 10, 20, tzinfo=dt.timezone.utc)
+        harnesses.extend("opencode", {"limits": lambda: ("Plus", [ad.Limit("5-hour", 0.3, resets), "junk"])}, "ext")
+        with tempfile.TemporaryDirectory() as tmp:
+            details = ad.details_for("opencode", Path(tmp))
+        self.assertEqual(details.plan, "Plus")
+        self.assertEqual([(x.label, x.percent) for x in details.limits], [("5-hour", 0.3)])
+
+
+class RuntimeUsageTest(unittest.TestCase):
+    """A local LLM's usage, derived from the agents' sessions."""
+
+    def test_tokens_through_this_llm_only(self):
+        from claude_sessions import Session
+        sessions = {
+            "Hermes": [Session(first=at(TODAY), last=at(TODAY), tokens={"Qwen3.8-27B-Q4_K_M": [10, 5, 0, 1]})],
+            "OpenCode": [Session(first=at(TODAY), last=at(TODAY), tokens={"llama-local/Qwen3.8-27B-Q4_K_M": [1, 1, 0, 0],
+                                                                         "lms-local/Qwen3.8-27B-Q4_K_M": [7, 7, 0, 0],
+                                                                         "claude-opus": [100, 100, 0, 0]})],
+        }
+        usage = st.runtime_usage(["Qwen3.8-27B-Q4_K_M.gguf"], sessions, "llama-local", TODAY)
+        self.assertEqual(usage.today_tokens, 16 + 2)
+        self.assertEqual(sorted(usage.by_model), ["Hermes · Qwen3.8-27B-Q4_K_M", "OpenCode · llama-local/Qwen3.8-27B-Q4_K_M"])
+        self.assertEqual(usage.sessions_today, 2)
+
+    def test_nothing_without_matching_models(self):
+        self.assertIsNone(st.runtime_usage([], {"Hermes": []}))
+        self.assertIsNone(st.runtime_usage(["x"], {"Hermes": []}))
+
+
 class ChecksTest(unittest.TestCase):
     def setUp(self):
         self.home = Path(tempfile.mkdtemp())

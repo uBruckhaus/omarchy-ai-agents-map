@@ -1,0 +1,12 @@
+# Antigravity CLI (docs/adapter-format.md): facts only, nothing in this file runs. The app installs
+# it with an installer of its own (install_ctl.Agy).
+command = "agy"
+name = "Antigravity CLI"
+label = "Antigravity CLI"
+icon = "U+F02AD"
+installer = "agy"
+offered = false
+homepage = "https://antigravity.google"
+
+[[install]]
+kind = "installer"

@@ -1,0 +1,78 @@
+{
+ "command": "grok",
+ "name": "Grok",
+ "label": "Grok",
+ "full_name": "",
+ "icon": "",
+ "icon_font": "omarchy",
+ "spec": "npm:@xai-official/grok",
+ "package": "",
+ "package_only": false,
+ "own_install_counts": true,
+ "download": null,
+ "short_version": false,
+ "offered": true,
+ "login_status": null,
+ "fixed_provider": "",
+ "self_served": false,
+ "short_model_flag": false,
+ "self_update": [],
+ "install": [
+  {
+   "kind": "mise",
+   "spec": "npm:@xai-official/grok",
+   "tool": "",
+   "argv": [],
+   "sudo": false,
+   "packages": [],
+   "url": "",
+   "note": "",
+   "update": []
+  }
+ ],
+ "data": [
+  "~/.grok"
+ ],
+ "homepage": "https://www.npmjs.com/package/@xai-official/grok",
+ "access": {
+  "how": "An API key from console.x.ai",
+  "login": "grok",
+  "files": [],
+  "env": [
+   "XAI_API_KEY"
+  ],
+  "local_ok": false,
+  "logins": [],
+  "key": null
+ },
+ "security": null,
+ "sessions": null,
+ "usage": null,
+ "latest": null,
+ "installer": null,
+ "detect": false,
+ "limits": false,
+ "local_llm": null,
+ "skills": {
+  "dirs": [
+   "~/.grok/skills"
+  ],
+  "own": "~/.grok/skills",
+  "settings_list": false,
+  "settings_file": "",
+  "listed": [
+   "~/z/skills"
+  ],
+  "write": null
+ },
+ "mcp": {
+  "path": "~/.grok/config.toml",
+  "format": "toml",
+  "key": "mcp_servers",
+  "shape": "plain",
+  "in_app": "",
+  "write": null,
+  "read": null,
+  "native": null
+ }
+}

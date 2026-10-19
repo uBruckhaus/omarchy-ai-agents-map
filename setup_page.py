@@ -1,4 +1,4 @@
-"""My setup: one page of cards for everything the map shows (a mixin of ai_popup.AgentsMap).
+"""Setup: one page of cards for everything the map shows (a mixin of ai_popup.AgentsMap).
 
 The map shows only what is set up; here it is set up, updated and removed:
 
@@ -34,8 +34,8 @@ class SetupPage:
     def build_setup_page(self) -> Gtk.Widget:
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         # The same heading as the map's (title, Refresh, rule). No Back here: the header's Map
-        # button (and Esc) go back, as My setup does on the map.
-        self.setup_header = self.view_heading(_("My setup"), self.refresh_button())
+        # button (and Esc) go back, as Setup does on the map.
+        self.setup_header = self.view_heading(_("Setup"), self.refresh_button())
         page.append(self.setup_header)
         self.setup_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP, margin_bottom=12)
         clamp = Adw.Clamp(maximum_size=980, child=self.setup_box, unit=Adw.LengthUnit.PX)
@@ -46,7 +46,7 @@ class SetupPage:
         self.setup_count.add_css_class("am-agent-detail")
         buttons.append(self.setup_count)
         self.setup_later = Gtk.Button(label=_("Later"))
-        self.setup_later.set_tooltip_text(_("Start with an empty map; My setup in the header brings this page back."))
+        self.setup_later.set_tooltip_text(_("Start with an empty map; Setup in the header brings this page back."))
         self.setup_later.connect("clicked", lambda *_a: self.finish_setup(False))
         buttons.append(self.setup_later)
         self.setup_ok = Gtk.Button()
@@ -71,7 +71,7 @@ class SetupPage:
         self.show_view("setup", save=False)
 
     def open_my_setup(self):
-        """My setup in the header: the cards, with what was found on this PC looked up again."""
+        """Setup in the header: the cards, with what was found on this PC looked up again."""
         if self.with_addons():
             self.setup_installed = self.installed_adapters(self.adapter_addons())
         self.setup_welcome = False
@@ -100,20 +100,19 @@ class SetupPage:
         return False
 
     def refresh_button(self) -> Gtk.Widget:
-        """Refresh (F5), at the right of My setup's and the map's heading."""
-        refresh = Gtk.Button(valign=Gtk.Align.CENTER)
-        content = Gtk.Box(spacing=6)
-        content.append(Gtk.Image.new_from_icon_name("view-refresh-symbolic"))
-        content.append(Gtk.Label(label=_("Refresh")))
-        refresh.set_child(content)
-        refresh.add_css_class("am-small-btn")
-        refresh.set_tooltip_text(_("Look again at what is on this PC (F5)"))
+        """Refresh (F5), at the right of Setup's and the map's heading: a symbol, like the header's
+        (an option, not a must); its tooltip says what it does."""
+        refresh = Gtk.Button(icon_name="view-refresh-symbolic", valign=Gtk.Align.CENTER)
+        refresh.add_css_class("flat")
+        refresh.add_css_class("am-header-btn")
+        refresh.add_css_class("am-refresh-btn")
+        refresh.set_tooltip_text(_("Refresh") + " (F5) — " + _("Look again at what is on this PC (F5)").replace(" (F5)", ""))
         refresh.connect("clicked", lambda *_a: self.reload_setup())
         return refresh
 
     def reload_setup(self):
-        """Refresh (F5, on the map and on My setup): what is installed, set up and signed in looked
-        up again; the map, the hints and My setup's cards follow. Ticks not applied yet stay."""
+        """Refresh (F5, on the map and on Setup): what is installed, set up and signed in looked
+        up again; the map, the hints and Setup's cards follow. Ticks not applied yet stay."""
         self.collect()
         if self.with_addons():
             self.setup_installed = self.installed_adapters(self.adapter_addons())
@@ -132,6 +131,8 @@ class SetupPage:
         self.setup_later.set_visible(welcome)
         if not welcome:
             box.append(self.setup_explainer())
+            self.setup_uses(box)
+        self.setup_problem_keys = set(self.setup_problems())
         if self.with_addons():
             self.fill_addon_sections(box, welcome)
         else:
@@ -216,7 +217,7 @@ class SetupPage:
     def setup_tile(self, addon, ticked: bool, state: str, online: bool, here: bool, welcome: bool = True,
                    update: str = "") -> Gtk.Widget:
         """One add-on card: the agent's or provider's icon, its name and whether it is on this PC; the
-        whole card is the tick (click, or Space on the focused card). On My setup its ⋯ menu has what
+        whole card is the tick (click, or Space on the focused card). On Setup its ⋯ menu has what
         its box on the map has, and the add-on's own page."""
         tile = Gtk.ToggleButton(active=ticked)
         tile.add_css_class("am-setup-tile")
@@ -232,6 +233,12 @@ class SetupPage:
         top.append(icon)
         if update:
             top.append(self.update_badge(update))
+        problem = None if welcome else self.problem_badge(self.addon_node(addon))
+        if problem is not None:
+            top.append(problem)
+        battery = None if welcome else self.battery_badge(self.addon_node(addon))
+        if battery is not None:
+            top.append(battery)
         mark = Gtk.Label(label="✓", valign=Gtk.Align.START, visible=ticked)
         mark.add_css_class("am-setup-check")
         top.append(mark)
@@ -331,14 +338,14 @@ class SetupPage:
         absent = [a for a in chosen if (a.kind == "agent" or a.commands) and a.id not in self.setup_installed]
         self.toast(_("{0} add-ons are on.").format(len(chosen)), 4)
         if absent:
-            # Ticked but not installed: their cards on My setup, whose menu installs them.
+            # Ticked but not installed: their cards on Setup, whose menu installs them.
             self.open_my_setup()
             self.note_absent(absent)
         else:
             self.show_view("main", save=False)
 
     def apply_setup(self):
-        """My setup's Apply: only the add-ons whose tick changed are switched."""
+        """Setup's Apply: only the add-ons whose tick changed are switched."""
         import addon_store
         changed = [(check.get_active(), addon) for check, addon in self.setup_checks.values()
                    if check.get_active() != (addon.state == "loaded")]
@@ -488,18 +495,20 @@ class SetupPage:
         saved = set(self.setup_folded())
         # Folded by default (closed): remembered as "<key>:open" once unfolded; else as "<key>" once folded.
         folded = f"{key}:open" not in saved if closed else key in saved
-        head = Gtk.Button(halign=Gtk.Align.START)
+        head = Gtk.Button(halign=Gtk.Align.FILL, hexpand=True)
         head.add_css_class("flat")
         head.add_css_class("am-setup-section")
+        if key != "explain":         # a category: framed like the explainer card's header, as wide
+            head.add_css_class("am-setup-bar")
         row = Gtk.Box(spacing=8)
         arrow = Gtk.Image.new_from_icon_name("pan-end-symbolic" if folded else "pan-down-symbolic")
         row.append(arrow)
-        label = Gtk.Label(label=title, xalign=0)
-        label.add_css_class("heading")
+        label = Gtk.Label(label=title.upper(), xalign=0, valign=Gtk.Align.CENTER)   # the group cards' heading
+        label.add_css_class("am-setting-heading")
         row.append(label)
         if count is not None:
             number = Gtk.Label(label=str(count) if total is None or total == count else
-                               _("{0} of {1} installed").format(count, total))
+                               _("{0} of {1} installed").format(count, total), valign=Gtk.Align.CENTER)
             number.add_css_class("am-agent-detail")
             row.append(number)
         head.set_child(row)
@@ -522,52 +531,123 @@ class SetupPage:
         box.append(body)
         return body
 
+    def setup_problems(self) -> dict:
+        """{card's node id: what needs fixing there} from the last health check: an agent's problems
+        on its card, a local LLM's on its card."""
+        report = getattr(self, "health_report", None)
+        found = {}
+        for area in report.areas if report is not None else ():
+            for finding in area.findings:
+                if finding.level != "warn" or not finding.action:
+                    continue
+                node = {"details": "agent:", "runtime": "runtime:"}.get(finding.action[0])
+                if node and len(finding.action) > 1:
+                    found.setdefault(node + finding.action[1], finding.title)
+        return found
+
+    def battery_badge(self, node_id: str) -> Gtk.Widget | None:
+        """An online agent's limits, or a running local LLM's free GPU memory, as a small battery
+        (the map's box has the same)."""
+        level = getattr(self, "batteries", {}).get(node_id) if node_id else None
+        if level is None:
+            return None
+        from ui_helpers import Battery
+        return Battery(self.side_map.color, *level)
+
+    def problem_badge(self, node_id: str) -> Gtk.Widget | None:
+        """A red ! on a card with an open problem (the header's ! lists them all)."""
+        title = self.setup_problems().get(node_id) if node_id else None
+        if not title:
+            return None
+        badge = Gtk.Label(label="!", valign=Gtk.Align.START)
+        badge.add_css_class("am-setup-problem")
+        badge.set_tooltip_text(title)
+        return badge
+
+    def refill_setup_health(self):
+        """A new health check on Setup: its cards again when their problems changed."""
+        if set(self.setup_problems()) != getattr(self, "setup_problem_keys", set()):
+            self.refresh_setup()
+        self.fill_setup_uses()
+
+    def setup_uses(self, box):
+        """What the setup is good for (everyday help, coding, images, speech, research): one tile each
+        with what is there and the next steps; folded, its line says how many are ready."""
+        self.uses_card = self.group_card(box, "setup-uses", _("What you can do with this"))
+        self.fill_setup_uses()
+
+    def fill_setup_uses(self):
+        content = getattr(self, "uses_card", None)
+        if content is None:
+            return
+        while (child := content.get_first_child()) is not None:
+            content.remove(child)
+        report = getattr(self, "health_report", None)
+        if report is None:
+            self.note(content, _("Looking at the setup…"))
+            if not getattr(self, "health_running", False):
+                self.run_health()
+            return
+        ready = sum(1 for use in report.uses if use.level == "ready")
+        content.group_summary.set_label(_("{0} of {1} ready").format(ready, len(report.uses)))
+        tiles = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=3, min_children_per_line=1,
+                            column_spacing=ai_core.GAP, row_spacing=ai_core.GAP, homogeneous=True)
+        for use in report.uses:
+            tiles.append(self.use_tile(use))
+        content.append(tiles)
+
     def setup_explainer(self) -> Gtk.Widget:
-        """The card on top of My setup: what puts an agent, a provider, an MCP server or a model on
-        the map (folds away like a section)."""
-        drawn = _("It appears on the map: set it up by drawing lines to a provider, MCP servers or skills.")
-        common = [(_("Online providers"), _("On the map as soon as an agent is signed in to them or has their key.")),
-                  (_("MCP servers"), _("On the map as soon as an agent uses them; Add MCP server finds more on this PC.")),
-                  (_("Models"), _("On the map under their local LLM; folders no local LLM uses are folded into one box."))]
+        """The card on top of Setup, for someone new: what puts an agent, a provider, an MCP server
+        or a model on the map, as numbered steps (folded until opened, like a section)."""
         if self.with_addons():
-            rows = [(_("A program on this PC, but no add-on"),
-                     _("Not on the map, but Asterism suggests its add-on.")),
-                    (_("An add-on, but its program is not on this PC"),
-                     _("Its card here helps you install the program.")),
-                    (_("Program and add-on there, add-on switched on, not set up yet"), drawn),
-                    (_("An online provider's add-on"),
-                     _("Starts the agent's own sign-in for a subscription, or puts your API key into the agent's "
-                       "own settings, readable only by you. Asterism never keeps it.")),
-                    (_("A local LLM's add-on"),
-                     _("Always on the map as soon as its program is installed on this PC."))] + common
+            first = (_("Switch on what you use"),
+                     _("Every agent and local LLM Asterism knows is a card below. A blue frame means it is on "
+                       "this PC: tick its card and Apply, and it is on the map. A program on this PC without "
+                       "an add-on gets one suggested."))
         else:
-            rows = [(_("An agent or local LLM not on this PC"),
-                     _("Its greyed-out card here helps you install it.")),
-                    (_("Installed, but not set up yet"), drawn),
-                    (_("Online agents"),
-                     _("Sign in… on an agent's card starts its own login (subscription) or takes an API key.")),
-                    (_("Local LLMs"), _("Always on the map as soon as they are installed on this PC."))] + common
+            first = (_("Everything on this PC is here"),
+                     _("Every agent and local LLM the app knows is a card below. A blue frame means it is on "
+                       "this PC and on the map; a grey card is not installed."))
+        steps = [first,
+                 (_("Install what is missing"),
+                  _("A grey card is not on this PC yet: ⋯ on it › Install… runs the installer in a terminal you "
+                    "can watch.")),
+                 (_("Sign in to an online agent"),
+                  _("Sign in… on an agent's card starts its own login for a subscription, or puts your API key "
+                    "into the agent's own settings, readable only by you.")),
+                 (_("Connect by drawing"),
+                  _("On the map, drag from an agent to a local LLM, an MCP server or a skill folder. You see "
+                    "every change before it is written, and can undo it.")),
+                 (_("What shows up by itself"),
+                  _("Local LLMs as soon as they are installed; online providers once an agent is signed in; MCP "
+                    "servers and models as soon as an agent uses them or a local LLM has them."))]
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         card.add_css_class("am-setup-explain")
         body = self.setup_section(card, "explain", _("How things get onto your map"), None, closed=True)
         card.get_first_child().set_margin_top(0)
-        body.set_spacing(8)
-        body.set_margin_start(26)
-        body.set_margin_top(4)
-        for situation, result in rows:
-            line = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-            head = Gtk.Label(label=situation, xalign=0, wrap=True, max_width_chars=1)
-            head.add_css_class("am-explain-situation")
-            line.append(head)
-            text = Gtk.Label(label="→ " + result, xalign=0, wrap=True, max_width_chars=1)
-            text.add_css_class("am-agent-detail")
-            line.append(text)
-            body.append(line)
+        body.set_spacing(14)
+        body.set_margin_start(8)
+        body.set_margin_top(10)
+        body.set_margin_bottom(12)
+        for number, (title, text) in enumerate(steps, 1):
+            step = Gtk.Box(spacing=14)
+            badge = Gtk.Label(label=str(number), valign=Gtk.Align.START)
+            badge.add_css_class("am-step-number")
+            step.append(badge)
+            words = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3, hexpand=True)
+            heading = Gtk.Label(label=title, xalign=0, wrap=True, max_width_chars=1)
+            heading.add_css_class("am-step-title")
+            words.append(heading)
+            line = Gtk.Label(label=text, xalign=0, wrap=True, max_width_chars=1)
+            line.add_css_class("am-step-text")
+            words.append(line)
+            step.append(words)
+            body.append(step)
         return card
 
     @staticmethod
     def setup_folded() -> list:
-        folded = ai_core.load_settings().get("setup_collapsed", [])
+        folded = ai_core.setting("setup_collapsed")
         return [k for k in folded if isinstance(k, str)] if isinstance(folded, list) else []
 
     @staticmethod
@@ -578,12 +658,12 @@ class SetupPage:
 
     # --- the cards ----------------------------------------------------------------------------------
 
-    def setup_glyph(self, text: str, font: str = "", small: bool = False) -> Gtk.Label:
-        icon = Gtk.Label(label=text, xalign=0, hexpand=True)
-        icon.add_css_class("am-agent-icon")
-        icon.add_css_class("am-setup-glyph-sm" if small else "am-setup-glyph")
-        if font == "omarchy":
-            icon.add_css_class("am-agent-icon-omarchy")
+    def setup_glyph(self, text: str, font: str = "", small: bool = False) -> Gtk.Widget:
+        from ui_helpers import glyph_widget
+        icon = glyph_widget(text, font, 18 if small else 28,
+                            ("am-agent-icon", "am-setup-glyph-sm" if small else "am-setup-glyph"))
+        icon.set_halign(Gtk.Align.START)
+        icon.set_hexpand(True)
         return icon
 
     @staticmethod
@@ -628,6 +708,12 @@ class SetupPage:
         top.append(self.setup_glyph(icon, font, small))
         if update is not None:
             top.append(self.update_badge(update.available))
+        problem = self.problem_badge(node_id)
+        if problem is not None:
+            top.append(problem)
+        battery = self.battery_badge(node_id)
+        if battery is not None:
+            top.append(battery)
         body.append(top)
         body.append(self.tile_name(title, path, 2 if small else 1))
         if sub:
@@ -712,7 +798,7 @@ class SetupPage:
         return _("Update to {0}").format(update.available), lambda: self.run_update(update)
 
     def on_setup_shown(self):
-        """Back on My setup from a page opened from a card: the cards again (it may have changed something)."""
+        """Back on Setup from a page opened from a card: the cards again (it may have changed something)."""
         if self.stack.get_visible_child_name() != "setup" or self.setup_welcome:
             return
         if getattr(self, "setup_just_filled", False):

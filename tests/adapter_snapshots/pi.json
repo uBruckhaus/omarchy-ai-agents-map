@@ -1,0 +1,175 @@
+{
+ "command": "pi",
+ "name": "Pi",
+ "label": "Pi",
+ "full_name": "Pi",
+ "icon": "",
+ "icon_font": "omarchy",
+ "spec": "",
+ "package": "",
+ "package_only": false,
+ "own_install_counts": true,
+ "download": null,
+ "short_version": false,
+ "offered": true,
+ "login_status": null,
+ "fixed_provider": "",
+ "self_served": false,
+ "short_model_flag": false,
+ "self_update": [],
+ "install": [
+  {
+   "kind": "mise",
+   "spec": "pi",
+   "tool": "",
+   "argv": [],
+   "sudo": false,
+   "packages": [],
+   "url": "",
+   "note": "",
+   "update": []
+  }
+ ],
+ "data": [
+  "~/.pi"
+ ],
+ "homepage": "https://github.com/badlogic/pi-mono",
+ "access": {
+  "how": "Sign in inside Pi (/login: Claude, ChatGPT, Copilot …), an API key, or a local LLM from the map",
+  "login": "pi  →  /login",
+  "files": [
+   ".pi/agent/auth.json"
+  ],
+  "env": [
+   "ANTHROPIC_API_KEY",
+   "OPENAI_API_KEY"
+  ],
+  "local_ok": true,
+  "logins": [
+   {
+    "label": "Inside Pi",
+    "argv": [
+     "pi"
+    ],
+    "note": "Type /login in it."
+   }
+  ],
+  "key": null
+ },
+ "security": {
+  "settings": [
+   {
+    "key": "defaultTools",
+    "title": "Tools",
+    "explain": "What Pi can do at all.",
+    "choices": [
+     {
+      "value": [
+       "read",
+       "bash",
+       "edit",
+       "write",
+       "grep",
+       "find",
+       "ls"
+      ],
+      "label": "Read, write and run commands",
+      "explain": "Edits files and runs any shell command, without asking.",
+      "risk": 3
+     },
+     {
+      "value": [
+       "read",
+       "grep",
+       "find",
+       "ls"
+      ],
+      "label": "Read only",
+      "explain": "Reads and searches files; changes nothing, runs nothing.",
+      "risk": 0
+     },
+     {
+      "value": null,
+      "label": "Pi's default",
+      "explain": "read, bash, edit, write: changes files and runs commands.",
+      "risk": 3
+     }
+    ],
+    "current": [
+     "read",
+     "grep",
+     "find",
+     "ls"
+    ],
+    "default": null,
+    "path": "~/.pi/agent/settings.json",
+    "fmt": "json",
+    "terms": [
+     "tools",
+     "approval"
+    ],
+    "editable": true,
+    "recommended": [
+     "read",
+     "grep",
+     "find",
+     "ls"
+    ]
+   }
+  ],
+  "rules": [],
+  "files": [
+   "~/.pi/agent/settings.json"
+  ],
+  "note": "Pi never asks before it acts, by design: the tools it has are its permissions. Run it in a container or VM, or give it read-only tools, when it works on something you do not trust."
+ },
+ "sessions": null,
+ "usage": "agent_status.pi",
+ "latest": null,
+ "installer": null,
+ "detect": false,
+ "limits": false,
+ "local_llm": {
+  "files": [
+   "~/.pi/agent/models.json",
+   "~/.pi/agent/settings.json"
+  ],
+  "added": [
+   "{\n  \"providers\": {\n    \"llamacpp\": {\n      \"baseUrl\": \"http://127.0.0.1:8080/v1\",\n      \"api\": \"openai-completions\",\n      \"apiKey\": \"local\",\n      \"models\": [\n        {\n          \"id\": \"m1\",\n          \"name\": \"m1\",\n          \"contextWindow\": 8192\n        },\n        {\n          \"id\": \"m2\",\n          \"name\": \"m2\"\n        }\n      ]\n    }\n  }\n}\n",
+   "{\n  \"defaultProvider\": \"llamacpp\",\n  \"defaultModel\": \"m1\"\n}\n"
+  ],
+  "connected": true,
+  "active": true,
+  "removed": [
+   "{\n  \"providers\": {}\n}\n",
+   "{}\n"
+  ]
+ },
+ "skills": {
+  "dirs": [
+   "~/.pi/agent/skills",
+   "~/.agents/skills"
+  ],
+  "own": "~/.pi/agent/skills",
+  "settings_list": true,
+  "settings_file": "~/.pi/agent/settings.json",
+  "listed": [
+   "~/p/skills"
+  ],
+  "write": [
+   "{\n  \"skills\": [\n    \"/home/u/skills\"\n  ]\n}\n",
+   "error: JSONDecodeError: Expecting value: line 1 column 1 (char 0)",
+   "{}\n"
+  ]
+ },
+ "mcp": {
+  "path": "~/.pi/agent/mcp.json",
+  "format": "json",
+  "key": "mcpServers",
+  "shape": "plain",
+  "in_app": "",
+  "write": null,
+  "read": null,
+  "native": null
+ }
+}

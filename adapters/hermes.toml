@@ -1,0 +1,100 @@
+# Hermes (docs/adapter-format.md). Its session database, connecting a local LLM and its skill folder
+# list (YAML text) are hooks (hermes.py); its security settings are facts.
+command = "hermes"
+name = "Hermes"
+label = "Hermes"
+icon = "U+E90A"
+icon_font = "omarchy"
+spec = "pipx:hermes-agent[extras=all]"
+package = "hermes-desktop"
+own_install_counts = false
+short_model_flag = true
+usage = "hermes"
+homepage = "https://github.com/NousResearch/hermes-agent"
+data = ["~/.hermes"]
+
+[[install]]
+kind = "command"
+argv = ["omarchy-install-hermes-cli", "--now"]
+sudo = true
+
+[[install]]
+kind = "package"
+packages = [["pacman", "hermes-desktop"]]
+
+[[install]]
+kind = "manual"
+url = "https://github.com/NousResearch/hermes-agent"
+
+[sessions]
+hook = true
+note = "Numbers from {0}'s session database (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs."
+note_args = ["Hermes"]
+
+[local_llm]
+files = ["~/.hermes/config.yaml"]
+hooks = true
+
+[skills]
+dirs = ["~/.hermes/skills"]
+own = "~/.hermes/skills"
+settings_list = true
+settings_file = "~/.hermes/config.yaml"
+listed = "hook"
+write = "hook"
+
+[mcp]
+path = "~/.hermes/config.yaml"
+format = "yaml"
+key = "mcp_servers"
+
+[access]
+how = "A provider key (hermes setup), or a local LLM from the map"
+login = "hermes setup"
+files = [".hermes/auth.json", ".hermes/.env"]
+local_ok = true
+
+[[access.logins]]
+label = "Setup wizard (account or key)"
+argv = ["hermes", "setup"]
+
+[security]
+file = "~/.hermes/config.yaml"
+format = "yaml"
+
+[[security.settings]]
+key = "approvals.mode"
+title = "Dangerous commands"
+explain = "What Hermes does before a command it considers dangerous (deleting, overwriting, system changes)."
+default = "smart"
+recommended = "manual"
+terms = ["approval", "classifier", "bypass"]
+choices = [
+  { value = "manual", label = "Always ask", explain = "Asks you every time.", risk = 0 },
+  { value = "smart", label = "Automatic review", explain = "A guardian model approves what it judges safe and asks about the rest.", risk = 1 },
+  { value = "off", label = "Never ask", explain = "Runs dangerous commands without asking (like --yolo).", risk = 3 },
+]
+
+[[security.settings]]
+key = "security.redact_secrets"
+title = "Hide secrets"
+explain = "Masks passwords, tokens and keys in tool output and logs."
+default = true
+recommended = true
+terms = ["redaction"]
+choices = [
+  { value = true, label = "On", explain = "Secrets are masked.", risk = 0 },
+  { value = false, label = "Off", explain = "Secrets can reach the model and the logs.", risk = 2 },
+]
+
+[[security.settings]]
+key = "terminal.backend"
+title = "Where commands run"
+explain = "local runs commands on this PC as you; docker, ssh or a cloud backend runs them elsewhere. Change it with “hermes config” (it needs that backend set up)."
+default = "local"
+editable = false
+terms = ["sandbox"]
+choices = [
+  { value = "local", label = "This PC", explain = "Commands run here with your rights.", risk = 1 },
+  { value = "docker", label = "Docker container", explain = "Commands run in a container.", risk = 0 },
+]

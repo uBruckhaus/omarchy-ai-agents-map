@@ -1,0 +1,36 @@
+# Google's Gemini CLI (docs/adapter-format.md): facts only, nothing in this file runs.
+command = "gemini"
+name = "Gemini CLI"
+label = "Gemini"
+full_name = "Gemini CLI"
+icon = "U+F0AE2"
+homepage = "https://github.com/google-gemini/gemini-cli"
+data = ["~/.gemini"]
+
+[[install]]
+kind = "mise"
+spec = "gemini"
+
+[skills]
+dirs = ["~/.gemini/skills", "~/.agents/skills"]
+own = "~/.gemini/skills"
+
+[mcp]
+path = "~/.gemini/settings.json"
+shape = "gemini"
+
+[access]
+how = "A Google account (free tier), or an API key from aistudio.google.com"
+login = "gemini"
+files = [".gemini/oauth_creds.json", ".gemini/.env"]
+env = ["GEMINI_API_KEY", "GOOGLE_API_KEY"]
+
+[[access.logins]]
+label = "Google account"
+argv = ["gemini"]
+note = "Choose “Sign in with Google” when it asks."
+
+[access.key]
+var = "GEMINI_API_KEY"
+url = "https://aistudio.google.com/apikey"
+env_file = "~/.gemini/.env"

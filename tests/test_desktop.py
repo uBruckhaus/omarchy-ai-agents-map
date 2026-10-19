@@ -81,9 +81,25 @@ class GenericTest(unittest.TestCase):
             self.assertEqual(g.install_command("vte4"), "")
 
     def test_windows_without_an_attached_window(self):
-        with mock.patch.object(g, "_window", None):
+        with mock.patch.object(g, "_window", None), mock.patch.object(g, "_hyprland", return_value=None):
             self.assertFalse(g.maximize("x"))
             self.assertIsNone(g.is_maximized("x"))
+
+    def test_hyprland_session_asks_the_compositor(self):
+        # Hyprland ignores the window's own maximize request and calls every tile maximized.
+        hypr = mock.Mock(maximize=mock.Mock(return_value=True), widen=mock.Mock(return_value=True),
+                         is_maximized=mock.Mock(return_value=False))
+        window = mock.Mock(is_maximized=mock.Mock(return_value=True))
+        with mock.patch.object(g, "_window", window), mock.patch.object(g, "_hyprland", return_value=hypr):
+            self.assertTrue(g.maximize("x"))
+            self.assertTrue(g.widen("x"))
+            self.assertFalse(g.is_maximized("x"))           # the compositor's state, not GTK's
+        hypr.maximize.assert_called_once_with("x")
+        window.maximize.assert_not_called()
+
+    def test_hyprland_only_when_its_session_runs(self):
+        with mock.patch.dict("os.environ", {}, clear=True):
+            self.assertIsNone(g._hyprland())
 
     def test_no_usage_records_and_built_in_agents(self):
         import agents
@@ -91,8 +107,17 @@ class GenericTest(unittest.TestCase):
         self.assertEqual([c for c, *_rest in catalog], [c for c, *_rest in agents.FALLBACK])
         self.assertFalse([c for c, _l, _i, font in catalog if font == "omarchy"])
         self.assertEqual(g.default_agent(), "")
-        self.assertIsNone(g.usage_dir())
-        self.assertFalse(g.refresh_usage("claude"))
+
+    def test_usage_records_only_where_omarchy_keeps_them(self):
+        import tempfile
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(g, "OMARCHY_USAGE", Path(tmp) / "omarchy/agents/usage"):
+                self.assertIsNone(g.usage_dir())                  # another desktop: none
+                self.assertFalse(g.refresh_usage("claude"))
+                (Path(tmp) / "omarchy/agents/usage").mkdir(parents=True)
+                self.assertEqual(g.usage_dir(), Path(tmp) / "omarchy/agents/usage")   # this PC runs Omarchy too
+                self.assertFalse(g.has_usage_collector("../x"))
 
 
 class LookTest(unittest.TestCase):

@@ -26,6 +26,11 @@ TOOLS = {             # install, remove
     "pipx": (("pipx", "install"), ("pipx", "uninstall")),
     "uv": (("uv", "tool", "install"), ("uv", "tool", "uninstall")),
 }
+UPDATES = {           # update, for the same tools
+    "npm": ("npm", "update", "-g"),
+    "pipx": ("pipx", "upgrade"),
+    "uv": ("uv", "tool", "upgrade"),
+}
 # What the app may start: plain words only (no spaces, quotes, globs or $), so the terminal
 # runs exactly what was shown. Anything else is only shown, for the user to copy.
 _WORD = re.compile(r"[A-Za-z0-9@:/._=+,-]{1,300}")
@@ -62,8 +67,29 @@ def _runnable(*commands) -> list | None:
     return found if all(found) else None
 
 
+def _update_step(way) -> Step | None:
+    """How what this way installed is updated (action "update"): mise upgrade, the tool's own
+    upgrade, the way's declared update command; system packages come with the system's updates."""
+    if way.kind == "installer":
+        return Step("installer", installer=True)
+    if way.kind == "mise" and way.spec and shutil.which("mise"):
+        argv = ["mise", "--yes", "upgrade", way.spec]
+        return Step("mise", [shlex.join(argv)], _runnable(argv))
+    if way.kind == "tool" and way.tool in UPDATES and way.spec and shutil.which(way.tool):
+        argv = [*UPDATES[way.tool], way.spec]
+        return Step("tool", [shlex.join(argv)], _runnable(argv))
+    if way.kind == "command" and way.update and shutil.which(str(way.update[0])):
+        argv = list(way.update)
+        return Step("command", [shlex.join(argv)], _runnable(argv), sudo=way.sudo or argv[0] == "sudo")
+    if way.kind == "package" and dict(way.packages).get(manager()):
+        return Step("manual", note="It comes with the system's updates.")
+    return None
+
+
 def _step(way, action: str) -> Step | None:
     """The way as a Step for this PC, or None when it does not work here."""
+    if action == "update":
+        return _update_step(way)
     remove = action == "uninstall"
     if way.kind == "installer":
         return Step("installer", installer=True)
@@ -104,9 +130,18 @@ def choose(ways, action: str = "install", source: str = "") -> Step | None:
     """The way to install (or, with action="uninstall", to remove) on this PC.
     source: how it is installed now ("mise", "package", "own"): removing uses the matching way."""
     ways = list(ways or ())
-    if action == "uninstall":
-        prefer = {"mise": ("mise",), "package": ("package", "command"), "own": ("installer", "tool")}.get(source, ())
-        ways = [w for w in ways if w.kind in prefer] + [w for w in ways if w.kind == "manual"]
+    if action in ("uninstall", "update"):
+        # The way it is installed now: removing and updating go through that one.
+        prefer = {"mise": ("mise",), "package": ("package", "command"),
+                  "own": ("installer", "tool", "command")}.get(source, ())
+        ways = [w for w in ways if w.kind in prefer] + ([w for w in ways if w.kind == "manual"]
+                                                       if action == "uninstall" else [])
+        if action == "update":
+            for way in ways:
+                step = _step(way, action)
+                if step is not None:
+                    return step
+            return None
     for way in ways:
         step = _step(way, action)
         if step is not None:

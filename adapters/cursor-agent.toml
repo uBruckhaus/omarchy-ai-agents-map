@@ -1,0 +1,92 @@
+# Cursor CLI (docs/adapter-format.md): facts only, nothing in this file runs.
+command = "cursor-agent"
+name = "Cursor CLI"
+label = "Cursor CLI"
+icon = "U+E90D"
+icon_font = "omarchy"
+homepage = "https://cursor.com/cli"
+data = ["~/.cursor", "~/.config/cursor"]
+login_status = { argv = ["cursor-agent", "status"], no = "not logged in", yes = "logged in" }
+
+[[install]]
+kind = "mise"
+spec = "cursor-agent"
+
+[skills]
+dirs = ["~/.cursor/skills", "~/.agents/skills", "~/.claude/skills", "~/.codex/skills"]
+own = "~/.cursor/skills"
+
+[mcp]
+path = "~/.cursor/mcp.json"
+
+[access]
+how = "A Cursor account (cursor.com)"
+login = "cursor-agent login"
+files = [".config/cursor/auth.json"]
+env = ["CURSOR_API_KEY"]
+
+[[access.logins]]
+label = "Cursor account"
+argv = ["cursor-agent", "login"]
+
+[security]
+file = "~/.config/cursor/cli-config.json"
+format = "json"
+
+[[security.settings]]
+key = "approvalMode"
+title = "Approval"
+explain = "When Cursor CLI asks before running a command."
+default = "allowlist"
+recommended = "allowlist"
+terms = ["approval", "classifier", "bypass"]
+choices = [
+  { value = "allowlist", label = "Ask unless allowed", explain = "Asks unless the command is in your allow list.", risk = 1 },
+  { value = "auto-review", label = "Automatic review", explain = "A classifier on Cursor's servers runs safe calls and asks about the rest.", risk = 2 },
+  { value = "unrestricted", label = "Run everything", explain = "Runs every command without asking.", risk = 3 },
+]
+
+[[security.settings]]
+key = "sandbox.mode"
+title = "Sandbox"
+explain = "Runs commands fenced in to the workspace."
+default = "disabled"
+recommended = "enabled"
+terms = ["sandbox"]
+choices = [
+  { value = "enabled", label = "On", explain = "Commands are fenced in.", risk = 0 },
+  { value = "disabled", label = "Off", explain = "Commands run with all your rights.", risk = 1 },
+]
+
+[[security.settings]]
+key = "sandbox.networkAccess"
+title = "Network in the sandbox"
+explain = "Which sites commands in the sandbox may reach."
+default = "user_config_with_defaults"
+recommended = "user_config_with_defaults"
+terms = ["network"]
+choices = [
+  { value = "user_config_only", label = "Only your list", explain = "Only the sites you listed.", risk = 0 },
+  { value = "user_config_with_defaults", label = "Your list + common sites", explain = "Your sites plus package registries and similar.", risk = 1 },
+  { value = "allow_all", label = "Everything", explain = "Any site.", risk = 2 },
+]
+
+[[security.settings]]
+key = "autoAcceptWebSearch"
+title = "Web search without asking"
+explain = "Whether the agent may search the web without asking each time."
+default = false
+recommended = false
+terms = ["injection"]
+choices = [
+  { value = false, label = "Ask", explain = "Asks before searching.", risk = 0 },
+  { value = true, label = "Allowed", explain = "Searches on its own; web pages can carry hidden instructions.", risk = 1 },
+]
+
+[[security.rules]]
+key = "permissions.allow"
+title = "Allowed without asking"
+
+[[security.rules]]
+key = "permissions.deny"
+title = "Never allowed"

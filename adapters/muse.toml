@@ -1,0 +1,21 @@
+# Meta's Muse Code (docs/adapter-format.md): facts only, nothing in this file runs.
+command = "muse"
+name = "Muse Code"
+label = "Muse Code"
+icon = "U+F06E4"
+spec = "http:muse[url=https://api.meta.ai/muse-launcher.sh,bin=muse]"
+data = ["~/.config/muse"]
+
+[[install]]
+kind = "mise"
+spec = "http:muse[url=https://api.meta.ai/muse-launcher.sh,bin=muse]"
+
+[skills]
+dirs = ["~/.config/muse/skills", "~/.agents/skills", "~/.claude/skills", "~/.codex/skills"]
+own = "~/.config/muse/skills"
+
+[mcp]
+path = "~/.config/muse/settings.json"
+key = "mcp_servers"
+shape = "muse"
+defaults = { schema_version = 1 }      # Muse refuses a settings file without it

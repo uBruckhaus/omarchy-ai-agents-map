@@ -40,6 +40,7 @@ class Usage:
     cost: float | None = None                      # USD the agent itself estimated, when it does
     source: str = ""                                # where the numbers come from, for the page
     has_tokens: bool = True                         # False: only sessions are known (Pi)
+    api_value: bool = False                         # cost is the tokens at API prices (not what a plan costs)
 
     @property
     def week_tokens(self) -> int:
@@ -234,6 +235,87 @@ def hermes(today: dt.date | None = None, root: Path = HOME) -> Usage | None:
     return _from_rows(rows, today or dt.date.today(), "Hermes")
 
 
+def from_sessions(sessions, source: str, today: dt.date | None = None) -> Usage | None:
+    """Usage derived from an agent's sessions (harnesses.Sessions: numbers only), for every agent
+    that has them and no reader of its own, when the desktop keeps no usage record. A session counts
+    on the day of its last reply; tokens as on the Projects card: input, output and cache writes
+    (cache reads are not new tokens); its cost is the agent's own API value."""
+    sessions = list(sessions or [])
+    if not sessions:
+        return None
+    rows = []
+    for session in sessions:
+        when = session.last or session.first
+        for number, (model, tokens) in enumerate((session.tokens or {"": [0, 0, 0, 0]}).items()):
+            t = (list(tokens) + [0, 0, 0, 0])[:4]
+            rows.append((when, model, t[0], t[1], t[3], session.cost if number == 0 else 0))
+    today = today or dt.date.today()
+    usage = _from_rows(rows, today, source)
+    usage.by_model = {m: n for m, n in usage.by_model.items() if any(n)}      # no empty "unknown" row
+    usage.api_value = True
+    # Sessions, not (session, model) rows.
+    week_start = today - dt.timedelta(days=DAYS - 1)
+    stamps = [s.last or s.first for s in sessions]
+    usage.sessions_total = len(stamps)
+    usage.sessions_week = sum(1 for x in stamps if dt.datetime.fromtimestamp(x).date() >= week_start)
+    usage.sessions_today = sum(1 for x in stamps if _is_day(x, today))
+    return usage
+
+
+def model_key(name) -> str:
+    """A model's name as agents and local LLMs write it, made comparable: no provider prefix
+    ("llama-local/…"), no tag (":latest"), no file ending, lower case."""
+    text = str(name or "").strip().rsplit("/", 1)[-1].split(":", 1)[0].lower()
+    for ending in (".gguf", ".kcpps"):
+        text = text[:-len(ending)] if text.endswith(ending) else text
+    return text
+
+
+def runtime_usage(models, agent_sessions: dict, connect_key: str = "", today: dt.date | None = None) -> Usage | None:
+    """Derived for a local LLM: the tokens agents sent through it, from their sessions (numbers
+    only), where a session's model is one of the LLM's models; a model written with a provider
+    prefix ("llama-local/…") counts only for the LLM with that connect key. agent_sessions: {agent
+    name: [Session]}. by_model is per "agent · model"; sessions count once per agent session."""
+    wanted = {model_key(m) for m in models or []}
+    wanted.discard("")
+    if not wanted:
+        return None
+    rows, used = [], []
+    for agent, sessions in agent_sessions.items():
+        for session in sessions or []:
+            hit = False
+            when = session.last or session.first
+            for model, tokens in (session.tokens or {}).items():
+                prefix = str(model).rsplit("/", 1)[0] if "/" in str(model) else ""
+                if prefix and connect_key and prefix != connect_key:
+                    continue
+                if model_key(model) in wanted:
+                    t = (list(tokens) + [0, 0, 0, 0])[:4]
+                    rows.append((when, f"{agent} · {model}", t[0], t[1], t[3], 0))
+                    hit = True
+            if hit:
+                used.append(when)
+    if not rows:
+        return None
+    today = today or dt.date.today()
+    usage = _from_rows(rows, today, "agents")
+    week_start = today - dt.timedelta(days=DAYS - 1)
+    usage.sessions_total = len(used)
+    usage.sessions_week = sum(1 for x in used if dt.datetime.fromtimestamp(x).date() >= week_start)
+    usage.sessions_today = sum(1 for x in used if _is_day(x, today))
+    usage.cost = None
+    return usage
+
+
+def claude(today: dt.date | None = None, sessions=None) -> Usage | None:
+    """Claude Code's numbers from its session files (kept: the 0.7.3 agent add-ons name it; the app
+    itself now derives usage from any agent's sessions, see usage_for)."""
+    if sessions is None:
+        import claude_sessions
+        sessions = claude_sessions.collect()
+    return from_sessions(sessions, "Claude Code", today)
+
+
 def opencode(today: dt.date | None = None, root: Path = HOME) -> Usage | None:
     db = _connect(root / ".local/share/opencode/opencode.db")
     if db is None:
@@ -295,15 +377,28 @@ def _rebuild():
 _rebuild()
 harnesses.on_change(_rebuild)
 
-def usage_for(command: str, record: dict) -> Usage | None:
-    """The best numbers there are for an agent: Omarchy's record, else its own store."""
+def usage_for(command: str, record: dict, sessions=None) -> Usage | None:
+    """The best numbers there are for an agent: the desktop's record, else its adapter's own reader,
+    else derived from its sessions (sessions: {id: Session} collected already, or None to collect)."""
     found = from_record(record)
     if found is not None:
         return found
     reader = READERS.get(command)
     try:
-        return reader() if reader else None
+        found = reader() if reader else None
     except Exception:          # a store in a format we do not know: no numbers, no crash
+        found = None
+    if found is not None:
+        return found
+    harness = harnesses.get(command)
+    if harness is None or harness.sessions is None:
+        return None
+    try:
+        if sessions is None:
+            sessions = harness.sessions.collect()
+        return from_sessions(sessions.values() if isinstance(sessions, dict) else sessions,
+                             harness.full_name or harness.name)
+    except Exception:
         return None
 
 

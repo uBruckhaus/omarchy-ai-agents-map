@@ -1,0 +1,12 @@
+The icons in this folder come from three sources:
+
+- Interface icons (window-close-symbolic, view-refresh-symbolic, …): copied from GNOME's
+  Adwaita icon theme, licensed CC-BY-SA-3.0 OR LGPL-3.0-only (the GNOME Project).
+- am-glyph-*-symbolic: glyphs of JetBrainsMono Nerd Font (Nerd Fonts, SIL Open Font License 1.1;
+  the icon sets inside it keep their own licenses, most of them Material Design Icons,
+  Apache-2.0) drawn into outlines by tools/make-glyph-icons.py.
+- am-omarchy-*-symbolic: glyphs of Omarchy's "omarchy" font (omarchy-settings, MIT).
+- am-chart-symbolic: drawn for this app (MIT, as the app).
+
+Agents' and providers' names and logos belong to their owners; they are used here only to show
+which program a card or a box on the map stands for.

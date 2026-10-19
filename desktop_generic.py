@@ -166,15 +166,35 @@ def focus_process(pids: list[int]) -> bool:
     return False
 
 
+def _hyprland():
+    """desktop_omarchy's window actions when the session is Hyprland (any distribution, not only
+    Omarchy): Hyprland ignores a window's own maximize request (Omarchy suppresses the event for
+    every window) and reports every tiled window as maximized, so ask the compositor itself."""
+    if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE") or shutil.which("hyprctl") is None:
+        return None
+    import desktop_omarchy
+    return desktop_omarchy
+
+
 def is_maximized(app_id: str):
+    hypr = _hyprland()
+    if hypr is not None:
+        return hypr.is_maximized(app_id)
     return _window.is_maximized() if _window is not None else None
 
 
 def widen(app_id: str) -> bool:
+    """Room for the map: under Hyprland to a free workspace (else maximized), elsewhere maximized."""
+    hypr = _hyprland()
+    if hypr is not None and hypr.widen(app_id):
+        return True
     return maximize(app_id)
 
 
 def maximize(app_id: str) -> bool:
+    hypr = _hyprland()
+    if hypr is not None and hypr.maximize(app_id):
+        return True
     return _on_window(lambda w: w.maximize())
 
 
@@ -239,16 +259,34 @@ def default_agent() -> str:
     return ""
 
 
+# A PC that also runs Omarchy keeps usage records per agent (plan, limits and when they reset, tokens per
+# day) and the tool that refreshes them: used here too, read only, the way the Omarchy edition does.
+OMARCHY_USAGE = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "omarchy/agents/usage"
+USAGE_TIMEOUT = 60
+
+
 def usage_dir():
-    return None
+    return OMARCHY_USAGE if OMARCHY_USAGE.is_dir() else None
 
 
 def has_usage_collector(command: str) -> bool:
-    return False
+    if not re.fullmatch(r"[a-z0-9-]{1,64}", command) or usage_dir() is None:
+        return False
+    root = Path(os.environ.get("OMARCHY_PATH") or "/usr/share/omarchy")
+    return shutil.which("omarchy-agent-usage-update") is not None and \
+        any((d / f"omarchy-agent-usage-{command}").is_file() for d in (root / "bin", Path("/usr/bin")))
 
 
 def refresh_usage(command: str) -> bool:
-    return False
+    """Ask Omarchy's tool for this agent's usage (blocking; run it on a thread)."""
+    if not has_usage_collector(command):
+        return False
+    try:
+        result = subprocess.run(["omarchy-agent-usage-update", command], stdin=subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=USAGE_TIMEOUT)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
 
 
 # --- texts that name the desktop -------------------------------------------------------------------

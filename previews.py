@@ -117,6 +117,86 @@ class Sketch(Gtk.DrawingArea):
         raise NotImplementedError
 
 
+# --- Settings: Map animations -------------------------------------------------------------------
+
+class AnimationSketch(Gtk.DrawingArea):
+    """A tiny map: an agent's line through its local LLM to its model, and the line to another model
+    that a program outside the map uses; light runs on the lines the chosen mode animates
+    ("all", "agents" or "off"), in the map's own colours (color(name, alpha) of MapView). labels:
+    agent, local LLM, model, the other model, and the line under it ("in use · another program")."""
+
+    PERIOD = 2.6
+
+    def __init__(self, color, mode, labels):
+        super().__init__()
+        self.color, self.mode, self.labels = color, mode, labels
+        self.set_content_width(300)
+        self.set_content_height(132)
+        self.set_size_request(300, 132)
+        self.set_draw_func(self.draw)
+        self.started = time.monotonic()
+        self.add_tick_callback(lambda *_a: (self.queue_draw(), True)[1])
+
+    def box(self, cr, x, y, w, h, label, line):
+        rounded(cr, x, y, w, h, 4)
+        cr.set_source_rgba(*self.color("bg", 1.0))
+        cr.fill_preserve()
+        cr.set_source_rgba(*self.color("fg", 0.06))
+        cr.fill_preserve()
+        cr.set_source_rgba(*self.color(line, 0.8))
+        cr.set_line_width(1)
+        cr.stroke()
+        text(cr, x + 6, y + (h - 11) / 2, label, 7, self.color("fg", 1.0), bold=True, width=w - 10)
+
+    @staticmethod
+    def along(points, f):
+        """The point at fraction f of a polyline."""
+        lengths = [math.dist(a, b) for a, b in zip(points, points[1:])]
+        goal = f * sum(lengths)
+        for (a, b), length in zip(zip(points, points[1:]), lengths):
+            if goal <= length and length:
+                k = goal / length
+                return a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k
+            goal -= length
+        return points[-1]
+
+    def comets(self, cr, points, name, t):
+        for pulse in range(3):
+            f = (t / self.PERIOD + pulse / 3) % 1.0
+            x, y = self.along(points, f)
+            for radius, alpha in ((7, 0.12), (4, 0.35), (2.2, 1.0)):
+                cr.arc(x, y, radius, 0, 2 * math.pi)
+                cr.set_source_rgba(*self.color(name, alpha))
+                cr.fill()
+
+    def draw(self, _area, cr, width, height):
+        mode = self.mode()
+        t = time.monotonic() - self.started
+        agent, llm, model, other_model, program = self.labels
+        w, h = 74, 22
+        a, l_, m1, m2 = (8, 22), (113, 42), (218, 22), (218, 70)
+        lines = {"agent": [(a[0] + w, a[1] + h / 2), (l_[0], l_[1] + h / 2 - 4), (l_[0] + w, l_[1] + h / 2 - 4),
+                           (m1[0], m1[1] + h / 2)],
+                 "outside": [(l_[0] + w, l_[1] + h / 2 + 4), (m2[0], m2[1] + h / 2)]}
+        for key, name in (("agent", "accent"), ("outside", "outside")):
+            pts = lines[key]
+            cr.move_to(*pts[0])
+            for pt in pts[1:]:
+                cr.line_to(*pt)
+            cr.set_source_rgba(*self.color(name, 0.9))
+            cr.set_line_width(2)
+            cr.stroke()
+        self.box(cr, *a, w, h, agent, "accent")
+        self.box(cr, *l_, w, h, llm, "fg")
+        self.box(cr, *m1, w, h, model, "fg")
+        self.box(cr, *m2, w, h, other_model, "outside")
+        text(cr, 100, m2[1] + h + 4, program, 7, self.color("outside", 1.0), width=m2[0] + w - 100, right=True)
+        if mode != "off":
+            self.comets(cr, lines["agent"], "accent", t)
+        if mode == "all":
+            self.comets(cr, lines["outside"], "outside", t)
+
+
 # --- Settings: what the click on "Maximize for more room" does ---------------------------------
 
 def widen_frame(t: float, mode: str) -> dict:

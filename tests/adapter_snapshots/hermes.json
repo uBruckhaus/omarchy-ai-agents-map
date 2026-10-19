@@ -1,0 +1,237 @@
+{
+ "command": "hermes",
+ "name": "Hermes",
+ "label": "Hermes",
+ "full_name": "",
+ "icon": "",
+ "icon_font": "omarchy",
+ "spec": "pipx:hermes-agent[extras=all]",
+ "package": "hermes-desktop",
+ "package_only": false,
+ "own_install_counts": false,
+ "download": null,
+ "short_version": false,
+ "offered": true,
+ "login_status": null,
+ "fixed_provider": "",
+ "self_served": false,
+ "short_model_flag": true,
+ "self_update": [],
+ "install": [
+  {
+   "kind": "command",
+   "spec": "",
+   "tool": "",
+   "argv": [
+    "omarchy-install-hermes-cli",
+    "--now"
+   ],
+   "sudo": true,
+   "packages": [],
+   "url": "",
+   "note": "",
+   "update": []
+  },
+  {
+   "kind": "package",
+   "spec": "",
+   "tool": "",
+   "argv": [],
+   "sudo": false,
+   "packages": [
+    [
+     "pacman",
+     "hermes-desktop"
+    ]
+   ],
+   "url": "",
+   "note": "",
+   "update": []
+  },
+  {
+   "kind": "manual",
+   "spec": "",
+   "tool": "",
+   "argv": [],
+   "sudo": false,
+   "packages": [],
+   "url": "https://github.com/NousResearch/hermes-agent",
+   "note": "",
+   "update": []
+  }
+ ],
+ "data": [
+  "~/.hermes"
+ ],
+ "homepage": "https://github.com/NousResearch/hermes-agent",
+ "access": {
+  "how": "A provider key (hermes setup), or a local LLM from the map",
+  "login": "hermes setup",
+  "files": [
+   ".hermes/auth.json",
+   ".hermes/.env"
+  ],
+  "env": [],
+  "local_ok": true,
+  "logins": [
+   {
+    "label": "Setup wizard (account or key)",
+    "argv": [
+     "hermes",
+     "setup"
+    ],
+    "note": ""
+   }
+  ],
+  "key": null
+ },
+ "security": {
+  "settings": [
+   {
+    "key": "approvals.mode",
+    "title": "Dangerous commands",
+    "explain": "What Hermes does before a command it considers dangerous (deleting, overwriting, system changes).",
+    "choices": [
+     {
+      "value": "manual",
+      "label": "Always ask",
+      "explain": "Asks you every time.",
+      "risk": 0
+     },
+     {
+      "value": "smart",
+      "label": "Automatic review",
+      "explain": "A guardian model approves what it judges safe and asks about the rest.",
+      "risk": 1
+     },
+     {
+      "value": "off",
+      "label": "Never ask",
+      "explain": "Runs dangerous commands without asking (like --yolo).",
+      "risk": 3
+     }
+    ],
+    "current": "off",
+    "default": "smart",
+    "path": "~/.hermes/config.yaml",
+    "fmt": "yaml",
+    "terms": [
+     "approval",
+     "classifier",
+     "bypass"
+    ],
+    "editable": true,
+    "recommended": "manual"
+   },
+   {
+    "key": "security.redact_secrets",
+    "title": "Hide secrets",
+    "explain": "Masks passwords, tokens and keys in tool output and logs.",
+    "choices": [
+     {
+      "value": true,
+      "label": "On",
+      "explain": "Secrets are masked.",
+      "risk": 0
+     },
+     {
+      "value": false,
+      "label": "Off",
+      "explain": "Secrets can reach the model and the logs.",
+      "risk": 2
+     }
+    ],
+    "current": false,
+    "default": true,
+    "path": "~/.hermes/config.yaml",
+    "fmt": "yaml",
+    "terms": [
+     "redaction"
+    ],
+    "editable": true,
+    "recommended": true
+   },
+   {
+    "key": "terminal.backend",
+    "title": "Where commands run",
+    "explain": "local runs commands on this PC as you; docker, ssh or a cloud backend runs them elsewhere. Change it with “hermes config” (it needs that backend set up).",
+    "choices": [
+     {
+      "value": "local",
+      "label": "This PC",
+      "explain": "Commands run here with your rights.",
+      "risk": 1
+     },
+     {
+      "value": "docker",
+      "label": "Docker container",
+      "explain": "Commands run in a container.",
+      "risk": 0
+     }
+    ],
+    "current": "docker",
+    "default": "local",
+    "path": "~/.hermes/config.yaml",
+    "fmt": "yaml",
+    "terms": [
+     "sandbox"
+    ],
+    "editable": false,
+    "recommended": null
+   }
+  ],
+  "rules": [],
+  "files": [
+   "~/.hermes/config.yaml"
+  ],
+  "note": ""
+ },
+ "sessions": {
+  "collect": "own",
+  "note": "Numbers from Hermes's session database (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs."
+ },
+ "usage": "agent_status.hermes",
+ "latest": null,
+ "installer": null,
+ "detect": false,
+ "limits": false,
+ "local_llm": {
+  "files": [
+   "~/.hermes/config.yaml"
+  ],
+  "added": [
+   "model:\n  default: m1\n  provider: llamacpp\n  base_url: ''\nproviders:\n  llamacpp:\n    name: llama.cpp\n    api: http://127.0.0.1:8080/v1\n    api_key: local\n    default_model: m1\n    discover_models: false\n    models:\n      m1:\n        context_length: 8192\n      m2: {}\n"
+  ],
+  "connected": true,
+  "active": true,
+  "removed": [
+   "model:\n  default: m1\n  provider: llamacpp\n  base_url: ''\n"
+  ]
+ },
+ "skills": {
+  "dirs": [
+   "~/.hermes/skills"
+  ],
+  "own": "~/.hermes/skills",
+  "settings_list": true,
+  "settings_file": "~/.hermes/config.yaml",
+  "listed": [
+   "~/h/skills"
+  ],
+  "write": [
+   "skills:\n  external_dirs:\n    - /home/u/skills\n",
+   "skills:\n",
+   "{\"skills\": [\"/home/u/skills\"]}"
+  ]
+ },
+ "mcp": {
+  "path": "~/.hermes/config.yaml",
+  "format": "yaml",
+  "key": "mcp_servers",
+  "shape": "plain",
+  "in_app": "",
+  "write": null,
+  "read": null,
+  "native": null
+ }
+}

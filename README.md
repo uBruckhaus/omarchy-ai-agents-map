@@ -162,7 +162,7 @@ connect), and who can reach it (only this PC on 127.0.0.1, or your whole network
   ended one (Settings › **Terminal tabs above the map**, on by default).
 - **Working now**: while an agent is working (herdr shows it working, its process uses the CPU, its
   session files were written in the last seconds, or its local LLM is generating), light runs along
-  its line to its provider and model on the map (Settings › **Animate active lines**; off when the
+  its line to its provider and model on the map (Settings › **Map animations**: agents and other programs, only agents, or off; off when the
   desktop turns animations off).
 - **Used from outside the map**: when a program that is not on the map (a plugin such as Video
   Trans, a chat app, a script) generates with a local LLM, the line from that LLM to the model is
@@ -651,7 +651,7 @@ links not followed; nothing is deleted from here.
 
 The gear (Ctrl+,) opens the settings: **Language** (system or one of English, Deutsch, Français,
 Español, Italiano, Português, Nederlands, Polski), **Look** (the colours from the Omarchy theme,
-or GNOME's Adwaita with the system's light/dark and accent colour), **Animate active lines**, **Terminal tabs above the map**, **Corners** (like windows, rounded or square, as
+or GNOME's Adwaita with the system's light/dark and accent colour), **Map animations** (agents and other programs, only my agents, off; with a moving preview), **Terminal tabs above the map**, **Corners** (like windows, rounded or square, as
 in App Manager and Theme Manager), **Look up new agents**, **Start local LLMs with their agents**, **Too narrow for the map** (what the header's "Maximize for more room" does: move the window to a
 free workspace, maximize it where it is, or show no hint; with an animated preview), **In the app
 launcher** (the launcher entry; off removes it) and **Agents start in** (the folder for Start). Backspace or Esc goes back. Settings

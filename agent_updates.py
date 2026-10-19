@@ -171,13 +171,17 @@ def check(agent_list, runtimes, now: float | None = None, cache: Path = CACHE, s
     return found
 
 
-# The only commands an update may run: mise's upgrade, or a built-in agent's own updater. Fixed
-# when this module loads, from the built-in adapters only (agents an add-on brings later add nothing).
-SELF_UPDATES = tuple(list(h.self_update) for h in harnesses.all_harnesses() if h.self_update)
+def self_updates() -> tuple:
+    """The agents' own updaters now: built-in adapters', and those of signed add-ons that declare
+    the "updater" capability (addon_api checks they are plain words)."""
+    import install_recipes
+    return tuple(list(h.self_update) for h in harnesses.all_harnesses()
+                 if h.self_update and install_recipes._plain(h.self_update) is not None)
 
 
 def _allowed(argv: list) -> bool:
-    return argv[:2] == ["mise", "upgrade"] or any(argv[:len(u)] == u for u in SELF_UPDATES)
+    """The only commands an update may run: mise's upgrade, or an agent's own updater."""
+    return argv[:2] == ["mise", "upgrade"] or any(argv[:len(u)] == u for u in self_updates())
 
 
 def _usable(u) -> bool:

@@ -62,9 +62,10 @@ class InstallDialog:
             return
         if step.installer:
             target = types.SimpleNamespace(key=key, name=name, installed=installed)
-            self.open_install(target, "uninstall" if action == "uninstall" else "install")
+            self.open_install(target, {"uninstall": "uninstall", "update": "update"}.get(action, "install"))
             return
         remove = action == "uninstall"
+        update = action == "update"
         if step.kind == "manual":
             body = _("Get {0} from its web page.").format(name) + (f"\n\n{step.note}" if step.note else "")
         elif step.run is None:
@@ -74,7 +75,8 @@ class InstallDialog:
                      "sees it.")
         else:
             body = _("AI Agents Map runs this in a terminal window, so you see every line.")
-        dialog = Adw.AlertDialog(heading=(_("Remove {0}?") if remove else _("Install {0}?")).format(name), body=body)
+        heading = _("Remove {0}?") if remove else _("Update {0}?") if update else _("Install {0}?")
+        dialog = Adw.AlertDialog(heading=heading.format(name), body=body)
         extra = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         text = "\n".join(step.commands) or step.url
         if text:
@@ -96,7 +98,8 @@ class InstallDialog:
         if step.kind == "manual" and step.url:
             dialog.add_response("web", _("Open web page"))
         if step.run is not None:
-            dialog.add_response("run", _("Remove in a terminal") if remove else _("Install in a terminal"))
+            dialog.add_response("run", _("Remove in a terminal") if remove else
+                                _("Update in a terminal") if update else _("Install in a terminal"))
             dialog.set_response_appearance("run", Adw.ResponseAppearance.DESTRUCTIVE if remove
                                            else Adw.ResponseAppearance.SUGGESTED)
             dialog.set_default_response("run")
@@ -110,6 +113,15 @@ class InstallDialog:
                     Gio.AppInfo.launch_default_for_uri(step.url, None)
                 except GLib.Error:
                     pass
+            elif response == "run" and update:
+                # Installed before and after: no change to wait for; the cards are looked at again
+                # when the terminal ends (in the window), or on the next Refresh.
+                if not self.run_in_window(step, kind, key, name, False, update=True):
+                    if install_recipes.run(step):
+                        self.toast(_("{0}: updating in a terminal. Refresh (F5) shows the new version.").format(name), 6)
+                    else:
+                        Gdk.Display.get_default().get_clipboard().set(text)
+                        self.toast(_("No terminal could be opened; the command is copied."), 6)
             elif response == "run":
                 if self.run_in_window(step, kind, key, name, remove):
                     self.watch_install(kind, key, name, not remove)
@@ -126,9 +138,9 @@ class InstallDialog:
     def installs_in_window() -> bool:
         """Add-ons page › Run installs in the window's terminal (on unless switched off)."""
         import ai_core
-        return ai_core.load_settings().get("installs_in_window") is not False
+        return ai_core.setting("installs_in_window") is not False
 
-    def run_in_window(self, step, kind: str, key: str, name: str, remove: bool) -> bool:
+    def run_in_window(self, step, kind: str, key: str, name: str, remove: bool, update: bool = False) -> bool:
         """The step's commands in a terminal tab of the window (VTE), when that is on and VTE is
         there; sudo asks for the password in it. False: use a terminal window instead."""
         import shlex
@@ -137,8 +149,17 @@ class InstallDialog:
             return False
         done = _("Done. You can close this tab (Back).")
         script = " && ".join(shlex.join(c) for c in step.run) + f"; echo; echo {shlex.quote(done)}"
-        title = (_("Remove {0}") if remove else _("Install {0}")).format(name)
-        self.open_command_tab(f"install:{kind}:{key}", title, script, self.back_to_here(key))
+        title = (_("Remove {0}") if remove else _("Update {0}") if update else _("Install {0}")).format(name)
+
+        def updated():
+            import agent_updates
+            agent_updates.forget()           # the update hints are looked up again
+            self.collect()
+            self.refresh_overview()
+            self.refresh_map()
+            self.refresh_setup()
+        self.open_command_tab(f"install:{kind}:{key}", title, script, self.back_to_here(key),
+                              on_end=updated if update else None)
         return True
 
     def open_command_tab(self, tab: str, title: str, script: str, back, on_end=None):
@@ -167,7 +188,7 @@ class InstallDialog:
         self.show_terminal(tab)
 
     def back_to_here(self, key: str = ""):
-        """Back from a page opened now (an install terminal): to the page in view now, My setup or
+        """Back from a page opened now (an install terminal): to the page in view now, Setup or
         the Add-ons page (with the card, now up to date), else the map."""
         origin = self.page_name()
 

@@ -84,5 +84,33 @@ class RecipesTest(unittest.TestCase):
         self.assertEqual(harnesses.get("hermes").data, ("~/.hermes",))
 
 
+class UpdateWaysTest(unittest.TestCase):
+    """How what a way installed is updated (action "update"), as the add-on declares it."""
+
+    def step(self, way, source="own", have=("mise", "npm", "pipx", "uv", "myagent")):
+        from unittest import mock
+        with mock.patch.object(r.shutil, "which", lambda name: f"/usr/bin/{name}" if name in have else None), \
+                mock.patch.object(r, "manager", lambda: "pacman"):
+            return r.choose([way], "update", source)
+
+    def test_mise_and_tools(self):
+        self.assertEqual(self.step(Way("mise", spec="claude"), "mise").commands, ["mise --yes upgrade claude"])
+        self.assertEqual(self.step(Way("tool", spec="@x/cli", tool="npm")).commands, ["npm update -g @x/cli"])
+        self.assertEqual(self.step(Way("tool", spec="tool", tool="pipx")).commands, ["pipx upgrade tool"])
+        self.assertEqual(self.step(Way("tool", spec="tool", tool="uv")).commands, ["uv tool upgrade tool"])
+
+    def test_declared_update_command(self):
+        step = self.step(Way("command", argv=("myagent-install",), update=("myagent", "self-update")))
+        self.assertEqual(step.run, [["myagent", "self-update"]])
+
+    def test_packages_come_with_the_system(self):
+        step = self.step(Way("package", packages=(("pacman", "thing"),)), "package")
+        self.assertEqual(step.kind, "manual")
+
+    def test_only_the_way_it_is_installed(self):
+        self.assertIsNone(self.step(Way("mise", spec="x"), "package"))     # installed as a package: not mise
+        self.assertIsNone(self.step(Way("command", argv=("x",)), "own"))     # no update command declared
+
+
 if __name__ == "__main__":
     unittest.main()

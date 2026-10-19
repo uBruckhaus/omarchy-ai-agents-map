@@ -1,0 +1,91 @@
+{
+ "command": "openclaw",
+ "name": "OpenClaw",
+ "label": "OpenClaw",
+ "full_name": "",
+ "icon": "",
+ "icon_font": "omarchy",
+ "spec": "",
+ "package": "openclaw",
+ "package_only": true,
+ "own_install_counts": true,
+ "download": null,
+ "short_version": false,
+ "offered": true,
+ "login_status": null,
+ "fixed_provider": "",
+ "self_served": false,
+ "short_model_flag": false,
+ "self_update": [],
+ "install": [
+  {
+   "kind": "command",
+   "spec": "",
+   "tool": "",
+   "argv": [
+    "omarchy-install-openclaw-cli",
+    "--now"
+   ],
+   "sudo": true,
+   "packages": [],
+   "url": "",
+   "note": "",
+   "update": []
+  },
+  {
+   "kind": "package",
+   "spec": "",
+   "tool": "",
+   "argv": [],
+   "sudo": false,
+   "packages": [
+    [
+     "pacman",
+     "openclaw"
+    ]
+   ],
+   "url": "",
+   "note": "",
+   "update": []
+  }
+ ],
+ "data": [
+  "~/.openclaw"
+ ],
+ "homepage": "https://github.com/openclaw/openclaw",
+ "access": null,
+ "security": null,
+ "sessions": null,
+ "usage": null,
+ "latest": null,
+ "installer": null,
+ "detect": false,
+ "limits": false,
+ "local_llm": null,
+ "skills": {
+  "dirs": [
+   "~/.openclaw/skills",
+   "~/.agents/skills"
+  ],
+  "own": "~/.openclaw/skills",
+  "settings_list": false,
+  "settings_file": "",
+  "listed": [
+   "~/o/skills"
+  ],
+  "write": null
+ },
+ "mcp": {
+  "path": "~/.openclaw/openclaw.json",
+  "format": "json",
+  "key": "mcp.servers",
+  "shape": "openclaw",
+  "in_app": "",
+  "write": [
+   "{\n  \"mcp_servers\": {\n    \"old\": {\n      \"command\": \"a\"\n    }\n  },\n  \"mcp\": {\n    \"servers\": {\n      \"new\": {\n        \"command\": \"b\"\n      }\n    }\n  }\n}\n",
+   "{\n  \"mcp_servers\": {\n    \"old\": {\n      \"command\": \"a\"\n    }\n  }\n}\n"
+  ],
+  "read": null,
+  "native": null
+ }
+}

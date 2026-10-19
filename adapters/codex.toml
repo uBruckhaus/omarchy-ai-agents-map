@@ -1,0 +1,87 @@
+# OpenAI's Codex CLI (docs/adapter-format.md): facts only, nothing in this file runs.
+command = "codex"
+name = "Codex"
+label = "Codex"
+icon = "U+E905"
+icon_font = "omarchy"
+short_model_flag = true
+homepage = "https://github.com/openai/codex"
+data = ["~/.codex"]
+
+[[install]]
+kind = "mise"
+spec = "codex"
+
+[skills]
+dirs = ["~/.agents/skills", "~/.codex/skills"]
+own = "~/.codex/skills"
+
+[mcp]
+path = "~/.codex/config.toml"
+format = "toml"
+key = "mcp_servers"
+shape = "codex"
+
+[access]
+how = "A ChatGPT plan (Plus, Pro, Business), or an API key from platform.openai.com"
+login = "codex login"
+files = [".codex/auth.json"]
+env = ["OPENAI_API_KEY"]
+local_ok = true
+
+[[access.logins]]
+label = "ChatGPT plan"
+argv = ["codex", "login"]
+
+[access.key]
+var = "OPENAI_API_KEY"
+url = "https://platform.openai.com/api-keys"
+stdin = ["codex", "login", "--with-api-key"]
+
+[security]
+file = "~/.codex/config.toml"
+format = "toml"
+
+[[security.settings]]
+key = "approval_policy"
+title = "When Codex asks"
+explain = "When Codex stops and asks before running a command."
+default = "on-request"
+recommended = "on-request"
+terms = ["approval"]
+choices = [
+  { value = "untrusted", label = "Ask for everything but safe reads", explain = "Asks before every command that is not a known read-only one.", risk = 0 },
+  { value = "on-request", label = "When it needs more", explain = "Works inside the sandbox on its own and asks when it needs to leave it.", risk = 1 },
+  { value = "on-failure", label = "After a failure (old)", explain = "Asks only when a sandboxed command failed. Replaced by “When it needs more”.", risk = 1 },
+  { value = "never", label = "Never", explain = "Never asks; what the sandbox allows simply happens.", risk = 2 },
+]
+
+[[security.settings]]
+key = "sandbox_mode"
+title = "Sandbox"
+explain = "What commands Codex runs may touch."
+default = "workspace-write"
+recommended = "workspace-write"
+terms = ["sandbox"]
+choices = [
+  { value = "read-only", label = "Read only", explain = "Commands may read, not write or go online.", risk = 0 },
+  { value = "workspace-write", label = "Project folder", explain = "Commands may write in the project folder (and temp), nowhere else.", risk = 1 },
+  { value = "danger-full-access", label = "No sandbox", explain = "Commands may do anything you can do.", risk = 3 },
+]
+
+[[security.settings]]
+key = "sandbox_workspace_write.network_access"
+title = "Network in the sandbox"
+explain = "Whether commands in the project-folder sandbox may reach the internet."
+default = false
+recommended = false
+terms = ["network"]
+choices = [
+  { value = false, label = "Off", explain = "No internet for commands (web search of Codex itself still works).", risk = 0 },
+  { value = true, label = "On", explain = "Commands may download and upload.", risk = 2 },
+]
+
+[[security.rules]]
+key = "projects"
+title = "Trusted folders"
+keys_where = { trust_level = "trusted" }

@@ -1,0 +1,240 @@
+{
+ "command": "claude",
+ "name": "Claude Code",
+ "label": "Claude",
+ "full_name": "Claude Code",
+ "icon": "󰛄",
+ "icon_font": "",
+ "spec": "",
+ "package": "",
+ "package_only": false,
+ "own_install_counts": true,
+ "download": null,
+ "short_version": false,
+ "offered": true,
+ "login_status": null,
+ "fixed_provider": "",
+ "self_served": false,
+ "short_model_flag": false,
+ "self_update": [
+  "claude",
+  "update"
+ ],
+ "install": [
+  {
+   "kind": "mise",
+   "spec": "claude",
+   "tool": "",
+   "argv": [],
+   "sudo": false,
+   "packages": [],
+   "url": "",
+   "note": "",
+   "update": []
+  }
+ ],
+ "data": [
+  "~/.claude",
+  "~/.claude.json"
+ ],
+ "homepage": "https://github.com/anthropics/claude-code",
+ "access": {
+  "how": "A Claude Pro or Max subscription (claude.ai), or an API key from console.anthropic.com",
+  "login": "claude auth login",
+  "files": [
+   ".claude/.credentials.json"
+  ],
+  "env": [
+   "ANTHROPIC_API_KEY"
+  ],
+  "local_ok": false,
+  "logins": [
+   {
+    "label": "Claude subscription",
+    "argv": [
+     "claude",
+     "auth",
+     "login",
+     "--claudeai"
+    ],
+    "note": ""
+   },
+   {
+    "label": "API billing (Anthropic Console)",
+    "argv": [
+     "claude",
+     "auth",
+     "login",
+     "--console"
+    ],
+    "note": ""
+   }
+  ],
+  "key": null
+ },
+ "security": {
+  "settings": [
+   {
+    "key": "permissions.defaultMode",
+    "title": "Permission mode",
+    "explain": "How much Claude Code may do without asking. It can be changed for one session with Shift+Tab.",
+    "choices": [
+     {
+      "value": "default",
+      "label": "Ask first",
+      "explain": "Asks before it edits a file or runs a command.",
+      "risk": 1
+     },
+     {
+      "value": "plan",
+      "label": "Plan only",
+      "explain": "Reads and plans; changes nothing until you agree.",
+      "risk": 0
+     },
+     {
+      "value": "dontAsk",
+      "label": "Only what is allowed",
+      "explain": "Never asks: does only what your allow rules permit and refuses the rest.",
+      "risk": 0
+     },
+     {
+      "value": "acceptEdits",
+      "label": "Edit without asking",
+      "explain": "Edits files in the project on its own, asks before commands.",
+      "risk": 2
+     },
+     {
+      "value": "auto",
+      "label": "Automatic review",
+      "explain": "A classifier lets safe actions through and asks about the rest.",
+      "risk": 2
+     },
+     {
+      "value": "bypassPermissions",
+      "label": "Bypass all checks",
+      "explain": "Does everything without asking. Only for a throwaway machine.",
+      "risk": 3
+     }
+    ],
+    "current": "acceptEdits",
+    "default": "default",
+    "path": "~/.claude/settings.json",
+    "fmt": "json",
+    "terms": [
+     "approval",
+     "classifier",
+     "bypass"
+    ],
+    "editable": true,
+    "recommended": "default"
+   },
+   {
+    "key": "sandbox.enabled",
+    "title": "Sandbox for commands",
+    "explain": "Runs shell commands in a sandbox (bubblewrap on Linux): writes only in the project, network only to allowed sites.",
+    "choices": [
+     {
+      "value": true,
+      "label": "On",
+      "explain": "Commands are fenced in.",
+      "risk": 0
+     },
+     {
+      "value": false,
+      "label": "Off",
+      "explain": "Commands run with all your rights.",
+      "risk": 1
+     }
+    ],
+    "current": true,
+    "default": false,
+    "path": "~/.claude/settings.json",
+    "fmt": "json",
+    "terms": [
+     "sandbox",
+     "network"
+    ],
+    "editable": true,
+    "recommended": true
+   },
+   {
+    "key": "permissions.disableBypassPermissionsMode",
+    "title": "Block bypass mode",
+    "explain": "Makes it impossible to start Claude Code with --dangerously-skip-permissions, even by mistake.",
+    "choices": [
+     {
+      "value": "disable",
+      "label": "Blocked",
+      "explain": "Bypass mode cannot be switched on.",
+      "risk": 0
+     },
+     {
+      "value": null,
+      "label": "Allowed",
+      "explain": "Bypass mode can be switched on with a flag.",
+      "risk": 1
+     }
+    ],
+    "current": null,
+    "default": null,
+    "path": "~/.claude/settings.json",
+    "fmt": "json",
+    "terms": [
+     "bypass"
+    ],
+    "editable": true,
+    "recommended": "disable"
+   }
+  ],
+  "rules": [
+   [
+    "Allowed without asking",
+    "permissions.allow",
+    [
+     "Bash(git status)"
+    ]
+   ],
+   [
+    "Never allowed",
+    "permissions.deny",
+    [
+     "Read(.env)"
+    ]
+   ]
+  ],
+  "files": [
+   "~/.claude/settings.json"
+  ],
+  "note": ""
+ },
+ "sessions": {
+  "collect": "claude_sessions.collect_by_id",
+  "note": "Numbers from Claude Code's session files (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs."
+ },
+ "usage": null,
+ "latest": "agent_updates.claude_channel_latest",
+ "installer": null,
+ "detect": false,
+ "limits": false,
+ "local_llm": null,
+ "skills": {
+  "dirs": [
+   "~/.claude/skills"
+  ],
+  "own": "~/.claude/skills",
+  "settings_list": false,
+  "settings_file": "",
+  "listed": null,
+  "write": null
+ },
+ "mcp": {
+  "path": "~/.claude.json",
+  "format": "claude",
+  "key": "mcpServers",
+  "shape": "claude",
+  "in_app": "",
+  "write": null,
+  "read": null,
+  "native": null
+ }
+}

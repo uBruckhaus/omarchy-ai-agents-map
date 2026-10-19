@@ -1,0 +1,46 @@
+# OpenCode (docs/adapter-format.md). Its session database, connecting a local LLM and its security
+# settings are hooks (opencode.py); everything else is facts.
+command = "opencode"
+name = "OpenCode"
+label = "OpenCode"
+icon = "U+E902"
+icon_font = "omarchy"
+short_model_flag = true
+usage = "opencode"
+homepage = "https://opencode.ai"
+data = ["~/.local/share/opencode", "~/.config/opencode"]
+
+[[install]]
+kind = "mise"
+spec = "opencode"
+
+[sessions]
+hook = true
+note = "Numbers from {0}'s session database (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs."
+note_args = ["OpenCode"]
+
+[local_llm]
+files = ["~/.config/opencode/opencode.json"]
+hooks = true
+
+[skills]
+dirs = ["~/.config/opencode/skills", "~/.claude/skills", "~/.agents/skills"]
+own = "~/.config/opencode/skills"
+
+[mcp]
+path = "~/.config/opencode/opencode.json"
+key = "mcp"
+shape = "opencode"
+
+[access]
+how = "An account or API key for any provider, or a local LLM from the map"
+login = "opencode auth login"
+files = [".local/share/opencode/auth.json"]
+local_ok = true
+
+[[access.logins]]
+label = "A provider (account or key)"
+argv = ["opencode", "auth", "login"]
+
+[security]
+hook = true

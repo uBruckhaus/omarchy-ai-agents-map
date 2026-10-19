@@ -14,6 +14,7 @@ columns they name, never message text.
 
 from __future__ import annotations
 
+import dataclasses
 import sqlite3
 import time
 from dataclasses import dataclass
@@ -72,7 +73,28 @@ class Way:
     packages: tuple = ()              # package: ((manager, name), …), e.g. (("pacman", "hermes-desktop"),)
     url: str = ""                     # manual: where to get it
     note: str = ""                    # manual: one line of instruction (English)
+    update: tuple = ()                # command: the argv that updates what it installed (plain words)
 
+
+@dataclass(frozen=True)
+class Download:
+    """A program the app installs itself from a GitHub release, described as data: an add-on can
+    bring a new agent or local LLM this way without app code (install_ctl.Declared runs it: version
+    folders, `current`, the command in ~/.local/bin, the release's SHA-256 checked, a user service).
+    Placeholders in `service` and `env` values: {binary} {host} {port} {models} {folder}."""
+    repo: str                         # "owner/name" on github.com
+    assets: tuple                     # ((build, regex for the asset's file name), …), first = default build
+    binary: str                       # the program inside the unpacked release (a relative path)
+    command: str                      # its name in ~/.local/bin
+    tag: str = r"v?\d+(\.\d+)+"       # which release tags count (regex; pre-releases never)
+    single_file: bool = False         # the asset is the program itself, not an archive
+    builds: tuple = ()                # ((build, label), …) to choose from on the install page
+    gpu_builds: tuple = ()            # ((GPU vendor, build), …): the default build per GPU
+    service: tuple = ()               # ExecStart argv of its user service; () none (an agent)
+    address: str = ""                 # host:port its service listens on
+    env: tuple = ()                   # ((NAME, value), …) for the service's environment file
+    models_env: str = ""              # the variable in `env` holding the model folder ("" none)
+    login_default: bool = False       # the install page's "Start at login", preset
 
 @dataclass(frozen=True)
 class LocalLlm:
@@ -109,12 +131,15 @@ class Harness:
     package_only: bool = False        # installed only as that package (OpenClaw)
     own_install_counts: bool = True   # a file of the user's own at ~/.local/bin/<command> counts (not Hermes)
     installer: Callable | None = None  # installer() -> install_ctl.Installer: the app installs it itself
+    download: Download | None = None   # or: what the app installs, as data (install_ctl.Declared)
     detect: Callable | None = None    # detect() -> (installed, version, source) when none of the above fits
     short_version: bool = False       # show the version up to its first "-" (LM Studio Bionic)
     offered: bool = True              # in Omarchy's agent menu (False: only this app offers it)
     # capabilities (the feature modules build their tables from these)
     security: Callable | None = None  # security(report): agent_security fills in its settings
-    usage: Callable | None = None     # usage() -> agent_status.Usage from its own session store
+    usage: Callable | None = None     # usage() -> agent_status.Usage from its own session store (else the
+                                      # app derives it from `sessions`)
+    limits: Callable | None = None    # limits() -> (plan, [agent_details.Limit]) from its own store
     access: Callable | None = None    # access() -> agent_status.Access: what it needs to work
     login_status: tuple | None = None  # (argv, text meaning "no", text meaning "yes")
     local_llm: LocalLlm | None = None  # can be pointed at a local LLM from the map (connect)
@@ -217,9 +242,20 @@ def _built_in() -> tuple:
 
 
 def built_in_adapters() -> tuple:
-    """The adapters in the app's own modules (the AI Agents Map plugin always uses these)."""
-    import importlib
-    return tuple(importlib.import_module(f"harness_{name}").HARNESS for name in _MODULES)
+    """The app's own adapters (the AI Agents Map plugin always uses these): adapters/<command>.toml
+    where an agent is described as data (adapter_data), else its harness_<name>.py module."""
+    if not _BUILT_IN:                      # read once, as an imported module would be
+        import importlib
+
+        import adapter_data
+        for name in _MODULES:
+            path = adapter_data.ADAPTERS / f"{name.replace('_', '-')}.toml"
+            _BUILT_IN.append(adapter_data.load(path) if path.is_file()
+                             else importlib.import_module(f"harness_{name}").HARNESS)
+    return tuple(_BUILT_IN)
+
+
+_BUILT_IN: list = []
 
 
 def hide_built_in(commands) -> None:
@@ -227,6 +263,7 @@ def hide_built_in(commands) -> None:
     switched on, shows them; the AI Agents Map plugin never hides any."""
     _HIDDEN.clear()
     _HIDDEN.update(commands)
+    _forget()
 
 
 def _order(harness) -> int:
@@ -236,12 +273,44 @@ def _order(harness) -> int:
 
 
 _ADDED: list = []          # [(addon id, Harness)] registered by loaded add-ons (addon_api.add_harness)
+_EXTENSIONS: list = []     # [(addon id, command, {field: value})] from extension add-ons (extend)
 _LISTENERS: list = []      # rebuild functions of modules that keep tables made from this registry
+_CACHE: list = []          # the merged tuple, made again after any change
+
+# What an extension add-on may add to an agent another add-on (or the app) brings: facts and readers
+# for the details page and the map. Never what installs, updates or names it.
+EXTENDABLE = ("sessions", "usage", "limits", "security", "access", "login_status", "skills", "mcp",
+              "local_llm", "data", "homepage")
+
+
+def _forget() -> None:
+    _CACHE.clear()
+
+
+def _empty(harness: Harness, name: str) -> bool:
+    """A field the agent left at its default (None, "", (), False)."""
+    default = next(f for f in dataclasses.fields(Harness) if f.name == name).default
+    return getattr(harness, name) == default
+
+
+def _extended(harness: Harness) -> Harness:
+    """The agent with what extension add-ons add to it: only fields it left empty, the first
+    extension for a field wins (later ones are noted in conflicts())."""
+    filled = {}
+    for _owner, command, fields in _EXTENSIONS:
+        if command != harness.command:
+            continue
+        for name, value in fields.items():
+            if name not in filled and _empty(harness, name):
+                filled[name] = value
+    return dataclasses.replace(harness, **filled) if filled else harness
 
 
 def _all() -> tuple:
-    added = sorted((h for _owner, h in _ADDED), key=_order)
-    return _built_in() + tuple(added)
+    if not _CACHE:
+        added = sorted((h for _owner, h in _ADDED), key=_order)
+        _CACHE.append(tuple(_extended(h) for h in _built_in() + tuple(added)))
+    return _CACHE[0]
 
 
 def on_change(listener) -> None:
@@ -250,6 +319,7 @@ def on_change(listener) -> None:
 
 
 def changed() -> None:
+    _forget()
     for listener in list(_LISTENERS):
         listener()
 
@@ -264,11 +334,43 @@ def add(harness: Harness, owner: str, updates: bool = False) -> None:
     if (harness.self_update or harness.latest is not None) and not updates:
         raise ValueError("an add-on's agent cannot bring an updater of its own")
     _ADDED.append((owner, harness))
+    _forget()
 
 
 def remove_added(owner: str | None = None) -> None:
-    """Forget the agents of one add-on (or of all add-ons)."""
+    """Forget the agents and extensions of one add-on (or of all add-ons)."""
     _ADDED[:] = [(o, h) for o, h in _ADDED if owner is not None and o != owner]
+    _EXTENSIONS[:] = [e for e in _EXTENSIONS if owner is not None and e[0] != owner]
+    _forget()
+
+
+def extend(command: str, fields: dict, owner: str) -> list:
+    """An extension add-on adds facts to an agent (EXTENDABLE fields only). Returns the fields
+    refused (not extendable). Whether a field is used is decided when the agent is shown: only where
+    the agent left it empty, and the first extension wins (see conflicts)."""
+    if not isinstance(command, str) or not command:
+        raise ValueError("no agent command")
+    refused = [name for name in fields if name not in EXTENDABLE]
+    allowed = {name: value for name, value in fields.items() if name in EXTENDABLE and value is not None}
+    if allowed:
+        _EXTENSIONS.append((owner, command, allowed))
+        _forget()
+    return refused
+
+
+def conflicts() -> dict:
+    """addon id -> ["command.field", …] it added but that is not used (the agent has it, or an
+    earlier extension filled it), for Settings › Add-ons."""
+    base = {h.command: h for h in _built_in() + tuple(h for _o, h in _ADDED)}
+    taken, found = set(), {}
+    for owner, command, fields in _EXTENSIONS:
+        harness = base.get(command)
+        for name in fields:
+            key = (command, name)
+            if harness is not None and (not _empty(harness, name) or key in taken):
+                found.setdefault(owner, []).append(f"{command}.{name}")
+            taken.add(key)
+    return found
 
 
 def all_harnesses() -> tuple:

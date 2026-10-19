@@ -134,7 +134,7 @@ class GraphTest(unittest.TestCase):
 
     def test_only_what_is_set_up(self):
         """The map has no places to add things: no local LLM that is not installed, no MCP server
-        no agent uses, no "+" boxes (My setup adds and removes)."""
+        no agent uses, no "+" boxes (Setup adds and removes)."""
         claude = agents.Agent(command="claude", name="Claude Code", icon="c", installed=True)
         inv = invmod.Inventory(
             runtimes=[invmod.Runtime("ollama", "Ollama", True, False, models=["gemma"], models_dir="/m"),

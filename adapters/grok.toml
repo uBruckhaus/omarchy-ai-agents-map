@@ -1,0 +1,28 @@
+# xAI's Grok CLI (docs/adapter-format.md): facts only, nothing in this file runs.
+command = "grok"
+name = "Grok"
+label = "Grok"
+icon = "U+E904"
+icon_font = "omarchy"
+spec = "npm:@xai-official/grok"
+homepage = "https://www.npmjs.com/package/@xai-official/grok"
+data = ["~/.grok"]
+
+[[install]]
+kind = "mise"
+spec = "npm:@xai-official/grok"
+
+[skills]
+dirs = ["~/.grok/skills"]
+own = "~/.grok/skills"
+listed = { file = "~/.grok/config.toml", format = "toml", key = "skills.paths" }
+
+[mcp]
+path = "~/.grok/config.toml"
+format = "toml"
+key = "mcp_servers"
+
+[access]
+how = "An API key from console.x.ai"
+login = "grok"
+env = ["XAI_API_KEY"]

@@ -1,0 +1,23 @@
+# Oh My Pi (docs/adapter-format.md): facts only, nothing in this file runs.
+command = "omp"
+name = "Oh My Pi"
+label = "omp"
+full_name = "Oh My Pi"
+icon = "U+E903"
+icon_font = "omarchy"
+spec = "github:can1357/oh-my-pi"
+homepage = "https://github.com/can1357/oh-my-pi"
+data = ["~/.omp"]
+
+[[install]]
+kind = "mise"
+spec = "github:can1357/oh-my-pi"
+
+[skills]
+dirs = ["~/.omp/agent/skills"]
+own = "~/.omp/agent/skills"
+listed = { file = "~/.omp/agent/settings.json", format = "json", key = "skills" }
+
+[mcp]
+path = "~/.omp/agent/mcp.json"
+shape = "omp"

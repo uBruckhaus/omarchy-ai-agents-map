@@ -81,5 +81,29 @@ class WatcherConfigTest(unittest.TestCase):
             self.assertTrue(runtimes["koboldcpp"]["stays_up"])
 
 
+class ProviderExtendTest(unittest.TestCase):
+    """providers.extend: facts an extension add-on adds to a provider, as for agents."""
+
+    def tearDown(self):
+        providers.remove_added()
+
+    def test_empty_fields_only_first_wins(self):
+        mine, other = (lambda rt: None), (lambda rt: None)
+        self.assertEqual(providers.extend("llamacpp", {"usage": mine}, "ext-a"), [])
+        providers.extend("llamacpp", {"usage": other}, "ext-b")
+        self.assertIs(providers.get("llamacpp").usage, mine)
+        self.assertEqual(providers.conflicts(), {"ext-b": ["llamacpp.usage"]})
+
+    def test_never_what_installs_or_names_it(self):
+        self.assertEqual(sorted(providers.extend("llamacpp", {"installer": 1, "key": "x", "install": ()}, "ext-a")),
+                         ["install", "installer", "key"])
+        self.assertEqual(providers.get("llamacpp").key, "llamacpp")
+
+    def test_removing_the_addon_removes_its_facts(self):
+        providers.extend("ollama", {"usage": lambda rt: None}, "ext-a")
+        providers.remove_added("ext-a")
+        self.assertIsNone(providers.get("ollama").usage)
+
+
 if __name__ == "__main__":
     unittest.main()

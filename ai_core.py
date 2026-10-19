@@ -20,7 +20,7 @@ MIN_WINDOW_SIZE = (420, 320)   # the card's width and its page height, logical p
 # between lines that belong together (hint lines, terminal tabs, a card's text).
 GAP = 16
 GAP_TIGHT = 6
-VIEWS = ("main", "setup")    # the cards with the map beside them, and My setup; the rest are sub-pages
+VIEWS = ("main", "setup")    # the cards with the map beside them, and Setup; the rest are sub-pages
 
 
 # Variables an agent session sets for what runs inside it (Claude Code: CLAUDECODE, CLAUDE_CODE_*
@@ -84,7 +84,21 @@ def atomic_write(path: Path, text: str) -> None:
         raise
 
 
+def setting(key: str, path: Path | None = None):
+    """One setting (settings_schema.SCHEMA): the stored value when it has the declared shape, else
+    its default."""
+    import settings_schema
+    return settings_schema.value(load_settings(path), key)
+
+
 def update_settings(path: Path | None = None, **values) -> None:
+    """Write settings (None removes one). Only keys settings_schema declares: a typo would otherwise
+    become a new setting nobody reads."""
+    import settings_schema
+    unknown = [key for key in values if key not in settings_schema.SCHEMA and key not in settings_schema.RENAMED
+               and key not in settings_schema.RETIRED]
+    if unknown:
+        raise KeyError(f"not a declared setting: {', '.join(unknown)} (settings_schema.SCHEMA)")
     path = path or settings_file()
     data = load_settings(path)
     for key, value in values.items():
@@ -101,7 +115,7 @@ def start_view(path: Path | None = None) -> str:
 
 
 def last_view(path: Path | None = None) -> str:
-    value = load_settings(path).get("last_view")
+    value = setting("last_view", path)
     value = "map" if value == "builder" else value
     return value if value in VIEWS else "main"
 
@@ -160,7 +174,7 @@ def read_bounded_output(argv: list[str], max_bytes: int = 64 * 1024, timeout: fl
     return b"".join(chunks)[:max_bytes], code == 0 and not state["over"]
 
 
-LOOKS = ("omarchy", "adwaita")
+from settings_schema import LOOKS, MAP_LAYERS  # noqa: E402,F401  (declared with the settings)
 
 
 def saved_look(path: Path | None = None) -> str:
@@ -169,8 +183,7 @@ def saved_look(path: Path | None = None) -> str:
     import desktop
     if desktop.NAME != "omarchy":
         return "adwaita"
-    value = load_settings(path).get("look")
-    return value if value in LOOKS else "omarchy"
+    return setting("look", path)
 
 
 def look_colors() -> dict:
@@ -187,31 +200,28 @@ def saved_corners(path: Path | None = None) -> str:
     """"windows" (follow Hyprland's window rounding; the default), "rounded" or "square"
     — the same setting as App Manager and Theme Manager."""
     import corners
-    return corners.choice(load_settings(path).get("corners"))
+    return corners.choice(setting("corners", path))
 
 
-MAP_LAYERS = ("agents", "online", "local", "models", "mcp", "skills")
+def map_animations() -> str:
+    """Settings › Map animations: "all", "agents" or "off" (an earlier "Animate active lines" off
+    became "off" in migrate_settings())."""
+    return setting("map_animations")
 
 
 def map_layers(path: Path | None = None) -> list:
     """The categories switched on in the Map (all by default)."""
-    value = load_settings(path).get("map_layers")
-    if isinstance(value, list):
-        return [v for v in MAP_LAYERS if v in value]
-    return list(MAP_LAYERS)
+    value = setting("map_layers", path)
+    return [v for v in MAP_LAYERS if v in value]
 
 
-# What Hide, the column lists, the overview's Show list and My setup · + Available kept: the map
-# shows what is set up now (My setup adds and removes), so these are dropped on the first start.
-RETIRED_SETTINGS = ("hidden_items", "hidden_nodes", "hidden_providers", "card_hidden", "start_scope",
-                    "show_more_hint")
-
-
-def drop_retired_settings(path: Path | None = None) -> None:
+def migrate_settings(path: Path | None = None) -> None:
+    """On start: earlier keys become today's, retired ones go (settings_schema.migrate)."""
+    import settings_schema
     path = path or settings_file()
-    stale = [key for key in RETIRED_SETTINGS if key in load_settings(path)]
-    if stale:
-        update_settings(path, **{key: None for key in stale})
+    changes = settings_schema.migrate(load_settings(path))
+    if changes:
+        update_settings(path, **changes)
 
 
 # --- clipboard ---------------------------------------------------------------------------------

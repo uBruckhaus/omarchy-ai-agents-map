@@ -123,7 +123,7 @@ class SettingsPages:
     WHERE_DEFAULT = {"models": "web", "mcp": "local", "skills": "local"}
 
     def where(self, kind: str) -> str:
-        value = ai_core.load_settings().get("add_where", {})
+        value = ai_core.setting("add_where")
         value = value.get(kind) if isinstance(value, dict) else None
         return value if value in ("local", "web") else self.WHERE_DEFAULT[kind]
 
@@ -138,7 +138,7 @@ class SettingsPages:
             web_box.set_visible(where == "web")
             if not save:
                 return                       # while the page is built
-            stored = ai_core.load_settings().get("add_where", {})
+            stored = ai_core.setting("add_where")
             self.save_setting(add_where={**(stored if isinstance(stored, dict) else {}), kind: where})
             if on_change is not None:
                 on_change()
@@ -295,12 +295,12 @@ class SettingsPages:
             self.switch_row(group, _("Look for add-ons online"),
                             _("Reads the list of add-ons (signed by Uwe Bruckhaus) from GitHub every few hours, to "
                               "suggest one when a harness it knows is on this PC. Nothing is sent but the request."),
-                            ai_core.load_settings().get("addons_online") is not False,
+                            ai_core.setting("addons_online") is not False,
                             lambda on: self.save_setting(addons_online=on))
             self.button_row(group, _("Add-ons"), _("Agents, providers and features: what is built in, installed "
                                                    "and available."), _("Open"), self.open_addons)
             if self.adapter_addons():
-                self.button_row(group, _("My setup"), _("Switch agents and providers on or off, update or remove "
+                self.button_row(group, _("Setup"), _("Switch agents and providers on or off, update or remove "
                                                          "them, and your MCP servers, skills and models."), _("Open"),
                                 self.open_my_setup)
         for addon_id, builder in self.addon_hooks("settings"):
@@ -405,12 +405,11 @@ class SettingsPages:
         group = self.preference_group(box, _("Omarchy app"))
         self.switch_row(group, _("In the app launcher"),
                         _("AI Agents Map as an app in Omarchy's launcher (Super + Space), besides the bar icon."),
-                        ai_core.load_settings().get("launcher_entry") is True,
+                        ai_core.setting("launcher_entry") is True,
                         lambda on: (self.save_setting(launcher_entry=on), app_entry.ensure_entry(on)))
 
     def fill_general_settings(self, box, side):
         """General in `box`; Models and Window in `side` (the right column, or below)."""
-        settings = ai_core.load_settings()
         group = self.preference_group(box, _("General"))
         codes = ["auto"] + [code for code, _name in i18n.LANGUAGES]
         setting = i18n.language_setting()
@@ -418,11 +417,8 @@ class SettingsPages:
                        [_("System ({0})").format(i18n.language_name(i18n.system_language()))]
                        + [name for _code, name in i18n.LANGUAGES],
                        codes.index(setting) if setting in codes else 0, lambda i: self.set_language(codes[i]))
-        self.button_row(group, _("Health check"), _("What works, what to fix, and what you can do with this setup"),
-                        _("Open"), self.open_health)
-        self.switch_row(group, _("Health check line"),
-                        _("On the main page when something needs fixing (× hides it until the next start)."),
-                        settings.get("health_line", True) is not False, self.set_health_line)
+        self.button_row(group, _("Open problems"), _("What needs fixing; the ! in the header shows when there is "
+                                                    "something"), _("Open"), self.open_health)
         self.window_rounding = desktop.window_rounding()
         like = _("Like windows ({0} px)").format(self.window_rounding) if self.window_rounding is not None \
             else _("Like windows")
@@ -442,26 +438,41 @@ class SettingsPages:
         self.switch_row(group, _("Look up new agents"),
                         _("When a new agent is installed, Claude Code or Codex finds out on the web where it keeps "
                           "MCP servers and skills (once, a few minutes in the background)."),
-                        settings.get("look_up_new_agents", True), lambda on: self.save_setting(look_up_new_agents=on))
-        self.switch_row(group, _("Animate active lines"),
-                        _("Light runs along a running agent's line to its provider and model on the map. Off: "
-                          "the lines stay still. Also off when the system turns animations off."),
-                        settings.get("animate_lines", True) is not False,
-                        lambda on: (self.save_setting(animate_lines=on), self.side_map.set_animate(on)))
+                        ai_core.setting("look_up_new_agents"), lambda on: self.save_setting(look_up_new_agents=on))
         self.switch_row(group, _("Terminal tabs above the map"),
                         _("While agents run in terminals here: a tab for each, with a dot for working, running "
                           "or ended, above the map and the terminals. A click shows the terminal."),
-                        settings.get("terminal_tabs", True) is not False,
+                        ai_core.setting("terminal_tabs") is not False,
                         lambda on: (self.save_setting(terminal_tabs=on), self.update_terminal_tabs()))
         self.switch_row(group, _("Start local LLMs with their agents"),
                         _("When an agent connected to a local LLM starts, its LLM starts too; when the last such "
                           "agent closes, the LLM stops and its GPU memory is free again. Works with this window "
                           "closed and after a reboot (user service {0}).").format(provider_watch.UNIT_NAME),
-                        settings.get("providers_with_agents", True),
+                        ai_core.setting("providers_with_agents"),
                         lambda on: (self.save_setting(providers_with_agents=on), self.sync_provider_watch()))
         self.folder_row(group, _("Agents start in"),
                         _("The folder an agent started here (Start on its card) works in. Enter saves it."),
                         self.agent_folder(), self.save_agent_folder)
+        # The map's animations, with a sketch of what each choice animates (its own group: libadwaita
+        # puts what is not a row after a group's list).
+        group = self.preference_group(side, _("Map"))
+        modes = ("all", "agents", "off")
+        self.combo_row(group, _("Map animations"),
+                       _("Light runs along the lines on the map: a working agent's line to its provider and "
+                         "model, and a local LLM's line to the model another program uses now. Also off when "
+                         "the system turns animations off."),
+                       [_("Agents and other programs"), _("Only my agents"), _("Off")],
+                       modes.index(ai_core.map_animations()),
+                       lambda i: (self.save_setting(map_animations=modes[i]), self.side_map.set_animate(modes[i]),
+                                  self.animation_sketch.queue_draw()))
+        preview = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        preview.add_css_class("am-help-card")
+        preview.set_halign(Gtk.Align.START)
+        self.animation_sketch = previews.AnimationSketch(self.side_map.color, ai_core.map_animations,
+                                                         (_("agent"), _("local LLM"), _("model"), _("model"),
+                                                          _("in use · {0}").format(_("another program"))))
+        preview.append(self.animation_sketch)
+        group.add(preview)
         models_group = self.preference_group(side, _("Models"))
         if desktop.NAME == "omarchy":
             # Hyprland tiles the window: what "Maximize for more room" does, with its sketch below
@@ -562,7 +573,7 @@ class SettingsPages:
 
     def models_root(self) -> str:
         """The setting, else where the local LLMs keep models now (LM Studio's folder first)."""
-        value = ai_core.load_settings().get("models_root")
+        value = ai_core.setting("models_root")
         if isinstance(value, str) and value.startswith(("/", "~")):
             return value
         folders = {r.key: r.models_dir for r in self.inventory.runtimes if r.installed and r.models_dir}
@@ -914,9 +925,13 @@ class SettingsPages:
 
     @staticmethod
     def manual_path() -> Path | None:
-        """The user manual that comes with this version (assets/ in the plugin, data/ in Asterism)."""
+        """The user manual that comes with this version (assets/ in the plugin, data/ in Asterism), in
+        the interface language: user-manual.<language>.pdf, else the English user-manual.pdf."""
         here = Path(__file__).resolve().parent
-        return next((p for p in (here / "assets/user-manual.pdf", here / "data/user-manual.pdf") if p.is_file()), None)
+        lang = i18n.current()
+        names = ([f"user-manual.{lang}.pdf"] if lang and lang != "en" else []) + ["user-manual.pdf"]
+        return next((folder / name for name in names for folder in (here / "assets", here / "data")
+                     if (folder / name).is_file()), None)
 
     def help_manual_card(self) -> Gtk.Widget | None:
         """The user manual (a PDF of this version), opened in the desktop's PDF viewer."""
@@ -1144,8 +1159,8 @@ class SettingsPages:
         head = Gtk.Box(spacing=8)
         chevron = Gtk.Image.new_from_icon_name("pan-down-symbolic" if shown else "pan-end-symbolic")
         head.append(chevron)
-        label = Gtk.Label(label=title, xalign=0)
-        label.add_css_class("heading")
+        label = Gtk.Label(label=title.upper(), xalign=0)      # the group cards' heading style
+        label.add_css_class("am-setting-heading")
         head.append(label)
         line = Gtk.Label(label=summary, xalign=0, hexpand=True, ellipsize=Pango.EllipsizeMode.END,
                          max_width_chars=1, visible=not shown)
@@ -1283,6 +1298,15 @@ class SettingsPages:
                           xalign=0, wrap=True, max_width_chars=1)
         intro.add_css_class("am-agent-detail")
         card.append(intro)
+        sketch = self.drawing_sketch(on_end=lambda: play_label.set_label(_("Replay")))
+        play.connect("clicked", lambda *_: sketch.start())
+        self.setup_sketch = sketch
+        card.append(sketch)
+        return card
+
+    def drawing_sketch(self, on_end=None):
+        """The animation of setting an agent up by drawing (made-up boxes), as Help and the map's
+        first-connection card show it; start() plays it."""
         labels = {"h_mcp": _("MCP servers · skills"), "h_agents": _("Agents"), "h_providers": _("LLM providers"),
                   "h_models": _("Models"), "mcp": _("an MCP server"), "skills": _("a skill folder"),
                   "agent": _("your agent"), "online": _("an online provider"), "local": _("a local LLM"),
@@ -1296,12 +1320,7 @@ class SettingsPages:
                     5: _("Click the pin at a box's corner: its lines stay lit while you move over other boxes."),
                     6: _("Right-click a box for what its card offers: start an agent here, in a terminal, or open its details."),
                     7: _("Every change shows a preview first and keeps a backup; Undo takes it back.")}
-        sketch = previews.SetupSketch(lambda: self.theme.colors, labels, captions,
-                                      on_end=lambda: play_label.set_label(_("Replay")))
-        play.connect("clicked", lambda *_: sketch.start())
-        self.setup_sketch = sketch
-        card.append(sketch)
-        return card
+        return previews.SetupSketch(lambda: self.theme.colors, labels, captions, on_end=on_end)
 
     def open_help(self):
         if self.page_name() not in ("settings", "help"):

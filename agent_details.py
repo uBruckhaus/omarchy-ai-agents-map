@@ -24,6 +24,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import desktop
+from i18n import _
 
 HOME = Path.home()
 USAGE_DIR = desktop.usage_dir() or HOME / ".local/state/ai-agents-map/no-usage"   # the desktop's usage records
@@ -405,6 +406,51 @@ def newest_mtime(paths: list[str]) -> dt.datetime | None:
     return dt.datetime.fromtimestamp(newest) if newest else None
 
 
+# --- the battery: what is left of an online agent's limits ----------------------------------------
+
+BATTERY_LOW = 0.25           # this much left or less: yellow
+BATTERY_EMPTY = 0.10         # less than this left: red
+
+
+def battery(limits) -> tuple | None:
+    """(left 0..1, "green" | "yellow" | "red") of the tightest limit (a 5-hour session, a week…);
+    None without limits. Limit.percent is the share used."""
+    lefts = [1.0 - max(0.0, min(1.0, limit.percent)) for limit in limits or ()]
+    if not lefts:
+        return None
+    return _charge(min(lefts))
+
+
+def _charge(left: float) -> tuple:
+    left = round(left, 4)                 # 1 - 0.90 is 0.0999…: exactly a tenth left must stay yellow
+    return left, "red" if left < BATTERY_EMPTY else "yellow" if left <= BATTERY_LOW else "green"
+
+
+def gpu_battery(free: int, total: int, own: int = 0) -> tuple | None:
+    """A running local LLM's battery: (left, colour, tooltip) of the GPU memory still free, with
+    the same colours as an online agent's limits; None without a GPU."""
+    if total <= 0:
+        return None
+    gib = 1024 ** 3
+    tip = _("GPU memory: {0} of {1} GB free").format(f"{max(0, free) / gib:.1f}", f"{total / gib:.1f}")
+    if own >= 64 * 1024 ** 2:
+        tip += "\n" + _("This local LLM uses {0} GB").format(f"{own / gib:.1f}")
+    return (*_charge(max(0.0, min(1.0, free / total))), tip)
+
+
+def battery_tip(limits) -> str:
+    """One line per limit: "Weekly (7-day): 55 % left, resets Thu 16:00"."""
+    lines = []
+    for limit in limits or ():
+        left = round(100 * (1.0 - max(0.0, min(1.0, limit.percent))))
+        line = _("{0}: {1} % left").format(limit.label or _("Limit"), left)
+        if limit.resets_at is not None:
+            moment = limit.resets_at.astimezone() if limit.resets_at.tzinfo else limit.resets_at
+            line += ", " + _("resets {0}").format(moment.strftime("%a %H:%M"))
+        lines.append(line)
+    return "\n".join(lines)
+
+
 # --- all together --------------------------------------------------------------
 
 def details_for(command: str, usage_dir: Path = USAGE_DIR) -> Details:
@@ -416,6 +462,17 @@ def details_for(command: str, usage_dir: Path = USAGE_DIR) -> Details:
         except (OSError, ValueError, TypeError, AttributeError):
             pass
     apply_usage(details, usage_record(command, usage_dir))
+    if not details.limits:
+        # The agent's own store (an adapter's or an extension's limits() fact): plan and limits.
+        import harnesses
+        harness = harnesses.get(command)
+        if harness is not None and harness.limits is not None:
+            try:
+                plan, limits = harness.limits()
+                details.plan = details.plan or str(plan or "")[:40]
+                details.limits = [x for x in limits if isinstance(x, Limit)][:8]
+            except Exception:      # a store in a format we do not know: no limits, no crash
+                pass
     details.last_used = newest_mtime(ACTIVITY.get(command, []))
     config = CONFIG_DIRS.get(command, "")
     details.config_dir = config if config and _expand(config).exists() else ""

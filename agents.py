@@ -199,7 +199,7 @@ def detect(command: str, bin_dir: Path = BIN_DIR, mise_dir: Path = MISE_DIR,
             return bool(installed), str(version or "")[:64], str(source or "own")[:16]
         except Exception:
             return False, "", ""
-    if h is not None and h.installer is not None:          # the app installs it itself
+    if h is not None and (h.installer is not None or h.download is not None):   # the app installs it itself
         import install_ctl
         inst = install_ctl.AGENT_INSTALLERS.get(command)
         if inst is not None and inst.installed_folder() is not None:

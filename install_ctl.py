@@ -588,7 +588,7 @@ class Installer:
         models = Path(self.models_folder()) if self.models_folder() else None
         if models is not None:
             # Its settings go now; a reinstall offers this folder first (models_suggestions).
-            kept = ai_core.load_settings().get("removed_models_folders")
+            kept = ai_core.setting("removed_models_folders")
             kept = dict(kept) if isinstance(kept, dict) else {}
             kept[self.key] = str(models)
             ai_core.update_settings(removed_models_folders=kept)
@@ -1167,12 +1167,166 @@ class Agy(Installer):
         return Release(f"v{version}", [(name, url, 0)], {name: sha512})
 
 
+# --- installs described as data (harnesses.Download), for agents and local LLMs from add-ons ----------
+
+_REPO = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}/[A-Za-z0-9][A-Za-z0-9._-]{0,99}")
+_WORD = re.compile(r"[A-Za-z0-9@:/._=+,{}-]{1,300}")
+_ENV_NAME = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
+_PLACEHOLDERS = ("{binary}", "{host}", "{port}", "{models}", "{folder}")
+
+
+def check_download(spec) -> None:
+    """Refuse a Download that is not plain data of the expected form (raises ValueError): a GitHub
+    repository, regexes that compile, a relative program path, plain-word service arguments with
+    only the known placeholders, environment names in capitals."""
+    if not isinstance(spec, harnesses.Download):
+        raise ValueError("not a Download")
+    if not _REPO.fullmatch(spec.repo or "") or not NAME_RE.fullmatch(spec.command or ""):
+        raise ValueError("repo must be owner/name and command a plain file name")
+    rel = Path(spec.binary or "")
+    if not spec.binary or rel.is_absolute() or ".." in rel.parts or len(spec.binary) > 200:
+        raise ValueError("binary must be a relative path inside the release")
+    if not spec.assets or len(spec.assets) > 8:
+        raise ValueError("assets: one to eight (build, regex) pairs")
+    for build, pattern in list(spec.assets) + [("", spec.tag)]:
+        if not isinstance(build, str) or len(build) > 32 or not isinstance(pattern, str) or len(pattern) > 200:
+            raise ValueError("assets: (build, regex) pairs of short text")
+        re.compile(pattern)
+    for word in spec.service:
+        if not isinstance(word, str) or not _WORD.fullmatch(word) or \
+                any(part.startswith("{") and part not in _PLACEHOLDERS for part in re.findall(r"\{[^}]*\}", word)):
+            raise ValueError(f"service: {word!r} is not a plain word")
+    for name, value in spec.env:
+        if not _ENV_NAME.fullmatch(str(name)) or not _WORD.fullmatch(str(value)):
+            raise ValueError(f"env: {name!r} is not NAME=plain value")
+    if spec.models_env and spec.models_env not in {n for n, _v in spec.env}:
+        raise ValueError("models_env must be one of env's names")
+    if spec.address and not re.fullmatch(r"127\.0\.0\.1:\d{2,5}", spec.address):
+        raise ValueError("address must be 127.0.0.1:<port>")
+
+
+class Declared(Installer):
+    """An install an adapter describes as data (harnesses.Download): the newest GitHub release whose
+    tag matches, the asset for the chosen build, its SHA-256 from the release checked before anything
+    is unpacked (Installer.install), a version folder, `current`, the command in ~/.local/bin, and a
+    user service when it has one. Nothing of the release runs while installing."""
+
+    def __init__(self, key: str, name: str, spec, uses_models: bool):
+        check_download(spec)
+        self.spec = spec
+        self.key, self.name, self.command = key, name, spec.command
+        self.service = f"{key}-ai-agents-map" if spec.service else ""
+        self.has_service = bool(spec.service)
+        self.uses_models = uses_models
+        self.bin_rel = spec.binary
+        self.address = spec.address
+        self.builds = tuple(spec.builds) or tuple((b, b or name) for b, _p in spec.assets)
+        self.login_default = spec.login_default
+        self.env_file = HOME / ".config/ai-agents-map/services" / f"{key}.env" if spec.service else HOME
+        self.site = f"https://github.com/{spec.repo}"
+
+    def default_build(self, gpu: Gpu) -> str:
+        wanted = dict(self.spec.gpu_builds).get(getattr(gpu, "vendor", ""), "")
+        known = [b for b, _p in self.spec.assets]
+        return wanted if wanted in known else known[0]
+
+    def latest(self, gpu: Gpu, build: str = "") -> Release:
+        build = build or self.default_build(gpu)
+        pattern = dict(self.spec.assets).get(build)
+        if pattern is None:
+            raise RuntimeError(f"no build {build!r}")
+        releases = _curl_json_any(f"https://api.github.com/repos/{self.spec.repo}/releases?per_page=10")
+        for data in releases if isinstance(releases, list) else []:
+            tag = str(data.get("tag_name", "")) if isinstance(data, dict) else ""
+            if data.get("draft") or data.get("prerelease") or not re.fullmatch(self.spec.tag, tag) \
+                    or not NAME_RE.fullmatch(tag):
+                continue
+            assets = [a for a in data.get("assets", []) if isinstance(a, dict)
+                      and re.fullmatch(pattern, str(a.get("name", "")))]
+            if assets:
+                suffix = f"-{build}" if build and len(self.spec.assets) > 1 else ""
+                return github_release(f"{tag}{suffix}", assets[:1])
+        raise RuntimeError(f"no release of {self.spec.repo} has a file for this PC")
+
+    def unpack(self, archive: Path, folder: Path):
+        if self.spec.single_file:
+            target = folder / self.bin_rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(archive, target)
+            target.chmod(0o755)
+        else:
+            extract(archive, folder)
+
+    def _values(self, models: Path | None) -> dict:
+        host, _sep, port = (self.spec.address or "127.0.0.1:0").rpartition(":")
+        folder = self.installed_folder() or self.default_folder
+        return {"{binary}": unit_path(BIN_DIR / self.command), "{host}": host, "{port}": port,
+                "{models}": str(models or ""), "{folder}": str(folder)}
+
+    def _fill(self, word: str, values: dict) -> str:
+        for key, value in values.items():
+            word = word.replace(key, value)
+        return word
+
+    def env_text(self, models: Path, gpu: Gpu) -> str:
+        if not self.spec.env:
+            return ""
+        values = self._values(models)
+        lines = [f"# Written by AI Agents Map for {self.name}."]
+        lines += [f"{name}={self._fill(value, values)}" for name, value in self.spec.env]
+        return "\n".join(lines) + "\n"
+
+    def unit_text(self, models: Path = None) -> str:
+        import shlex
+        values = self._values(models or (Path(self.models_folder()) if self.models_folder() else None))
+        argv = [self._fill(word, values) for word in self.spec.service]
+        env = f"EnvironmentFile={self.env_file}\n" if self.spec.env else ""
+        return f"""[Unit]
+Description={self.name} (installed by AI Agents Map)
+After=network.target
+
+[Service]
+Type=exec
+{env}ExecStart={shlex.join(argv)}
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+"""
+
+    def models_folder(self) -> str:
+        return read_env(self.env_file).get(self.spec.models_env, "") if self.spec.models_env else ""
+
+    def set_models_folder_value(self, models: Path):
+        if not self.spec.models_env:
+            raise RuntimeError(f"{self.name} has no model folder setting")
+        set_env_value(self.env_file, self.spec.models_env, str(models))
+        if self.has_service:
+            _write(UNIT_DIR / f"{self.service}.service", self.unit_text(models))
+            _systemctl("daemon-reload")
+
+
+def _installer_of(adapter, uses_models: bool):
+    """An adapter's installer: its own class (installer()), else one from its Download data."""
+    if adapter.installer is not None:
+        return adapter.installer()
+    if getattr(adapter, "download", None) is not None:
+        try:
+            return Declared(getattr(adapter, "key", "") or adapter.command, adapter.name, adapter.download, uses_models)
+        except (ValueError, re.error):
+            return None          # not of the expected form: no installer (add_harness refused it already)
+    return None
+
+
 def _rebuild():
     """One installer per local LLM (providers.py) and per agent this app installs itself
-    (harnesses.py); run again when add-ons add or remove some."""
+    (harnesses.py), from their own class or their Download data; run again when add-ons change them."""
     global INSTALLERS, AGENT_INSTALLERS
-    INSTALLERS = {p.key: p.installer() for p in providers.local() if p.installer is not None}
-    AGENT_INSTALLERS = {h.command: h.installer() for h in harnesses.all_harnesses() if h.installer is not None}
+    INSTALLERS = {p.key: inst for p in providers.local()
+                  if (inst := _installer_of(p, True)) is not None}
+    AGENT_INSTALLERS = {h.command: inst for h in harnesses.all_harnesses()
+                        if (inst := _installer_of(h, False)) is not None}
 
 
 _rebuild()
@@ -1214,7 +1368,7 @@ def models_suggestions(runtimes, program_folder: Path | None = None, key: str = 
     roots.sort(key=lambda r: (-roots.count(r), str(r).startswith(str(HOME) + "/.")))
     own = []
     if key:
-        kept = ai_core.load_settings().get("removed_models_folders")
+        kept = ai_core.setting("removed_models_folders")
         before = kept.get(key) if isinstance(kept, dict) else None
         if isinstance(before, str) and before.startswith("/"):
             own.append(Path(before))
