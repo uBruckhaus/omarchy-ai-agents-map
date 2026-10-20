@@ -62,6 +62,19 @@ class ConnectTest(unittest.TestCase):
         removed = connect.plan("hermes", self.rt, "Qwen", use_now=False, remove=True)
         self.assertEqual(removed.changes[0].new, HERMES)
 
+    def test_hermes_remove_the_provider_in_use(self):
+        # The model must not keep pointing at a provider that is gone (the map showed a dead line).
+        self.write(".hermes/config.yaml", HERMES)
+        connect.apply(connect.plan("hermes", self.rt, "Qwen", use_now=True), self.home / "b")
+        ollama = inventory.Runtime("ollama", "Ollama", True, False, address="127.0.0.1:11434", models=["mistral"])
+        connect.apply(connect.plan("hermes", ollama, "mistral", use_now=False), self.home / "b2")
+        removed = connect.plan("hermes", self.rt, "Qwen", use_now=False, remove=True).changes[0].new
+        self.assertIn("model:\n  default: mistral\n  provider: ollama-local\n", removed)   # the next one takes over
+        self.write(".hermes/config.yaml", removed)
+        alone = connect.plan("hermes", ollama, "mistral", use_now=False, remove=True).changes[0].new
+        self.assertIn("model:\n  base_url: ''\nagent:", alone)                        # none left: no model
+        self.assertNotIn("ollama-local", alone)
+
     def test_pi(self):
         self.write(".pi/agent/models.json", json.dumps({"providers": {"other": {"baseUrl": "x"}}}))
         self.write(".pi/agent/settings.json", json.dumps({"theme": "dark"}))

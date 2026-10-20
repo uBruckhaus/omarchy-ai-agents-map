@@ -117,7 +117,10 @@ class GraphTest(unittest.TestCase):
         g = graph.build([pi, claude, missing], details, inv)
         self.assertEqual([n.label for n in g.column(1)], ["Pi", "Claude Code"])
         self.assertEqual({n.label for n in g.column(2)}, {"llama.cpp", "Anthropic"})
-        self.assertEqual({n.label for n in g.column(3)}, {"opus", "qwen", "gemma"})
+        # Claude Code's other models (online_models) stand beside the one in use, to switch to on the map.
+        self.assertEqual({n.label for n in g.column(3)}, {"opus", "fable", "sonnet", "qwen", "gemma"})
+        self.assertNotIn(("agent:claude", "model:cloud:anthropic:sonnet", "default"),
+                         {(e.source, e.target, e.kind) for e in g.edges})
         self.assertEqual({n.label for n in g.column(0)}, {"photo", "~/.agents/skills"})
         links = {(e.source, e.target, e.kind) for e in g.edges}
         self.assertIn(("agent:pi", "runtime:llamacpp", "uses"), links)
@@ -130,7 +133,7 @@ class GraphTest(unittest.TestCase):
         inv.runtimes[0].models_dir = "~/Models"
         g = graph.build([pi, claude, missing], details, inv)
         groups = {n.label: n.group for n in g.column(3)}
-        self.assertEqual(groups, {"opus": "", "qwen": "~/Models", "gemma": "~/Models"})
+        self.assertEqual(groups, {"opus": "", "fable": "", "sonnet": "", "qwen": "~/Models", "gemma": "~/Models"})
 
     def test_only_what_is_set_up(self):
         """The map has no places to add things: no local LLM that is not installed, no MCP server
@@ -194,6 +197,19 @@ class GraphTest(unittest.TestCase):
         details["hermes"] = ad.Details(model="gemma-4-12b-it (lmstudio-local)", providers=details["hermes"].providers)
         g = graph.build([hermes], details, inv)
         self.assertFalse([e for e in g.edges if e.source == "agent:hermes" and e.kind == "default"])
+
+    def test_a_provider_that_is_gone_is_a_broken_line_not_a_cloud(self):
+        """Hermes set to a model on "llama-local", but no llama-local provider any more: a red
+        line to llama.cpp (click: repair or remove), never an online service named llama-local."""
+        hermes = agents.Agent(command="hermes", name="Hermes", icon="h", installed=True)
+        details = {"hermes": ad.Details(model="gemma-4-26B (llama-local)", providers=[])}
+        inv = invmod.Inventory(runtimes=[invmod.Runtime("llamacpp", "llama.cpp", True, False,
+                                                        address="127.0.0.1:8080", models=["gemma-4-26B"])])
+        g = graph.build([hermes], details, inv)
+        broken = [e for e in g.edges if e.source == "agent:hermes" and e.failed]
+        self.assertEqual([(e.target, e.failed, e.dangling) for e in broken],
+                         [("runtime:llamacpp", "error", "gemma-4-26B")])
+        self.assertFalse([n for n in g.nodes if n.kind == "cloud"])
 
     def test_models_stamp_follows_the_index_and_the_folders(self):
         with tempfile.TemporaryDirectory() as home:

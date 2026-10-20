@@ -275,7 +275,10 @@ def gguf_target(runtime_key: str, models_dir: Path, repo: str) -> tuple[Path, Pa
 
     LM Studio keeps models as <folder>/<publisher>/<repo>/. A llama.cpp model
     folder that holds only links (a router folder, as llama-models-sync makes
-    them) gets the file next to the files those links point at, and a link."""
+    them) gets the file next to the files those links point at, and a link; when
+    they point into several folders, into <their common folder>/<publisher>/<repo>/
+    (LM Studio's layout). Never as a real file among the links: a tool that keeps
+    such a folder (llama-models-sync) may take every name it does not know away."""
     if runtime_key == "lmstudio":
         publisher, name = repo.split("/", 1)
         return models_dir / publisher / name, None
@@ -287,6 +290,11 @@ def gguf_target(runtime_key: str, models_dir: Path, repo: str) -> tuple[Path, Pa
         targets = {Path(os.path.realpath(p)).parent for p in entries}
         if len(targets) == 1:
             return targets.pop(), models_dir
+        common = Path(os.path.commonpath([str(t) for t in targets]))
+        router = Path(os.path.realpath(models_dir))
+        if len(common.parts) > 1 and common != router and router not in common.parents:
+            publisher, name = repo.split("/", 1)
+            return common / publisher / name, models_dir
     return models_dir, None
 
 

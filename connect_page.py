@@ -1,7 +1,7 @@
 """AI Agents Map: the page that sets up a line drawn on the map (a mixin of ai_popup.AgentsMap, split
 off to keep ai_popup.py small; its methods use the window's state through self)."""
 
-from gi.repository import GLib, Gdk, Gtk
+from gi.repository import Adw, GLib, Gdk, Gtk
 
 import agent_security
 import ai_core
@@ -14,6 +14,7 @@ import mcp_library
 import mcp_scan
 import mcp_tools
 import mcp_update
+import runtime_ctl
 import skill_update
 import skills_ctl
 import subprocess
@@ -90,7 +91,12 @@ class ConnectPage:
 
     def on_map_relink(self, agent_id: str, old_id: str, new_id: str | None):
         """A line moved to another local LLM: the old provider goes, the new one
-        comes. Dropped on empty space (new_id None): the connection is removed."""
+        comes. Dropped on empty space (new_id None): the connection is removed (an
+        online provider's: the agent signs out, after a question)."""
+        if old_id.startswith("cloud:"):
+            if new_id is None:
+                self.offer_sign_out(agent_id, old_id)
+            return
         entry = link_hints.load().get(link_hints.key(agent_id, old_id))
         if entry is not None and not entry["applied"]:
             # A red line that was never written: only it goes (and maybe a new try elsewhere).
@@ -104,9 +110,269 @@ class ConnectPage:
         else:
             self.on_map_link(agent_id, new_id, replaces_id=old_id)
 
+    def on_map_remodel(self, runtime_id: str, old_id: str, new_id: str | None):
+        """A local LLM's model line moved: every agent that uses the old model uses the new one
+        (backups, one Undo for all). Dropped on empty space (new_id None): after a question, those
+        agents are disconnected from the local LLM. Either way nothing uses the old model then: when
+        the local LLM still holds it, it is unloaded (its GPU memory freed) in the same step."""
+        users = self.side_map.model_users(runtime_id, old_id)
+        agents = [a for a in self.agent_list if f"agent:{a.command}" in users]
+        if runtime_id.startswith("cloud:"):
+            # An online model line: its agents switch to the other model; into empty space there is
+            # nothing to do (an online agent always has a model; its provider line signs it out).
+            new = next((n.label for n in self.side_map.graph.nodes if n.id == new_id), "") if new_id else ""
+            if new and agents:
+                self.switch_online(agents, new, runtime_id)
+            elif not new_id:
+                self.show_note(_("An online agent always has a model: drag the line onto another model. To sign "
+                                 "out, drag the agent's line to the provider into empty space."))
+            return
+        runtime = next((r for r in self.inventory.runtimes if f"runtime:{r.key}" == runtime_id), None)
+        if runtime is None:
+            return
+        if not agents:
+            self.swap_loaded(runtime, runtime_id, old_id, new_id)    # only loaded: unload, or load another
+            return
+        stuck = [a.name for a in agents if a.command not in connect.SUPPORTED]
+        agents = [a for a in agents if a.command in connect.SUPPORTED]
+        if stuck:
+            self.show_note(_("{0} cannot be changed from here yet.").format(", ".join(stuck)))
+        if not agents:
+            return
+        names = ", ".join(a.name for a in agents)
+        old = next((n.label for n in self.side_map.graph.nodes if n.id == old_id), old_id)
+        busy = self.side_map.model_busy(runtime_id, old_id)
+        if busy:
+            # Only while the model is free: not loaded, no program and no running agent using it.
+            reasons = [_("{0} is running").format(why) if why in [a.name for a in self.agent_list] else why
+                       for why in busy]
+            self.show_note(_("{0} is in use ({1}): it can be moved or disconnected once it is free.")
+                           .format(old, "; ".join(reasons)))
+            return
+        node = next((n for n in self.side_map.graph.nodes if n.id == old_id), None)
+        loaded = node is not None and self.side_map.model_state(node) in ("loaded", "loading")
+        if new_id is None:
+            question = (_("Disconnect {0} from {1} and free the GPU memory {2} holds? They use {2}: choose another "
+                          "model for them afterwards.") if loaded else
+                        _("Disconnect {0} from {1}? They use {2}: choose another model for them afterwards."))
+            self.show_offer(question.format(names, runtime.name, old), _("Disconnect"), _("Keep"),
+                            lambda: self.remodel_apply(agents, runtime, None, names, old, loaded), lambda: None)
+            return
+        model = next((n.label for n in self.side_map.graph.nodes if n.id == new_id), "")
+        if model:
+            self.remodel_apply(agents, runtime, model, names, old, loaded)
+
+    def on_map_attach(self, runtime_id: str, model_id: str):
+        """A line drawn from a local LLM to one of its models: the model is loaded there (ready),
+        and the agents ticked (none at first) get the local LLM with that model."""
+        runtime = next((r for r in self.inventory.runtimes if f"runtime:{r.key}" == runtime_id), None)
+        model = next((n.label for n in self.side_map.graph.nodes if n.id == model_id), "")
+        agents = [a for a in self.agent_list if a.installed and a.command in connect.SUPPORTED
+                  and not connect.FIXED.get(a.command)]
+        if runtime is None or not model:
+            return
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        checks = []
+        dialog = Adw.AlertDialog(heading=_("Load {0} in {1}?").format(model, runtime.name),
+                                 body=_("It is loaded so that it is ready. Tick the agents that should use it too: "
+                                        "each gets {0} as a provider with this model (backup, Undo).")
+                                 .format(runtime.name))
+        for agent in agents:
+            check = Gtk.CheckButton(label=agent.name, active=False)
+            check.connect("toggled", lambda *_a: dialog.set_response_label(
+                "connect", _("Connect and load") if any(c.get_active() for _a2, c in checks) else _("Load")))
+            box.append(check)
+            checks.append((agent, check))
+        dialog.set_extra_child(box)
+        dialog.add_response("cancel", _("Cancel"))
+        dialog.add_response("connect", _("Load"))
+        dialog.set_response_appearance("connect", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("connect")
+        dialog.set_close_response("cancel")
+
+        def answered(_d, answer):
+            if answer == "connect":
+                self.attach_apply([agent for agent, check in checks if check.get_active()], runtime, model)
+        dialog.connect("response", answered)
+        dialog.present(self.window)
+
+    def attach_apply(self, agents: list, runtime, model: str):
+        """The ticked agents get the model (one Undo for all); then the model is loaded (the local
+        LLM started first if needed), on a thread; one message says both."""
+        context = inventory.llama_context() if runtime.key == "llamacpp" else {}
+        backups = []
+        try:
+            for agent in agents:
+                plan_now = connect.plan(agent.command, runtime, model, use_now=True, context=context)
+                if plan_now.changes:
+                    backups.append(connect.apply(plan_now))
+        except (OSError, ValueError, RuntimeError) as error:
+            self.show_note(_("Not changed: {0}").format(error))
+        self.collect()
+        self.refresh_overview()
+        self.refresh_map()
+        message = _("{0} use {1} ({2}) now").format(", ".join(a.name for a in agents), model, runtime.name) \
+            if backups else ""
+        self.show_note(_("{0}: loading {1}…").format(runtime.name, model))
+
+        def work():
+            ok, why = runtime_ctl.load(runtime, model)
+            GLib.idle_add(done, ok, why)
+
+        def done(ok, why):
+            self.collect()
+            self.refresh_overview()
+            self.refresh_map()
+            loaded = _("{0} loaded in {1}").format(model, runtime.name) if ok else \
+                _("{0} not loaded ({1})").format(model, why)
+            if backups:
+                self.toast(message + " · " + loaded, 30, _("Undo"), lambda: self.undo_many(backups))
+            else:
+                self.show_note(loaded)
+            return False
+        threading.Thread(target=work, daemon=True).start()
+
+    def switch_online(self, agents: list, model: str, cloud_id: str):
+        """Agents switch to an online model (their own setting; backup, one Undo); it counts from
+        each agent's next start."""
+        import online_models
+        provider = next((n.label for n in self.side_map.graph.nodes if n.id == cloud_id), cloud_id)
+        backups, stuck = [], []
+        try:
+            for agent in agents:
+                if not online_models.supported(agent.command):
+                    stuck.append(agent.name)
+                    continue
+                plan_now = online_models.plan(agent.command, model)
+                if plan_now.changes:
+                    backups.append(connect.apply(plan_now))
+        except (OSError, ValueError, RuntimeError) as error:
+            self.show_note(_("Not changed: {0}").format(error))
+            return
+        self.collect()
+        self.refresh_overview()
+        self.refresh_map()
+        if stuck:
+            self.show_note(_("{0} cannot be changed from here yet.").format(", ".join(stuck)))
+        if backups:
+            self.toast(_("{0} use {1} ({2}) from their next start").format(
+                ", ".join(a.name for a in agents if a.name not in stuck), model, provider),
+                30, _("Undo"), lambda: self.undo_many(backups))
+
+    LOGOUT = {"claude": ("claude", "auth", "logout"), "codex": ("codex", "logout")}
+
+    def offer_sign_out(self, agent_id: str, cloud_id: str):
+        """An agent's line to an online provider dropped into empty space: after a question, the
+        agent's own sign-out runs in a terminal (Claude Code, Codex); others say where to do it."""
+        agent = next((a for a in self.agent_list if f"agent:{a.command}" == agent_id), None)
+        provider = next((n.label for n in self.side_map.graph.nodes if n.id == cloud_id), cloud_id)
+        if agent is None:
+            return
+        argv = self.LOGOUT.get(agent.command)
+        if argv is None:
+            self.show_note(_("{0} signs out from inside itself (its own logout command).").format(agent.name))
+            return
+
+        def sign_out():
+            import desktop
+            if not desktop.run_in_terminal(list(argv)):
+                self.show_note(_("No terminal found (xdg-terminal-exec)"))
+                return
+            GLib.timeout_add(4000, lambda: (self.collect(), self.refresh_overview(), self.refresh_map(), False)[3])
+        self.show_offer(_("Sign {0} out of {1}? It can no longer use {1} until it signs in again (draw the line "
+                          "again).").format(agent.name, provider), _("Sign out"), _("Keep"), sign_out, lambda: None)
+
+    def swap_loaded(self, runtime, runtime_id: str, old_id: str, new_id: str | None):
+        """A loaded model no agent uses: into empty space, it is unloaded; onto another model, that
+        one is loaded instead (unless a program outside the map uses the old one)."""
+        nodes = {n.id: n.label for n in self.side_map.graph.nodes}
+        old, new = nodes.get(old_id, ""), nodes.get(new_id, "") if new_id else ""
+        busy = self.side_map.model_busy(runtime_id, old_id)
+        if busy:
+            self.show_note(_("{0} is in use ({1}): it can be moved or disconnected once it is free.")
+                           .format(old, "; ".join(busy)))
+            return
+        self.show_note(_("{0}: loading {1}…").format(runtime.name, new) if new else
+                       _("{0}: unloading {1}…").format(runtime.name, old))
+
+        def work():
+            ok, why = runtime_ctl.unload_model(runtime, old)
+            if ok and new:
+                ok, why = runtime_ctl.load(runtime, new)
+            GLib.idle_add(done, ok, why)
+
+        def done(ok, why):
+            self.collect()
+            self.refresh_overview()
+            self.refresh_map()
+            if new:
+                self.show_note(_("{0} loaded in {1}").format(new, runtime.name) if ok else
+                               _("{0} not loaded ({1})").format(new, why))
+            else:
+                self.show_note(_("{0} unloaded from {1}: its GPU memory is free").format(old, runtime.name) if ok else
+                               _("{0} not unloaded ({1})").format(old, why))
+            return False
+        threading.Thread(target=work, daemon=True).start()
+
+    def remodel_apply(self, agents: list, runtime, model: str | None, names: str, old: str, free: bool = False):
+        context = inventory.llama_context() if runtime.key == "llamacpp" else {}
+        backups = []
+        try:
+            for agent in agents:
+                if model is None:
+                    plan_now = connect.plan(agent.command, runtime, "", use_now=False, remove=True, context=context)
+                else:
+                    plan_now = connect.plan(agent.command, runtime, model, use_now=True, context=context)
+                if plan_now.changes:
+                    backups.append(connect.apply(plan_now))
+        except (OSError, ValueError, RuntimeError) as error:
+            self.show_note(_("Not changed: {0}").format(error))
+        self.collect()
+        self.refresh_overview()
+        self.refresh_map()
+        if not backups:
+            return
+        message = (_("{0}: no longer connected to {1}").format(names, runtime.name) if model is None else
+                   _("{0} use {1} ({2}) now instead of {3}").format(names, model, runtime.name, old))
+        if not free:
+            self.toast(message, 30, _("Undo"), lambda: self.undo_many(backups))
+            return
+
+        # Nothing uses the old model any more: unload it (the local LLM keeps running; the next
+        # request loads what it needs), then one message with Undo (Undo does not load it again).
+        def work():
+            ok, why = runtime_ctl.unload(runtime)
+            GLib.idle_add(done, ok, why)
+
+        def done(ok, why):
+            self.collect()
+            self.refresh_overview()
+            self.refresh_map()
+            note = _("GPU memory freed") if ok else _("GPU memory not freed ({0})").format(why)
+            self.toast(message + " · " + note, 30, _("Undo"), lambda: self.undo_many(backups))
+            return False
+        threading.Thread(target=work, daemon=True).start()
+
+    def undo_many(self, backups: list):
+        """Undo of a change to several agents at once: the last one first."""
+        try:
+            for backup in reversed(backups):
+                connect.undo(backup)
+        except (OSError, ValueError) as error:
+            self.show_notice(_("Undo failed: {0}").format(error))
+        self.collect()
+        self.refresh_overview()
+        self.refresh_map()
+
     def on_map_pick_model(self, agent_id: str, runtime_id: str, model: str):
         """A model clicked while an agent connected to its local LLM is selected:
-        the agent uses it from now on (backup, Undo)."""
+        the agent uses it from now on (backup, Undo). An online model: the same through
+        online_models."""
+        if runtime_id.startswith("cloud:"):
+            agent = next((a for a in self.agent_list if f"agent:{a.command}" == agent_id), None)
+            if agent is not None:
+                self.switch_online([agent], model, runtime_id)
+            return
         agent = next((a for a in self.agent_list if f"agent:{a.command}" == agent_id), None)
         runtime = next((r for r in self.inventory.runtimes if f"runtime:{r.key}" == runtime_id), None)
         if agent is None or runtime is None:
@@ -131,7 +397,13 @@ class ConnectPage:
 
     def on_map_link(self, agent_id: str, runtime_id: str, replaces_id: str | None = None,
                     remove_only: bool = False):
-        """A line drawn from an agent to a local LLM: ask how, show what changes."""
+        """A line drawn from an agent to a local LLM: ask how, show what changes. To an online
+        provider: the agent's own sign-in."""
+        if runtime_id.startswith("cloud:"):
+            agent = next((a for a in self.agent_list if f"agent:{a.command}" == agent_id), None)
+            if agent is not None:
+                self.offer_sign_in(agent.command)
+            return
         if runtime_id.startswith("mcp:"):
             self.open_mcp_connect(agent_id, runtime_id[4:], remove_only)
             return
@@ -170,7 +442,13 @@ class ConnectPage:
                                            "DeepSeek Harness can.").format(agent.name))
         else:
             already = connect.is_connected(agent.command, runtime.key)
-            if remove_only:
+            # Set to use it, with the provider gone (a broken line): removing clears that setting.
+            dangling = not already and connect.is_active(agent.command, runtime.key)
+            if remove_only and dangling:
+                self.connect_intro.set_label(_("{0} is set to use a model on {1}, but {1} is not set up in {0} any "
+                                               "more. Removing the connection switches {0} to another local LLM "
+                                               "it has, or clears the setting.").format(agent.name, runtime.name))
+            elif remove_only:
                 warning = _(" {0} uses it right now: choose another model in {0} afterwards (or draw a line to "
                             "another local LLM instead).").format(agent.name) \
                     if connect.is_active(agent.command, runtime.key) else ""
@@ -186,7 +464,7 @@ class ConnectPage:
                     (_("{0} already has {1} as a provider. Change it, or remove the connection.") if already else
                      _("{0} gets {1} as a provider ({2}), with all its models. Nothing else in its settings changes."))
                     .format(agent.name, runtime.name, connect.base_url(runtime.address)))
-            self.connect_remove.set_visible(already and replaces is None)
+            self.connect_remove.set_visible((already or dangling) and replaces is None)
             self.connect_ok.set_visible(not remove_only)
             self.connect_ok.set_label(_("Move") if replaces else _("Update") if already else _("Connect"))
             self.settings_ready = False
@@ -623,6 +901,15 @@ class ConnectPage:
         link_key = link_hints.key(*edge)
         entry = link_hints.load().get(link_key)
         agent = next((a for a in self.agent_list if f"agent:{a.command}" == edge[0]), None)
+        line = next((e for e in self.side_map.graph.edges if (e.source, e.target) == tuple(edge)), None) \
+            if self.side_map.graph else None
+        if entry is None and line is not None and line.dangling and agent is not None:
+            # Set to a model of a local LLM it has no provider for: repair it, or clear it.
+            runtime = next((n.label for n in self.side_map.graph.nodes if n.id == edge[1]), edge[1])
+            entry = {"applied": True, "kind": "provider", "dangling": True, "hints": [{"level": "error", "text": _(
+                "{0} is set to use {1} on {2}, but {2} is not set up in {0} any more: the line does not work. "
+                "Repair connects {2} again with that model; Remove connection clears the setting.").format(
+                agent.name, line.dangling, runtime)}]}
         if entry is None or agent is None:
             return
         popover = Gtk.Popover()
@@ -656,7 +943,8 @@ class ConnectPage:
         remove = Gtk.Button(label=_("Remove connection"))
         remove.add_css_class("am-small-btn")
         remove.add_css_class("am-danger")
-        again = Gtk.Button(label=_("Test again") if entry["applied"] else _("Try again…"))
+        again = Gtk.Button(label=_("Repair…") if entry.get("dangling") else
+                           _("Test again") if entry["applied"] else _("Try again…"))
         again.add_css_class("am-small-btn")
         again.add_css_class("am-primary")
         link = (link_key, entry["kind"], entry.get("target", ""))
@@ -671,7 +959,9 @@ class ConnectPage:
 
         def on_again(_button):
             popover.popdown()
-            if entry["applied"]:
+            if entry.get("dangling"):
+                self.on_map_link(edge[0], edge[1])                        # connect it again (preview, Undo)
+            elif entry["applied"]:
                 self.show_note(_("Testing…"))
                 self.check_link(link, agent)
             else:

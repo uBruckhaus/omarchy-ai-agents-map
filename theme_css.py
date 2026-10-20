@@ -467,7 +467,20 @@ class ThemeCss:
         /* Its dropdowns as the other pages' (settings lines): small, not bold, in the choice text colour. */
         .am-chess-controls dropdown > button {{ min-height: 0; padding: 2px 8px; border: 1px solid alpha({fg_hex}, 0.35); }}
         .am-chess-controls dropdown label {{ font-size: 11px; font-weight: normal; color: {choice_hex}; }}
-        .am-chess-controls > label {{ font-size: 12px; }}    /* "Opponent", "compared with": as small as the row */
+        .am-chess-controls > label {{ font-size: 12px; }}
+        /* The Board and pieces menu: preview tiles, the chosen one framed in the accent colour. */
+        button.am-look-tile {{ padding: 4px; border: 2px solid transparent; border-radius: {radius}px; background: none; }}
+        button.am-look-tile:hover {{ background: alpha({fg_hex}, 0.06); }}
+        button.am-look-tile:checked {{ border-color: {accent_hex}; background: alpha({accent_hex}, 0.12); }}
+        .am-look-name {{ font-size: 11px; }}
+        /* AI Playground's chess tab: what can be dropped on it, and the frame while something is dragged over it. */
+        .am-warning-text {{ color: {yellow_hex}; font-size: 12px; }}
+        .am-drop-hint {{ padding: 6px 10px; border: 1px dashed alpha({fg_hex}, 0.30); border-radius: {radius}px;
+            color: {dim_hex}; font-size: 12px; }}
+        .am-import-bar {{ padding: 8px 12px; border: 1px solid {accent_hex}; border-radius: {radius}px;
+            background: alpha({accent_hex}, 0.10); }}
+        .am-drop-zone.am-drop-active {{ box-shadow: inset 0 0 0 2px {accent_hex}; background: alpha({accent_hex}, 0.06);
+            border-radius: {radius}px; }}    /* "Opponent", "compared with": as small as the row */
         button.am-chess-promote {{ font-family: "DejaVu Sans", "Noto Sans Symbols 2", sans-serif; font-size: 28px;
             padding: 2px 8px; }}
         /* AI Playground's question fields. */

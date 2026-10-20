@@ -45,6 +45,12 @@ class ModelsTest(unittest.TestCase):
             self.assertEqual(mc.gguf_target("llamacpp", router, "u/r"), (originals, router))
             self.assertEqual(mc.gguf_target("lmstudio", originals, "u/r"), (originals / "u/r", None))
             self.assertEqual(mc.gguf_target("llamacpp", originals, "u/r"), (originals, None))
+            # Links into several folders (Uwe's router, 2026-10-20): never a real file among the links,
+            # where llama-models-sync deleted it; into the common folder in LM Studio's layout.
+            (originals / "pub/b").mkdir(parents=True)
+            (originals / "pub/b/b.gguf").write_text("x")
+            (router / "b.gguf").symlink_to(originals / "pub/b/b.gguf")
+            self.assertEqual(mc.gguf_target("llamacpp", router, "u/r"), (originals / "u/r", router))
 
     def test_listener_owner_from_proc(self):
         with tempfile.TemporaryDirectory() as tmp:

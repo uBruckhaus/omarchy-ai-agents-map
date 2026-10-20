@@ -62,6 +62,8 @@ SCHEMA: dict[str, Setting] = {
     "widen": Setting("workspace", _text, "Settings › Too narrow for the map: what Maximize for more room does"),
     "chess_thinking": Setting("normal", _one_of("quick", "normal", "deep", "max"), "AI Playground › Chess › Thinking time"),
     "chess_strength": Setting("club", _one_of("beginner", "casual", "club", "master", "max"), "AI Playground › Chess › Strength"),
+    "chess_rival_strength": Setting("club", _one_of("beginner", "casual", "club", "master", "max"),
+                                    "AI Playground › Chess › agent against agent: White's strength"),
     "chess_board": Setting("theme", _one_of("theme", "wood", "green", "blue", "grey"), "AI Playground › Chess › Board and pieces › Board"),
     "chess_pieces": Setting("classic", _one_of("classic", "flat", "theme"), "AI Playground › Chess › Board and pieces › Pieces"),
     "chess_coordinates": Setting(True, _bool, "AI Playground › Chess › Board and pieces › Coordinates"),

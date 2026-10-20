@@ -45,6 +45,7 @@ import agent_profiles
 import agents
 import ai_core
 import connect
+from text_guard import TextGuard
 import corners
 import mcp_catalog
 import mcp_ctl
@@ -151,7 +152,7 @@ class AppWindow(Adw.ApplicationWindow):
             GLib.idle_add(self.on_width, width)
 
 
-class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, DetailsPages, InfoPage, McpPages, SkillsPage, ConnectPage, ModelsPage,
+class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, DetailsPages, InfoPage, McpPages, SkillsPage, ConnectPage, ModelsPage,
                 Adw.Application):
     def __init__(self):
         super().__init__(application_id=desktop.app_id())
@@ -271,75 +272,6 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
         return list(getattr(addon_api.HOOKS, kind)) if addon_api is not None else []
 
     # --- window ----------------------------------------------------------------
-
-    # --- text fields: paste and drops only through bounded reads --------------------------------
-
-    def guard_text_field(self, field):
-        """Route every way text can enter a field from another client through a
-        bounded read. GTK's own paste, middle-click paste and text drops buffer
-        the whole offer in memory with no limit or deadline (as in Theme
-        Manager). `field`: a Gtk.Entry (or its Gtk.Text) or a Gtk.TextView."""
-        text = field.get_delegate() if isinstance(field, Gtk.Entry) else field
-        text = text or field
-        if getattr(text, "_am_guarded", False):
-            return
-        text._am_guarded = True
-        if isinstance(text, Gtk.Text) and text.get_max_length() == 0:
-            text.set_max_length(4096)
-        # Ctrl+V, Shift+Insert and the context menu's Paste all emit this.
-        text.connect("paste-clipboard", self.on_field_paste, field)
-        middle = Gtk.GestureClick(button=Gdk.BUTTON_MIDDLE)
-        middle.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
-        middle.connect("pressed", lambda gesture, *_: gesture.set_state(Gtk.EventSequenceState.CLAIMED))
-        field.add_controller(middle)
-        controllers = text.observe_controllers()
-        for i in reversed(range(controllers.get_n_items())):
-            controller = controllers.get_item(i)
-            if isinstance(controller, (Gtk.DropTarget, Gtk.DropTargetAsync)):
-                text.remove_controller(controller)
-
-    def guard_text_fields_in(self, root):
-        guarded = 0
-        stack = [root]
-        while stack:
-            widget = stack.pop()
-            if isinstance(widget, (Gtk.Text, Gtk.TextView)):
-                self.guard_text_field(widget)
-                guarded += 1
-                continue
-            child = widget.get_first_child()
-            while child is not None:
-                stack.append(child)
-                child = child.get_next_sibling()
-        return guarded
-
-    def on_field_paste(self, text, field):
-        text.stop_emission_by_name("paste-clipboard")
-        if isinstance(field, Gtk.TextView) and not field.get_editable():
-            return
-        lines = isinstance(field, Gtk.TextView)
-
-        def worker():
-            pasted = ai_core.clipboard_text(lines=lines)
-            GLib.idle_add(self.insert_pasted, field, pasted)
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    def insert_pasted(self, field, pasted):
-        if pasted is None:
-            self.show_note(_("Clipboard text is too long to paste (max {0} KiB)").format(
-                ai_core.MAX_PASTE_BYTES // 1024))
-        elif pasted and isinstance(field, Gtk.TextView):
-            buffer = field.get_buffer()
-            buffer.delete_selection(True, True)
-            buffer.insert_at_cursor(pasted)
-        elif pasted:
-            text = field.get_delegate() if isinstance(field, Gtk.Entry) else field
-            text = text or field
-            text.delete_selection()
-            position = text.insert_text(pasted, text.get_position())
-            text.set_position(position)
-        return GLib.SOURCE_REMOVE
 
     def build_window(self):
         settings = Gtk.Settings.get_default()
@@ -763,6 +695,20 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
         self.side_map.on_link = self.on_map_link
         self.side_map.on_relink = self.on_map_relink
         self.side_map.on_pick_model = self.on_map_pick_model
+        self.side_map.on_remodel = self.on_map_remodel
+        self.side_map.on_attach = self.on_map_attach
+        self.side_map.edge_tips = (
+            _("Click the line, then drag its end to another local LLM, or onto empty space to remove it"),
+            _("Used by {0}. Click the line, then drag its end onto another model (they switch to it) or onto empty "
+              "space (they are disconnected)"),
+            _("Used by {0}, in use right now: it can be moved or disconnected once it is free (no agent that uses "
+              "it running)"),
+            _("Loaded, no agent uses it. Click the line, then drag its end into empty space to unload it, or onto "
+              "another model to load that one instead"),
+            _("Used by {0}. Click the line, then drag its end onto another model: they switch to it"),
+            _("Click the line, then drag its end into empty space to sign out"),
+            _("Not working: click the line to see why, then repair or remove it"))
+        self.side_map.pick_tip = _("Click: {0} uses this model")
         self.side_map.on_failed_edge = self.show_link_hints
         self.side_map.on_context = lambda node_id, rect, v=self.side_map: self.show_context(v, node_id, rect)
         self.side_map.start_state = self.map_start_state

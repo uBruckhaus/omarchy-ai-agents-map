@@ -107,6 +107,7 @@ class Edge:
     kind: str                # uses / available (agent→provider), serves (provider→model), mcp, skills, default,
                              # failed (drawn but not written: only its hints are kept, link_hints)
     failed: str = ""         # "error" / "warning": the connection did not pass its check (dotted red / yellow)
+    dangling: str = ""       # the model the agent is set to on a local LLM it has no provider for any more
 
 
 @dataclass
@@ -195,9 +196,22 @@ def build(agent_list, details: dict, inventory, labels: dict | None = None, fail
                 graph.add(Node(rid, 2, rt.name, runtime_detail(rt, labels), "runtime", status=runtime_status(rt)))
                 graph.link(aid, rid, "uses" if provider.active else "available")
 
+        # A model that points at a local LLM's provider the agent no longer has (removed by hand, or by
+        # an older disconnect): not an online service, a broken line to that local LLM.
+        dangling = next((rt for rt in inventory.runtimes if rt.installed and model_provider
+                         and providers.connect_keys().get(rt.key) == model_provider
+                         and model_provider not in local_names), None)
+        if dangling is not None:
+            rid = f"runtime:{dangling.key}"
+            graph.add(Node(rid, 2, dangling.name, runtime_detail(dangling, labels), "runtime",
+                           status=runtime_status(dangling)))
+            edge = Edge(aid, rid, "failed", "error")
+            edge.dangling = model
+            graph.edges.append(edge)
+
         # The cloud service: the configured provider when it is not local, else the agent's own.
         cloud = ""
-        if model_provider and model_provider not in local_names:
+        if model_provider and model_provider not in local_names and dangling is None:
             cloud = provider_name(model_provider)
         elif not model_provider:
             cloud = CLOUD.get(agent.command, "")
@@ -212,6 +226,14 @@ def build(agent_list, details: dict, inventory, labels: dict | None = None, fail
                 graph.add(Node(mid, 3, model, "", "model"))
                 graph.link(cid, mid, "serves")
                 graph.link(aid, mid, "default")
+            # The other models it can be switched to on the map (online_models: the agent's own list).
+            import online_models
+            for other in online_models.choices(agent.command, model):
+                if other != model:
+                    oid = f"model:{cid}:{other.lower()}"
+                    graph.add(Node(oid, 3, other, "", "model"))
+                    if not any(e.source == cid and e.target == oid for e in graph.edges):
+                        graph.link(cid, oid, "serves")
         elif model and model_provider in local_names:
             rt = runtimes[local_names[model_provider]]
             graph.link(aid, f"model:runtime:{rt.key}:{model.lower()}", "default")

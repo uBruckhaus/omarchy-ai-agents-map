@@ -88,6 +88,8 @@ def llm_text(text: str, provider: str, label: str, url: str, models: list, conte
         new_body = header + "\n" + rest if rest.strip() else ("" if remove else header + "\n")
         text = text[:start] + new_body + text[end:]
 
+    if remove:
+        text = _model_off(text, provider)
     if use_now and not remove:
         block = connect._top_block(text, "model")
         lines = [f"  default: {model}", f"  provider: {provider}", "  base_url: ''"]
@@ -104,6 +106,42 @@ def llm_text(text: str, provider: str, label: str, url: str, models: list, conte
                     body = body.rstrip("\n") + "\n" + line + "\n"
             text = text[:start] + body + text[end:]
     return text
+
+
+def _first_provider(text: str):
+    """(name, default model) of the first provider still in the providers block, or None."""
+    import connect
+    block = connect._top_block(text, "providers")
+    if block is None:
+        return None
+    body = text[block[0]:block[1]]
+    for found in re.finditer(r"^  (\S+):[ \t]*\n((?:(?:    |\t\t).*\n?|\s*\n)*)", body, re.MULTILINE):
+        default = re.search(r"^    default_model:\s*(\S.*?)\s*$", found.group(2), re.MULTILINE)
+        if default:
+            return found.group(1), default.group(1)
+    return None
+
+
+def _model_off(text: str, provider: str) -> str:
+    """The model block after `provider` was removed: when Hermes used it, the next local provider
+    still set up (its default model) takes over; when none is left, model and provider go, so
+    nothing points at a provider that is gone."""
+    import connect
+    block = connect._top_block(text, "model")
+    if block is None:
+        return text
+    start, end = block
+    body = text[start:end]
+    if not re.search(rf"^  provider:\s*{re.escape(provider)}\s*$", body, re.MULTILINE):
+        return text
+    following = _first_provider(text)
+    if following is not None:
+        name, default = following
+        body = re.sub(r"^  default:.*$", f"  default: {default}", body, count=1, flags=re.MULTILINE)
+        body = re.sub(r"^  provider:.*$", f"  provider: {name}", body, count=1, flags=re.MULTILINE)
+    else:
+        body = re.sub(r"^  (?:default|provider):.*\n?", "", body, flags=re.MULTILINE)
+    return text[:start] + body + text[end:]
 
 
 def local_llm_connected(texts, provider):

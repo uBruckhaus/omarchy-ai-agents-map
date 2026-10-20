@@ -15,6 +15,11 @@ line; letting go over a fitting box calls on_link(agent id, target id) to
 set it up. Clicking an agent's line to a local LLM or MCP server selects
 it (a handle at the far end); dragging it to another LLM calls
 on_relink(agent, old, new), onto empty space on_relink(agent, old, None).
+A local LLM's line to a model that agents use (drawn in the accent colour) can be
+selected the same way: dragging its end onto another model of that local LLM calls
+on_remodel(runtime, old model, new model), onto empty space on_remodel(runtime, old, None).
+Drawing from a local LLM to one of its models calls on_attach(runtime, model): agents are
+given that model (the window asks which).
 Right-click on a box calls on_context(node id, box rectangle).
 The pin at a box's top right corner (shown on hover, filled when pinned)
 keeps that box's connections lit: while anything is pinned, hovering other
@@ -100,6 +105,20 @@ class MapView(Gtk.DrawingArea):
         self.on_link = None      # callback(agent node id, runtime node id) after a drawn line
         self.link = None         # while drawing: {"from": id, "x": .., "y": .., "target": id or None}
         self.on_relink = None    # callback(agent id, old runtime id, new runtime id)
+        self.on_remodel = None   # callback(runtime id, old model id, new model id or None): a model line moved
+        self.on_attach = None    # callback(runtime id, model id): a line drawn from a local LLM to its model
+        # What a line can do, on hover (translated by the window): an agent's line, a model line
+        # ({0}: the agents that use the model).
+        self.edge_tips = ("Click the line, then drag its end to another local LLM, or onto empty space to remove it",
+                          "Used by {0}. Click the line, then drag its end onto another model (they switch to it) "
+                          "or onto empty space (they are disconnected)",
+                          "Used by {0}, in use right now",
+                          "Loaded, no agent uses it. Click the line, then drag its end into empty space to unload "
+                          "it, or onto another model to load that one instead",
+                          "Used by {0}. Click the line, then drag its end onto another model: they switch to it",
+                          "Click the line, then drag its end into empty space to sign out",
+                          "Not working: click the line to see why, then repair or remove it")
+        self.pick_tip = "Click: {0} uses this model"   # a model the selected agent can switch to
         self.on_context = None   # callback(node id, (x, y, w, h)) for a right-click
         self.on_pick_model = None  # callback(agent id, runtime id, model name): a model clicked
         self.selected_edge = None  # (agent id, runtime id) of the clicked line
@@ -403,13 +422,42 @@ class MapView(Gtk.DrawingArea):
             return sx + sw, sy + sh / 2, tx, ty + th / 2
         return sx, sy + sh / 2, tx + tw, ty + th / 2
 
+    def model_users(self, runtime_id: str, model_id: str) -> list:
+        """The agents that use this model of this local LLM (their own setting: an agent → model
+        line and a line to the local LLM)."""
+        if self.graph is None:
+            return []
+        users = [e.source for e in self.graph.edges if e.kind == "default" and e.target == model_id]
+        return [a for a in dict.fromkeys(users)
+                if any(e.source == a and e.target == runtime_id and e.kind in ("uses", "available")
+                       for e in self.graph.edges)]
+
+    def model_busy(self, runtime_id: str, model_id: str) -> list:
+        """Why this model may not be moved away now: a program outside the map uses it, or an agent
+        that uses it runs. Only loaded (kept in memory, nobody working with it) is free. Empty: free."""
+        if self.graph is None or not runtime_id.startswith("runtime:"):
+            return []                  # an online model: the switch counts from the agent's next start
+        nodes = {n.id: n for n in self.graph.nodes}
+        why = []
+        outside = self.outside.get(runtime_id, {}).get(model_id)
+        if outside:
+            why.append(outside)
+        why += [nodes[a].label for a in self.model_users(runtime_id, model_id)
+                if a in nodes and nodes[a].status == "running"]
+        return why
+
     def movable_edge(self, edge) -> bool:
-        """An agent's line to a local LLM (can be moved to another) or to an MCP server (can be removed)."""
+        """An agent's line to a local LLM (can be moved to another) or to an MCP server (can be
+        removed), or a local LLM's line to a model that agents use (can be moved to another model)."""
+        if edge.kind == "serves" and not edge.failed and self.kind_of(edge.source) in ("runtime", "cloud") \
+                and self.kind_of(edge.target) == "model":
+            # A model agents use, or one that is only loaded (unload it, or load another instead).
+            return bool(self.model_users(edge.source, edge.target)) or self.loaded_edge(edge)
         if self.kind_of(edge.source) != "agent":
             return False
         if edge.kind == "failed":
             return self.kind_of(edge.target) in ("runtime", "mcp", "skills")
-        return (edge.kind in ("uses", "available") and self.kind_of(edge.target) == "runtime") \
+        return (edge.kind in ("uses", "available") and self.kind_of(edge.target) in ("runtime", "cloud")) \
             or (edge.kind in ("mcp", "skills") and self.kind_of(edge.target) in ("mcp", "skills"))
 
     def curve_point(self, edge, t: float) -> tuple[float, float]:
@@ -489,7 +537,11 @@ class MapView(Gtk.DrawingArea):
         return node.kind if node else None
 
     def link_target_ok(self, source: str, target: str) -> bool:
-        """Agent ↔ installed local runtime or MCP server, in either direction."""
+        """Agent ↔ installed local runtime or MCP server, in either direction; a model line: another
+        model of the same local LLM."""
+        if self.link and self.link.get("remodel"):
+            return target != self.link["remodel"] and self.kind_of(target) == "model" and any(
+                e.kind == "serves" and e.source == source and e.target == target for e in self.graph.edges)
         if self.link and self.link.get("relink"):
             # Moving a line: to another installed local LLM (an MCP line can only be removed).
             if self.kind_of(target) != "runtime" or target == self.link["relink"] \
@@ -500,6 +552,11 @@ class MapView(Gtk.DrawingArea):
         kinds = {self.kind_of(source), self.kind_of(target)}
         if kinds in ({"agent", "mcp"}, {"agent", "skills"}):
             return True
+        if self.kind_of(source) == "runtime" and self.kind_of(target) == "model":
+            # From a local LLM to one of its models: agents get that model.
+            return any(e.kind == "serves" and e.source == source and e.target == target for e in self.graph.edges)
+        if kinds == {"agent", "cloud"}:
+            return True                 # an agent to an online provider: its sign-in
         if kinds != {"agent", "runtime"}:
             return False
         runtime = source if self.kind_of(source) == "runtime" else target
@@ -509,8 +566,12 @@ class MapView(Gtk.DrawingArea):
     def on_link_begin(self, gesture, x, y):
         x, y = x / self.zoom, y / self.zoom
         if self.near_selected_edge(x, y):
-            agent, runtime = self.selected_edge
-            self.link = {"from": agent, "relink": runtime, "start": (x, y), "x": x, "y": y, "target": None,
+            source, target = self.selected_edge
+            if self.kind_of(source) == "runtime":       # a model line: its model end moves
+                self.link = {"from": source, "remodel": target, "start": (x, y), "x": x, "y": y, "target": None,
+                             "drawing": False}
+                return
+            self.link = {"from": source, "relink": target, "start": (x, y), "x": x, "y": y, "target": None,
                          "drawing": False}
             return
         node_id = self.node_at(x, y)
@@ -560,12 +621,26 @@ class MapView(Gtk.DrawingArea):
             if link["drawing"] and link["target"] and self.on_move is not None:
                 self.on_move(link["from"], link["target"], self.to_pixels(self.group_rects[link["target"]]))
             return
+        if link and link.get("remodel") and link["drawing"] and self.on_remodel is not None:
+            # Let go on another model of this local LLM: its users move there. Empty space: they
+            # are disconnected from the local LLM.
+            if link["target"]:
+                self.on_remodel(link["from"], link["remodel"], link["target"])
+            elif self.node_at(link["x"], link["y"]) is None:
+                self.on_remodel(link["from"], link["remodel"], None)
+            self.selected_edge = None
+            return
         if link and link.get("relink") and link["drawing"] and self.on_relink is not None:
             # Let go on another local LLM: move the line. Anywhere else: remove it.
             if link["target"]:
                 self.on_relink(link["from"], link["relink"], link["target"])
             elif self.node_at(link["x"], link["y"]) is None:
                 self.on_relink(link["from"], link["relink"], None)
+            return
+        if link and link["drawing"] and link["target"] and self.kind_of(link["from"]) == "runtime" \
+                and self.kind_of(link["target"]) == "model":
+            if self.on_attach is not None:
+                self.on_attach(link["from"], link["target"])
             return
         if link and link["drawing"] and link["target"] and self.on_link is not None:
             a, b = link["from"], link["target"]
@@ -658,6 +733,22 @@ class MapView(Gtk.DrawingArea):
             self.set_tooltip_text(self.start_tips[1 if self.start_state(start) == "show" else 0])
         elif battery is not None:
             self.set_tooltip_text(self.batteries[battery][2])
+        elif pin is None and found is None and (edge := self.edge_at(x, y)) is not None:
+            # A line that can be moved: what to do with it (the cursor says it can be grabbed).
+            source, target = edge
+            broken = any((e.source, e.target) == edge and e.failed for e in self.graph.edges)
+            if broken and len(self.edge_tips) > 6:
+                self.set_tooltip_text(self.edge_tips[6])
+            elif self.kind_of(source) in ("runtime", "cloud"):
+                names = ", ".join(n.label for n in self.graph.nodes if n.id in self.model_users(source, target))
+                busy = self.model_busy(source, target)
+                tip = (4 if self.kind_of(source) == "cloud" else 1) if names and not busy else 2 if names else 3
+                self.set_tooltip_text(self.edge_tips[min(tip, len(self.edge_tips) - 1)].format(names))
+            elif self.kind_of(target) == "cloud" and len(self.edge_tips) > 5:
+                self.set_tooltip_text(self.edge_tips[5])
+            else:
+                self.set_tooltip_text(self.edge_tips[0])
+            self.set_cursor_from_name("grab" if edge == self.selected_edge else "pointer")
         elif pin is None:
             self.set_tooltip_text(None)        # no tooltip left over from a button the pointer left
 
@@ -697,7 +788,12 @@ class MapView(Gtk.DrawingArea):
             return
         self.hover = node_id
         node = next((n for n in self.graph.nodes if n.id == node_id), None) if self.graph else None
-        self.set_tooltip_text(" · ".join(x for x in (node.label, node.detail) if x) if node else None)
+        tip = " · ".join(x for x in (node.label, node.detail) if x) if node else None
+        pick = self.model_pick(node_id) if node is not None else None
+        if pick is not None:                      # with an agent selected: this model can be its model
+            agent = next((n.label for n in self.graph.nodes if n.id == pick[0]), "")
+            tip += "\n" + self.pick_tip.format(agent)
+        self.set_tooltip_text(tip)
         self.queue_draw()
 
     def lit(self):
@@ -818,7 +914,7 @@ class MapView(Gtk.DrawingArea):
         agent = agents[0]
         node = next(n for n in self.graph.nodes if n.id == node_id)
         for edge in self.graph.edges:
-            if edge.target == node_id and edge.kind == "serves" and edge.source.startswith("runtime:") \
+            if edge.target == node_id and edge.kind == "serves" and edge.source.startswith(("runtime:", "cloud:")) \
                     and any(e.source == agent and e.target == edge.source and e.kind in ("uses", "available")
                             for e in self.graph.edges):
                 return agent, edge.source, node.label

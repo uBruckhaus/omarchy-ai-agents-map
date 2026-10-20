@@ -65,6 +65,54 @@ def set_start_at_login(rt, on: bool) -> tuple[bool, str]:
     return _run(["systemctl", "--user", "enable" if on else "disable", f"{rt.service}.service"])
 
 
+def load(rt, model: str, wait: float = 30) -> tuple[bool, str]:
+    """Load one model so that it is ready (a line drawn on the map from the local LLM to its model,
+    with no agent or with some): the local LLM is started first when it is not running. Only on
+    this user's own server (gpu_usage.http_json checks the listener)."""
+    import time
+    import gpu_usage
+    import loopback
+    port = gpu_usage.port_of(rt)
+    if not port:
+        return False, "no address"
+    if not loopback.loopback_listeners(port):
+        ok, why = start(rt)
+        if not ok:
+            return False, why
+        until = time.monotonic() + wait
+        while not loopback.loopback_listeners(port):
+            if time.monotonic() > until:
+                return False, "it did not start"
+            time.sleep(0.5)
+    if rt.key in ("llamacpp", "jan"):
+        reply = gpu_usage.http_json(port, "/models/load", "POST", {"model": model}, timeout=300)
+        return (True, "") if reply is not None else (False, "it did not load the model")
+    if rt.key == "ollama":
+        reply = gpu_usage.http_json(port, "/api/generate", "POST", {"model": model, "keep_alive": "30m"}, timeout=300)
+        return (True, "") if reply is not None else (False, "it did not load the model")
+    if rt.key == "lmstudio":
+        binary = lms_binary()
+        return _run([binary, "load", model]) if binary else (False, "lms not found")
+    return False, "it cannot be asked to load a model"
+
+
+def unload_model(rt, model: str) -> tuple[bool, str]:
+    """Unload one model (a loaded model's line dropped into empty space on the map); the local LLM
+    keeps running. Only on this user's own server."""
+    import gpu_usage
+    port = gpu_usage.port_of(rt)
+    if rt.key in ("llamacpp", "jan"):
+        reply = gpu_usage.http_json(port, "/models/unload", "POST", {"model": model}, timeout=30)
+        return (True, "") if reply is not None else (False, "it did not unload the model")
+    if rt.key == "ollama":
+        reply = gpu_usage.http_json(port, "/api/generate", "POST", {"model": model, "keep_alive": 0}, timeout=30)
+        return (True, "") if reply is not None else (False, "it did not unload the model")
+    if rt.key == "lmstudio":
+        binary = lms_binary()
+        return _run([binary, "unload", model]) if binary else (False, "lms not found")
+    return unload(rt)                      # KoboldCpp, vLLM: one model at a time anyway
+
+
 def unload(rt) -> tuple[bool, str]:
     """Free the GPU memory without stopping the server: unload every loaded model
     (the next request loads it again). vLLM cannot unload, so it is stopped."""

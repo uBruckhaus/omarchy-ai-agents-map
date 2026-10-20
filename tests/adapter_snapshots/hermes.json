@@ -247,7 +247,7 @@
   "connected": true,
   "active": true,
   "removed": [
-   "model:\n  default: m1\n  provider: llamacpp\n  base_url: ''\n"
+   "model:\n  base_url: ''\n"
   ]
  },
  "skills": {
