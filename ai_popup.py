@@ -3458,6 +3458,8 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
             except OSError:
                 pass
         self.stop_gpu_poll()
+        if getattr(self, "chess_window", None) is not None:
+            self.chess_window.set_visible(False)   # the game goes on; the knight opens it again
         self.map_view.set_shift(False)   # Shift may have been let go elsewhere
         if self.page_name() == "settings":
             self.close_settings()   # never reopen onto the settings page

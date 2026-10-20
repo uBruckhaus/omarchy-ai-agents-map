@@ -58,6 +58,8 @@ SCHEMA: dict[str, Setting] = {
     "window_size": Setting(None, _size, "the window's size when it was last closed: [width, height]"),
     "last_view": Setting("main", _text, "the view open when the window was last closed"),
     "widen": Setting("workspace", _text, "Settings › Too narrow for the map: what Maximize for more room does"),
+    "chess_window": Setting("floating", _one_of("floating", "window", "page"),
+                            "Settings › Chess opens in: a floating window, a window, or a page of this window"),
     "terminal_tabs": Setting(True, _bool, "Settings › Terminal tabs above the map"),
     "launcher_entry": Setting(None, _bool, "Settings › In the app launcher (None: not asked yet)"),
     "agent_folder": Setting(None, _text, "Settings › Agents start in: the folder agents start in"),

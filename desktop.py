@@ -30,6 +30,8 @@ The interface (each implementation provides all of it):
     is_maximized(app_id) -> bool|None
     widen(app_id) -> bool         room for the map: move to a free workspace, else maximize
     maximize(app_id) -> bool      maximize where it is
+    place_window(title, floating, size) -> bool   another window of ours (the chess window), found by its
+                                  title: to the front, floating at size (width, height) and centred if asked
     open_terminal(argv, cwd) -> bool              a program in the user's terminal (a new window)
     run_in_terminal(command) -> bool              a fixed command in a terminal that waits at the end
     run_steps_in_terminal(commands) -> bool       several, one after the other while each succeeds

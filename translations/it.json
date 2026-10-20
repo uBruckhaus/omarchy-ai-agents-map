@@ -1907,5 +1907,12 @@
  "Back to the chess game": "Torna alla partita a scacchi",
  "{0} captured": "Cattura: {0}",
  "Game": "Partita",
- "Play chess: select an agent on the map that plays it (Claude Code, Codex, Hermes or Pi, set up)": "Gioca a scacchi: seleziona sulla mappa un agente che ci gioca (Claude Code, Codex, Hermes o Pi, configurato)"
+ "Play chess: select an agent on the map that plays it (Claude Code, Codex, Hermes or Pi, set up)": "Gioca a scacchi: seleziona sulla mappa un agente che ci gioca (Claude Code, Codex, Hermes o Pi, configurato)",
+ "Chess opens in": "Gli scacchi si aprono in",
+ "Where a game of chess against an agent shows: a window of its own over the others, a window of its own placed like any other, or a page of this window like Settings.": "Dove compare una partita a scacchi contro un agente: in una finestra propria sopra le altre, in una finestra propria posizionata come tutte le altre, o in una pagina di questa finestra, come le Impostazioni.",
+ "Floating window": "Finestra mobile",
+ "Page in this window": "Pagina in questa finestra",
+ "Close": "Chiudi",
+ "Close (Esc); the game goes on": "Chiudi (Esc); la partita continua",
+ "End the game and close the window": "Termina la partita e chiudi la finestra"
 }

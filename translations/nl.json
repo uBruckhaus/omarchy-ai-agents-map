@@ -1907,5 +1907,12 @@
  "Back to the chess game": "Terug naar de schaakpartij",
  "{0} captured": "{0} geslagen",
  "Game": "Partij",
- "Play chess: select an agent on the map that plays it (Claude Code, Codex, Hermes or Pi, set up)": "Schaak spelen: selecteer op de kaart een agent die het speelt (Claude Code, Codex, Hermes of Pi, ingesteld)"
+ "Play chess: select an agent on the map that plays it (Claude Code, Codex, Hermes or Pi, set up)": "Schaak spelen: selecteer op de kaart een agent die het speelt (Claude Code, Codex, Hermes of Pi, ingesteld)",
+ "Chess opens in": "Schaken opent in",
+ "Where a game of chess against an agent shows: a window of its own over the others, a window of its own placed like any other, or a page of this window like Settings.": "Waar een partij schaak tegen een agent verschijnt: in een eigen venster boven de andere, in een eigen venster dat geplaatst wordt als elk ander, of als pagina van dit venster, zoals Instellingen.",
+ "Floating window": "Zwevend venster",
+ "Page in this window": "Pagina in dit venster",
+ "Close": "Sluiten",
+ "Close (Esc); the game goes on": "Sluiten (Esc); de partij gaat door",
+ "End the game and close the window": "Partij beëindigen en venster sluiten"
 }

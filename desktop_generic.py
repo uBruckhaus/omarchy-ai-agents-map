@@ -198,6 +198,12 @@ def maximize(app_id: str) -> bool:
     return _on_window(lambda w: w.maximize())
 
 
+def place_window(title: str, floating: bool, size: tuple) -> bool:
+    """Under Hyprland as on Omarchy; other desktops place a new window themselves (floating)."""
+    hypr = _hyprland()
+    return hypr is not None and hypr.place_window(title, floating, size)
+
+
 # --- terminals ------------------------------------------------------------------------------------
 
 def terminal() -> list | None:

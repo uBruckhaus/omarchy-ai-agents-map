@@ -1966,5 +1966,12 @@
  "Back to the chess game": "Wróć do partii szachów",
  "{0} captured": "Zbito: {0}",
  "Game": "Partia",
- "Play chess: select an agent on the map that plays it (Claude Code, Codex, Hermes or Pi, set up)": "Zagraj w szachy: wybierz na mapie agenta, który w nie gra (Claude Code, Codex, Hermes lub Pi, skonfigurowany)"
+ "Play chess: select an agent on the map that plays it (Claude Code, Codex, Hermes or Pi, set up)": "Zagraj w szachy: wybierz na mapie agenta, który w nie gra (Claude Code, Codex, Hermes lub Pi, skonfigurowany)",
+ "Chess opens in": "Szachy otwierają się w",
+ "Where a game of chess against an agent shows: a window of its own over the others, a window of its own placed like any other, or a page of this window like Settings.": "Gdzie pojawia się partia szachów z agentem: we własnym oknie nad innymi, we własnym oknie umieszczonym jak każde inne albo na stronie tego okna, jak Ustawienia.",
+ "Floating window": "Okno pływające",
+ "Page in this window": "Strona w tym oknie",
+ "Close": "Zamknij",
+ "Close (Esc); the game goes on": "Zamknij (Esc); partia trwa dalej",
+ "End the game and close the window": "Zakończ partię i zamknij okno"
 }

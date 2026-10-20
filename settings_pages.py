@@ -14,6 +14,7 @@ import json
 
 import ai_core
 import app_entry
+import chess_page
 import corners
 import desktop
 import disk_usage
@@ -444,6 +445,12 @@ class SettingsPages:
                           "or ended, above the map and the terminals. A click shows the terminal."),
                         ai_core.setting("terminal_tabs") is not False,
                         lambda on: (self.save_setting(terminal_tabs=on), self.update_terminal_tabs()))
+        self.combo_row(group, _("Chess opens in"),
+                       _("Where a game of chess against an agent shows: a window of its own over the others, "
+                         "a window of its own placed like any other, or a page of this window like Settings."),
+                       [_("Floating window"), _("Window"), _("Page in this window")],
+                       chess_page.CHESS_MODES.index(self.chess_opens_in()),
+                       lambda i: self.set_chess_opens_in(chess_page.CHESS_MODES[i]))
         self.switch_row(group, _("Start local LLMs with their agents"),
                         _("When an agent connected to a local LLM starts, its LLM starts too; when the last such "
                           "agent closes, the LLM stops and its GPU memory is free again. Works with this window "

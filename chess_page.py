@@ -1,4 +1,6 @@
 """The chess page: a game against an agent that is set up (the header's chess button, with it selected).
+It opens in a window of its own (floating or placed like any other) or as a page of the main window,
+as Settings › Chess opens in says; the game is the same in each.
 
 The board in the middle; above it a card for each kind of Black piece, below it one for each kind
 of White piece, with how many are on the board. A choice above starts a new game with White or
@@ -16,12 +18,14 @@ import time
 import gi
 
 gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
 gi.require_version("PangoCairo", "1.0")
-from gi.repository import Gdk, GLib, Gtk, Pango, PangoCairo  # noqa: E402
+from gi.repository import Adw, Gdk, GLib, Gtk, Pango, PangoCairo  # noqa: E402
 
 import ai_core  # noqa: E402
 import chess_agent  # noqa: E402
 import chess_rules as rules  # noqa: E402
+import desktop  # noqa: E402
 import i18n  # noqa: E402
 from i18n import _, N_  # noqa: E402
 
@@ -36,6 +40,8 @@ CHOICES = (("white", N_("New game with White")), ("black", N_("New game with Bla
 THINKING_LABELS = (("quick", N_("Quick (30 s)")), ("normal", N_("Normal (1½ min)")), ("deep", N_("Deep (3 min)")),
                    ("max", N_("Maximum (6 min)")))
 BOARD_MIN, BOARD_MAX = 320, 560
+CHESS_WINDOW_SIZE = (760, 960)    # the chess window's first size: the biggest board with its cards
+CHESS_MODES = ("floating", "window", "page")   # Settings › Chess opens in (settings_schema "chess_window")
 TAKEN_W = 40                     # the columns of captured pieces beside the board
 TAKEN_ORDER = "QRBNP"            # how they are listed: the strongest first
 # Fonts whose chess glyphs are solid shapes (others, Font Awesome for one, draw them differently).
@@ -62,20 +68,29 @@ class ChessPage:
     # --- building -------------------------------------------------------------------------------
 
     def build_chess_page(self) -> Gtk.Widget:
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
+        """The main window's chess page: a holder for the game, which moves into the chess window
+        when it opens there (chess_place)."""
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP, vexpand=True)
+        self.chess_widget = page
+        self.chess_window = None
+        self.chess_window_box = None
         header = Gtk.Box(spacing=8)
         back = Gtk.Button()
         back.add_css_class("flat")
         back.add_css_class("am-header-btn")
         back.add_css_class("am-back-bordered")
         back_box = Gtk.Box(spacing=6)
-        back_box.append(Gtk.Image.new_from_icon_name("go-previous-symbolic"))
-        back_box.append(Gtk.Label(label=_("Back")))
-        back_box.append(Gtk.Label(label="· ⌫"))
+        self.chess_back_icon = Gtk.Image.new_from_icon_name("go-previous-symbolic")
+        back_box.append(self.chess_back_icon)
+        self.chess_back_label = Gtk.Label(label=_("Back"))
+        back_box.append(self.chess_back_label)
+        self.chess_back_keys = Gtk.Label(label="· ⌫")
+        back_box.append(self.chess_back_keys)
         back.set_child(back_box)
         back.set_tooltip_text(_("Back (Backspace, Esc)"))
         back.connect("clicked", lambda *_a: self.close_chess())
         header.append(back)
+        self.chess_back = back
         self.chess_title = Gtk.Label(xalign=0, hexpand=True)
         self.chess_title.add_css_class("am-section-title")
         header.append(self.chess_title)
@@ -86,6 +101,7 @@ class ChessPage:
         end.set_tooltip_text(_("End the game and close the page"))
         end.connect("clicked", lambda *_a: self.end_chess())
         header.append(end)
+        self.chess_end = end
         page.append(header)
         rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         rule.add_css_class("am-settings-rule")
@@ -217,7 +233,94 @@ class ChessPage:
         self.chess_agent = None
         self.chess_token = 0
         self.chess_reset(rules.start(), "w")
-        return page
+        holder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, vexpand=True)
+        holder.append(page)
+        self.chess_holder = holder
+        return holder
+
+    # --- where it shows: a page of the main window, or a window of its own ------------------------
+
+    @staticmethod
+    def chess_opens_in() -> str:
+        mode = ai_core.setting("chess_window")
+        return mode if mode in CHESS_MODES else CHESS_MODES[0]
+
+    def chess_window_card(self) -> Gtk.Box:
+        """The chess window, made the first time: themed as the main window (its name carries the
+        CSS), closing it only hides it (the game goes on), Esc and Backspace close it."""
+        if self.chess_window is None:
+            window = Adw.ApplicationWindow(application=self)
+            window.set_decorated(desktop.decorated())
+            window.set_name("aiagentsmap-window")
+            window.set_icon_name(desktop.app_id())
+            window.set_title(_("Chess"))
+            window.set_default_size(*CHESS_WINDOW_SIZE)
+            window.connect("close-request", lambda *_a: (self.close_chess(), True)[1])
+            keys = Gtk.EventControllerKey()
+            keys.connect("key-pressed", self.chess_window_key)
+            window.add_controller(keys)
+            card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True, vexpand=True)
+            card.add_css_class("am-card")
+            if desktop.decorated():
+                toolbar = Adw.ToolbarView()
+                toolbar.add_top_bar(Adw.HeaderBar())
+                toolbar.set_content(card)
+                window.set_content(toolbar)
+            else:
+                window.set_content(card)
+            self.chess_window = window
+            self.chess_window_box = card
+        return self.chess_window_box
+
+    def chess_window_key(self, _controller, keyval, _keycode, _state) -> bool:
+        if keyval in (Gdk.KEY_Escape, Gdk.KEY_BackSpace):
+            self.close_chess()
+            return True
+        return False
+
+    def chess_in_window(self) -> bool:
+        return self.chess_window is not None and self.chess_widget.get_parent() is self.chess_window_box
+
+    def chess_place(self):
+        """The game into the chess window or the main window's chess page, as Settings say. In the
+        window its Back is Close (the desktop's own close button where it draws a title bar)."""
+        in_window = self.chess_opens_in() != "page"
+        target = self.chess_window_card() if in_window else self.chess_holder
+        parent = self.chess_widget.get_parent()
+        if parent is not target:
+            if parent is not None:
+                parent.remove(self.chess_widget)
+            target.append(self.chess_widget)
+        self.chess_back_icon.set_visible(not in_window)
+        self.chess_back_label.set_label(_("Close") if in_window else _("Back"))
+        self.chess_back_keys.set_label("· Esc" if in_window else "· ⌫")
+        self.chess_back.set_tooltip_text(_("Close (Esc); the game goes on") if in_window
+                                         else _("Back (Backspace, Esc)"))
+        self.chess_back.set_visible(not (in_window and desktop.decorated()))
+        self.chess_end.set_tooltip_text(_("End the game and close the window") if in_window
+                                        else _("End the game and close the page"))
+
+    def set_chess_opens_in(self, mode: str):
+        """Settings › Chess opens in: an open game goes on; the knight opens it in the new place."""
+        self.save_setting(chess_window=mode)
+        if self.chess_window is not None:
+            self.chess_window.set_visible(False)
+        self.chess_place()
+
+    def chess_show_window(self, title: str, floating: bool):
+        """To the front; under Hyprland floated at its size and centred (it would be tiled), once
+        Hyprland lists it (a few tenths of a second after present)."""
+        self.chess_window.present()
+        tries = [0]
+
+        def place():
+            if self.chess_window is None or not self.chess_window.get_visible():
+                return GLib.SOURCE_REMOVE
+            if desktop.place_window(title, floating, CHESS_WINDOW_SIZE):
+                return GLib.SOURCE_REMOVE
+            tries[0] += 1
+            return tries[0] < 15
+        GLib.timeout_add(100, place)
 
     # --- open / close ------------------------------------------------------------------------------
 
@@ -244,7 +347,8 @@ class ChessPage:
         """A game against this agent; back to the page, the game goes on where it was."""
         same = self.chess_agent is not None and self.chess_agent.command == agent.command
         self.chess_agent = agent
-        self.chess_title.set_label((_("Chess") + " · " + agent.name).upper())
+        title = _("Chess") + " · " + agent.name
+        self.chess_title.set_label(title.upper())
         if not same or (not self.chess_moves_played and self.chess_mode != "define"):
             self.chess_choice_ready = False
             self.chess_choice.set_selected(0)
@@ -252,14 +356,26 @@ class ChessPage:
             self.chess_new_game("w")
         else:
             self.chess_refresh()
-        if self.page_name() not in ("settings", "help", "chess"):
-            self.remember_page()                     # back to a terminal or details page, as from Settings
-        self.show_page("chess")
+        self.chess_place()
+        mode = self.chess_opens_in()
+        if mode == "page":
+            if self.page_name() not in ("settings", "help", "chess"):
+                self.remember_page()                 # back to a terminal or details page, as from Settings
+            self.show_page("chess")
+        else:
+            if self.page_name() == "chess":
+                self.back_to_last_page()
+            self.chess_window.set_title(title)       # place_window finds it by this title
+            self.chess_show_window(title, mode == "floating")
         self.chess_mark_map()
 
     def close_chess(self):
-        """Back: the game goes on (an answer on its way is still played); the agent's card leads back."""
-        self.back_to_last_page()
+        """Back, or closing the chess window: the game goes on (an answer on its way is still
+        played); the knights lead back."""
+        if self.chess_in_window():
+            self.chess_window.set_visible(False)
+        elif self.page_name() == "chess":
+            self.back_to_last_page()
         self.chess_mark_map()
 
     def end_chess(self):
@@ -267,6 +383,8 @@ class ChessPage:
         page closes if it is open."""
         self.chess_reset(rules.start(), "w")
         self.chess_agent = None
+        if self.chess_window is not None:
+            self.chess_window.set_visible(False)
         if self.page_name() == "chess":
             self.back_to_last_page()
         self.chess_mark_map()

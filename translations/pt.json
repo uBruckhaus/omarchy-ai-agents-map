@@ -1907,5 +1907,12 @@
  "Back to the chess game": "Voltar à partida de xadrez",
  "{0} captured": "Captura: {0}",
  "Game": "Partida",
- "Play chess: select an agent on the map that plays it (Claude Code, Codex, Hermes or Pi, set up)": "Jogar xadrez: selecione no mapa um agente que o jogue (Claude Code, Codex, Hermes ou Pi, configurado)"
+ "Play chess: select an agent on the map that plays it (Claude Code, Codex, Hermes or Pi, set up)": "Jogar xadrez: selecione no mapa um agente que o jogue (Claude Code, Codex, Hermes ou Pi, configurado)",
+ "Chess opens in": "O xadrez abre em",
+ "Where a game of chess against an agent shows: a window of its own over the others, a window of its own placed like any other, or a page of this window like Settings.": "Onde aparece uma partida de xadrez contra um agente: numa janela própria sobre as outras, numa janela própria colocada como qualquer outra, ou numa página desta janela, como as Configurações.",
+ "Floating window": "Janela flutuante",
+ "Page in this window": "Página nesta janela",
+ "Close": "Fechar",
+ "Close (Esc); the game goes on": "Fechar (Esc); a partida continua",
+ "End the game and close the window": "Terminar a partida e fechar a janela"
 }
