@@ -2033,5 +2033,9 @@
  "{0}: size not found": "{0}: tamaño no encontrado",
  "AI Playground: test {0} (chess, speed, vision…)": "AI Playground: probar {0} (ajedrez, velocidad, visión…)",
  "AI Playground: test your agents (chess, speed, vision…)": "AI Playground: prueba tus agentes (ajedrez, velocidad, visión…)",
- "With the agent selected on the map chosen there": "Con el agente seleccionado en el mapa ya elegido allí"
+ "With the agent selected on the map chosen there": "Con el agente seleccionado en el mapa ya elegido allí",
+ "Text in choice boxes": "Texto de las listas desplegables",
+ "The chosen value in drop-down boxes: bright (white on dark themes, the theme's text colour on light ones) or dimmed, as before.": "El valor elegido en las listas desplegables: brillante (blanco en temas oscuros, el color de texto del tema en los claros) o atenuado, como antes.",
+ "Bright": "Brillante",
+ "Dimmed": "Atenuado"
 }

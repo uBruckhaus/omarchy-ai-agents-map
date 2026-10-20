@@ -101,6 +101,15 @@ class ThemeCss:
             dim_hex = "#%02x%02x%02x" % tuple(round(c * 255) for c in colorsys.hsv_to_rgb(hue, sat, val / 1.45))
         except (ValueError, IndexError):
             dim_hex = muted_hex
+        # Settings › Text in choice boxes: the chosen value in drop-down boxes. Bright: white on a dark
+        # background, the theme's text colour on a light one; dimmed: the hint grey (hard to read on
+        # some themes).
+        try:
+            r, g, b = (int(bg_hex.lstrip("#")[i:i + 2], 16) / 255 for i in (0, 2, 4))
+            dark_bg = 0.2126 * r + 0.7152 * g + 0.0722 * b <= 0.5
+        except (ValueError, IndexError):
+            dark_bg = True
+        choice_hex = dim_hex if ai_core.setting("choice_text") == "dim" else ("#ffffff" if dark_bg else fg_hex)
         pill = 999 if radius else 0      # chips and switches: round pills, or square with Square corners
         css = f"""
         window#aiagentsmap-window {{ background: {bg_hex}; }}
@@ -309,7 +318,7 @@ class ThemeCss:
         /* "Search on": a quiet setting, as small as its row (and its open list) */
         .am-add-page .am-line dropdown label, .am-add-page .am-line dropdown popover label {{ font-size: 11px; }}
         .am-add-page .am-line dropdown > button {{ padding: 0 6px; min-height: 0; }}
-        .am-add-page .am-line dropdown > button label {{ color: {dim_hex}; }}
+        .am-add-page .am-line dropdown > button label {{ color: {choice_hex}; }}
         .am-add-page row .subtitle {{ color: {dim_hex}; }}
         .am-add-page button.link {{ padding: 0 4px; min-height: 0; }}
         .am-warning-text {{ color: {yellow_hex}; }}
@@ -369,7 +378,7 @@ class ThemeCss:
             min-height: 1px; margin: 4px 2px; }}
         .am-form-list row .title {{ min-width: 110px; }}
         /* A combo row's chosen value (its inline list): the size and colour of the subtitle, not of the title. */
-        row.combo listview.inline label {{ font-size: smaller; color: {dim_hex}; }}
+        row.combo listview.inline label {{ font-size: smaller; color: {choice_hex}; }}
         row.combo popover listview label {{ font-size: smaller; }}
         /* The chosen value and its arrow framed like the other controls, well apart from a long explanation. */
         row.combo listview.inline {{ min-width: 128px; }}    /* the chosen value stays readable; the explanation wraps */
@@ -455,9 +464,10 @@ class ThemeCss:
         .am-chess-answer-title {{ font-weight: 700; font-size: 12px; }}
         .am-chess-status {{ font-size: 13px; font-weight: 600; }}
         .am-chess-said {{ font-size: 13px; }}
-        /* Its dropdowns as the other pages' (settings lines): small, grey, not bold. */
+        /* Its dropdowns as the other pages' (settings lines): small, not bold, in the choice text colour. */
         .am-chess-controls dropdown > button {{ min-height: 0; padding: 2px 8px; border: 1px solid alpha({fg_hex}, 0.35); }}
-        .am-chess-controls dropdown label {{ font-size: 11px; font-weight: normal; color: {dim_hex}; }}
+        .am-chess-controls dropdown label {{ font-size: 11px; font-weight: normal; color: {choice_hex}; }}
+        .am-chess-controls > label {{ font-size: 12px; }}    /* "Opponent", "compared with": as small as the row */
         button.am-chess-promote {{ font-family: "DejaVu Sans", "Noto Sans Symbols 2", sans-serif; font-size: 28px;
             padding: 2px 8px; }}
         /* AI Playground's question fields. */

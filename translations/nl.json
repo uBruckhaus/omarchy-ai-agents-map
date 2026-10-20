@@ -2033,5 +2033,9 @@
  "{0}: size not found": "{0}: grootte niet gevonden",
  "AI Playground: test {0} (chess, speed, vision…)": "AI Playground: {0} testen (schaak, snelheid, vision…)",
  "AI Playground: test your agents (chess, speed, vision…)": "AI Playground: test je agents (schaak, snelheid, vision…)",
- "With the agent selected on the map chosen there": "Met de op de kaart geselecteerde agent daar al gekozen"
+ "With the agent selected on the map chosen there": "Met de op de kaart geselecteerde agent daar al gekozen",
+ "Text in choice boxes": "Tekst in keuzelijsten",
+ "The chosen value in drop-down boxes: bright (white on dark themes, the theme's text colour on light ones) or dimmed, as before.": "De gekozen waarde in keuzelijsten: helder (wit bij donkere thema’s, de tekstkleur van het thema bij lichte) of gedimd, zoals voorheen.",
+ "Bright": "Helder",
+ "Dimmed": "Gedimd"
 }
