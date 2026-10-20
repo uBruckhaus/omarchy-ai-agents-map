@@ -44,10 +44,10 @@ WAY = {"kind": STR, "spec": STR, "tool": STR, "argv": STRS, "sudo": BOOL, "url":
        "update": STRS, "packages": "a list of [manager, name]"}
 UPDATE = {"self": STRS, "latest": STR}
 # One prompt, one answer, without tools: argv with "{prompt}" where the text goes, and the games the
-# app may play with it (with it selected, the header's chess button opens the app's chess page).
+# app may play with it (AI Playground's chess tab).
 ASK = {"argv": STRS, "note": STR, "games": STRS, "effort": TABLE}
 GAMES = ("chess",)
-# How long the agent may think (the chess page's Thinking time): per level, its own options for how
+# How long the agent may think (AI Playground's Thinking time): per level, its own options for how
 # hard the model thinks (ask.effort), put in before the prompt.
 THINKING = ("quick", "normal", "deep", "max")
 SESSIONS = {"reader": STR, "hook": BOOL, "note": STR, "note_args": STRS}

@@ -15,6 +15,8 @@ The interface (each implementation provides all of it):
     NAME                          "omarchy" or "generic"
     app_name() -> str             "AI Agents Map" (the Omarchy plugin) or "Asterism"
     app_id() -> str               the GTK application id, window class and icon name
+    use_identity(name, app_id, folder)  another app built from this core (AI Playground): its name,
+                                  app id and settings folder from then on
     config_dir() -> Path          the app's own settings folder
     theme_dir() -> Path | None    a folder to watch for theme changes (None: none)
     theme_colors() -> dict        the theme's colours as a TOML-like dict ({} when unknown)
@@ -30,8 +32,6 @@ The interface (each implementation provides all of it):
     is_maximized(app_id) -> bool|None
     widen(app_id) -> bool         room for the map: move to a free workspace, else maximize
     maximize(app_id) -> bool      maximize where it is
-    place_window(title, floating, size) -> bool   another window of ours (the chess window), found by its
-                                  title: to the front, floating at size (width, height) and centred if asked
     open_terminal(argv, cwd) -> bool              a program in the user's terminal (a new window)
     run_in_terminal(command) -> bool              a fixed command in a terminal that waits at the end
     run_steps_in_terminal(commands) -> bool       several, one after the other while each succeeds

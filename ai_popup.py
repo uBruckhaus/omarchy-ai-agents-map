@@ -104,7 +104,8 @@ from connect_page import ConnectPage
 from skills_page import SkillsPage
 from mcp_pages import McpPages
 from details_pages import DetailsPages
-from chess_page import ChessPage
+import info_page
+from info_page import InfoPage
 try:
     from addons_page import AddonsPage      # Asterism only: the Add-ons page (not in the Omarchy plugin)
 except ImportError:
@@ -150,7 +151,7 @@ class AppWindow(Adw.ApplicationWindow):
             GLib.idle_add(self.on_width, width)
 
 
-class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, DetailsPages, ChessPage, McpPages, SkillsPage, ConnectPage, ModelsPage,
+class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, DetailsPages, InfoPage, McpPages, SkillsPage, ConnectPage, ModelsPage,
                 Adw.Application):
     def __init__(self):
         super().__init__(application_id=desktop.app_id())
@@ -416,8 +417,9 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
         stack.set_vhomogeneous(True)
         stack.add_named(self.build_main_page(), "main")
         stack.add_named(self.build_settings_page(), "settings")
-        stack.add_named(self.build_chess_page(), "chess")         # a page of its own, as Settings
         stack.add_named(self.build_help_page(), "help")
+        if desktop.NAME == "omarchy":
+            stack.add_named(self.build_info_page(), "info")     # the author's other Omarchy plugins
         stack.add_named(self.build_reorganize_page(), "reorganize")
         stack.add_named(self.build_setup_page(), "setup")
         if hasattr(self, "build_addons_page"):
@@ -510,18 +512,18 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
         self.problem_button.add_css_class("am-problem-btn")
         self.problem_button.connect("clicked", lambda *_: self.open_health())
         header.append(self.problem_button)
-        # Chess: a game against the selected agent, where it plays one (else greyed); while a game
-        # goes on (the page may be closed), back to it.
-        self.chess_button = Gtk.Button(valign=Gtk.Align.CENTER, sensitive=False)
-        knight = Gtk.Label(label="\U000F0858")
-        knight.add_css_class("am-gear")
-        self.chess_button.set_child(knight)
-        self.chess_button.add_css_class("flat")
-        self.chess_button.add_css_class("am-header-btn")
-        self.chess_button.add_css_class("am-gear-btn")
-        self.chess_button.connect("clicked", lambda *_: self.on_chess_button())
-        header.append(self.chess_button)
-        self.chess_mark_map()
+        # AI Playground (only when it is installed): tests and chess with the agents set up here,
+        # the agent selected on the map chosen there.
+        self.playground_button = Gtk.Button(valign=Gtk.Align.CENTER, visible=False)
+        pad = Gtk.Label(label=info_page.PLAYGROUND_GLYPH)
+        pad.add_css_class("am-gear")
+        self.playground_button.set_child(pad)
+        self.playground_button.add_css_class("flat")
+        self.playground_button.add_css_class("am-header-btn")
+        self.playground_button.add_css_class("am-gear-btn")
+        self.playground_button.connect("clicked", lambda *_: self.start_playground())
+        header.append(self.playground_button)
+        self.mark_playground()
 
         # The legend (as in App Manager): what the map's dots, lines and marks mean.
         legend_button = Gtk.MenuButton()
@@ -548,6 +550,19 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
             addons_button.connect("clicked", lambda *_: self.open_addons())
             header.append(addons_button)
             self.addons_button = addons_button
+        # Information (the Omarchy plugin): AI Playground and the author's other plugins.
+        if desktop.NAME == "omarchy":
+            import more_plugins
+            info_button = Gtk.Button()
+            info_mark = Gtk.Label(label=more_plugins.INFO_GLYPH)
+            info_mark.add_css_class("am-gear")
+            info_button.set_child(info_mark)
+            info_button.set_tooltip_text(_(more_plugins.INFORMATION))
+            info_button.add_css_class("flat")
+            info_button.add_css_class("am-header-btn")
+            info_button.add_css_class("am-gear-btn")
+            info_button.connect("clicked", lambda *_: self.open_info())
+            header.append(info_button)
         # Help (the manual: setting up by drawing, …), left of the gear, in the same bordered box.
         help_button = Gtk.Button()
         mark = Gtk.Label(label="?")
@@ -754,10 +769,7 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
         self.side_map.on_start = self.map_start
         self.side_map.on_stop = lambda node_id: (self.ask_stop_runtime(node_id.partition(":")[2])
                                                  if node_id.startswith("runtime:") else
-                                                 self.stop_agent(node_id.partition(":")[2], end_game=True))
-        self.side_map.on_chess = lambda node_id: self.open_chess(
-            next(a for a in self.agent_list if a.command == node_id.partition(":")[2]))
-        self.side_map.chess_tip = _("Back to the chess game")
+                                                 self.stop_agent(node_id.partition(":")[2]))
         self.side_map.start_tips = (_("Start here"), _("Show terminal"), _("Stop"),
                                     _("Stop it or only free the GPU memory…"))
         map_scroller = self.page_scroller(self.side_map.with_flow_layer(), bar_room=False)   # the lights on running agents' paths on top
@@ -1515,13 +1527,11 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
         self.show_notice(_("{0} opened in your terminal").format(agent.name) if ok
                          else _("No terminal found (xdg-terminal-exec)"))
 
-    def stop_agent(self, command: str, end_game: bool = False):
-        """End the agent running here; from its card's stop button also its chess game."""
+    def stop_agent(self, command: str):
+        """End the agent running here."""
         pane = self.sessions.get(command)
         if pane is not None:
             pane.stop()
-        if end_game and self.chess_agent is not None and self.chess_agent.command == command:
-            self.end_chess()
 
     def ask_start_outside(self, agent, path: str, folder: str, anchor):
         """No vte4: ask whether to fix that (its details page shows how) or to start the
@@ -1960,7 +1970,7 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
                                          "▶ starts an agent."))
         self.side_filter.set_tooltip_text(self.side_filter.get_label())
         self.map_show_all.set_visible(bool(nodes))
-        self.chess_mark_map()
+        self.mark_playground()
 
     def show_batteries(self):
         """Online agents' limits and running local LLMs' free GPU memory, on the map and Setup's cards."""
@@ -3283,6 +3293,9 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
         if page == "help" and keyval in (Gdk.KEY_Escape, Gdk.KEY_BackSpace):
             self.close_help()
             return True
+        if page == "info" and keyval in (Gdk.KEY_Escape, Gdk.KEY_BackSpace):
+            self.close_info()
+            return True
         if page == "addons" and (keyval == Gdk.KEY_Escape or keyval == Gdk.KEY_BackSpace
                                  and not self.addons_search.has_focus()
                                  and not self.addons_search.get_delegate().has_focus()):
@@ -3309,8 +3322,6 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
                 self.close_status()
             elif page == "health":
                 self.close_health()
-            elif page == "chess":
-                self.close_chess()
             elif page == "addmcp":
                 self.close_add_mcp()
             elif page == "addskills":
@@ -3326,11 +3337,11 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
                 self.close_add_mcp() if page == "addmcp" else self.close_add_skills()
                 return True
             return False          # typing in the search fields
-        if page in ("settings", "connect", "install", "mcp", "status", "health", "chess"):
+        if page in ("settings", "connect", "install", "mcp", "status", "health"):
             if keyval == Gdk.KEY_BackSpace:
                 {"settings": self.close_settings, "connect": self.close_connect,
                  "install": self.close_install, "mcp": self.close_mcp_details,
-                 "status": self.close_status, "health": self.close_health, "chess": self.close_chess}[page]()
+                 "status": self.close_status, "health": self.close_health}[page]()
                 return True
             return False          # Tab and arrows move between the controls
         if ctrl and keyval == Gdk.KEY_comma:
@@ -3458,8 +3469,6 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
             except OSError:
                 pass
         self.stop_gpu_poll()
-        if getattr(self, "chess_window", None) is not None:
-            self.chess_window.set_visible(False)   # the game goes on; the knight opens it again
         self.map_view.set_shift(False)   # Shift may have been let go elsewhere
         if self.page_name() == "settings":
             self.close_settings()   # never reopen onto the settings page

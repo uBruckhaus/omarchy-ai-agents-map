@@ -57,6 +57,12 @@ def config_dir() -> Path:
     return CONFIG_DIR
 
 
+def use_identity(name: str, app_id: str, folder: Path) -> None:
+    """Another app built from this core (AI Playground): its own name, app id and settings."""
+    global APP_NAME, APP_ID, CONFIG_DIR
+    APP_NAME, APP_ID, CONFIG_DIR = name, app_id, Path(folder)
+
+
 # --- theme ----------------------------------------------------------------------------------------
 
 def theme_dir() -> Path:
@@ -260,22 +266,6 @@ def maximize(app_id: str) -> bool:
     """Settings → "Maximize where it is": over the other windows of its workspace."""
     return _dispatch(f'hl.dsp.window.fullscreen({{ mode = "maximized", window = "{_selector(app_id)}" }})')
 
-
-def place_window(title: str, floating: bool, size: tuple) -> bool:
-    """Another window of this process (the chess window), by its title: Hyprland tiles it, so
-    float it at this size and centre it if asked, then focus it (switching workspaces). False
-    while Hyprland does not list it yet."""
-    own = next((c for c in _clients() if c.get("pid") == os.getpid() and c.get("title") == title), None)
-    address = (own or {}).get("address")
-    if not isinstance(address, str) or not re.fullmatch(r"0x[0-9a-fA-F]{1,16}", address):
-        return False
-    window = f"address:{address}"
-    if floating and not own.get("floating"):
-        width, height = (int(v) for v in size)
-        _dispatch(f'hl.dsp.window.float({{ action = "enable", window = "{window}" }})')
-        _dispatch(f'hl.dsp.window.resize({{ x = {width}, y = {height}, window = "{window}" }})')
-        _dispatch(f'hl.dsp.window.center({{ window = "{window}" }})')
-    return _dispatch(f'hl.dsp.focus({{ window = "{window}" }})')
 
 
 # --- terminals ------------------------------------------------------------------------------------

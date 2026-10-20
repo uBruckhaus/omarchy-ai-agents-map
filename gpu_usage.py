@@ -194,8 +194,8 @@ def runtime_pids(processes) -> dict:
 
 
 def _own_port(port: int) -> bool:
-    import models_ctl
-    owners = models_ctl.loopback_listeners(port)
+    import loopback
+    owners = loopback.loopback_listeners(port)
     return bool(owners) and all(uid == os.getuid() for uid in owners)
 
 

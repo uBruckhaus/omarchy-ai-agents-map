@@ -71,6 +71,12 @@ def config_dir() -> Path:
     return CONFIG_DIR
 
 
+def use_identity(name: str, app_id: str, folder: Path) -> None:
+    """Another app built from this core (AI Playground): its own name, app id and settings."""
+    global APP_NAME, APP_ID, CONFIG_DIR
+    APP_NAME, APP_ID, CONFIG_DIR = name, app_id, Path(folder)
+
+
 # --- theme ----------------------------------------------------------------------------------------
 
 def _gsetting(key: str) -> str:
@@ -197,11 +203,6 @@ def maximize(app_id: str) -> bool:
         return True
     return _on_window(lambda w: w.maximize())
 
-
-def place_window(title: str, floating: bool, size: tuple) -> bool:
-    """Under Hyprland as on Omarchy; other desktops place a new window themselves (floating)."""
-    hypr = _hyprland()
-    return hypr is not None and hypr.place_window(title, floating, size)
 
 
 # --- terminals ------------------------------------------------------------------------------------

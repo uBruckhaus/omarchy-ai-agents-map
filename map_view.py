@@ -58,8 +58,7 @@ PIN_W = 14               # the pin's square at a box's top right
 PIN, PIN_OUTLINE = "\U000F0403", "\U000F0931"   # Nerd Font pin, pin-outline
 PLAY, CONSOLE = "\U000F040A", "\U000F018D"      # Nerd Font play, console: an agent's start button
 STOP_VRAM = 256 * 1024 ** 2                        # a local LLM holding this much GPU memory gets a stop button
-STOP = "\U000F04DB"
-CHESS = "\U000F0858"                             # Nerd Font chess knight: back to the game against this agent                              # Nerd Font stop: beside the console while it runs here
+STOP = "\U000F04DB"                              # Nerd Font stop: beside the console while it runs here
 ANIMATION_MODES = ("all", "agents", "off")    # Settings › Map animations
 START_W = 18             # the start button's square, left of where the pin and the tick go
 # The categories whose boxes each column holds (a column with none of them on is gone).
@@ -109,10 +108,6 @@ class MapView(Gtk.DrawingArea):
         self.pin_tips = ("Pin", "Unpin")   # tooltips (pin, unpin), translated by the window
         self.start_rects = {}    # agent box id -> rectangle of its start button, for clicks
         self.stop_rects = {}     # agent box id -> rectangle of its stop button (while it runs here)
-        self.chess_node = None   # the agent box playing chess (the page may be closed): a button back to it
-        self.chess_rect = None   # (node id, rectangle) of that button
-        self.on_chess = None     # on_chess(node id): open the game
-        self.chess_tip = ""
         self.batteries = {}      # box id -> (left 0..1, colour, tooltip): an online agent's limits, a local LLM's GPU
         self.battery_rects = {}  # agent box id -> rectangle of its battery, for the tooltip
         self.start_state = None  # start_state(node id) -> "start", "show" (runs here) or "" (no button)
@@ -657,9 +652,7 @@ class MapView(Gtk.DrawingArea):
         battery = next((n for n, (bx, by, bw, bh) in self.battery_rects.items()
                         if bx <= x <= bx + bw and by <= y <= by + bh and n in self.batteries), None)
         stop = self.stop_at(x, y)
-        if self.chess_at(x, y) is not None:
-            self.set_tooltip_text(self.chess_tip)
-        elif stop is not None and len(self.start_tips) > 2:
+        if stop is not None and len(self.start_tips) > 2:
             self.set_tooltip_text(self.start_tips[3 if stop.startswith("runtime:") and len(self.start_tips) > 3 else 2])
         elif start is not None and self.start_state is not None:
             self.set_tooltip_text(self.start_tips[1 if self.start_state(start) == "show" else 0])
@@ -672,13 +665,6 @@ class MapView(Gtk.DrawingArea):
         """The node whose pin is at (x, y) in map units, or None."""
         for node_id, (px, py, pw, ph) in self.pin_rects.items():
             if px <= x <= px + pw and py <= y <= py + ph:
-                return node_id
-        return None
-
-    def chess_at(self, x, y):
-        if self.chess_rect is not None:
-            node_id, (cx, cy, cw, ch) = self.chess_rect
-            if cx <= x <= cx + cw and cy <= y <= cy + ch:
                 return node_id
         return None
 
@@ -781,10 +767,6 @@ class MapView(Gtk.DrawingArea):
         pin = self.pin_at(x, y)
         if pin is not None:
             self.toggle_pin(pin)
-            return
-        chess = self.chess_at(x, y)
-        if chess is not None and self.on_chess is not None:
-            self.on_chess(chess)
             return
         stop = self.stop_at(x, y)
         if stop is not None and self.on_stop is not None:
@@ -1135,7 +1117,6 @@ class MapView(Gtk.DrawingArea):
         self.pin_rects = {}
         self.start_rects = {}
         self.stop_rects = {}
-        self.chess_rect = None
         self.battery_rects = {}
         for node in self.graph.nodes:
             if node.id not in self.boxes:
@@ -1168,8 +1149,7 @@ class MapView(Gtk.DrawingArea):
             use = self.runtime_use(node)
             detail = node.detail or (self.outside_label(node.id) if node.kind == "model" else "")
             right = 0                # room kept free at the right for the loaded mark or the start button
-            if node.kind == "agent" and ((self.start_state is not None and self.start_state(node.id))
-                                         or node.id == self.chess_node):
+            if node.kind == "agent" and self.start_state is not None and self.start_state(node.id):
                 right = self.draw_start(cr, layout, node.id, x, y, w, h, faded)
             elif node.kind == "runtime" and self.on_stop is not None and use is not None and use.running \
                     and use.vram >= STOP_VRAM:
@@ -1318,31 +1298,22 @@ class MapView(Gtk.DrawingArea):
         PangoCairo.show_layout(cr, layout)
 
     def draw_start(self, cr, layout, node_id, x, y, w, h, faded) -> int:
-        """An agent's start button (▶), left of the tick; while it runs here or plays chess a stop
-        button in its place, and left of it a console and/or a chess knight. Returns the room they
-        take from the text."""
+        """An agent's start button (▶), left of the tick; while it runs here a stop button in its
+        place, and left of it a console. Returns the room they take from the text."""
         state = self.start_state(node_id) if self.start_state is not None else ""
-        playing = node_id == self.chess_node
         sx = x + w - PIN_W - (24 if node_id in self.selected else 4) - START_W
         sy = y + (h - START_W) / 2
         hot = node_id == self.hover
-        if state != "show" and not playing:
+        if state != "show":
             self.start_rects[node_id] = (sx, sy, START_W, START_W)
             self.draw_square_button(cr, layout, sx, sy, PLAY, "fg", False, hot, faded)
             return START_W + 4
-        # Running here or playing chess: stop where ▶ was (it ends both), then left of it the
-        # console (show its terminal) and the chess knight (back to the game).
+        # Running here: stop where ▶ was, then left of it the console (show its terminal).
         self.stop_rects[node_id] = (sx, sy, START_W, START_W)
         self.draw_square_button(cr, layout, sx, sy, STOP, "red", True, hot, faded)
-        left = sx
-        if state == "show":
-            left -= START_W + 4
-            self.start_rects[node_id] = (left, sy, START_W, START_W)
-            self.draw_square_button(cr, layout, left, sy, CONSOLE, "accent", True, hot, faded)
-        if playing:
-            left -= START_W + 4
-            self.chess_rect = (node_id, (left, sy, START_W, START_W))
-            self.draw_square_button(cr, layout, left, sy, CHESS, "accent", True, hot, faded)
+        left = sx - START_W - 4
+        self.start_rects[node_id] = (left, sy, START_W, START_W)
+        self.draw_square_button(cr, layout, left, sy, CONSOLE, "accent", True, hot, faded)
         return int(sx - left) + START_W + 4
 
     def draw_runtime_stop(self, cr, layout, node_id, x, y, w, h, faded) -> int:

@@ -58,8 +58,15 @@ SCHEMA: dict[str, Setting] = {
     "window_size": Setting(None, _size, "the window's size when it was last closed: [width, height]"),
     "last_view": Setting("main", _text, "the view open when the window was last closed"),
     "widen": Setting("workspace", _text, "Settings › Too narrow for the map: what Maximize for more room does"),
-    "chess_window": Setting("floating", _one_of("floating", "window", "page"),
-                            "Settings › Chess opens in: a floating window, a window, or a page of this window"),
+    "chess_thinking": Setting("normal", _one_of("quick", "normal", "deep", "max"), "AI Playground › Chess › Thinking time"),
+    "chess_strength": Setting("club", _one_of("beginner", "casual", "club", "master", "max"), "AI Playground › Chess › Strength"),
+    "chess_board": Setting("theme", _one_of("theme", "wood", "green", "blue", "grey"), "AI Playground › Chess › Board and pieces › Board"),
+    "chess_pieces": Setting("classic", _one_of("classic", "flat", "theme"), "AI Playground › Chess › Board and pieces › Pieces"),
+    "chess_coordinates": Setting(True, _bool, "AI Playground › Chess › Board and pieces › Coordinates"),
+    # AI Playground (its own settings file; the same schema)
+    "playground_tab": Setting("chess", _text, "AI Playground: the tab open when it was last closed"),
+    "playground_agents": Setting([], _texts, "AI Playground › Speed and cost: the agents ticked"),
+    "duel_scores": Setting({}, _mapping, "AI Playground › Head to head: {\"a|b\": [a wins, ties, b wins]}"),
     "terminal_tabs": Setting(True, _bool, "Settings › Terminal tabs above the map"),
     "launcher_entry": Setting(None, _bool, "Settings › In the app launcher (None: not asked yet)"),
     "agent_folder": Setting(None, _text, "Settings › Agents start in: the folder agents start in"),
@@ -95,7 +102,8 @@ RENAMED: dict[str, tuple[str, Callable[[Any], Any]]] = {
 RETIRED = ("hidden_items", "hidden_nodes", "hidden_providers", "card_hidden", "start_scope", "show_more_hint",
            "setup_mode",                          # Setup's All/Installed switch
            "sidebar", "sidebar_width",            # the list beside the map
-           "health_line")                         # the health check's line (now the header's !)
+           "health_line",                         # the health check's line (now the header's !)
+           "chess_window")                        # where chess opened (chess moved to AI Playground)
 
 
 def value(settings: dict, key: str):

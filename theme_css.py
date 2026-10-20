@@ -460,7 +460,12 @@ class ThemeCss:
         .am-chess-controls dropdown label {{ font-size: 11px; font-weight: normal; color: {dim_hex}; }}
         button.am-chess-promote {{ font-family: "DejaVu Sans", "Noto Sans Symbols 2", sans-serif; font-size: 28px;
             padding: 2px 8px; }}
+        /* AI Playground's question fields. */
+        textview.am-prompt {{ border: 1px solid alpha({fg_hex}, 0.25); border-radius: {radius}px; }}
+        textview.am-prompt:focus-within {{ border-color: {accent_hex}; }}
         """
+        import more_plugins                  # the Information page's cards (info_page, AI Playground)
+        css += more_plugins.css("am", fg_hex, dim_hex, accent_hex, radius)
         for view in (getattr(self, "map_view", None), getattr(self, "side_map", None)):
             if view is not None:
                 view.set_palette({"bg": bg_hex, "fg": fg_hex, "dim": dim_hex, "muted": muted_hex,
