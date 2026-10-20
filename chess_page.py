@@ -1,4 +1,4 @@
-"""The chess page: a game against an agent that is set up (an agent's menu › Play chess).
+"""The chess page: a game against an agent that is set up (the header's chess button, with it selected).
 
 The board in the middle; above it a card for each kind of Black piece, below it one for each kind
 of White piece, with how many are on the board. A choice above starts a new game with White or
@@ -275,12 +275,32 @@ class ChessPage:
         """A game against this agent is open (the page may be closed)."""
         return agent is not None and self.chess_agent is not None and self.chess_agent.command == agent.command
 
+    def chess_selected_agent(self):
+        """The agent selected on the map, where it can play chess."""
+        command = next((i.partition(":")[2] for i in getattr(self, "selection", []) if i.startswith("agent:")), None)
+        agent = next((a for a in getattr(self, "agent_list", []) if a.command == command), None)
+        return agent if agent is not None and self.can_play_chess(agent) else None
+
+    def on_chess_button(self):
+        agent = self.chess_selected_agent() or self.chess_agent
+        if agent is not None:
+            self.open_chess(agent)
+
     def chess_mark_map(self):
-        """While a game is open: a chess button in the header, and on the agent's card a stop button
-        (it ends the game) and a chess button, back to the game."""
+        """The header's chess button: a game against the selected agent where it plays one, back to
+        the game while one is open, else greyed. While a game is open, on the agent's card a stop
+        button (it ends the game) and a chess button, back to the game."""
         button = getattr(self, "chess_button", None)
         if button is not None:
-            button.set_visible(self.chess_agent is not None)
+            agent = self.chess_selected_agent()
+            if agent is not None and not self.chess_game_with(agent):
+                tip = _("Play chess") + "\n" + _("A game of chess against {0}; it is asked for each move").format(agent.name)
+            elif agent is not None or self.chess_agent is not None:
+                tip = _("Back to the chess game")
+            else:
+                tip = _("Play chess: select an agent on the map that plays it (Claude Code, Codex, Hermes or Pi, set up)")
+            button.set_sensitive(agent is not None or self.chess_agent is not None)
+            button.set_tooltip_text(tip)
         view = getattr(self, "side_map", None)
         if view is not None:
             view.chess_node = f"agent:{self.chess_agent.command}" if self.chess_agent is not None else None

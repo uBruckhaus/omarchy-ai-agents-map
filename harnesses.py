@@ -154,7 +154,7 @@ class Harness:
     latest: Callable | None = None    # latest(channel) -> newest version for self_update
     homepage: str = ""                # its web page (the Add-ons page's Homepage button)
     ask: tuple = ()                   # argv for one prompt and one answer without tools ("{prompt}" in it)
-    games: tuple = ()                 # games it can play through `ask` ("chess"): its menu offers them
+    games: tuple = ()                 # games it can play through `ask` ("chess"): the header's chess button, with it selected
     effort: tuple = ()                # ((level, options), …): how hard it thinks per Thinking time level
 
 

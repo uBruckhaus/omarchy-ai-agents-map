@@ -510,17 +510,18 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
         self.problem_button.add_css_class("am-problem-btn")
         self.problem_button.connect("clicked", lambda *_: self.open_health())
         header.append(self.problem_button)
-        # A chess game going (the page may be closed): back to it. Gone when the game ends.
-        self.chess_button = Gtk.Button(valign=Gtk.Align.CENTER, visible=False)
+        # Chess: a game against the selected agent, where it plays one (else greyed); while a game
+        # goes on (the page may be closed), back to it.
+        self.chess_button = Gtk.Button(valign=Gtk.Align.CENTER, sensitive=False)
         knight = Gtk.Label(label="\U000F0858")
         knight.add_css_class("am-gear")
         self.chess_button.set_child(knight)
         self.chess_button.add_css_class("flat")
         self.chess_button.add_css_class("am-header-btn")
         self.chess_button.add_css_class("am-gear-btn")
-        self.chess_button.set_tooltip_text(_("Back to the chess game"))
-        self.chess_button.connect("clicked", lambda *_: self.chess_agent is not None and self.open_chess(self.chess_agent))
+        self.chess_button.connect("clicked", lambda *_: self.on_chess_button())
         header.append(self.chess_button)
+        self.chess_mark_map()
 
         # The legend (as in App Manager): what the map's dots, lines and marks mean.
         legend_button = Gtk.MenuButton()
@@ -1959,6 +1960,7 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
                                          "▶ starts an agent."))
         self.side_filter.set_tooltip_text(self.side_filter.get_label())
         self.map_show_all.set_visible(bool(nodes))
+        self.chess_mark_map()
 
     def show_batteries(self):
         """Online agents' limits and running local LLMs' free GPU memory, on the map and Setup's cards."""
@@ -3066,15 +3068,6 @@ class AgentsMap(PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, Ad
                                                  _("Start {0} in {1}, in a terminal window of its own")
                                                  .format(agent.name, self.agent_folder())))
             details.append(self.menu_item(_("Details"), popover, lambda: self.open_agent_status(agent)))
-            # A game, where the agent's adapter says it plays one and it is set up (adapters' ask.games).
-            if self.can_play_chess(agent):
-                rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-                rule.add_css_class("am-menu-rule")
-                details.append(rule)
-                details.append(self.menu_item(_("Back to the chess game") if self.chess_game_with(agent)
-                                              else _("Play chess"), popover, lambda: self.open_chess(agent),
-                                              _("A game of chess against {0}; it is asked for each move").format(
-                                                  agent.name)))
         elif kind == "runtime":
             details.append(self.menu_item(_("Details"), popover, lambda: self.open_runtime_status(ident)))
         elif kind == "mcp" and any(m.name == ident for m in self.inventory.mcp):

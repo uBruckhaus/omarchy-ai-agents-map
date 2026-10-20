@@ -1906,5 +1906,6 @@
  "End the game and close the page": "Partij beëindigen en pagina sluiten",
  "Back to the chess game": "Terug naar de schaakpartij",
  "{0} captured": "{0} geslagen",
- "Game": "Partij"
+ "Game": "Partij",
+ "Play chess: select an agent on the map that plays it (Claude Code, Codex, Hermes or Pi, set up)": "Schaak spelen: selecteer op de kaart een agent die het speelt (Claude Code, Codex, Hermes of Pi, ingesteld)"
 }

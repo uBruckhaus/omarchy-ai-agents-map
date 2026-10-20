@@ -1906,5 +1906,6 @@
  "End the game and close the page": "Terminer la partie et fermer la page",
  "Back to the chess game": "Retour à la partie d’échecs",
  "{0} captured": "Capture : {0}",
- "Game": "Partie"
+ "Game": "Partie",
+ "Play chess: select an agent on the map that plays it (Claude Code, Codex, Hermes or Pi, set up)": "Jouer aux échecs : sélectionnez sur la carte un agent qui y joue (Claude Code, Codex, Hermes ou Pi, configuré)"
 }

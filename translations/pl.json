@@ -1965,5 +1965,6 @@
  "End the game and close the page": "Zakończ partię i zamknij stronę",
  "Back to the chess game": "Wróć do partii szachów",
  "{0} captured": "Zbito: {0}",
- "Game": "Partia"
+ "Game": "Partia",
+ "Play chess: select an agent on the map that plays it (Claude Code, Codex, Hermes or Pi, set up)": "Zagraj w szachy: wybierz na mapie agenta, który w nie gra (Claude Code, Codex, Hermes lub Pi, skonfigurowany)"
 }
