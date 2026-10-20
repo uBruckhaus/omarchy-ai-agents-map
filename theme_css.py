@@ -208,9 +208,9 @@ class ThemeCss:
         .am-setup-absent .am-addon-name, .am-setup-absent .am-agent-detail {{ color: {dim_hex}; }}
         button.am-setup-section {{ padding: 2px 6px; min-height: 0; }}
         button.am-setup-section:hover {{ background: alpha({fg_hex}, 0.08); }}
-        button.am-setup-section.am-setup-bar {{ background: alpha({fg_hex}, 0.04); border: 1px solid alpha({fg_hex}, 0.10);
-            border-radius: {radius}px; padding: 6px 12px 6px 6px; }}
-        button.am-setup-section.am-setup-bar:hover {{ background: alpha({fg_hex}, 0.08); }}
+        /* Setup's categories: group cards (heading and content in one frame). */
+        .am-help-card.am-group-card.am-setup-card {{ padding: 4px 10px 8px 4px; }}
+        .am-setup-card > button.am-setup-section {{ padding: 4px 6px; }}
         button.am-setup-action {{ min-width: 84px; }}
         .am-setup-explain {{ background: alpha({fg_hex}, 0.04); border: 1px solid alpha({fg_hex}, 0.10);
             border-radius: {radius}px; padding: 2px 12px 2px 6px; }}   /* low like the group cards */
@@ -277,6 +277,10 @@ class ThemeCss:
         .am-card button.am-danger {{ color: {red_hex}; border-color: alpha({red_hex}, 0.6); }}
         popover button.am-danger {{ color: {red_hex}; border-color: alpha({red_hex}, 0.6); }}
         .am-hint-error {{ color: {red_hex}; font-weight: bold; }}
+        .am-an-mark {{ font-size: 22px; font-weight: 800; min-width: 28px; color: {dim_hex}; }}
+        .am-an-mark.yes {{ color: {green_hex}; }}
+        .am-an-mark.no {{ color: {red_hex}; }}
+        .am-an-mark.slow {{ color: {yellow_hex}; }}
         .am-model-name {{ font-weight: 600; }}
         .am-help-picture {{ border-radius: {min(radius, 8)}px; }}
         button.am-download-btn {{ padding: 6px 18px; font-weight: 700; }}
@@ -493,7 +497,7 @@ class ThemeCss:
             if view is not None:
                 view.set_palette({"bg": bg_hex, "fg": fg_hex, "dim": dim_hex, "muted": muted_hex,
                                   "accent": accent_hex, "green": green_hex, "yellow": yellow_hex, "red": red_hex,
-                                  "outside": outside_hex},
+                                  "outside": outside_hex, "hook": orange_hex},
                                  radius)
         self.apply_style_scheme(bg_hex)
         css = self.adw_colors_css(bg_hex, fg_hex, accent_hex, red_hex, green_hex, yellow_hex, radius) + css

@@ -17,7 +17,9 @@ ONLINE = [
     _online("google", "Google", ("google", "gemini"), ("gemini",)),
     _online("xai", "xAI", ("xai",), ("grok",)),
     _online("meta", "Meta", (), ("muse",)),
-    _online("openclaw", "OpenClaw", (), ("openclaw",)),
+    # OpenClaw brings no model service of its own: it routes to the providers in its openclaw.json
+    # (agent_details.openclaw), so no line is drawn for it unless that file names one.
+    _online("openclaw", "OpenClaw", ("openclaw",)),
     _online("nous", "Nous Research", ("nous",)),
     _online("openrouter", "OpenRouter", ("openrouter",)),
     _online("groq", "Groq", ("groq",)),

@@ -83,6 +83,7 @@ SCHEMA: dict[str, Setting] = {
     "first_connection_done": Setting(False, _bool, "the card above the map that shows the first connection: done or closed"),
     "setup_collapsed": Setting([], _texts, "Setup: sections folded (closed-by-default ones as \"<key>:open\")"),
     "details_open": Setting([], _texts, "details pages: group cards opened (open-by-default ones as \"<key>:closed\")"),
+    "model_folders": Setting([], _texts, "Setup › Models: folders added by hand (Add folder, Change folder), ~-paths"),
     "add_where": Setting({}, _mapping, "the add pages' last tab: {\"mcp\": …, \"models\": …, \"skills\": …}"),
     "seen_found": Setting({}, _mapping, "programs and skill sets already shown as new on this PC"),
     "web_sources": Setting({}, _mapping, "the user's own search sites per kind (web_sources.py)"),

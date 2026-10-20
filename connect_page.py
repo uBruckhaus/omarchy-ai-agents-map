@@ -438,8 +438,10 @@ class ConnectPage:
                  _("{0} can only use {1}'s models (and its own cloud); it cannot be connected to {2}."))
                 .format(agent.name, fixed_name, runtime.name))
         elif not supported:
-            self.connect_intro.set_label(_("{0} cannot be connected from here yet. Hermes, Pi, OpenCode and "
-                                           "DeepSeek Harness can.").format(agent.name))
+            import harnesses
+            able = sorted(h.name for c in connect.SUPPORTED if (h := harnesses.get(c)) is not None)
+            self.connect_intro.set_label(_("{0} cannot be connected from here yet. These can: {1}.").format(
+                agent.name, ", ".join(able)))
         else:
             already = connect.is_connected(agent.command, runtime.key)
             # Set to use it, with the provider gone (a broken line): removing clears that setting.

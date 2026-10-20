@@ -17,13 +17,18 @@ LLMs found on this PC already ticked, and Switch on.
 
 from __future__ import annotations
 
-from gi.repository import Adw, Gdk, GLib, Gtk
+import os
+import threading
+from pathlib import Path
+
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 import agent_updates
 import ai_core
 import desktop
 from glyphs import MCP_GLYPHS, MCP_GROUP_GLYPHS, glyph
 from i18n import _, ngettext
+from ui_helpers import size_text
 
 LOCAL_GLYPH, ONLINE_GLYPH, AGENT_GLYPH = "\U000F061A", "\U000F015F", "\U000f06a9"
 
@@ -471,21 +476,229 @@ class SetupPage:
         runtimes = [r for r in self.inventory.runtimes if r.installed and r.key != "vllm"]
         if not runtimes:
             return
-        box = self.setup_section(box, "models", _("Models"), sum(len(r.models) for r in runtimes))
-        self.note(box, _("The models of your local LLMs. Click one for Move and Delete."))
-        for rt in runtimes:
-            label = Gtk.Label(label=" · ".join(filter(None, [rt.name, self.tilde_path(rt.models_dir)])), xalign=0)
-            label.add_css_class("am-group-heading")
-            box.append(label)
+        import install_ctl
+        import model_folders
+        names = {r.key: r.name for r in runtimes}
+        folders = model_folders.discover(runtimes, self.added_model_folders())
+        others = [r for r in runtimes if r.key not in model_folders.GGUF_RUNTIMES]
+        box = self.setup_section(box, "models", _("Models"),
+                                 sum(len(f.models) for f in folders) + sum(len(r.models) for r in others))
+        self.note(box, _("Your model files, one card per folder, with the local LLMs that read it."))
+        add = Gtk.Button(label=_("Add folder…"), halign=Gtk.Align.START)
+        add.add_css_class("am-small-btn")
+        add.set_tooltip_text(_("Choose or make a folder for models; it gets a card of its own here"))
+        add.connect("clicked", lambda *_a: self.add_model_folder())
+        box.append(add)
+        gguf = [r for r in runtimes if r.key in model_folders.GGUF_RUNTIMES]
+        for folder in folders:
+            readers = [names[k] for k in folder.readers if k in names]
+            count = ngettext("1 model", "{0} models", len(folder.models)).format(len(folder.models))
+            read = _("read by {0}").format(", ".join(readers)) if readers else _("no local LLM reads it")
+            path = self.tilde_path(str(folder.path))
+            card = self.group_card(box, f"setup-folder:{folder.path}", folder.path.name,
+                                   summary=" · ".join([path, count, read]), default_open=True)
+            where = Gtk.Label(label=f"{path} · {read}", xalign=0, wrap=True)
+            where.add_css_class("am-agent-detail")
+            card.append(where)
+            flow = self.setup_flow()
+            reader = next((r for r in gguf if r.key in folder.readers), gguf[0] if gguf else None)
+            for model in folder.models:
+                node_id = f"model:runtime:{reader.key}:{model.lower()}" if reader else f"file:{folder.path}/{model}"
+                flow.append(self.item_card(node_id, glyph("model"), model, "", None, small=True))
+            # Last: a new model into this folder, and this folder somewhere else (its models go along).
+            if reader is not None:
+                flow.append(self.add_tile(_("Add model"), _("Download into this folder"), "model",
+                                          lambda r=reader, f=folder: self.open_models(r, into=f.path), small=True))
+            if folder.files:
+                flow.append(self.add_tile(_("Change folder…"), _("Its models move along"), "folder",
+                                          lambda f=folder: self.change_model_folder(f), small=True))
+            card.append(flow)
+        for rt in others:                      # Ollama, Jan: their own store, one card each
+            folder = self.tilde_path(rt.models_dir)
+            count = ngettext("1 model", "{0} models", len(rt.models)).format(len(rt.models))
+            card = self.group_card(box, f"setup-models:{rt.key}", rt.name,
+                                   summary=" · ".join(filter(None, [folder, count])), default_open=True)
+            if folder:
+                where = Gtk.Label(label=folder, xalign=0, wrap=True)
+                where.add_css_class("am-agent-detail")
+                card.append(where)
             flow = self.setup_flow()
             for model in sorted(rt.models, key=str.lower):
-                node_id = f"model:runtime:{rt.key}:{model.lower()}"
-                card = self.item_card(node_id, glyph("model"), model, "", None, small=True)
-                flow.append(card)
+                flow.append(self.item_card(f"model:runtime:{rt.key}:{model.lower()}", glyph("model"), model, "",
+                                           None, small=True))
             if rt.key != "jan":
                 flow.append(self.add_tile(_("Add model"), _("Download for {0}").format(rt.name), "model",
                                           lambda r=rt: self.open_models(r), small=True))
-            box.append(flow)
+            inst = install_ctl.installer(rt.key)
+            if rt.key != "jan" and inst is not None and inst.installed_folder() is not None:
+                flow.append(self.add_tile(_("Model folder…"), _("Another or a new folder for {0}").format(rt.name),
+                                          "folder", lambda r=rt: self.open_install(r, "models"), small=True))
+            card.append(flow)
+
+    # --- model folders: Add folder, Change folder (model_folders) -----------------------------------
+
+    @staticmethod
+    def added_model_folders() -> list:
+        saved = ai_core.setting("model_folders")
+        return [p for p in saved if isinstance(p, str)][:100] if isinstance(saved, list) else []
+
+    def remember_model_folders(self, add=(), drop=()):
+        import inventory
+        drop = {str(Path(os.path.expanduser(p))) for p in drop}
+        kept = [p for p in self.added_model_folders() if str(Path(os.path.expanduser(p))) not in drop]
+        for path in add:
+            text = inventory.tilde(str(path))
+            if text not in kept:
+                kept.append(text)
+        self.save_setting(model_folders=kept)
+
+    def pick_folder(self, title: str, start, done):
+        """A folder picker (it can make new folders too); done(Path) when one is chosen."""
+        dialog = Gtk.FileDialog(title=title, modal=True)
+        start = Path(os.path.expanduser(str(start))) if start else None
+        if start is not None and start.is_dir():
+            dialog.set_initial_folder(Gio.File.new_for_path(str(start)))
+
+        def chosen(source, result):
+            try:
+                folder = source.select_folder_finish(result)
+            except GLib.Error:
+                return                         # cancelled
+            if folder is not None and folder.get_path():
+                done(Path(folder.get_path()))
+        dialog.select_folder(self.window, None, chosen)
+
+    def add_model_folder(self):
+        def done(path):
+            import install_ctl
+            try:
+                install_ctl.check_folder(str(path))
+                path.mkdir(parents=True, exist_ok=True)
+            except (OSError, ValueError) as error:
+                self.show_note(_("Not added: {0}").format(error))
+                return
+            self.remember_model_folders(add=[path])
+            self.refresh_setup()
+            self.toast(_("{0} added: its Add model downloads into it").format(path.name), 6)
+        roots = [r.models_dir for r in self.inventory.runtimes if r.installed and r.models_dir]
+        self.pick_folder(_("Add folder"), self.added_model_folders()[-1] if self.added_model_folders()
+                         else (roots[0] if roots else "~"), done)
+
+    def change_model_folder(self, folder):
+        """Pick the new place, show what moving it does, then move (Undo afterwards)."""
+        import install_ctl
+        import model_folders
+
+        def repointable(key: str) -> bool:
+            inst = install_ctl.installer(key)
+            return inst is not None and inst.installed_folder() is not None
+
+        def picked(new):
+            try:
+                install_ctl.check_folder(str(new))
+                change = model_folders.plan(folder, new, [r for r in self.inventory.runtimes if r.installed],
+                                            repointable)
+            except (OSError, ValueError) as error:
+                self.show_note(_("Not moved: {0}").format(error))
+                return
+            self.confirm_folder_change(folder, new, change)
+        self.pick_folder(_("Change folder"), folder.path.parent, picked)
+
+    def confirm_folder_change(self, folder, new, change):
+        import inventory
+        names = {r.key: r.name for r in self.inventory.runtimes}
+        move = change.move
+        lines = [ngettext("1 file ({1}) moves from {2} to {3}.", "{0} files ({1}) move from {2} to {3}.",
+                          len(move.steps)).format(len(move.steps), size_text(move.size),
+                                                  inventory.tilde(str(folder.path)), inventory.tilde(str(new)))]
+        if move.copy:
+            lines.append(_("The new folder is on another disk: copied first, then removed here."))
+        if change.links:
+            lines.append(ngettext("1 link of a local LLM is pointed at the new place.",
+                                  "{0} links of local LLMs are pointed at the new place.",
+                                  len(change.links)).format(len(change.links)))
+        if change.ini:
+            lines.append(_("llama.cpp's models.ini names the new place (it reads it at its next start)."))
+        for key in change.repoint:
+            lines.append(_("{0} is pointed at the new folder.").format(names.get(key, key)))
+        for key in change.lost:
+            lines.append(_("{0} will not see these models any more: it reads only its own folder.").format(
+                names.get(key, key)))
+        dialog = Adw.AlertDialog(heading=_("Move {0}?").format(folder.path.name), body="\n".join(lines))
+        dialog.add_response("cancel", _("Cancel"))
+        dialog.add_response("move", _("Move"))
+        dialog.set_response_appearance("move", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("move")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", lambda _d, answer: answer == "move" and self.run_folder_change(folder, new, change))
+        dialog.present(self.window)
+
+    def run_folder_change(self, folder, new, change):
+        import install_ctl
+        import model_folders
+        import model_move
+        move = change.move
+        self.show_note(_("Moving {0}…").format(folder.path.name))
+
+        def repoint(path):
+            for key in change.repoint:
+                install_ctl.installer(key).set_models_folder(path)
+
+        def work():
+            try:
+                done = model_move.apply(move, progress=lambda f, _t: GLib.idle_add(
+                    self.show_note, _("Moving {0}… {1} %").format(folder.path.name, round(f * 100))))
+                problems = model_folders.fix(change)
+                repoint(new)
+                error = "; ".join(problems)
+            except (OSError, ValueError, RuntimeError, model_move.model_layout.Cancelled) as problem:
+                done, error = getattr(problem, "done", []), str(problem)
+                if done:
+                    model_move.undo(move, done)
+                done = None
+            GLib.idle_add(finished, done, error)
+
+        def finished(done, error):
+            if done is not None:
+                self.remember_model_folders(add=[new], drop=[folder.path])
+            self.collect()
+            self.refresh_overview()
+            self.refresh_map()
+            self.refresh_setup()
+            if done is None:
+                self.show_note(_("Not moved: {0}").format(error))
+            else:
+                if error:
+                    self.show_note(_("Moved, but: {0}").format(error))
+                self.toast(_("{0} moved to {1}").format(folder.path.name, new), 10, _("Undo"),
+                           lambda: self.undo_folder_change(folder, new, change, done))
+            return False
+        threading.Thread(target=work, daemon=True).start()
+
+    def undo_folder_change(self, folder, new, change, done):
+        import install_ctl
+        import model_folders
+        import model_move
+
+        def work():
+            problems = model_move.undo(change.move, done) + model_folders.fix(change, back=True)
+            for key in change.repoint:
+                try:
+                    install_ctl.installer(key).set_models_folder(folder.path)
+                except (OSError, ValueError, RuntimeError) as error:
+                    problems.append(str(error))
+            GLib.idle_add(finished, problems)
+
+        def finished(problems):
+            self.remember_model_folders(add=[folder.path], drop=[new])
+            self.collect()
+            self.refresh_overview()
+            self.refresh_map()
+            self.refresh_setup()
+            self.show_note(_("Undo did not work: {0}").format("; ".join(problems)) if problems
+                           else _("{0} is back").format(folder.path.name))
+            return False
+        threading.Thread(target=work, daemon=True).start()
 
     def setup_section(self, box, key: str, title: str, count: int | None, total: int | None = None,
                       closed: bool = False) -> Gtk.Box:
@@ -498,8 +711,6 @@ class SetupPage:
         head = Gtk.Button(halign=Gtk.Align.FILL, hexpand=True)
         head.add_css_class("flat")
         head.add_css_class("am-setup-section")
-        if key != "explain":         # a category: framed like the explainer card's header, as wide
-            head.add_css_class("am-setup-bar")
         row = Gtk.Box(spacing=8)
         arrow = Gtk.Image.new_from_icon_name("pan-end-symbolic" if folded else "pan-down-symbolic")
         row.append(arrow)
@@ -527,8 +738,18 @@ class SetupPage:
             self.save_setting(setup_collapsed=sorted(now))
 
         head.connect("clicked", toggle)
-        box.append(head)
-        box.append(body)
+        if key == "explain":                   # already inside its own card
+            box.append(head)
+            box.append(body)
+            return body
+        # A category: a group card holding its heading and its content.
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
+        card.add_css_class("am-help-card")
+        card.add_css_class("am-group-card")
+        card.add_css_class("am-setup-card")
+        card.append(head)
+        card.append(body)
+        box.append(card)
         return body
 
     def setup_problems(self) -> dict:

@@ -698,15 +698,17 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.side_map.on_remodel = self.on_map_remodel
         self.side_map.on_attach = self.on_map_attach
         self.side_map.edge_tips = (
-            _("Click the line, then drag its end to another local LLM, or onto empty space to remove it"),
-            _("Used by {0}. Click the line, then drag its end onto another model (they switch to it) or onto empty "
-              "space (they are disconnected)"),
+            _("Drag its orange hook to another local LLM, or onto empty space to remove it (click the line or "
+              "its box to show the hook)"),
+            _("Used by {0}. Drag its orange hook onto another model (they switch to it) or onto empty space (they "
+              "are disconnected); click the line or its box to show the hook"),
             _("Used by {0}, in use right now: it can be moved or disconnected once it is free (no agent that uses "
               "it running)"),
-            _("Loaded, no agent uses it. Click the line, then drag its end into empty space to unload it, or onto "
-              "another model to load that one instead"),
-            _("Used by {0}. Click the line, then drag its end onto another model: they switch to it"),
-            _("Click the line, then drag its end into empty space to sign out"),
+            _("Loaded, no agent uses it. Drag its orange hook into empty space to unload it, or onto another model "
+              "to load that one instead (click the line or its box to show the hook)"),
+            _("Used by {0}. Drag its orange hook onto another model: they switch to it (click the line or its box "
+              "to show the hook)"),
+            _("Drag its orange hook into empty space to sign out (click the line or its box to show the hook)"),
             _("Not working: click the line to see why, then repair or remove it"))
         self.side_map.pick_tip = _("Click: {0} uses this model")
         self.side_map.on_failed_edge = self.show_link_hints
@@ -1908,9 +1910,12 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         # With an agent selected, a click on a model of its local LLMs makes it the agent's model.
         pick_hint = " · " + _("click a model of its local LLM to use it") \
             if any(n.kind == "agent" for n in nodes) else ""
+        # Its lines that can be moved or removed carry an orange hook: say what to do with them.
+        hook_hint = " · " + _("drag an orange hook to move or remove a connection (hover it to see what it does)") \
+            if nodes and self.side_map.hooked_edges() else ""
         if nodes:
             self.side_filter.set_label(_("Selected: {0} · hold Shift and click to add or remove one")
-                                       .format(", ".join(n.label for n in nodes)) + pick_hint)
+                                       .format(", ".join(n.label for n in nodes)) + pick_hint + hook_hint)
         else:
             self.side_filter.set_label(_("Click a box to see only its connections; Shift+click selects more than one; "
                                          "▶ starts an agent."))

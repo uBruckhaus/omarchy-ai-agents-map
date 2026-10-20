@@ -42,12 +42,13 @@ class SameTablesAsBeforeTest(unittest.TestCase):
     def test_graph(self):
         self.assertEqual(graph.CLOUD, {
             "claude": "Anthropic", "codex": "OpenAI", "copilot": "GitHub Copilot", "cursor-agent": "Cursor",
-            "gemini": "Google", "grok": "xAI", "muse": "Meta", "openclaw": "OpenClaw"})
+            "gemini": "Google", "grok": "xAI", "muse": "Meta"})       # OpenClaw: none of its own
         self.assertEqual(graph.PROVIDER_NAMES, {
             "anthropic": "Anthropic", "openai": "OpenAI", "openai-codex": "OpenAI", "google": "Google",
             "gemini": "Google", "github-copilot": "GitHub Copilot", "xai": "xAI", "nous": "Nous Research",
             "openrouter": "OpenRouter", "groq": "Groq", "mistral": "Mistral", "deepseek": "DeepSeek",
-            "fireworks": "Fireworks", "together": "Together AI", "opencode": "OpenCode Zen", "zai": "Z.ai"})
+            "fireworks": "Fireworks", "together": "Together AI", "opencode": "OpenCode Zen", "zai": "Z.ai",
+            "openclaw": "OpenClaw"})
 
     def test_installers(self):
         self.assertEqual({k: type(v).__name__ for k, v in install_ctl.INSTALLERS.items()}, {

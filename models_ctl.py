@@ -289,18 +289,40 @@ def gguf_target(runtime_key: str, models_dir: Path, repo: str) -> tuple[Path, Pa
     if entries and all(p.is_symlink() for p in entries):
         targets = {Path(os.path.realpath(p)).parent for p in entries}
         if len(targets) == 1:
-            return targets.pop(), models_dir
+            target = targets.pop()
+            if _private_folder(target):
+                return target, models_dir
+            return models_dir, None
         common = Path(os.path.commonpath([str(t) for t in targets]))
         router = Path(os.path.realpath(models_dir))
         if len(common.parts) > 1 and common != router and router not in common.parents:
             publisher, name = repo.split("/", 1)
-            return common / publisher / name, models_dir
+            chain = [common, common / publisher, common / publisher / name]
+            if all(_private_folder(p) for p in chain if p is common or os.path.lexists(p)):
+                return common / publisher / name, models_dir
     return models_dir, None
 
 
+def _private_folder(path: Path) -> bool:
+    """A real folder of this user's that nobody else can write to: the links of a router folder
+    must not lead a download into a folder another account could prepare or change."""
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return False
+    import stat
+    return stat.S_ISDIR(info.st_mode) and info.st_uid == os.getuid() and not info.st_mode & 0o022
+
+
 def download_gguf(runtime_key: str, models_dir: Path, repo: str, entry: GgufFile, progress, cancelled,
-                  base: str = HF) -> Path:
+                  base: str = HF, into: Path | None = None) -> Path:
+    """into: a folder chosen on Setup (a folder card's Add model); llama.cpp and KoboldCpp, which read
+    one flat folder, get a link in their model folder when it is another one."""
     folder, link_dir = gguf_target(runtime_key, models_dir, repo)
+    if into is not None:
+        folder = into
+        same = Path(os.path.realpath(into)) == Path(os.path.realpath(models_dir))
+        link_dir = models_dir if runtime_key in ("llamacpp", "koboldcpp") and not same else None
     folder.mkdir(parents=True, exist_ok=True)
     done = 0
     first = None

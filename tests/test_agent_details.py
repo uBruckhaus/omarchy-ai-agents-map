@@ -42,6 +42,22 @@ class DetailsTest(unittest.TestCase):
         self.assertEqual([(p.name, p.runtime, p.models) for p in d.providers], [("ollama-local", "Ollama", 2)])
         self.assertNotIn("secret", repr(d))
 
+    def test_openclaw_model_and_providers(self):
+        d = ad.details_for("openclaw", usage_dir=self.home / "none")
+        self.assertEqual((d.model, d.providers), ("", []))              # not set up: nothing made up
+        self.write(".openclaw/openclaw.json", json.dumps({
+            "agents": {"defaults": {"model": {"primary": "llama-local/gemma", "fallbacks": ["anthropic/x"]}}},
+            "models": {"providers": {"llama-local": {"baseUrl": "http://127.0.0.1:8080/v1", "apiKey": "secret",
+                                                     "models": [{"id": "gemma"}]}}}}))
+        d = ad.details_for("openclaw", usage_dir=self.home / "none")
+        self.assertEqual(d.model, "gemma (llama-local)")
+        self.assertEqual([(p.name, p.runtime, p.active) for p in d.providers], [("llama-local", "llama.cpp", True)])
+        self.assertNotIn("secret", repr(d))
+        # Its own local providers need no entry (their usual address).
+        self.write(".openclaw/openclaw.json", json.dumps({"agents": {"defaults": {"model": "ollama/qwen3"}}}))
+        d = ad.details_for("openclaw", usage_dir=self.home / "none")
+        self.assertEqual((d.model, [p.runtime for p in d.providers]), ("qwen3 (ollama)", ["Ollama"]))
+
     def test_opencode_jsonc(self):
         self.write(".config/opencode/opencode.json", '{\n // comment\n "model": "anthropic/claude", /* x */\n'
                    ' "provider": {"lm": {"options": {"baseURL": "http://127.0.0.1:1234/v1"}, "models": {"m": {}},},},\n}')

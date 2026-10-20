@@ -137,8 +137,8 @@ def _model_off(text: str, provider: str) -> str:
     following = _first_provider(text)
     if following is not None:
         name, default = following
-        body = re.sub(r"^  default:.*$", f"  default: {default}", body, count=1, flags=re.MULTILINE)
-        body = re.sub(r"^  provider:.*$", f"  provider: {name}", body, count=1, flags=re.MULTILINE)
+        body = re.sub(r"^  default:.*$", lambda _m: f"  default: {default}", body, count=1, flags=re.MULTILINE)
+        body = re.sub(r"^  provider:.*$", lambda _m: f"  provider: {name}", body, count=1, flags=re.MULTILINE)
     else:
         body = re.sub(r"^  (?:default|provider):.*\n?", "", body, flags=re.MULTILINE)
     return text[:start] + body + text[end:]

@@ -64,7 +64,19 @@
  "installer": null,
  "detect": false,
  "limits": false,
- "local_llm": null,
+ "local_llm": {
+  "files": [
+   "~/.openclaw/openclaw.json"
+  ],
+  "added": [
+   "{\n  \"models\": {\n    \"providers\": {\n      \"llamacpp\": {\n        \"baseUrl\": \"http://127.0.0.1:8080/v1\",\n        \"apiKey\": \"local\",\n        \"api\": \"openai-completions\",\n        \"models\": [\n          {\n            \"id\": \"m1\",\n            \"name\": \"m1\",\n            \"contextWindow\": 8192\n          },\n          {\n            \"id\": \"m2\",\n            \"name\": \"m2\"\n          }\n        ]\n      }\n    },\n    \"mode\": \"merge\"\n  },\n  \"agents\": {\n    \"defaults\": {\n      \"model\": {\n        \"primary\": \"llamacpp/m1\"\n      }\n    }\n  }\n}\n"
+  ],
+  "connected": true,
+  "active": true,
+  "removed": [
+   "{}\n"
+  ]
+ },
  "skills": {
   "dirs": [
    "~/.openclaw/skills",

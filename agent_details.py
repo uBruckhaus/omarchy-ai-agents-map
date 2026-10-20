@@ -292,6 +292,32 @@ def dsh(details: Details):
                                                       active=not provider or name == provider))
 
 
+# OpenClaw's own local providers, used without an entry in models.providers (their usual address).
+OPENCLAW_LOCAL = {"llama-cpp": "http://127.0.0.1:8080/v1", "ollama": "http://127.0.0.1:11434",
+                  "lmstudio": "http://127.0.0.1:1234/v1"}
+
+
+def openclaw(details: Details):
+    """OpenClaw: ~/.openclaw/openclaw.json, agents.defaults.model (a "provider/model" or
+    {primary: …}) and models.providers (custom and local servers). JSON5 with comments is not read."""
+    config = read_json(_expand("~/.openclaw/openclaw.json"))
+    agents = config.get("agents") if isinstance(config.get("agents"), dict) else {}
+    defaults = agents.get("defaults") if isinstance(agents.get("defaults"), dict) else {}
+    chosen = defaults.get("model")
+    primary = _text(chosen.get("primary") if isinstance(chosen, dict) else chosen, 160)
+    provider, _sep, model = primary.partition("/") if "/" in primary else ("", "", primary)
+    provider = _text(provider, 40)
+    details.model = f"{_text(model)} ({provider})" if model and provider else _text(model)
+    models = config.get("models") if isinstance(config.get("models"), dict) else {}
+    providers = models.get("providers") if isinstance(models.get("providers"), dict) else {}
+    for name, entry in list(providers.items())[:50]:
+        if isinstance(entry, dict):
+            details.providers.append(provider_for_url(name, entry.get("baseUrl"), _model_count(entry.get("models")),
+                                                      active=not provider or name == provider))
+    if provider in OPENCLAW_LOCAL and provider not in providers:
+        details.providers.append(provider_for_url(provider, OPENCLAW_LOCAL[provider]))
+
+
 def bionic(details: Details):
     """LM Studio Bionic runs local models with LM Studio's engine and models
     (no providers to set up): always LM Studio."""
@@ -301,7 +327,7 @@ def bionic(details: Details):
 READERS = {
     "claude": claude, "codex": codex, "copilot": copilot, "cursor-agent": cursor, "opencode": opencode,
     "pi": lambda d: pi_like(_expand("~/.pi/agent"), d), "omp": lambda d: pi_like(_expand("~/.omp/agent"), d),
-    "hermes": hermes, "dsh": dsh, "bionic": bionic,
+    "hermes": hermes, "dsh": dsh, "bionic": bionic, "openclaw": openclaw,
 }
 
 

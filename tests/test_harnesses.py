@@ -186,7 +186,7 @@ class CapabilityTablesTest(unittest.TestCase):
         self.assertEqual(set(agent_status.access_table()), {
             "claude", "codex", "gemini", "copilot", "cursor-agent", "opencode", "hermes", "pi", "dsh", "grok",
             "crush", "bionic"})
-        self.assertEqual(set(connect.SUPPORTED), {"hermes", "pi", "opencode", "dsh"})
+        self.assertEqual(set(connect.SUPPORTED), {"hermes", "pi", "opencode", "dsh", "openclaw"})
         self.assertEqual(connect.FIXED, {"bionic": "lmstudio"})
 
     def test_skills(self):

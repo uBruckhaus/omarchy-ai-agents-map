@@ -19,6 +19,10 @@ sudo = true
 kind = "package"
 packages = [["pacman", "openclaw"]]
 
+[local_llm]                            # models.providers.<key> and agents.defaults.model.primary (openclaw.py)
+files = ["~/.openclaw/openclaw.json"]
+hooks = true
+
 [skills]
 dirs = ["~/.openclaw/skills", "~/.agents/skills"]
 own = "~/.openclaw/skills"

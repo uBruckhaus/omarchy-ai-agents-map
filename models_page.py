@@ -202,16 +202,18 @@ class ModelsPage:
             self.search_models()                 # trending models to start with
         self.update_model_buttons()
 
-    def open_models(self, rt):
+    def open_models(self, rt, into=None):
+        """into: download into this folder (a folder card's Add model on Setup), else rt's own."""
         self.models_state = {"rt": rt, "busy": False, "cancel": False, "from": self.view, "repo": None,
                              "vram": install_ctl.detect_gpu().vram, "ram": models_ctl.system_ram(),
-                             "scanned": False, "scanning": False, "searched": False}
+                             "scanned": False, "scanning": False, "searched": False,
+                             "into": str(into) if into else ""}
         while (row := self.models_local.get_first_child()) is not None:
             self.models_local.remove(row)
         self.models_local_status.set_label("")
         self.models_title.set_label(_("Models of {0}").format(rt.name).upper())
-        self.models_folder_label.set_label(_("Model folder: {0}").format(inventory.tilde(rt.models_dir))
-                                           if rt.models_dir else "")
+        self.models_folder_label.set_label(_("Model folder: {0}").format(inventory.tilde(into or rt.models_dir))
+                                           if into or rt.models_dir else "")
         self.models_pull_row.set_visible(rt.key == "ollama")
         self.models_status.set_label(
             _("Ollama is started for a download if it is not running.") if rt.key == "ollama" else
@@ -900,6 +902,7 @@ class ModelsPage:
             return
         spec = {"kind": "pull" if rt.key == "ollama" else "model", "runtime": rt.key, "name": name,
                 "repo": state["repo"] or "", "base": state.get("base") or models_ctl.HF,
+                "into": state.get("into") or "",
                 "entry": {"name": entry.name, "paths": list(entry.paths), "size": entry.size} if entry else None}
         job = self.start_model_job(spec)
         if job is not None:
@@ -932,6 +935,11 @@ class ModelsPage:
             return None
         label = entry.name if entry is not None else spec["name"]
         models_dir = Path(os.path.expanduser(rt.models_dir)) if rt.models_dir else None
+        try:                                   # a folder chosen on Setup (its card's Add model)
+            into = install_ctl.check_folder(spec["into"]) if spec.get("into") and rt.key != "ollama" else None
+        except ValueError as error:
+            self.show_note(_("Not downloaded: {0}").format(error))
+            return None
 
         def work(progress, cancelled):
             def show(fraction, text=None):
@@ -952,7 +960,7 @@ class ModelsPage:
                 if models_dir is None:
                     raise RuntimeError(_("{0} has no model folder yet.").format(rt.name))
                 models_ctl.download_gguf(rt.key, models_dir, spec["repo"], entry, show, cancelled,
-                                         base=spec["base"])
+                                         base=spec["base"], into=into)
                 if rt.key == "koboldcpp":
                     # The new model becomes a .kcpps: an id the router answers to.
                     install_ctl.installer("koboldcpp").sync(models_dir)

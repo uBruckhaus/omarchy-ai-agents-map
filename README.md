@@ -181,7 +181,23 @@ the old file in `~/.local/state/ai-agents-map/backups/`, and can be undone from 
   whether the agent uses it right away. Click a line to select it: drag its end to another local LLM
   to move the connection, or onto empty space to remove it. With an agent selected, a click on a
   model of a local LLM it is connected to makes that model the agent's model. Supported: Hermes
-  (`~/.hermes/config.yaml`), Pi (`~/.pi/agent/`) and OpenCode (`~/.config/opencode/opencode.json`).
+  (`~/.hermes/config.yaml`), Pi (`~/.pi/agent/`), OpenCode (`~/.config/opencode/opencode.json`) and
+  OpenClaw (`~/.openclaw/openclaw.json`; a file it can no longer read safely is left alone, and
+  `openclaw configure` is the way then).
+- **Model lines**: a selected box shows an orange hook at the end of each line that can be moved.
+  Drag a local LLM's line to a model onto another model of the same local LLM: every agent that uses
+  it switches (one Undo for all); into empty space, they are disconnected from it. A model that is
+  only loaded (no agent uses it) is unloaded when its line goes into empty space, or the other one
+  is loaded instead. Nothing moves while a running agent, or a program outside the map, uses the
+  model. Draw a line from a local LLM to one of its models to load it, and tick agents (none at
+  first) that should get it.
+- **Online models**: Claude Code's and Codex's models show under their cloud. Drag an agent's model
+  line to another one to switch (its own setting: `model` in `~/.claude/settings.json`, `model = "…"`
+  in `~/.codex/config.toml`; backup and Undo), counted from the agent's next start. A line drawn from
+  an agent to its online provider starts the agent's own sign-in in a terminal; dragging that line
+  into empty space asks first, then runs its own sign-out (`claude auth logout`, `codex logout`).
+- **A provider that is gone**: an agent still set to use a local LLM it has no provider for gets a
+  red line with **Repair** (connect it again, with preview) and **Remove** (clear that setting).
 - **Agent ↔ MCP server**: the server's settings are copied from an agent (or the list) that has it
   into the other agent's own format, for Claude Code, Codex, Copilot, Crush, Cursor, Gemini, Grok,
   Hermes, Muse, Oh My Pi, OpenClaw, OpenCode and Pi. Claude Code's servers are
@@ -476,6 +492,25 @@ Settings › **Models folder** (type it or **Choose…**) is one folder for ever
   original removed once the copy is complete (refused without enough free space);
 - every step is written to `~/.local/state/ai-agents-map/reorganize.json` (0600) first:
   **Undo the last reorganize** puts files, links and settings back.
+
+### Model folders on Setup
+
+Setup shows one card per folder that holds models, with the local LLMs that read it.
+- **Add folder…** adds one more folder to look in (Settings `model_folders`); nothing is moved.
+- **Change folder…** moves the folder's models to another folder after a question that lists what
+  changes: files are moved (a hard link on the same disk, else a checked copy) with Undo; links in
+  other local LLMs' model folders that led there are replaced (only links of your own, through a
+  fresh random name); `~/.config/llama.cpp/models.ini` is rewritten where it names a moved file (a
+  copy kept in `~/.local/state/ai-agents-map/backups/` first, written to a new private temporary
+  file and renamed); a local LLM whose own model folder it was is pointed there and restarted if it
+  runs.
+
+Loading and unloading from the map (a line drawn from a local LLM to its model, or a loaded model's
+line moved) asks only your own server (its listening port must belong to your account): llama.cpp
+and Jan `POST /models/load` / `/models/unload`, Ollama `POST /api/generate` with `keep_alive`, LM
+Studio `lms load -- <model>` / `lms unload -- <model>` (a model name is one plain word, never an
+option). A local LLM that is not running is started first (`systemctl --user start` of its user
+service, or `lms server start`).
 
 ### Context size
 

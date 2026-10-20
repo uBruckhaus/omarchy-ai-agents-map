@@ -87,6 +87,49 @@ class ConnectTest(unittest.TestCase):
         self.assertEqual((settings["defaultProvider"], settings["defaultModel"], settings["theme"]),
                          ("llama-local", "Qwen", "dark"))
 
+    def test_pi_reconnected_keeps_pictures_and_thinking_switch(self):
+        compat = {"thinkingFormat": "chat-template"}
+        self.write(".pi/agent/models.json", json.dumps({"providers": {"llama-local": {"models": [
+            {"id": "Qwen", "name": "Qwen", "input": ["text", "image"], "reasoning": True, "compat": compat,
+             "cost": {"input": 9}}]}}}))
+        self.write(".pi/agent/settings.json", "{}")
+        connect.apply(connect.plan("pi", self.rt, "Qwen", use_now=False), self.home / "b")
+        entry = json.loads((self.home / ".pi/agent/models.json").read_text())["providers"]["llama-local"]["models"][0]
+        self.assertEqual((entry["input"], entry["reasoning"], entry["compat"]), (["text", "image"], True, compat))
+        self.assertNotIn("cost", entry)            # only what AI Playground sets is carried over
+
+    def test_openclaw_new_file_then_removed(self):
+        result = connect.plan("openclaw", self.rt, "Qwen", use_now=True, context={"Qwen": 98304})
+        backup = connect.apply(result, self.home / "b")
+        data = json.loads((self.home / ".openclaw/openclaw.json").read_text())
+        entry = data["models"]["providers"]["llama-local"]
+        self.assertEqual((entry["baseUrl"], entry["api"], entry["models"][0]["contextWindow"]),
+                         ("http://127.0.0.1:8080/v1", "openai-completions", 98304))
+        self.assertEqual(data["agents"]["defaults"]["model"]["primary"], "llama-local/Qwen")
+        self.assertTrue(connect.is_connected("openclaw", "llamacpp"))
+        connect.undo(backup)
+        self.assertFalse((self.home / ".openclaw/openclaw.json").exists())
+
+    def test_openclaw_keeps_its_other_settings(self):
+        self.write(".openclaw/openclaw.json", json.dumps({
+            "gateway": {"port": 18789}, "agents": {"defaults": {"model": {"primary": "anthropic/claude",
+                                                                         "fallbacks": ["openai/gpt"]}}},
+            "models": {"providers": {"other": {"baseUrl": "https://x.example/v1"}}}}))
+        connect.apply(connect.plan("openclaw", self.rt, "Qwen", use_now=True), self.home / "b")
+        data = json.loads((self.home / ".openclaw/openclaw.json").read_text())
+        self.assertEqual(data["gateway"], {"port": 18789})
+        self.assertEqual(data["agents"]["defaults"]["model"], {"primary": "llama-local/Qwen", "fallbacks": ["openai/gpt"]})
+        self.assertEqual(sorted(data["models"]["providers"]), ["llama-local", "other"])
+        connect.apply(connect.plan("openclaw", self.rt, "Qwen", use_now=False, remove=True), self.home / "b")
+        data = json.loads((self.home / ".openclaw/openclaw.json").read_text())
+        self.assertEqual(sorted(data["models"]["providers"]), ["other"])
+        self.assertEqual(data["agents"]["defaults"]["model"], {"fallbacks": ["openai/gpt"]})
+
+    def test_openclaw_json5_is_left_alone(self):
+        self.write(".openclaw/openclaw.json", "{ gateway: { port: 18789 }, }")
+        with self.assertRaises(ValueError):
+            connect.plan("openclaw", self.rt, "Qwen", use_now=True)
+
     def test_opencode_new_file_and_undo_deletes_it(self):
         result = connect.plan("opencode", self.rt, "Qwen", use_now=True)
         backup = connect.apply(result, self.home / "b")

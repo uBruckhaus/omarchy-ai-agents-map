@@ -39,6 +39,12 @@ def trusted_launcher(path) -> Path | None:
     if not stat.S_ISREG(info.st_mode) or info.st_uid not in (os.getuid(), 0) or info.st_mode & 0o022 \
             or not info.st_mode & 0o100:
         return None
+    try:                                           # nor its folder: no one else may swap the file
+        folder = Path(path).resolve().parent.stat()
+    except OSError:
+        return None
+    if folder.st_uid not in (os.getuid(), 0) or folder.st_mode & 0o022 and not folder.st_mode & stat.S_ISVTX:
+        return None
     return Path(path)
 
 

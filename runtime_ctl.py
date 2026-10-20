@@ -9,6 +9,7 @@ Only this user's own means are used, so no password is ever needed:
 Everything runs with a timeout; callers run it on a thread.
 """
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -69,6 +70,8 @@ def load(rt, model: str, wait: float = 30) -> tuple[bool, str]:
     """Load one model so that it is ready (a line drawn on the map from the local LLM to its model,
     with no agent or with some): the local LLM is started first when it is not running. Only on
     this user's own server (gpu_usage.http_json checks the listener)."""
+    if not MODEL_KEY.fullmatch(model or ""):
+        return False, "not a model name"
     import time
     import gpu_usage
     import loopback
@@ -92,13 +95,20 @@ def load(rt, model: str, wait: float = 30) -> tuple[bool, str]:
         return (True, "") if reply is not None else (False, "it did not load the model")
     if rt.key == "lmstudio":
         binary = lms_binary()
-        return _run([binary, "load", model]) if binary else (False, "lms not found")
+        return _run([binary, "load", "--", model]) if binary else (False, "lms not found")
     return False, "it cannot be asked to load a model"
+
+
+# A model name given to `lms` (load/unload) or a local LLM's API: never an option (a folder name in
+# a shared models folder could start with "-"), one plain word.
+MODEL_KEY = re.compile(r"[A-Za-z0-9][\w.:/@+-]{0,199}")
 
 
 def unload_model(rt, model: str) -> tuple[bool, str]:
     """Unload one model (a loaded model's line dropped into empty space on the map); the local LLM
     keeps running. Only on this user's own server."""
+    if not MODEL_KEY.fullmatch(model or ""):
+        return False, "not a model name"
     import gpu_usage
     port = gpu_usage.port_of(rt)
     if rt.key in ("llamacpp", "jan"):
@@ -109,7 +119,7 @@ def unload_model(rt, model: str) -> tuple[bool, str]:
         return (True, "") if reply is not None else (False, "it did not unload the model")
     if rt.key == "lmstudio":
         binary = lms_binary()
-        return _run([binary, "unload", model]) if binary else (False, "lms not found")
+        return _run([binary, "unload", "--", model]) if binary else (False, "lms not found")
     return unload(rt)                      # KoboldCpp, vLLM: one model at a time anyway
 
 

@@ -192,6 +192,19 @@ class ChecksTest(unittest.TestCase):
         self.assertIn("claude auth login", missing[0].step)
         self.assertEqual(st.summary_line(checks)[0], "missing")
 
+    def test_an_agent_without_a_model_service_needs_one_set_up(self):
+        # OpenClaw brings no model service of its own: with nothing in its settings it cannot answer.
+        claw = agents.Agent(command="openclaw", name="OpenClaw", icon="x", installed=True)
+        checks = st.agent_checks(claw, ad.Details(), {}, self.inv, {}, root=self.home, environ={})
+        missing = [c for c in checks if c.state == "missing"]
+        self.assertEqual(missing[0].title, "No model set up")
+        self.assertIn("openclaw onboard", missing[0].step)
+        self.assertNotIn("Model", {c.title for c in checks})            # said once, with what to do
+        # Set up (a local LLM in its settings): no longer.
+        info = ad.Details(model="gemma (llama-local)", providers=[ad.Provider("llama-local", True, "llama.cpp", 1)])
+        checks = st.agent_checks(claw, info, {}, self.inv, {}, root=self.home, environ={})
+        self.assertNotIn("No model set up", {c.title for c in checks})
+
     def test_local_agent_needs_models(self):
         pi = agents.Agent(command="pi", name="Pi", icon="x", installed=True)
         info = ad.Details(model="qwen (local)", providers=[ad.Provider("local", True, "llama.cpp", 0)])

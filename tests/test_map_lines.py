@@ -55,6 +55,36 @@ class MapLinesTest(unittest.TestCase):
         self.assertFalse(view.link_target_ok("runtime:llamacpp", "agent:pi"))
 
 
+class HooksTest(unittest.TestCase):
+    """A selected box shows an orange hook on each of its lines that can be moved or removed."""
+
+    def hooked(self, selected, picked=None):
+        view, g = fake_map()
+        view.selected, view.selected_edge = list(selected), picked
+        view.boxes = {n.id: (0, 0, 10, 10) for n in g.nodes}
+        view.edge_points = lambda e: (0, 0, 100 if e.target.endswith("gemma") else 200, 50)
+        for name in ("hooked_edges", "hook_at"):
+            setattr(view, name, types.MethodType(getattr(map_view.MapView, name), view))
+        return view, {(e.source, e.target) for e in view.hooked_edges()}
+
+    def test_nothing_selected_no_hooks(self):
+        self.assertEqual(self.hooked([])[1], set())
+
+    def test_an_agent_shows_hooks_on_its_movable_lines(self):
+        self.assertEqual(self.hooked(["agent:pi"])[1], {("agent:pi", "runtime:llamacpp")})   # its default line has none
+
+    def test_a_local_llm_shows_hooks_on_models_in_use_only(self):
+        self.assertEqual(self.hooked(["runtime:llamacpp"])[1],
+                         {("agent:pi", "runtime:llamacpp"), ("agent:dsh", "runtime:llamacpp"),
+                          ("runtime:llamacpp", "model:runtime:llamacpp:gemma"),
+                          ("runtime:llamacpp", "model:runtime:llamacpp:qwen")})        # tts: nobody uses it
+
+    def test_a_hook_is_found_at_its_lines_end(self):
+        view, _hooked = self.hooked(["model:runtime:llamacpp:gemma"])
+        self.assertEqual(view.hook_at(102, 49), ("runtime:llamacpp", "model:runtime:llamacpp:gemma"))
+        self.assertIsNone(view.hook_at(150, 50))
+
+
 class LoadedTest(unittest.TestCase):
     def test_a_loaded_model_nobody_uses_can_be_grabbed(self):
         view, g = fake_map()

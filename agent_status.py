@@ -490,12 +490,21 @@ def agent_checks(agent, info, record: dict, inventory, hints: dict, logged_in: b
         else:
             checks.append(Check("missing", _("Not signed in"), access.how,
                                 _("Sign in: {0}").format(access.login) if access.login else access.how))
+    elif not model and not info.providers and agent.command not in graph.CLOUD:
+        # No service of its own (OpenClaw routes to the providers in its settings), and none set up:
+        # it cannot answer anything yet.
+        checks.append(Check("missing", _("No model set up"),
+                            _("It has no model service of its own, and none is set up in its settings."),
+                            _("Draw a line on the map from it to a local LLM, or set up a provider in the agent "
+                              "itself (OpenClaw: openclaw onboard).")))
     else:
         checks.append(Check("info", _("Sign-in unknown"),
                             _("AI Agents Map does not know how this agent signs in.")))
 
     if model:
         checks.append(Check("ok", _("Model"), model + (f" · {provider}" if provider else "")))
+    elif any(c.title == _("No model set up") for c in checks):
+        pass                                  # said above, with what to do
     elif local_names:
         checks.append(Check("warn", _("No model chosen"), "",
                             _("Select the agent on the map and click a model of a local LLM it is connected to.")))

@@ -9,9 +9,13 @@ def llm_texts(models_text: str, settings_text: str, provider: str, url: str, mod
     if remove:
         providers.pop(provider, None)
     else:
+        # What was set per model before (pictures, the thinking switch: AI Playground) is kept.
+        before = {e["id"]: e for e in (providers.get(provider) or {}).get("models") or ()
+                  if isinstance(e, dict) and isinstance(e.get("id"), str)}
         entries = []
         for name in models:
-            item = {"id": name, "name": name}
+            item = {k: v for k, v in before.get(name, {}).items() if k in ("input", "reasoning", "compat")}
+            item = {"id": name, "name": name, **item}
             if context.get(name):
                 item["contextWindow"] = context[name]
             entries.append(item)

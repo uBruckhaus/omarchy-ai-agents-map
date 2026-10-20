@@ -13,13 +13,16 @@ brings the hidden boxes back (faded) so more can be added.
 Dragging from an agent to a local LLM, an MCP server or a skill set (or back) draws a
 line; letting go over a fitting box calls on_link(agent id, target id) to
 set it up. Clicking an agent's line to a local LLM or MCP server selects
-it (a handle at the far end); dragging it to another LLM calls
+it (a hook at the far end); dragging it to another LLM calls
 on_relink(agent, old, new), onto empty space on_relink(agent, old, None).
 A local LLM's line to a model that agents use (drawn in the accent colour) can be
 selected the same way: dragging its end onto another model of that local LLM calls
 on_remodel(runtime, old model, new model), onto empty space on_remodel(runtime, old, None).
 Drawing from a local LLM to one of its models calls on_attach(runtime, model): agents are
 given that model (the window asks which).
+Selecting a box shows a hook (orange: the theme's signal colour, apart from the lines' own) on
+every line of it that can be moved or removed, so what can be done is in view; a hook is grabbed
+at once, without clicking its line first, and hovering it says what dragging it does.
 Right-click on a box calls on_context(node id, box rectangle).
 The pin at a box's top right corner (shown on hover, filled when pinned)
 keeps that box's connections lit: while anything is pinned, hovering other
@@ -60,6 +63,7 @@ COLUMN_GAP_MAX = 300
 NODE_W_MAX = 260
 NODE_W_MIN = 120
 PIN_W = 14               # the pin's square at a box's top right
+HOOK_R = 8               # a hook's radius: the grip at a movable line's end
 PIN, PIN_OUTLINE = "\U000F0403", "\U000F0931"   # Nerd Font pin, pin-outline
 PLAY, CONSOLE = "\U000F040A", "\U000F018D"      # Nerd Font play, console: an agent's start button
 STOP_VRAM = 256 * 1024 ** 2                        # a local LLM holding this much GPU memory gets a stop button
@@ -109,14 +113,14 @@ class MapView(Gtk.DrawingArea):
         self.on_attach = None    # callback(runtime id, model id): a line drawn from a local LLM to its model
         # What a line can do, on hover (translated by the window): an agent's line, a model line
         # ({0}: the agents that use the model).
-        self.edge_tips = ("Click the line, then drag its end to another local LLM, or onto empty space to remove it",
-                          "Used by {0}. Click the line, then drag its end onto another model (they switch to it) "
+        self.edge_tips = ("Drag its orange hook to another local LLM, or onto empty space to remove it",
+                          "Used by {0}. Drag its orange hook onto another model (they switch to it) "
                           "or onto empty space (they are disconnected)",
                           "Used by {0}, in use right now",
-                          "Loaded, no agent uses it. Click the line, then drag its end into empty space to unload "
+                          "Loaded, no agent uses it. Drag its orange hook into empty space to unload "
                           "it, or onto another model to load that one instead",
-                          "Used by {0}. Click the line, then drag its end onto another model: they switch to it",
-                          "Click the line, then drag its end into empty space to sign out",
+                          "Used by {0}. Drag its orange hook onto another model: they switch to it",
+                          "Drag its orange hook into empty space to sign out",
                           "Not working: click the line to see why, then repair or remove it")
         self.pick_tip = "Click: {0} uses this model"   # a model the selected agent can switch to
         self.on_context = None   # callback(node id, (x, y, w, h)) for a right-click
@@ -468,6 +472,28 @@ class MapView(Gtk.DrawingArea):
         py = (1 - t) ** 3 * y1 + 3 * (1 - t) ** 2 * t * y1 + 3 * (1 - t) * t ** 2 * y2 + t ** 3 * y2
         return px, py
 
+    def draw_hooks(self, cr):
+        """The hooks: a grip filled in the hook colour at each movable end (a dark dot in its middle),
+        with a soft halo; the clicked line's is larger and ringed in the text colour."""
+        moving = self.link is not None and (self.link.get("relink") or self.link.get("remodel")) and self.link["drawing"]
+        for edge in self.hooked_edges():
+            _x1, _y1, x2, y2 = self.edge_points(edge)
+            picked = (edge.source, edge.target) == self.selected_edge
+            alpha = 0.35 if moving and picked else 1.0
+            radius = HOOK_R + (1.5 if picked else 0)
+            cr.arc(x2, y2, radius + 4, 0, 2 * math.pi)              # a halo, so it stands out on any line
+            cr.set_source_rgba(*self.color("hook", 0.22 * alpha))
+            cr.fill()
+            cr.arc(x2, y2, radius, 0, 2 * math.pi)
+            cr.set_source_rgba(*self.color("hook", alpha))
+            cr.fill_preserve()
+            cr.set_source_rgba(*self.color("fg" if picked else "bg", alpha))
+            cr.set_line_width(2 if picked else 1.5)
+            cr.stroke()
+            cr.arc(x2, y2, 2.2, 0, 2 * math.pi)                    # the grip's dot
+            cr.set_source_rgba(*self.color("bg", 0.9 * alpha))
+            cr.fill()
+
     def draw_markers(self, cr, edges):
         """A "!" on every failed line (click the line for its hints), apart from each other."""
         placed = []
@@ -524,6 +550,24 @@ class MapView(Gtk.DrawingArea):
         return edge is not None and edge.source in self.boxes and edge.target in self.boxes \
             and self.edge_distance(edge, x, y) <= reach
 
+    def hooked_edges(self) -> list:
+        """The lines that show a hook: the clicked one, and every movable line of a selected box."""
+        if not self.graph:
+            return []
+        return [e for e in self.graph.edges if e.source in self.boxes and e.target in self.boxes
+                and ((e.source, e.target) == self.selected_edge
+                     or (self.movable_edge(e) and (e.source in self.selected or e.target in self.selected)))]
+
+    def hook_at(self, x, y, reach: float = HOOK_R + 4):
+        """The line whose hook is at (x, y), or None."""
+        best, best_dist = None, reach
+        for edge in self.hooked_edges():
+            _x1, _y1, x2, y2 = self.edge_points(edge)
+            dist = math.hypot(x2 - x, y2 - y)
+            if dist <= best_dist:
+                best, best_dist = (edge.source, edge.target), dist
+        return best
+
     def on_right_click(self, _gesture, _count, x, y):
         x, y = x / self.zoom, y / self.zoom
         node_id = self.node_at(x, y)
@@ -565,7 +609,10 @@ class MapView(Gtk.DrawingArea):
 
     def on_link_begin(self, gesture, x, y):
         x, y = x / self.zoom, y / self.zoom
-        if self.near_selected_edge(x, y):
+        hook = self.hook_at(x, y)
+        if hook is not None:
+            self.selected_edge = hook          # a hook is grabbed at once: its line is the one moved
+        if hook is not None or self.near_selected_edge(x, y):
             source, target = self.selected_edge
             if self.kind_of(source) == "runtime":       # a model line: its model end moves
                 self.link = {"from": source, "remodel": target, "start": (x, y), "x": x, "y": y, "target": None,
@@ -733,8 +780,9 @@ class MapView(Gtk.DrawingArea):
             self.set_tooltip_text(self.start_tips[1 if self.start_state(start) == "show" else 0])
         elif battery is not None:
             self.set_tooltip_text(self.batteries[battery][2])
-        elif pin is None and found is None and (edge := self.edge_at(x, y)) is not None:
-            # A line that can be moved: what to do with it (the cursor says it can be grabbed).
+        elif pin is None and ((edge := self.hook_at(x, y)) is not None
+                              or (found is None and (edge := self.edge_at(x, y)) is not None)):
+            # A hook, or a line that can be moved: what to do with it (the cursor says it can be grabbed).
             source, target = edge
             broken = any((e.source, e.target) == edge and e.failed for e in self.graph.edges)
             if broken and len(self.edge_tips) > 6:
@@ -748,7 +796,8 @@ class MapView(Gtk.DrawingArea):
                 self.set_tooltip_text(self.edge_tips[5])
             else:
                 self.set_tooltip_text(self.edge_tips[0])
-            self.set_cursor_from_name("grab" if edge == self.selected_edge else "pointer")
+            self.set_cursor_from_name("grab" if edge == self.selected_edge or edge == self.hook_at(x, y)
+                                      else "pointer")
         elif pin is None:
             self.set_tooltip_text(None)        # no tooltip left over from a button the pointer left
 
@@ -871,6 +920,12 @@ class MapView(Gtk.DrawingArea):
         start = self.start_at(x, y)
         if start is not None and self.on_start is not None:
             self.on_start(start)
+            return
+        hook = self.hook_at(x, y)
+        if hook is not None:                   # a hook clicked: its line is picked (even over a box)
+            if hook != self.selected_edge:
+                self.selected_edge = hook
+                self.queue_draw()
             return
         node_id = self.node_at(x, y)
         edge = self.edge_at(x, y) if node_id is None else None
@@ -1194,14 +1249,6 @@ class MapView(Gtk.DrawingArea):
             cr.set_line_cap(cairo.LINE_CAP_BUTT)
             if edge.failed and not (only_lit and index not in lit_edges):
                 markers.append(edge)
-            if picked:
-                # The handle: drag it to another local LLM.
-                cr.arc(x2, y2, 7, 0, 2 * math.pi)
-                cr.set_source_rgba(*self.color("bg"))
-                cr.fill_preserve()
-                cr.set_source_rgba(*self.color("accent", alpha))
-                cr.set_line_width(2.5)
-                cr.stroke()
 
         self.draw_markers(cr, markers)
         allowed = self.animations_allowed() and self.link is None
@@ -1296,6 +1343,7 @@ class MapView(Gtk.DrawingArea):
                 cr.move_to(text_x, y + (h - layout.get_pixel_size()[1]) / 2)
                 PangoCairo.show_layout(cr, layout)
 
+        self.draw_hooks(cr)                       # over the boxes: a hook is never half hidden
         self.draw_link(cr)
 
     def tile_glyph(self, node) -> tuple[str, str]:
