@@ -20,11 +20,8 @@ from pathlib import Path
 
 import ai_core
 import connect
-import context_ctl
 import gpu_usage
-import install_ctl
-import jan_ctl
-import kobold_ctl
+import llm_engine
 import mcp_ctl
 import models_ctl
 import runtime_ctl
@@ -40,46 +37,20 @@ def hint(level: str, text: str) -> dict:
 
 def model_context(rt, name: str) -> int:
     """The context the local LLM loads the model with (0: not known)."""
-    folder = Path(os.path.expanduser(rt.models_dir)) if rt.models_dir else None
     try:
-        if rt.key == "llamacpp":
-            return context_ctl.llama_settings(name)[0]
-        if rt.key == "jan":
-            return jan_ctl.settings(name)[0]
-        if rt.key == "koboldcpp":
-            return kobold_ctl.settings(name)[0]
-        if rt.key == "lmstudio":
-            return context_ctl.lmstudio_settings(context_ctl.lmstudio_entry(name))[0]
-        if rt.key == "ollama" and folder is not None:
-            env = install_ctl.read_env(install_ctl.Ollama.env_file)
-            return context_ctl.ollama_context(folder, name, int(env.get("OLLAMA_CONTEXT_LENGTH", "0") or 0))
+        return llm_engine.of(rt).model_context(rt, name)
     except (OSError, ValueError, KeyError):
         return 0
-    return 0
 
 
 def add_model_step(rt) -> str:
     """Where a provider's models come from, as one step for the user."""
-    if rt.key == "jan":
-        return _("add one in the Jan app (Hub), or right-click Jan on the map → Models….")
-    if rt.key == "lmstudio":
-        return _("download one in LM Studio (Discover), or right-click LM Studio on the map → Models….")
-    if rt.key == "vllm":
-        return _("vLLM serves one Hugging Face model: write its id into {0} (VLLM_MODEL=…), then start vLLM.") \
-            .format(install_ctl.Vllm.env_file)
-    return _("right-click {0} on the map → Models… and download one that fits your card.").format(rt.name)
+    return llm_engine.of(rt).add_model_step(rt)
 
 
 def start_step(rt, agent_name: str) -> str:
     """How the user gets a provider running that the map cannot start itself."""
-    if rt.key == "lmstudio":
-        return _("open LM Studio and turn on its server (Developer → Start server) before working with {0}.") \
-            .format(agent_name)
-    commands = {"ollama": "ollama serve", "llamacpp": "llama-server --models-dir <folder>",
-                "vllm": "vllm serve <model>", "koboldcpp": "koboldcpp --admin --routermode"}
-    if rt.key in commands:
-        return _("start it yourself ({0}) before working with {1}.").format(commands[rt.key], agent_name)
-    return _("start it yourself before working with {0}.").format(agent_name)
+    return llm_engine.of(rt).start_step(rt, agent_name)
 
 
 def offered_models(rt) -> list | None:

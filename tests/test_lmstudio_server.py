@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 import graph  # noqa: E402
 import gpu_usage  # noqa: E402
+import provider_lmstudio  # noqa: E402
 import runtime_ctl  # noqa: E402
 
 
@@ -34,21 +35,21 @@ class ServerOff(unittest.TestCase):
 
 class LoadedWithoutServer(unittest.TestCase):
     def setUp(self):
-        self.saved = runtime_ctl.lms_binary
-        runtime_ctl.lms_binary = lambda: "/usr/bin/lms"
+        self.saved = provider_lmstudio.lms_binary
+        provider_lmstudio.lms_binary = lambda: "/usr/bin/lms"
 
     def tearDown(self):
-        runtime_ctl.lms_binary = self.saved
+        provider_lmstudio.lms_binary = self.saved
 
     def test_lms_ps(self):
         rows = [{"type": "llm", "identifier": "Qwen3.8-27b"}, {"type": "embedding", "identifier": "nomic"}]
-        found = gpu_usage.lms_loaded(lambda argv, **kw: (json.dumps(rows).encode(), True))
+        found = provider_lmstudio.lms_loaded(lambda argv, **kw: (json.dumps(rows).encode(), True))
         self.assertEqual(found, {"qwen3.8-27b": "loaded"})
 
     def test_bad_output(self):
         for out in (b"", b"not json", b'{"a": 1}', b"[1, 2]"):
-            self.assertEqual(gpu_usage.lms_loaded(lambda argv, **kw: (out, True)), {}, out)
-        self.assertEqual(gpu_usage.lms_loaded(lambda argv, **kw: (b"[]", False)), {})
+            self.assertEqual(provider_lmstudio.lms_loaded(lambda argv, **kw: (out, True)), {}, out)
+        self.assertEqual(provider_lmstudio.lms_loaded(lambda argv, **kw: (b"[]", False)), {})
 
 
 if __name__ == "__main__":

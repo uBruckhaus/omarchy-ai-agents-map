@@ -38,6 +38,8 @@ class Provider:
     homepage: str = ""                # its web page (the Add-ons page's Homepage button)
     usage: Callable | None = None     # usage(runtime) -> agent_status.Usage from its own logs or metrics
                                       # (else the app derives it from the agents' sessions)
+    engine: object = None             # llm_engine.Engine: how the app starts, stops, asks and explains it
+                                      # (None: llm_engine.Engine(), a user service + an OpenAI-compatible API)
     # online providers
     ids: tuple = ()                   # names used in agent settings ("anthropic", "openai-codex")
     agents: tuple = field(default=())  # agents that come with this provider ("claude")

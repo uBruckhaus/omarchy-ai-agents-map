@@ -150,23 +150,9 @@ def proc_vram(pid: int) -> int:
 
 
 def runtime_of(comm: str, argv: list) -> str:
-    """Which local LLM a process belongs to ("" for none). LM Studio's engine is
-    also called llama-server: its path decides."""
-    exe = argv[0] if argv else ""
-    if ".lmstudio" in exe or comm.lower().startswith("lm studio") or os.path.basename(exe).lower() in ("lm-studio", "lm studio"):
-        return "lmstudio"
-    if comm == "jan-llama-worke" or os.path.basename(exe) == "jan-llama-worker":
-        return "jan"
-    if comm == "koboldcpp" or os.path.basename(exe).startswith("koboldcpp"):
-        return "koboldcpp"
-    if comm == "llama-server" or comm.startswith("llama-"):
-        return "llamacpp"
-    if comm == "ollama" or os.path.basename(exe) == "ollama":
-        return "ollama"
-    if comm.startswith("VLLM") or (len(argv) > 1 and any(os.path.basename(a) == "vllm" for a in argv[:2])
-                                   and "serve" in argv[1:3]):
-        return "vllm"
-    return ""
+    """Which local LLM a process belongs to ("" for none), as its provider's engine says."""
+    import llm_engine
+    return llm_engine.runtime_of(comm, argv)
 
 
 def runtime_pids(processes) -> dict:
@@ -180,16 +166,16 @@ def runtime_pids(processes) -> dict:
         key = runtime_of(comm, argv)
         if key:
             roots[pid] = key
+    # A process belongs to the outermost local LLM above it: a model runner Ollama starts may be
+    # named like llama.cpp's server, but it is Ollama's.
     groups = {}
-    for pid in parent:
-        seen, current = 0, pid
+    for pid in set(parent) | set(roots):
+        seen, current, owner = 0, pid, ""
         while current and seen < 64:
-            if current in roots:
-                groups.setdefault(roots[current], set()).add(pid)
-                break
+            owner = roots.get(current, owner)
             current, seen = parent.get(current, 0), seen + 1
-    for pid, key in roots.items():
-        groups.setdefault(key, set()).add(pid)
+        if owner:
+            groups.setdefault(owner, set()).add(pid)
     return groups
 
 
@@ -222,64 +208,10 @@ def port_of(rt) -> int:
     return int(port) if port.isdigit() else 0
 
 
-LMS_EVERY = 20           # seconds between two `lms ps` runs
-_lms_cache = [0.0, {}]
-
-
-def lms_loaded(runner=None) -> dict:
-    """LM Studio's loaded models from its own CLI (`lms ps --json`), for when its server is off;
-    asked at most every LMS_EVERY seconds, since the CLI takes a moment to start."""
-    import time
-    now = time.monotonic()
-    if runner is None and _lms_cache[0] and now - _lms_cache[0] < LMS_EVERY:
-        return dict(_lms_cache[1])
-    import ai_core
-    import runtime_ctl
-    found, binary = {}, runtime_ctl.lms_binary()
-    if binary:
-        out, ok = (runner or ai_core.read_bounded_output)([binary, "ps", "--json"], max_bytes=MAX_REPLY, timeout=5)
-        try:
-            rows = json.loads(out) if ok and out else []
-        except ValueError:
-            rows = []
-        for row in (rows if isinstance(rows, list) else [])[:100]:
-            if isinstance(row, dict) and row.get("type") == "llm" and isinstance(row.get("identifier"), str):
-                found[row["identifier"].lower()[:200]] = "loaded"
-    if runner is None:
-        _lms_cache[:] = [now, found]
-    return found
-
-
 def loaded_models(rt) -> dict:
-    """lower-case model name -> state, from the runtime's own API."""
-    port, found = port_of(rt), {}
-    if rt.key in ("llamacpp", "jan"):          # Jan's engine answers like llama.cpp's router
-        for row in (http_json(port, "/models") or {}).get("data", [])[:500]:
-            state = (row.get("status") or {}).get("value", "") if isinstance(row, dict) else ""
-            if state in ("loaded", "loading", "sleeping"):
-                found[str(row.get("id", "")).lower()] = state
-    elif rt.key == "ollama":
-        for row in (http_json(port, "/api/ps") or {}).get("models", [])[:100]:
-            if isinstance(row, dict) and row.get("name"):
-                found[str(row["name"]).lower()] = "loaded"
-    elif rt.key == "lmstudio":
-        if not _own_port(port):
-            return lms_loaded()            # the app is open without its server
-        for row in (http_json(port, "/api/v0/models") or {}).get("data", [])[:500]:
-            if isinstance(row, dict) and row.get("state") == "loaded":
-                found[str(row.get("id", "")).lower()] = "loaded"
-    elif rt.key == "koboldcpp":
-        # Router mode lists the loaded model first as "koboldcpp/<name>" ("inactive": none),
-        # then the .kcpps model ids.
-        rows = (http_json(port, "/v1/models") or {}).get("data", [])[:500]
-        first = str(rows[0].get("id", "")) if rows and isinstance(rows[0], dict) else ""
-        if first.startswith("koboldcpp/"):
-            found[first.split("/", 1)[1].lower() + ".kcpps"] = "loaded"
-    elif rt.key == "vllm":
-        for row in (http_json(port, "/v1/models") or {}).get("data", [])[:20]:
-            if isinstance(row, dict) and row.get("id"):
-                found[str(row["id"]).lower()] = "loaded"
-    return found
+    """lower-case model name -> state, from the runtime's own API (its provider's engine)."""
+    import llm_engine
+    return llm_engine.of(rt).loaded_models(rt)
 
 
 def snapshot(runtimes, processes=None) -> Usage:
@@ -293,13 +225,14 @@ def snapshot(runtimes, processes=None) -> Usage:
         temp, power = _number(f"{HWMON}/temp1_input"), _number(f"{HWMON}/power1_average")
         usage.temp = temp / 1000 if temp else None
         usage.power = power / 1e6 if power else None
+    import llm_engine
     groups = runtime_pids(processes)
     for rt in runtimes:
         pids = groups.get(rt.key, set())
         use = RuntimeUse(running=bool(pids), vram=sum(proc_vram(pid) for pid in pids))
         if pids:
             use.models = loaded_models(rt)
-            if rt.key == "lmstudio":
+            if llm_engine.of(rt).app_without_server:
                 use.serving = _own_port(port_of(rt))
         usage.runtimes[rt.key] = use
     return usage

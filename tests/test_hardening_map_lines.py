@@ -13,22 +13,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import model_folders  # noqa: E402
 import models_ctl  # noqa: E402
+import llm_engine  # noqa: E402
+import provider_lmstudio  # noqa: E402
 import runtime_ctl  # noqa: E402
 
 
 class ModelNameTest(unittest.TestCase):
     def test_a_name_that_looks_like_an_option_never_reaches_lms(self):
         rt = SimpleNamespace(key="lmstudio", address="127.0.0.1:1234", service="")
-        with mock.patch.object(runtime_ctl, "_run", side_effect=AssertionError("run")), \
-                mock.patch.object(runtime_ctl, "lms_binary", return_value="/usr/bin/lms"):
+        with mock.patch.object(llm_engine, "_run", side_effect=AssertionError("run")), \
+                mock.patch.object(provider_lmstudio, "lms_binary", return_value="/usr/bin/lms"):
             for bad in ("--yes", "-x", "", "a b", "a\nb"):
                 self.assertEqual(runtime_ctl.unload_model(rt, bad), (False, "not a model name"))
                 self.assertEqual(runtime_ctl.load(rt, bad), (False, "not a model name"))
 
     def test_a_plain_name_goes_after_double_dash(self):
         rt = SimpleNamespace(key="lmstudio", address="127.0.0.1:1234", service="")
-        with mock.patch.object(runtime_ctl, "_run", return_value=(True, "")) as run, \
-                mock.patch.object(runtime_ctl, "lms_binary", return_value="/usr/bin/lms"):
+        with mock.patch.object(llm_engine, "_run", return_value=(True, "")) as run, \
+                mock.patch.object(provider_lmstudio, "lms_binary", return_value="/usr/bin/lms"):
             runtime_ctl.unload_model(rt, "qwen/qwen3-8b")
         run.assert_called_once_with(["/usr/bin/lms", "unload", "--", "qwen/qwen3-8b"])
 

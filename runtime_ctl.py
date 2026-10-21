@@ -1,39 +1,31 @@
-"""Start and stop local LLM runtimes (right-click on the map).
+"""Start and stop local LLM runtimes (right-click on the map), load and unload their models.
 
-Only this user's own means are used, so no password is ever needed:
-
-- a runtime with a user service (llama-server.service, ollama.service, …):
-  `systemctl --user start|stop|enable|disable <unit>`
-- LM Studio without one: its own CLI, `lms server start|stop`
+What each local LLM needs is its provider's engine (llm_engine): by default its user service
+(`systemctl --user start|stop <unit>`, only this user's own means, so no password is ever
+needed); LM Studio's engine uses its own CLI instead. This module keeps the calls the pages use
+and what is the same for all: checking a model name, starting before a load, start at login.
 
 Everything runs with a timeout; callers run it on a thread.
 """
 
-import re
-import shutil
-import subprocess
-from pathlib import Path
+import llm_engine
+from llm_engine import MODEL_KEY  # noqa: F401  (pages check names with it)
 
 TIMEOUT = 30
 
 
 def lms_binary() -> str | None:
-    found = shutil.which("lms")
-    if found:
-        return found
-    candidate = Path.home() / ".lmstudio/bin/lms"
-    return str(candidate) if candidate.is_file() else None
+    """LM Studio's CLI (kept for the pages that still ask for it; its engine has its own)."""
+    import provider_lmstudio
+    return provider_lmstudio.lms_binary()
 
 
 def _run(argv: list[str]) -> tuple[bool, str]:
-    import ai_core
-    out, ok = ai_core.read_bounded_output(argv, max_bytes=64 * 1024, timeout=TIMEOUT, merge_stderr=True)
-    message = out.decode("utf-8", "replace").strip().splitlines()
-    return ok, (message[-1] if message else "")[:300]
+    return llm_engine._run(argv)
 
 
 def can_control(rt) -> bool:
-    return bool(rt.installed and (rt.service or (rt.key == "lmstudio" and lms_binary())))
+    return llm_engine.of(rt).can_control(rt)
 
 
 def start_at_login(rt) -> bool | None:
@@ -45,19 +37,11 @@ def start_at_login(rt) -> bool | None:
 
 
 def start(rt) -> tuple[bool, str]:
-    if rt.service:
-        return _run(["systemctl", "--user", "start", f"{rt.service}.service"])
-    if rt.key == "lmstudio" and lms_binary():
-        return _run([lms_binary(), "server", "start"])
-    return False, "no way to start it"
+    return llm_engine.of(rt).start(rt)
 
 
 def stop(rt) -> tuple[bool, str]:
-    if rt.service:
-        return _run(["systemctl", "--user", "stop", f"{rt.service}.service"])
-    if rt.key == "lmstudio" and lms_binary():
-        return _run([lms_binary(), "server", "stop"])
-    return False, "no way to stop it"
+    return llm_engine.of(rt).stop(rt)
 
 
 def set_start_at_login(rt, on: bool) -> tuple[bool, str]:
@@ -72,6 +56,9 @@ def load(rt, model: str, wait: float = 30) -> tuple[bool, str]:
     this user's own server (gpu_usage.http_json checks the listener)."""
     if not MODEL_KEY.fullmatch(model or ""):
         return False, "not a model name"
+    engine = llm_engine.of(rt)
+    if not engine.can_load:
+        return False, "it cannot be asked to load a model"
     import time
     import gpu_usage
     import loopback
@@ -87,21 +74,7 @@ def load(rt, model: str, wait: float = 30) -> tuple[bool, str]:
             if time.monotonic() > until:
                 return False, "it did not start"
             time.sleep(0.5)
-    if rt.key in ("llamacpp", "jan"):
-        reply = gpu_usage.http_json(port, "/models/load", "POST", {"model": model}, timeout=300)
-        return (True, "") if reply is not None else (False, "it did not load the model")
-    if rt.key == "ollama":
-        reply = gpu_usage.http_json(port, "/api/generate", "POST", {"model": model, "keep_alive": "30m"}, timeout=300)
-        return (True, "") if reply is not None else (False, "it did not load the model")
-    if rt.key == "lmstudio":
-        binary = lms_binary()
-        return _run([binary, "load", "--", model]) if binary else (False, "lms not found")
-    return False, "it cannot be asked to load a model"
-
-
-# A model name given to `lms` (load/unload) or a local LLM's API: never an option (a folder name in
-# a shared models folder could start with "-"), one plain word.
-MODEL_KEY = re.compile(r"[A-Za-z0-9][\w.:/@+-]{0,199}")
+    return engine.load(rt, model)
 
 
 def unload_model(rt, model: str) -> tuple[bool, str]:
@@ -109,47 +82,10 @@ def unload_model(rt, model: str) -> tuple[bool, str]:
     keeps running. Only on this user's own server."""
     if not MODEL_KEY.fullmatch(model or ""):
         return False, "not a model name"
-    import gpu_usage
-    port = gpu_usage.port_of(rt)
-    if rt.key in ("llamacpp", "jan"):
-        reply = gpu_usage.http_json(port, "/models/unload", "POST", {"model": model}, timeout=30)
-        return (True, "") if reply is not None else (False, "it did not unload the model")
-    if rt.key == "ollama":
-        reply = gpu_usage.http_json(port, "/api/generate", "POST", {"model": model, "keep_alive": 0}, timeout=30)
-        return (True, "") if reply is not None else (False, "it did not unload the model")
-    if rt.key == "lmstudio":
-        binary = lms_binary()
-        return _run([binary, "unload", "--", model]) if binary else (False, "lms not found")
-    return unload(rt)                      # KoboldCpp, vLLM: one model at a time anyway
+    return llm_engine.of(rt).unload_model(rt, model)
 
 
 def unload(rt) -> tuple[bool, str]:
-    """Free the GPU memory without stopping the server: unload every loaded model
-    (the next request loads it again). vLLM cannot unload, so it is stopped."""
-    import gpu_usage
-    port = gpu_usage.port_of(rt)
-    if rt.key == "vllm":
-        return stop(rt) if can_control(rt) else (False, "no way to stop it")
-    if rt.key == "lmstudio":
-        binary = lms_binary()
-        return _run([binary, "unload", "--all"]) if binary else (False, "lms not found")
-    names = [name for name, state in gpu_usage.loaded_models(rt).items() if state in ("loaded", "loading", "sleeping")]
-    if rt.key == "koboldcpp":
-        if not names:
-            return True, ""
-        reply = gpu_usage.http_json(port, "/api/admin/reload_config", "POST", {"filename": "unload_model"}, timeout=30)
-        return (True, "") if isinstance(reply, dict) and reply.get("success") else (False, "KoboldCpp did not unload")
-    if rt.key in ("llamacpp", "jan"):
-        rows = (gpu_usage.http_json(port, "/models") or {}).get("data", [])
-        ids = [str(r.get("id")) for r in rows if isinstance(r, dict) and str(r.get("id", "")).lower() in names]
-        failed = [i for i in ids if gpu_usage.http_json(port, "/models/unload", "POST", {"model": i}, timeout=30) is None]
-    elif rt.key == "ollama":
-        rows = (gpu_usage.http_json(port, "/api/ps") or {}).get("models", [])
-        ids = [str(r.get("name")) for r in rows if isinstance(r, dict) and r.get("name")]
-        failed = [i for i in ids if gpu_usage.http_json(port, "/api/generate", "POST",
-                                                        {"model": i, "keep_alive": 0}, timeout=30) is None]
-    else:
-        return False, "unknown runtime"
-    if failed:
-        return False, f"could not unload {', '.join(failed)[:200]}"
-    return True, ""
+    """Free the GPU memory without stopping the server where it can: unload every loaded model
+    (the next request loads it again); an engine that cannot unload stops the server."""
+    return llm_engine.of(rt).unload_all(rt)
