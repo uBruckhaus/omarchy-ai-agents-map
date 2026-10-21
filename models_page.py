@@ -256,8 +256,8 @@ class ModelsPage:
         name.set_max_width_chars(1)
         name.add_css_class("am-model-name")
         top.append(name)
-        for chip in chips:
-            top.append(self.capability_chip(chip))
+        for chip in chips:          # a capability key, or a chip made elsewhere (the MCP pages' tag_chip)
+            top.append(chip if isinstance(chip, Gtk.Widget) else self.capability_chip(chip))
         box.append(top)
         line = Gtk.Box(spacing=6)
         sub = Gtk.Label(label=subtitle, xalign=0, hexpand=True)

@@ -1,7 +1,5 @@
 """Animated sketches, drawn in the theme's colours (as App Manager's settings).
 
-- WidenSketch (Settings): a screen with a terminal and this window tiled narrow,
-  a click on "Maximize for more room", then what the chosen option does.
 - SetupSketch (Help): how the AI setup is made by drawing on the map, with dummy
   boxes: agent → provider, a click on a model, agent → MCP server, agent → skills;
   then the agent's pin (its lines stay lit while the pointer moves on) and its
@@ -23,7 +21,6 @@ gi.require_version("PangoCairo", "1.0")
 from gi.repository import Gtk, Pango, PangoCairo  # noqa: E402
 
 LOOP = 6.0                 # seconds per loop of the settings sketch
-WIDEN_MODES = ("workspace", "maximize", "off")
 
 
 def rgba(hex_code, alpha=1.0):
@@ -195,116 +192,6 @@ class AnimationSketch(Gtk.DrawingArea):
             self.comets(cr, lines["agent"], "accent", t)
         if mode == "all":
             self.comets(cr, lines["outside"], "outside", t)
-
-
-# --- Settings: what the click on "Maximize for more room" does ---------------------------------
-
-def widen_frame(t: float, mode: str) -> dict:
-    """The picture at loop time t: where the pointer is, whether it clicks, how far the
-    window has grown (0..1) and how far the view has slid to the next workspace (0..1)."""
-    frame = {"pointer": (0.80, 0.16), "click": False, "grow": 0.0, "slide": 0.0, "hint": mode != "off"}
-    if mode == "off":
-        frame["pointer"] = (0.7, 0.6)
-        return frame
-    if t < 1.2:
-        frame["pointer"] = (lerp(0.55, 0.80, ease(t / 1.2)), lerp(0.7, 0.16, ease(t / 1.2)))
-    frame["click"] = 1.3 <= t < 1.6
-    change = ease((t - 1.7) / 1.0) if t < 5.2 else 1.0 - ease((t - 5.2) / 0.6)
-    if mode == "workspace":
-        frame["slide"] = change
-    else:
-        frame["grow"] = change
-    frame["hint"] = change < 0.5
-    return frame
-
-
-class WidenSketch(Sketch):
-    def __init__(self, colors, mode):
-        super().__init__(300, 150, colors)
-        self.mode = mode                # a callable: one of WIDEN_MODES
-        self.animate(True)
-
-    def draw(self, _area, cr, width, height):
-        c = self.colors()
-        t = (time.monotonic() - self.started) % LOOP
-        f = widen_frame(t, self.mode())
-        sh = min(height - 8, (width - 8) * 9 / 16)
-        sw = sh * 16 / 9
-        sx, sy = (width - sw) / 2, (height - sh) / 2
-        rounded(cr, sx, sy, sw, sh, 4)
-        cr.set_source_rgba(*rgba(c.get("background"), 1))
-        cr.fill_preserve()
-        cr.set_source_rgba(*rgba(c.get("foreground"), 0.25))
-        cr.set_line_width(1)
-        cr.stroke()
-        cr.save()
-        rounded(cr, sx, sy, sw, sh, 4)
-        cr.clip()
-        cr.rectangle(sx, sy, sw, 7)                       # the bar
-        cr.set_source_rgba(*rgba(c.get("foreground"), 0.12))
-        cr.fill()
-        top, gap = sy + 10, 4
-        area_w, area_h = sw - 2 * gap, sh - 10 - gap
-        slide = f["slide"] * sw
-        # Workspace 1: a terminal left, this window right (narrow: cards only).
-        half = (area_w - gap) / 2
-        app_x = sx + gap + lerp(half + gap, 0, f["grow"])
-        app_w = lerp(half, area_w, f["grow"])
-        if f["grow"] < 1:
-            self.terminal(cr, c, sx + gap - slide, top, half, area_h)
-        self.window(cr, c, app_x - slide, top, app_w, area_h, wide=f["grow"] > 0.6, hint=f["hint"])
-        # Workspace 2 (slides in): this window alone, the whole width.
-        if f["slide"] > 0:
-            self.window(cr, c, sx + gap + sw - slide, top, area_w, area_h, wide=True, hint=False)
-        cr.restore()
-        px, py = f["pointer"]
-        pointer(cr, sx + sw * px, sy + sh * py, c, f["click"])
-
-    @staticmethod
-    def terminal(cr, c, x, y, w, h):
-        rounded(cr, x, y, w, h, 3)
-        cr.set_source_rgba(*rgba(c.get("foreground"), 0.06))
-        cr.fill()
-        for row in range(6):
-            cr.rectangle(x + 6, y + 8 + row * 9, w * (0.3 + (row * 17 % 40) / 100), 3)
-            cr.set_source_rgba(*rgba(c.get("green") if row == 5 else c.get("foreground"), 0.35))
-            cr.fill()
-
-    @staticmethod
-    def window(cr, c, x, y, w, h, wide, hint):
-        rounded(cr, x, y, w, h, 3)
-        cr.set_source_rgba(*rgba(c.get("background"), 1))
-        cr.fill_preserve()
-        cr.set_source_rgba(*rgba(c.get("accent"), 0.9))
-        cr.set_line_width(1)
-        cr.stroke()
-        cr.rectangle(x + 6, y + 6, 26, 4)                 # title
-        cr.set_source_rgba(*rgba(c.get("foreground"), 0.7))
-        cr.fill()
-        if hint:
-            rounded(cr, x + w - 44, y + 4, 38, 8, 2)
-            cr.set_source_rgba(*rgba(c.get("accent"), 0.8))
-            cr.set_line_width(1)
-            cr.stroke()
-        cards_w = min(w - 12, 46) if wide else w - 12
-        for row in range(6):                               # the cards
-            rounded(cr, x + 6, y + 16 + row * 11, cards_w, 8, 2)
-            cr.set_source_rgba(*rgba(c.get("foreground"), 0.10))
-            cr.fill()
-        if wide:                                            # the map beside them
-            mx, mw = x + 58, w - 64
-            columns = 4
-            for col in range(columns):
-                for row in range(3 if col != 1 else 4):
-                    bx = mx + col * mw / columns
-                    rounded(cr, bx, y + 18 + row * 13, mw / columns - 8, 8, 2)
-                    cr.set_source_rgba(*rgba(c.get("accent"), 0.55))
-                    cr.fill()
-            cr.move_to(mx + mw / 4 - 8, y + 22)
-            cr.curve_to(mx + mw / 4 + 4, y + 22, mx + mw / 2 - 12, y + 35, mx + mw / 2, y + 35)
-            cr.set_source_rgba(*rgba(c.get("accent"), 0.9))
-            cr.set_line_width(1)
-            cr.stroke()
 
 
 # --- Help: setting up by drawing -------------------------------------------------------------

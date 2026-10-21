@@ -25,14 +25,10 @@ def _rgb(hex_code: str) -> tuple:
 
 
 def outside_color(colors: dict) -> str:
-    """The colour of a local LLM used from outside the map: magenta or cyan, whichever stands
-    out more from the map's other colours (the accent of agents' lights, green skills lines,
-    yellow MCP lines, red errors)."""
-    used = [_rgb(colors.get(name, "")) for name in ("accent", "green", "yellow", "red")]
-
-    def apart(color: str) -> int:
-        return min(sum((a - b) ** 2 for a, b in zip(_rgb(color), other)) for other in used)
-    return max((colors.get("magenta", ""), colors.get("cyan", "")), key=apart)
+    """The colour of a local LLM used from outside the map: cyan (magenta, violet, marks agents
+    on different models of one local LLM; the accent, green skills lines, yellow MCP lines and
+    red errors are taken too)."""
+    return colors.get("cyan", "") or DEFAULT_COLORS["cyan"]
 
 
 class ThemePalette:

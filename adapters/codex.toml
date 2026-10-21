@@ -91,3 +91,8 @@ choices = [
 key = "projects"
 title = "Trusted folders"
 keys_where = { trust_level = "trusted" }
+
+# Its own setup commands, in a terminal tab (Configure… on the map)
+[[configure]]
+label = "Check its setup"
+argv = ["codex", "doctor"]

@@ -97,6 +97,27 @@ class Download:
     login_default: bool = False       # the install page's "Start at login", preset
 
 @dataclass(frozen=True)
+class Configure:
+    """One of an agent's or local LLM's own ways to set it up, offered under Configure… on the map:
+    its own command in a terminal tab of the window (a wizard, a menu, a check), or its app window."""
+    label: str                        # "Setup wizard"
+    argv: tuple                       # its own program and plain words, never a shell
+    note: str = ""                    # what to do in it, shown above it in the terminal
+    window: bool = False              # an app window of its own (LM Studio), not a terminal
+
+
+# Programs a Configure command may never start with: it is the agent's or LLM's own program.
+NOT_OWN = {"sh", "bash", "zsh", "fish", "dash", "env", "sudo", "pkexec", "doas", "su", "python", "python3",
+           "perl", "ruby", "node", "bun", "deno", "npx", "uvx", "curl", "wget", "xdg-open"}
+
+
+def configure_ok(argv, own: tuple) -> bool:
+    """A Configure command: plain words, starting with one of the program names in `own`."""
+    return bool(argv) and all(isinstance(a, str) and a and "\n" not in a and "\0" not in a for a in argv) \
+        and argv[0] in own and argv[0] not in NOT_OWN and "/" not in argv[0]
+
+
+@dataclass(frozen=True)
 class LocalLlm:
     """How an agent is pointed at a local LLM (connect.plan): its settings files and three functions
     over their texts (in the order of `files`)."""
@@ -156,6 +177,7 @@ class Harness:
     ask: tuple = ()                   # argv for one prompt and one answer without tools ("{prompt}" in it)
     games: tuple = ()                 # games it can play through `ask` ("chess"): AI Playground offers them
     effort: tuple = ()                # ((level, options), …): how hard it thinks per Thinking time level
+    configure: tuple = ()             # (Configure, …): its own setup commands (Configure… on the map)
 
 
 # --- helpers for the adapters ----------------------------------------------------------------------

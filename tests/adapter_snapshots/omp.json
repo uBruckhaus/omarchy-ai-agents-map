@@ -37,6 +37,17 @@
  "ask": [],
  "games": [],
  "effort": [],
+ "configure": [
+  {
+   "label": "Setup wizard",
+   "argv": [
+    "omp",
+    "setup"
+   ],
+   "note": "",
+   "window": false
+  }
+ ],
  "access": null,
  "security": null,
  "sessions": null,

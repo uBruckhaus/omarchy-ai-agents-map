@@ -78,6 +78,17 @@
    ]
   ]
  ],
+ "configure": [
+  {
+   "label": "Check its setup",
+   "argv": [
+    "codex",
+    "doctor"
+   ],
+   "note": "",
+   "window": false
+  }
+ ],
  "access": {
   "how": "A ChatGPT plan (Plus, Pro, Business), or an API key from platform.openai.com",
   "login": "codex login",

@@ -178,16 +178,24 @@ class ThemeCss:
         .am-command-line {{ background: alpha({fg_hex}, 0.06); border-radius: {min(radius, 6)}px; padding: 2px 4px 2px 10px;
             margin-top: 3px; }}
         .am-command {{ font-family: "JetBrainsMono Nerd Font", monospace; font-size: 12px; }}
-        button.am-widen-hint, headerbar button.am-widen-hint {{ color: {dim_hex};
-            border: 1px solid alpha({fg_hex}, 0.18); padding: 1px 8px; min-height: 0; }}
-        button.am-widen-hint label, headerbar button.am-widen-hint label {{ font-size: 11px; font-weight: 400;
-            color: {dim_hex}; }}
-        button.am-widen-hint image, headerbar button.am-widen-hint image {{ color: {dim_hex}; -gtk-icon-size: 12px; }}
-        button.am-widen-hint:hover label, button.am-widen-hint:hover image {{ color: {fg_hex}; }}
         .am-undo button.suggested-action {{ background: {accent_hex}; color: {bg_hex}; border: none; }}
         .am-help-card {{ background: alpha({fg_hex}, 0.03); border: 1px solid alpha({fg_hex}, 0.10);
             border-radius: {radius}px; padding: 8px 12px; }}
         .am-help-card.am-group-card {{ padding: 4px 12px; }}   /* group cards: a low header, to save room */
+        /* The layout kit's cards (page_parts.info_card): a level shows as a mark and a coloured edge. */
+        .am-help-card.am-info-card {{ padding: 10px 14px 12px 14px; }}
+        .am-info-card.am-level-error {{ border-left: 3px solid {red_hex}; background: alpha({red_hex}, 0.06); }}
+        .am-info-card.am-level-warning {{ border-left: 3px solid {yellow_hex}; background: alpha({yellow_hex}, 0.05); }}
+        .am-info-card.am-level-ok {{ border-left: 3px solid {green_hex}; }}
+        .am-info-card.am-level-info {{ border-left: 3px solid alpha({accent_hex}, 0.7); }}
+        .am-card label.am-card-text {{ font-size: 13px; }}
+        .am-hint-info {{ color: {accent_hex}; font-weight: bold; }}
+        .am-button-row {{ margin-top: 2px; margin-bottom: 4px; }}
+        .am-header-moving {{ opacity: 0.55; outline: 1px dashed {accent_hex}; outline-offset: 1px; }}
+        .am-header-drop {{ min-width: 3px; min-height: 26px; border-radius: 2px; background-color: {accent_hex}; }}
+        .am-card button.am-page-btn {{ font-size: 13px; font-weight: 600; min-height: 30px; min-width: 96px;
+            padding: 2px 16px; border: 1px solid alpha({fg_hex}, 0.35); border-radius: {radius}px; }}
+        .am-card button.am-page-btn:disabled {{ opacity: 0.45; }}
         .am-help-mark {{ font-weight: 700; }}
         .am-addon-card {{ background: alpha({fg_hex}, 0.04); border: 1px solid alpha({fg_hex}, 0.10);
             border-radius: {radius}px; padding: 10px 12px; min-height: 96px; }}
@@ -294,6 +302,12 @@ class ThemeCss:
         .am-cap-tools {{ color: {accent_hex}; border-color: alpha({accent_hex}, 0.5); }}
         .am-cap-reasoning {{ color: {green_hex}; border-color: alpha({green_hex}, 0.5); }}
         .am-cap-mtp {{ color: {orange_hex}; border-color: alpha({orange_hex}, 0.5); }}
+        /* Tags of the MCP lists (mcp_pages.tag_chip): how a server runs, what it needs. */
+        .am-cap-program {{ color: {accent_hex}; border-color: alpha({accent_hex}, 0.5); }}
+        .am-cap-web {{ color: {green_hex}; border-color: alpha({green_hex}, 0.5); }}
+        .am-cap-docker {{ color: {orange_hex}; border-color: alpha({orange_hex}, 0.5); }}
+        .am-cap-key {{ color: {yellow_hex}; border-color: alpha({yellow_hex}, 0.5); }}
+        .am-cap-muted {{ color: {muted_hex}; border-color: alpha({muted_hex}, 0.5); }}
         .am-name-part {{ font-family: monospace; font-weight: 700; color: {accent_hex}; }}
         .am-readme {{ font-size: 12px; color: alpha({fg_hex}, 0.85); }}
         /* Add pages, MCP and skills pages: five sizes only. Section heading 11 bold capitals (dim),
@@ -497,7 +511,10 @@ class ThemeCss:
             if view is not None:
                 view.set_palette({"bg": bg_hex, "fg": fg_hex, "dim": dim_hex, "muted": muted_hex,
                                   "accent": accent_hex, "green": green_hex, "yellow": yellow_hex, "red": red_hex,
-                                  "outside": outside_hex, "hook": orange_hex},
+                                  "outside": outside_hex, "hook": orange_hex,
+                                  # agents on different models (violet), outside apps (cyan)
+                                  "orange": orange_hex, "magenta": colors.get("magenta", "#cba6f7"),
+                                  "cyan": colors.get("cyan", "#94e2d5")},
                                  radius)
         self.apply_style_scheme(bg_hex)
         css = self.adw_colors_css(bg_hex, fg_hex, accent_hex, red_hex, green_hex, yellow_hex, radius) + css

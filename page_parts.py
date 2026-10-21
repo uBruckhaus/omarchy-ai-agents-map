@@ -64,6 +64,129 @@ class PageParts:
         box.append(rule)
         return box
 
+    # --- the layout kit: one way to build a page ---------------------------------------------------------
+    #
+    # A page that reviews or explains something is built from the same parts, top to bottom
+    # (docs/layout.md): page_header (Back + title over a rule), then cards in a scroller: what
+    # happens (info_card), notes (note_card: a warning or a hint, one card each), a form (setting
+    # rows in an info_card), checks (hint rows in an info_card whose level is the worst hint's),
+    # the action_row right under them, and long details (a preview, a list) last.
+
+    LEVEL_MARKS = {"error": ("✕", "am-hint-error"), "warning": ("!", "am-hint-warning"),
+                   "ok": ("✓", "am-hint-ok"), "info": ("i", "am-hint-info")}
+
+    @staticmethod
+    def page_header(title: Gtk.Label, on_back, tip: str) -> Gtk.Box:
+        """Back · ⌫ and the page title (a label the page sets), over a rule."""
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
+        header = Gtk.Box(spacing=8)
+        back = Gtk.Button()
+        for css in ("flat", "am-header-btn", "am-back-bordered"):
+            back.add_css_class(css)
+        back_box = Gtk.Box(spacing=6)
+        back_box.append(Gtk.Image.new_from_icon_name("go-previous-symbolic"))
+        back_box.append(Gtk.Label(label=_("Back")))
+        back_box.append(Gtk.Label(label="· ⌫"))
+        back.set_child(back_box)
+        back.set_tooltip_text(tip)
+        back.connect("clicked", lambda *_: on_back())
+        header.append(back)
+        title.set_xalign(0)
+        title.set_hexpand(True)
+        title.add_css_class("am-section-title")
+        header.append(title)
+        box.append(header)
+        rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        rule.add_css_class("am-settings-rule")
+        box.append(rule)
+        return box
+
+    @classmethod
+    def info_card(cls, title: str, level: str = "") -> Gtk.Box:
+        """A card with a heading (a mark before it for a level: error, warning, ok, info); fill
+        card.body. card.set_level() changes the level later (a check that has finished)."""
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP_TIGHT)
+        card.add_css_class("am-help-card")
+        card.add_css_class("am-info-card")
+        head = Gtk.Box(spacing=8)
+        mark = Gtk.Label(valign=Gtk.Align.CENTER)
+        head.append(mark)
+        heading = Gtk.Label(label=title.upper(), xalign=0, hexpand=True)
+        heading.add_css_class("am-setting-heading")
+        head.append(heading)
+        card.append(head)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP_TIGHT)
+        card.append(body)
+
+        def set_level(new: str, new_title: str | None = None):
+            for name in cls.LEVEL_MARKS:
+                card.remove_css_class(f"am-level-{name}")
+            for _text, css in cls.LEVEL_MARKS.values():
+                mark.remove_css_class(css)
+            text, css = cls.LEVEL_MARKS.get(new, ("", ""))
+            mark.set_label(text)
+            mark.set_visible(bool(text))
+            if css:
+                mark.add_css_class(css)
+                card.add_css_class(f"am-level-{new}")
+            if new_title is not None:
+                heading.set_label(new_title.upper())
+        set_level(level)
+        card.body, card.heading, card.set_level = body, heading, set_level
+        return card
+
+    @staticmethod
+    def card_text(box, text: str, css: str = "am-card-text") -> Gtk.Label:
+        label = Gtk.Label(label=text, xalign=0, wrap=True, max_width_chars=1, selectable=True)
+        label.add_css_class(css)
+        box.append(label)
+        return label
+
+    def note_card(self, box, level: str, text: str, title: str = "") -> Gtk.Box:
+        """One warning or hint as a card of its own."""
+        card = self.info_card(title or {"error": _("Problem"), "warning": _("Note"), "ok": _("Ready")}.get(
+            level, _("Good to know")), level)
+        self.card_text(card.body, text)
+        box.append(card)
+        return card
+
+    @classmethod
+    def hint_rows(cls, box, hints, width: int = 0):
+        """link_check hints ({level, text}) as rows: the level's mark, then the text."""
+        for item in hints:
+            row = Gtk.Box(spacing=8)
+            mark_text, css = cls.LEVEL_MARKS.get(item.get("level"), ("·", ""))
+            mark = Gtk.Label(label=mark_text, valign=Gtk.Align.START)
+            if css:
+                mark.add_css_class(css)
+            row.append(mark)
+            text = Gtk.Label(label=item.get("text", ""), xalign=0, wrap=True, hexpand=True, selectable=True,
+                             max_width_chars=width or 1)
+            text.add_css_class("am-card-text")
+            row.append(text)
+            box.append(row)
+
+    @staticmethod
+    def worst(hints) -> str:
+        levels = [h.get("level") for h in hints]
+        return next((lv for lv in ("error", "warning", "ok") if lv in levels), "info")
+
+    @staticmethod
+    def action_row(*buttons, start=()) -> Gtk.Box:
+        """The page's buttons, right under its cards: `start` at the left (a status), the buttons at
+        the right, the main one last."""
+        row = Gtk.Box(spacing=8)
+        row.add_css_class("am-button-row")
+        for widget in start:
+            row.append(widget)
+        row.append(Gtk.Box(hexpand=True))
+        for button in buttons:
+            # A page's own actions: one size on every page (am-page-btn), whatever they were made with.
+            button.remove_css_class("am-small-btn")
+            button.add_css_class("am-page-btn")
+            row.append(button)
+        return row
+
     # --- cards and tiles ---------------------------------------------------------------------------------
 
     def group_card(self, box, key: str, title: str, icon: str = "", summary: str = "", badges=(),

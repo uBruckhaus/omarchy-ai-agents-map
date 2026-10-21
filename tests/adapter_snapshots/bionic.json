@@ -37,6 +37,7 @@
  "ask": [],
  "games": [],
  "effort": [],
+ "configure": [],
  "access": {
   "how": "Nothing: it runs models on this computer",
   "login": "",

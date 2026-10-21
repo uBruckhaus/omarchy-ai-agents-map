@@ -479,21 +479,6 @@ class SettingsPages:
         preview.append(self.animation_sketch)
         group.add(preview)
         models_group = self.preference_group(side, _("Models"))
-        if desktop.NAME == "omarchy":
-            # Hyprland tiles the window: what "Maximize for more room" does, with its sketch below
-            # (last in the group: libadwaita puts what is not a row after the list).
-            group = self.preference_group(side, _("Window"))
-            modes = previews.WIDEN_MODES
-            self.combo_row(group, _("Too narrow for the map"),
-                           _("What “Maximize for more room” in the header does when the window is tiled too narrow "
-                             "for the whole map."),
-                           [_("Move to a free workspace"), _("Maximize where it is"), _("No hint")],
-                           modes.index(self.widen_mode()), lambda i: self.set_widen_mode(modes[i]))
-            preview = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-            preview.add_css_class("am-help-card")
-            preview.set_halign(Gtk.Align.START)
-            preview.append(previews.WidenSketch(lambda: self.theme.colors, self.widen_mode))
-            group.add(preview)
 
         group = models_group
         models = self.folder_row(group, _("Models folder"),

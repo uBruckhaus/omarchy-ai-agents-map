@@ -148,6 +148,12 @@ def decorated() -> bool:
     return True             # the desktop (or GTK) draws the title bar with its buttons
 
 
+def header_moves_window() -> bool:
+    """The header drags the window like a title bar (and double-click maximizes): on desktops whose
+    windows are moved by hand. Not on a tiling one (Hyprland): there a drag would only float it."""
+    return _hyprland() is None
+
+
 # --- windows --------------------------------------------------------------------------------------
 
 def attach_window(window):
@@ -189,14 +195,6 @@ def is_maximized(app_id: str):
     return _window.is_maximized() if _window is not None else None
 
 
-def widen(app_id: str) -> bool:
-    """Room for the map: under Hyprland to a free workspace (else maximized), elsewhere maximized."""
-    hypr = _hyprland()
-    if hypr is not None and hypr.widen(app_id):
-        return True
-    return maximize(app_id)
-
-
 def maximize(app_id: str) -> bool:
     hypr = _hyprland()
     if hypr is not None and hypr.maximize(app_id):
@@ -218,6 +216,16 @@ def terminal() -> list | None:
         if path:
             return [path, *follow]
     return None
+
+
+def launch_app(argv: list) -> bool:
+    """An app window of its own (LM Studio)."""
+    try:
+        subprocess.Popen([str(a) for a in argv], cwd=str(HOME), stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError:
+        return False
+    return True
 
 
 def open_terminal(argv: list, cwd: str) -> bool:
@@ -306,7 +314,6 @@ def text(key: str) -> str:
         "install_agent_short": _("Each agent has its own installer (see its website)."),
         "install_coding_agent": _("Claude Code, Codex or OpenCode, each with its own installer."),
         "install_terminal": _("Install a terminal app (Console, Konsole, …):"),
-        "widen_tip": _("Only the cards fit at this width. A click maximizes the window, so it gets the whole width."),
     }[key]
 
 

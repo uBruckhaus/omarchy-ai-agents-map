@@ -646,7 +646,9 @@ class Ollama(Installer):
 
     def env_text(self, models: Path, gpu: Gpu) -> str:
         lines = ["# Written by AI Agents Map. Change the model folder there (right-click Ollama).",
-                 f"OLLAMA_HOST={self.address}", f"OLLAMA_MODELS={models}"]
+                 f"OLLAMA_HOST={self.address}", f"OLLAMA_MODELS={models}",
+                 # One model at a time; the app raises it when agents use different models.
+                 "OLLAMA_MAX_LOADED_MODELS=1"]
         if gpu.vendor == "amd" and gpu.index is not None:
             lines += ["# Only the card with the most video memory (not the integrated one).",
                       f"HIP_VISIBLE_DEVICES={gpu.index}", f"ROCR_VISIBLE_DEVICES={gpu.index}"]
@@ -720,7 +722,8 @@ class LlamaCpp(Installer):
     def env_text(self, models: Path, gpu: Gpu) -> str:
         host, _sep, port = self.address.rpartition(":")
         lines = ["# Written by AI Agents Map. Change the model folder there (right-click llama.cpp).",
-                 f"LLAMA_ARG_MODELS_DIR={models}", f"LLAMA_ARG_HOST={host}", f"LLAMA_ARG_PORT={port}"]
+                 f"LLAMA_ARG_MODELS_DIR={models}", f"LLAMA_ARG_HOST={host}", f"LLAMA_ARG_PORT={port}",
+                 "LLAMA_ARG_MODELS_MAX=1"]
         if gpu.vendor == "amd" and gpu.index is not None:
             lines += [f"HIP_VISIBLE_DEVICES={gpu.index}", f"GGML_VK_VISIBLE_DEVICES={gpu.index}"]
         if gpu.vendor == "nvidia" and gpu.index is not None:
@@ -736,8 +739,9 @@ After=network.target
 [Service]
 Type=exec
 EnvironmentFile={self.env_file}
-# Every GGUF in the model folder, one loaded at a time; per-model settings in models.ini.
-ExecStart={unit_path(BIN_DIR / self.command)} --models-preset {unit_path(preset)} --models-max 1 --gpu-layers all --flash-attn on
+# Every GGUF in the model folder; how many are loaded at once is LLAMA_ARG_MODELS_MAX in the
+# env file (the app raises it when agents use different models); per-model settings in models.ini.
+ExecStart={unit_path(BIN_DIR / self.command)} --models-preset {unit_path(preset)} --gpu-layers all --flash-attn on
 Restart=on-failure
 RestartSec=3
 KillMode=control-group

@@ -27,67 +27,83 @@ class ConnectPage:
     # --- connecting (a line drawn on the map) -----------------------------------------------
 
     def build_connect_page(self) -> Gtk.Widget:
+        """The page that reviews a change before it is written (a line drawn or removed, a security
+        setting, a skill or MCP update), built from the layout kit (page_parts, docs/layout.md):
+        what happens, notes, settings, the check, the buttons under them, then what changes in
+        the files. The openers fill connect_intro, connect_form and the buttons; connect_reset()
+        empties the page, connect_note() adds a note card, show_page("connect") tidies it."""
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
-        header = Gtk.Box(spacing=8)
-        back = Gtk.Button()
-        back.add_css_class("flat")
-        back.add_css_class("am-header-btn")
-        back.add_css_class("am-back-bordered")
-        back_box = Gtk.Box(spacing=6)
-        back_box.append(Gtk.Image.new_from_icon_name("go-previous-symbolic"))
-        back_box.append(Gtk.Label(label=_("Back")))
-        back_box.append(Gtk.Label(label="· ⌫"))
-        back.set_child(back_box)
-        back.set_tooltip_text(_("Back without changing anything (Backspace, Esc)"))
-        back.connect("clicked", lambda *_: self.close_connect())
-        header.append(back)
-        self.connect_title = Gtk.Label(xalign=0, hexpand=True)
-        self.connect_title.add_css_class("am-section-title")
-        header.append(self.connect_title)
-        page.append(header)
-        rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-        rule.add_css_class("am-settings-rule")
-        page.append(rule)
+        self.connect_title = Gtk.Label()
+        page.append(self.page_header(self.connect_title, self.close_connect,
+                                     _("Back without changing anything (Backspace, Esc)")))
+        column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP_TIGHT * 2)
+        column.add_css_class("am-settings")
 
-        self.connect_intro = Gtk.Label(xalign=0, wrap=True, max_width_chars=1)
-        self.connect_intro.add_css_class("am-detail-value")
-        page.append(self.connect_intro)
+        self.connect_about = self.info_card(_("What happens"), "info")
+        self.connect_intro = self.card_text(self.connect_about.body, "")
+        column.append(self.connect_about)
+        self.connect_notes = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP_TIGHT * 2)
+        column.append(self.connect_notes)
+        self.connect_settings = self.info_card(_("Settings"))
         self.connect_form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
-        self.connect_form.add_css_class("am-settings")
-        page.append(self.connect_form)
+        self.connect_settings.body.append(self.connect_form)
+        column.append(self.connect_settings)
+        self.connect_check = self.info_card(_("Before it works"), "info")
+        self.connect_check.set_visible(False)
+        column.append(self.connect_check)
 
-        heading = Gtk.Label(label=_("What changes").upper(), xalign=0)
-        heading.add_css_class("am-group-heading")
-        self.connect_preview_heading = heading
-        page.append(heading)
-        self.connect_preview = Gtk.TextView(editable=False, cursor_visible=False, monospace=True)
-        self.connect_preview.add_css_class("am-diff")
-        self.connect_preview.set_wrap_mode(Gtk.WrapMode.CHAR)
-        self.connect_preview_scroller = Gtk.ScrolledWindow(vexpand=True)
-        self.connect_preview_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self.connect_preview_scroller.set_child(self.connect_preview)
-        page.append(self.connect_preview_scroller)
-        self.connect_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1)
+        self.connect_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1, hexpand=True)
         self.connect_status.add_css_class("am-agent-detail")
-        page.append(self.connect_status)
-
-        buttons = Gtk.Box(spacing=8, halign=Gtk.Align.END)
         cancel = Gtk.Button(label=_("Cancel"))
         cancel.add_css_class("am-small-btn")
         cancel.connect("clicked", lambda *_: self.close_connect())
-        buttons.append(cancel)
         self.connect_remove = Gtk.Button(label=_("Remove connection"))
         self.connect_remove.add_css_class("am-small-btn")
         self.connect_remove.add_css_class("am-danger")
         self.connect_remove.connect("clicked", lambda *_: self.apply_connect(remove=True))
-        buttons.append(self.connect_remove)
         self.connect_ok = Gtk.Button(label=_("Connect"))
         self.connect_ok.add_css_class("am-small-btn")
         self.connect_ok.add_css_class("am-primary")
         self.connect_ok.connect("clicked", lambda *_: self.apply_connect(remove=False))
-        buttons.append(self.connect_ok)
-        page.append(buttons)
+        column.append(self.action_row(cancel, self.connect_remove, self.connect_ok, start=(self.connect_status,)))
+
+        changes = self.info_card(_("What changes"))
+        self.connect_preview_heading = changes            # shown or hidden as a whole, as before
+        self.connect_preview = Gtk.TextView(editable=False, cursor_visible=False, monospace=True)
+        self.connect_preview.add_css_class("am-diff")
+        self.connect_preview.set_wrap_mode(Gtk.WrapMode.CHAR)
+        self.connect_preview_scroller = Gtk.ScrolledWindow(propagate_natural_height=True, max_content_height=460)
+        self.connect_preview_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.connect_preview_scroller.set_child(self.connect_preview)
+        changes.body.append(self.connect_preview_scroller)
+        column.append(changes)
+        page.append(self.scrolled(column))
         return page
+
+    def connect_reset(self):
+        """An empty page for the next opener: no form rows, notes or check, no status."""
+        for box in (self.connect_form, self.connect_notes, self.connect_check.body):
+            self.clear_box(box)
+        self.connect_check.set_visible(False)
+        self.connect_check_token = object()        # a check still running for the last page is ignored
+        self.connect_about.set_level("info", _("What happens"))
+        self.connect_status.set_label("")
+
+    def connect_note(self, level: str, text: str, title: str = ""):
+        self.note_card(self.connect_notes, level, text, title)
+
+    def connect_tidy(self):
+        """Before the page shows: cards with nothing in them are hidden."""
+        self.connect_about.set_visible(bool(self.connect_intro.get_label()))
+        self.connect_settings.set_visible(self.connect_form.get_first_child() is not None)
+
+    def connect_show_check(self, hints, title: str = ""):
+        """The check before connecting (link_check): hint rows in one card, its level the worst."""
+        self.clear_box(self.connect_check.body)
+        level = self.worst(hints)
+        self.connect_check.set_level(level, title or (_("Ready") if level == "ok" else _("Before it works")))
+        self.hint_rows(self.connect_check.body, hints)
+        self.connect_check.set_visible(bool(hints))
 
     def on_map_relink(self, agent_id: str, old_id: str, new_id: str | None):
         """A line moved to another local LLM: the old provider goes, the new one
@@ -213,6 +229,9 @@ class ConnectPage:
         self.refresh_map()
         message = _("{0} use {1} ({2}) now").format(", ".join(a.name for a in agents), model, runtime.name) \
             if backups else ""
+        slots, slot_backups = self.sync_model_slots() if backups else ("", [])
+        backups += slot_backups
+        message = " · ".join(t for t in (message, slots) if t)
         self.show_note(_("{0}: loading {1}…").format(runtime.name, model))
 
         def work():
@@ -334,6 +353,9 @@ class ConnectPage:
             return
         message = (_("{0}: no longer connected to {1}").format(names, runtime.name) if model is None else
                    _("{0} use {1} ({2}) now instead of {3}").format(names, model, runtime.name, old))
+        slots, slot_backups = self.sync_model_slots()
+        backups += slot_backups
+        message = " · ".join(t for t in (message, slots) if t)
         if not free:
             self.toast(message, 30, _("Undo"), lambda: self.undo_many(backups))
             return
@@ -353,6 +375,50 @@ class ConnectPage:
             return False
         threading.Thread(target=work, daemon=True).start()
 
+    def sync_model_slots(self) -> tuple[str, list]:
+        """After a connection or a model change: each local LLM keeps as many models loaded as its
+        agents use, where it lets the app set that (model_slots). Returns a note for the change's
+        message and the backups, so one Undo takes both back; swapping and GPU memory warnings
+        are shown after it, and a running local LLM is offered a restart (it reads the number when
+        it starts)."""
+        import gpu_usage
+        import llm_engine
+        import model_slots
+        try:
+            needs = model_slots.plan(self.inventory.runtimes, model_slots.models_in_use(self.side_map.graph))
+            vram = gpu_usage.gpu_totals()[1]
+        except (OSError, ValueError):
+            return "", []
+        notes, backups, warnings, restart = [], [], [], []
+        for need in needs:
+            rt = next((r for r in self.inventory.runtimes if r.key == need.key), None)
+            if rt is None:
+                continue
+            if need.change:
+                engine = llm_engine.of(rt)
+                try:
+                    changes = engine.slot_changes(rt, need.count)
+                    if changes:
+                        backups.append(connect.apply(connect.Plan(rt.name, rt.key, "", changes)))
+                        engine.after_slot_change(rt)
+                        if need.kind == "switch":
+                            notes.append(_("{0} keeps one model loaded at a time").format(rt.name) if need.count == 1
+                                         else _("{0} keeps every model its agents use loaded").format(rt.name))
+                        else:
+                            notes.append(ngettext("{0} keeps 1 model loaded at a time",
+                                                  "{0} keeps {1} models loaded at once", need.count)
+                                         .format(rt.name, need.count))
+                        restart.append(rt.key)
+                        need.slots = need.count if need.kind != "switch" or need.count == 1 else 0
+                except (OSError, ValueError, RuntimeError) as error:
+                    warnings.append(_("{0}: the number of models at once was not changed: {1}").format(rt.name, error))
+            warnings += [hint["text"] for hint in model_slots.hints(need, vram)]
+        for text in warnings:
+            self.show_notice(text, 12)
+        for key in restart:
+            self.offer_restart(key)
+        return " · ".join(notes), backups
+
     def undo_many(self, backups: list):
         """Undo of a change to several agents at once: the last one first."""
         try:
@@ -360,6 +426,8 @@ class ConnectPage:
                 connect.undo(backup)
         except (OSError, ValueError) as error:
             self.show_notice(_("Undo failed: {0}").format(error))
+        # A local LLM's service file may be among them (models at once): systemd reads it again.
+        runtime_ctl._run(["systemctl", "--user", "daemon-reload"])
         self.collect()
         self.refresh_overview()
         self.refresh_map()
@@ -393,19 +461,59 @@ class ConnectPage:
         self.collect()
         self.refresh_overview()
         self.refresh_map()
-        self.show_undo(_("{0} uses {1} ({2}) now").format(agent.name, model, runtime.name), backup)
+        slots, slot_backups = self.sync_model_slots()
+        message = " · ".join(t for t in (_("{0} uses {1} ({2}) now").format(agent.name, model, runtime.name), slots)
+                             if t)
+        self.toast(message, 30, _("Undo"), lambda: self.undo_many([backup] + slot_backups))
 
     @staticmethod
-    def not_connectable_text(agent, runtime, model: str = "") -> str:
+    def not_connectable_parts(agent, runtime, model: str = "") -> tuple[str, str]:
         """An agent the app cannot point at a local LLM (its add-on says nothing about how): what the
         user can do by hand, and which agents the app can set up."""
         import harnesses
         able = sorted(h.name for c in connect.SUPPORTED if (h := harnesses.get(c)) is not None)
         model = model or next(iter(connect.chat_models(runtime.models)), "")
-        how = _("{0} cannot be connected from here yet. Set it up in {0}'s own settings: an OpenAI-compatible "
-                "provider at {1}, no API key needed, model {2}.").format(
+        how = _("Set it up in {0}'s own settings (right-click {0} → Configure…): an OpenAI-compatible provider "
+                "at {1}, no API key needed, model {2}.").format(
             agent.name, connect.base_url(runtime.address), model or _("(one of {0}'s models)").format(runtime.name))
-        return how + " " + _("These agents can be connected from here: {0}.").format(", ".join(able))
+        return how, _("These agents can be connected from here: {0}.").format(", ".join(able))
+
+    def not_connectable_text(self, agent, runtime, model: str = "") -> str:
+        how, able = self.not_connectable_parts(agent, runtime, model)
+        return _("{0} cannot be connected from here yet.").format(agent.name) + " " + how + " " + able
+
+    def connect_run_check(self):
+        """The line's check before it is written (link_check, before=True), on a thread: is the
+        local LLM there, does it have the model, can it be started, is the context big enough."""
+        info = self.connecting or {}
+        runtime, agent = info.get("runtime"), info.get("agent")
+        if runtime is None or agent is None or info.get("remove_only"):
+            return
+        models = self.connect_models
+        model = models[self.connect_model.get_selected()] if models else ""
+        token = self.connect_check_token = object()
+        with_agents = bool(ai_core.setting("providers_with_agents"))
+        # The models the other agents use on it, with this agent's choice in place of its own.
+        import model_slots
+        in_use = model_slots.models_in_use(self.side_map.graph).get(f"runtime:{runtime.key}", {})
+        in_use = {m: [a for a in agents if a != agent.name] for m, agents in in_use.items()}
+        in_use = {m: agents for m, agents in in_use.items() if agents}
+        if model and self.connect_use_now.get_active():
+            in_use.setdefault(model, []).append(agent.name)
+
+        def work():
+            try:
+                hints = link_check.check_provider(agent.command, agent.name, runtime, model, with_agents, before=True)
+                hints += link_check.slot_hints(runtime, in_use)
+            except Exception as error:      # a check must never take the window down
+                hints = [link_check.hint("warning", _("Could not check it: {0}").format(str(error)[:200]))]
+            GLib.idle_add(done, hints)
+
+        def done(hints):
+            if self.connect_check_token is token and self.connecting is info:
+                self.connect_show_check(hints)
+            return False
+        threading.Thread(target=work, daemon=True).start()
 
     def on_map_link(self, agent_id: str, runtime_id: str, replaces_id: str | None = None,
                     remove_only: bool = False):
@@ -433,9 +541,8 @@ class ConnectPage:
                                       if remove_only else
                                       _("Move {0} from {1} to {2}").format(agent.name, replaces.name, runtime.name)
                                       if replaces else _("Connect {0} to {1}").format(agent.name, runtime.name)).upper())
+        self.connect_reset()
         form = self.connect_form
-        while (child := form.get_first_child()) is not None:
-            form.remove(child)
         supported = agent.command in connect.SUPPORTED
         fixed = connect.FIXED.get(agent.command)
         self.connect_preview_heading.set_visible(supported)
@@ -445,12 +552,18 @@ class ConnectPage:
         self.connect_status.set_label("")
         if fixed:
             fixed_name = next((r.name for r in self.inventory.runtimes if r.key == fixed), fixed)
+            self.connect_about.set_level("ok" if runtime.key == fixed else "warning",
+                                         _("Nothing to connect") if runtime.key == fixed else _("Not possible"))
             self.connect_intro.set_label(
                 (_("{0} uses {1}'s models by itself: there is nothing to connect.") if runtime.key == fixed else
                  _("{0} can only use {1}'s models (and its own cloud); it cannot be connected to {2}."))
                 .format(agent.name, fixed_name, runtime.name))
         elif not supported:
-            self.connect_intro.set_label(self.not_connectable_text(agent, runtime))
+            how, able = self.not_connectable_parts(agent, runtime)
+            self.connect_about.set_level("warning", _("Not from here yet"))
+            self.connect_intro.set_label(_("{0} cannot be connected from here yet.").format(agent.name))
+            card = self.note_card(self.connect_notes, "info", how, _("What you can do"))
+            self.card_text(card.body, able)
         else:
             already = connect.is_connected(agent.command, runtime.key)
             # Set to use it, with the provider gone (a broken line): removing clears that setting.
@@ -460,11 +573,11 @@ class ConnectPage:
                                                "more. Removing the connection switches {0} to another local LLM "
                                                "it has, or clears the setting.").format(agent.name, runtime.name))
             elif remove_only:
-                warning = _(" {0} uses it right now: choose another model in {0} afterwards (or draw a line to "
-                            "another local LLM instead).").format(agent.name) \
-                    if connect.is_active(agent.command, runtime.key) else ""
                 self.connect_intro.set_label(_("The {0} provider is removed from {1}'s settings.")
-                                             .format(runtime.name, agent.name) + warning)
+                                             .format(runtime.name, agent.name))
+                if connect.is_active(agent.command, runtime.key):
+                    self.connect_note("warning", _("{0} uses it right now: choose another model in {0} afterwards "
+                                                   "(or draw a line to another local LLM instead).").format(agent.name))
             elif replaces is not None:
                 self.connect_intro.set_label(
                     _("{0} gets {1} as a provider ({2}) instead of {3}; the {3} provider is removed from its "
@@ -484,7 +597,7 @@ class ConnectPage:
             context = inventory.llama_context() if runtime.key == "llamacpp" else {}
             self.connect_context = context
             self.connect_model = self.dropdown(models or [_("(no models found)")], 0,
-                                               lambda _i: self.update_connect_preview())
+                                               lambda _i: (self.update_connect_preview(), self.connect_run_check()))
             if not remove_only:
                 self.setting_line(form, _("Model"), _("The model the agent uses when it works with this provider."),
                                   self.connect_model)
@@ -495,13 +608,16 @@ class ConnectPage:
                 in_use = connect.is_active(agent.command, replaces.key)
                 self.connect_use_now.set_active(in_use)
                 self.connect_use_now.set_sensitive(not in_use)
-            self.connect_use_now.connect("notify::active", lambda *_: self.settings_ready and self.update_connect_preview())
+            self.connect_use_now.connect("notify::active", lambda *_: self.settings_ready and (
+            self.update_connect_preview(), self.connect_run_check()))
             if not remove_only:
                 self.setting_line(form, _("Use it now"),
                                   _("Make it the agent's model right away. Off: only set it up, to switch later."),
                                   self.connect_use_now)
             self.settings_ready = True
             self.update_connect_preview()
+            if not remove_only:
+                self.connect_run_check()
         self.show_page("connect")
 
     def open_mcp_connect(self, agent_id: str, name: str, remove_only: bool = False):
@@ -516,9 +632,8 @@ class ConnectPage:
                            "remove_only": remove_only}
         self.connect_title.set_label((_("Remove {0} from {1}") if remove_only else _("Connect {0} to {1}"))
                                      .format(name, agent.name).upper())
+        self.connect_reset()
         form = self.connect_form
-        while (child := form.get_first_child()) is not None:
-            form.remove(child)
         supported = mcp_ctl.supported(agent.command)
         self.connect_preview_heading.set_visible(supported)
         self.connect_preview_scroller.set_visible(supported)
@@ -527,6 +642,8 @@ class ConnectPage:
         self.connect_remove.set_visible(supported and already)
         self.connect_ok.set_visible(supported and not remove_only and not already)
         self.connect_ok.set_label(_("Connect"))
+        if agent.command in mcp_ctl.IN_APP or not supported:
+            self.connect_about.set_level("warning", _("Not from here yet"))
         if agent.command in mcp_ctl.IN_APP:
             self.connect_intro.set_label(_("{0} sets up its MCP servers in its own app ({1}): add {2} there.")
                                          .format(agent.name, mcp_ctl.IN_APP[agent.command], name))
@@ -563,9 +680,8 @@ class ConnectPage:
         self.connecting = {"agent": agent, "skills": folder, "from": self.view, "remove_only": remove_only}
         self.connect_title.set_label((_("Remove {0} from {1}") if remove_only else _("Connect {0} to {1}"))
                                      .format(folder, agent.name).upper())
+        self.connect_reset()
         form = self.connect_form
-        while (child := form.get_first_child()) is not None:
-            form.remove(child)
         self.connect_status.set_label("")
         try:
             plan_now = skills_ctl.plan(agent.command, folder, remove=True)
@@ -582,6 +698,7 @@ class ConnectPage:
         self.connect_ok.set_visible(supported and not remove_only and not already)
         self.connect_ok.set_label(_("Connect"))
         if not supported:
+            self.connect_about.set_level("warning", _("Not from here yet"))
             text = _("Skills cannot be set up for {0} from here yet.").format(agent.name)
         elif remove_only or already:
             text = (_("{0} no longer gets the skills in {1}.") if removable and not stays else
@@ -612,9 +729,8 @@ class ConnectPage:
         self.connecting = {"updates": list(candidates), "from": self.view, "remove_only": False}
         self.connect_title.set_label((_("Update {0}").format(candidates[0].name) if len(candidates) == 1 else
                                       _("Update {0} apps").format(len(candidates))).upper())
+        self.connect_reset()
         form = self.connect_form
-        while (child := form.get_first_child()) is not None:
-            form.remove(child)
         self.connect_status.set_label("")
         self.connect_preview_heading.set_visible(True)
         self.connect_preview_scroller.set_visible(True)
@@ -688,9 +804,8 @@ class ConnectPage:
         users = [a for a in server.agents if mcp_ctl.supported(a)]
         self.connecting = {"delete": name, "users": users, "from": self.view, "remove_only": True}
         self.connect_title.set_label(_("Remove {0}").format(name).upper())
+        self.connect_reset()
         form = self.connect_form
-        while (child := form.get_first_child()) is not None:
-            form.remove(child)
         self.connect_status.set_label("")
         self.connect_preview_heading.set_visible(True)
         self.connect_preview_scroller.set_visible(True)
@@ -848,7 +963,9 @@ class ConnectPage:
         self.collect()
         self.refresh_overview()
         self.refresh_map()
-        self.show_undo(message, backup)
+        slots, slot_backups = self.sync_model_slots() if info.get("runtime") is not None else ("", [])
+        message = " · ".join(t for t in (message, slots) if t)
+        self.toast(message, 30, _("Undo"), lambda: self.undo_many([backup] + slot_backups))
         if not remove:
             self.first_connection_made()        # the first-connection card above the map goes
         if drawn:
@@ -937,15 +1054,7 @@ class ConnectPage:
         heading = Gtk.Label(label=title.upper(), xalign=0)
         heading.add_css_class("am-group-heading")
         box.append(heading)
-        for item in entry["hints"]:
-            row = Gtk.Box(spacing=8)
-            mark = Gtk.Label(label={"error": "✕", "warning": "!", "ok": "✓"}[item["level"]], valign=Gtk.Align.START)
-            mark.add_css_class({"error": "am-hint-error", "warning": "am-hint-warning", "ok": "am-hint-ok"}[item["level"]])
-            row.append(mark)
-            text = Gtk.Label(label=item["text"], xalign=0, wrap=True, max_width_chars=56)
-            text.add_css_class("am-detail-value")
-            row.append(text)
-            box.append(row)
+        self.hint_rows(box, entry["hints"], width=56)
         if entry.get("when"):
             when = Gtk.Label(label=_("Checked {0}").format(entry["when"].replace("T", " ")), xalign=0)
             when.add_css_class("am-agent-detail")

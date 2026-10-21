@@ -104,3 +104,16 @@ choices = [
   { value = "local", label = "This PC", explain = "Commands run here with your rights.", risk = 1 },
   { value = "docker", label = "Docker container", explain = "Commands run in a container.", risk = 0 },
 ]
+
+# Its own setup commands, in a terminal tab (Configure… on the map)
+[[configure]]
+label = "Setup wizard"
+argv = ["hermes", "setup"]
+
+[[configure]]
+label = "Model and provider"
+argv = ["hermes", "model"]
+
+[[configure]]
+label = "Check its setup"
+argv = ["hermes", "doctor"]

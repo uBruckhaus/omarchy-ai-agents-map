@@ -56,6 +56,35 @@
  "ask": [],
  "games": [],
  "effort": [],
+ "configure": [
+  {
+   "label": "Configure",
+   "argv": [
+    "openclaw",
+    "configure"
+   ],
+   "note": "",
+   "window": false
+  },
+  {
+   "label": "Guided setup",
+   "argv": [
+    "openclaw",
+    "onboard"
+   ],
+   "note": "",
+   "window": false
+  },
+  {
+   "label": "Check its setup",
+   "argv": [
+    "openclaw",
+    "doctor"
+   ],
+   "note": "",
+   "window": false
+  }
+ ],
  "access": null,
  "security": null,
  "sessions": null,

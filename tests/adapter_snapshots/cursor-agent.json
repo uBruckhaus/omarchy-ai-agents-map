@@ -45,6 +45,7 @@
  "ask": [],
  "games": [],
  "effort": [],
+ "configure": [],
  "access": {
   "how": "A Cursor account (cursor.com)",
   "login": "cursor-agent login",

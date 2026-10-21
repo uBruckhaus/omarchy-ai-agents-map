@@ -98,12 +98,10 @@ class GenericTest(unittest.TestCase):
 
     def test_hyprland_session_asks_the_compositor(self):
         # Hyprland ignores the window's own maximize request and calls every tile maximized.
-        hypr = mock.Mock(maximize=mock.Mock(return_value=True), widen=mock.Mock(return_value=True),
-                         is_maximized=mock.Mock(return_value=False))
+        hypr = mock.Mock(maximize=mock.Mock(return_value=True), is_maximized=mock.Mock(return_value=False))
         window = mock.Mock(is_maximized=mock.Mock(return_value=True))
         with mock.patch.object(g, "_window", window), mock.patch.object(g, "_hyprland", return_value=hypr):
             self.assertTrue(g.maximize("x"))
-            self.assertTrue(g.widen("x"))
             self.assertFalse(g.is_maximized("x"))           # the compositor's state, not GTK's
         hypr.maximize.assert_called_once_with("x")
         window.maximize.assert_not_called()

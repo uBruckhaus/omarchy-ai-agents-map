@@ -90,12 +90,12 @@ class LlmClientsTest(unittest.TestCase):
         clients.update({"llamacpp": 8080}, net=str(self.net), proc=str(self.proc), now=100.0 + llm_clients.KEEP + 1)
         self.assertEqual(clients.recent("llamacpp"), [])
 
-    def test_outside_colour_stands_apart(self):
+    def test_outside_colour_is_cyan(self):
+        # Magenta (violet) marks agents on different models of one local LLM (map_view.model_tints).
         colors = {"accent": "#f38d70", "green": "#adda78", "yellow": "#f9cc6c", "red": "#fd6883",
                   "magenta": "#a8a9eb", "cyan": "#85dacc"}
-        self.assertEqual(palette.outside_color(colors), "#a8a9eb")
-        colors["accent"] = "#a8a9eb"                    # a lavender accent: cyan then
         self.assertEqual(palette.outside_color(colors), "#85dacc")
+        self.assertEqual(palette.outside_color({}), palette.DEFAULT_COLORS["cyan"])
 
     def test_plugin_ids_are_plain(self):
         self.assertEqual(llm_clients._plugin_of([f"{self.plugins}/../../.ssh/x"]), "")

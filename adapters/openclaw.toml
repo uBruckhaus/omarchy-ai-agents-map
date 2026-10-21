@@ -33,3 +33,16 @@ path = "~/.openclaw/openclaw.json"
 key = "mcp.servers"
 shape = "openclaw"
 write = "hook"
+
+# Its own setup commands, in a terminal tab (Configure… on the map)
+[[configure]]
+label = "Configure"
+argv = ["openclaw", "configure"]
+
+[[configure]]
+label = "Guided setup"
+argv = ["openclaw", "onboard"]
+
+[[configure]]
+label = "Check its setup"
+argv = ["openclaw", "doctor"]

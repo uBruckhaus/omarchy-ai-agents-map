@@ -81,7 +81,7 @@ TILE_TONES = {"mcp": "yellow", "skills": "green", "model": "muted", "more": "mut
 # "available": set up but not in use (dotted), in the alert colour of the header's ! (the legend too).
 # "loaded": a provider → model line while that model is loaded but no agent uses it (solid, light).
 EDGE_COLORS = {"uses": "accent", "available": "red", "serves": "muted", "mcp": "yellow", "skills": "green",
-               "loaded": "fg"}
+               "loaded": "fg", "models": "magenta"}   # models: agents on different models of one local LLM
 
 
 def rgba(hex_code: str, alpha: float = 1.0):
@@ -95,6 +95,7 @@ class MapView(Gtk.DrawingArea):
     def __init__(self):
         super().__init__()
         self.graph = None
+        self.tints = {}          # edge index -> colour name (model_tints)
         self.headers = ["", "", "", ""]
         self.colors = {}
         self.radius = 6
@@ -133,6 +134,10 @@ class MapView(Gtk.DrawingArea):
         self.stop_rects = {}     # agent box id -> rectangle of its stop button (while it runs here)
         self.batteries = {}      # box id -> (left 0..1, colour, tooltip): an online agent's limits, a local LLM's GPU
         self.battery_rects = {}  # agent box id -> rectangle of its battery, for the tooltip
+        self.traffic = {}        # agent box id -> (in B/s, out B/s, moving): a running agent's ⇅
+        self.traffic_rects = {}  # agent box id -> rectangle of its ⇅ (click: its network page)
+        self.on_traffic = None   # callback(agent box id): the ⇅ clicked
+        self.traffic_tip = None  # callback(agent box id) -> tooltip of the ⇅
         self.start_state = None  # start_state(node id) -> "start", "show" (runs here) or "" (no button)
         self.on_start = None     # on_start(node id): start it, or show its terminal
         self.on_stop = None      # on_stop(node id): stop it (it runs here)
@@ -189,6 +194,16 @@ class MapView(Gtk.DrawingArea):
             self.batteries = dict(batteries)
             self.queue_draw()
 
+    def set_traffic(self, rates: dict):
+        """{agent box id: (in, out, moving)} of the running agents (traffic_page.sample_traffic)."""
+        if rates != self.traffic:
+            self.traffic = dict(rates)
+            self.queue_draw()
+
+    def traffic_at(self, x, y):
+        return next((n for n, (bx, by, bw, bh) in self.traffic_rects.items()
+                     if bx <= x <= bx + bw and by <= y <= by + bh and n in self.traffic), None)
+
     def set_usage(self, usage):
         self.usage = usage
         self.queue_draw()
@@ -222,6 +237,7 @@ class MapView(Gtk.DrawingArea):
         self.headers = list(headers)
         self.defaults = {e.target for e in graph.edges if e.kind == "default"}
         self.active = self.active_paths(graph)
+        self.tints = self.model_tints(graph)
         if self.selected_edge and not any((e.source, e.target) == self.selected_edge for e in graph.edges):
             self.selected_edge = None
         self.hover = None
@@ -780,6 +796,8 @@ class MapView(Gtk.DrawingArea):
             self.set_tooltip_text(self.start_tips[1 if self.start_state(start) == "show" else 0])
         elif battery is not None:
             self.set_tooltip_text(self.batteries[battery][2])
+        elif (moving := self.traffic_at(x, y)) is not None and self.traffic_tip is not None:
+            self.set_tooltip_text(self.traffic_tip(moving))
         elif pin is None and ((edge := self.hook_at(x, y)) is not None
                               or (found is None and (edge := self.edge_at(x, y)) is not None)):
             # A hook, or a line that can be moved: what to do with it (the cursor says it can be grabbed).
@@ -917,6 +935,10 @@ class MapView(Gtk.DrawingArea):
         if stop is not None and self.on_stop is not None:
             self.on_stop(stop)
             return
+        moving = self.traffic_at(x, y)
+        if moving is not None and self.on_traffic is not None:
+            self.on_traffic(moving)
+            return
         start = self.start_at(x, y)
         if start is not None and self.on_start is not None:
             self.on_start(start)
@@ -974,6 +996,28 @@ class MapView(Gtk.DrawingArea):
                             for e in self.graph.edges):
                 return agent, edge.source, node.label
         return None
+
+    @staticmethod
+    def model_tints(graph) -> dict:
+        """edge index -> colour name: where agents use different models of one local LLM, its lines
+        to those models and the agents' lines to it are violet (EDGE_COLORS["models"]): it keeps
+        several models loaded at once, or swaps them (model_slots). One model only: the usual lines."""
+        index = {(e.source, e.target): i for i, e in enumerate(graph.edges)}
+        tints = {}
+        for runtime in (n.id for n in graph.nodes if n.kind == "runtime"):
+            users = {}                               # model id -> agent ids
+            for edge in graph.edges:
+                if edge.kind == "default" and (runtime, edge.target) in index \
+                        and graph.edges[index[(runtime, edge.target)]].kind == "serves" \
+                        and (edge.source, runtime) in index and graph.edges[index[(edge.source, runtime)]].kind == "uses":
+                    users.setdefault(edge.target, []).append(edge.source)
+            if len(users) < 2:
+                continue
+            for model, agents in users.items():
+                tints[index[(runtime, model)]] = EDGE_COLORS["models"]
+                for agent in agents:
+                    tints[index[(agent, runtime)]] = EDGE_COLORS["models"]
+        return tints
 
     @staticmethod
     def active_paths(graph) -> dict:
@@ -1234,8 +1278,9 @@ class MapView(Gtk.DrawingArea):
                 cr.set_dash([0.1, 5])
             else:
                 # Loaded in its local LLM but no agent's: solid and light (EDGE_COLORS["loaded"]).
-                cr.set_source_rgba(*self.color("accent" if active else "outside" if outside
-                                               else EDGE_COLORS.get("loaded" if loaded else edge.kind, "muted"),
+                tint = self.tints.get(index)              # agents on different models: the model's colour
+                cr.set_source_rgba(*self.color(tint or ("accent" if active else "outside" if outside
+                                               else EDGE_COLORS.get("loaded" if loaded else edge.kind, "muted")),
                                                0.85 if loaded and alpha == 1.0 else alpha))
                 cr.set_line_width(3.2 if picked else 2.8 if active or outside else 2.2 if loaded else
                                   2.0 if lit_edges is not None and index in lit_edges else 1.4)
@@ -1261,6 +1306,7 @@ class MapView(Gtk.DrawingArea):
         self.start_rects = {}
         self.stop_rects = {}
         self.battery_rects = {}
+        self.traffic_rects = {}
         for node in self.graph.nodes:
             if node.id not in self.boxes:
                 continue
@@ -1299,6 +1345,8 @@ class MapView(Gtk.DrawingArea):
                 right = self.draw_runtime_stop(cr, layout, node.id, x, y, w, h, faded)
             if node.kind in ("agent", "runtime") and node.id in self.batteries:
                 right += self.draw_battery(cr, node.id, x + w - PIN_W - (24 if selected else 4) - right, y, h, faded)
+            if node.kind == "agent" and node.id in self.traffic:
+                right += self.draw_traffic(cr, node.id, x + w - PIN_W - (24 if selected else 4) - right, y, h, faded)
             text_x = self.draw_tile(cr, layout, node, x, y, h, faded, alpha, use)
             if node.kind == "runtime" and use is not None and use.vram >= 64 * 1024 ** 2:
                 detail = " · ".join(filter(None, [detail, f"{use.vram / 1024 ** 3:.1f} GB GPU"]))
@@ -1507,6 +1555,35 @@ class MapView(Gtk.DrawingArea):
         cr.fill()
         return bw + 9
 
+    def draw_traffic(self, cr, node_id, right, y, h, faded) -> int:
+        """⇅ ending at `right`: an arrow down (in) and one up (out), in the accent colour while the
+        agent moves data, dim when it is quiet. Returns the room it takes."""
+        _rate_in, _rate_out, moving = self.traffic[node_id]
+        aw, ah = 14, 12
+        ax, ay = right - aw - 5, y + (h - ah) / 2
+        self.traffic_rects[node_id] = (ax - 3, ay - 4, aw + 6, ah + 8)
+        cr.set_source_rgba(*self.color("accent" if moving else "dim", 0.4 if faded else 1.0))
+        self.traffic_arrows(cr, ax, ay, aw, ah)
+        return aw + 9
+
+    @staticmethod
+    def traffic_arrows(cr, ax, ay, aw, ah):
+        """⇅ in the source colour set: an arrow down (in) at the left, one up (out) at the right
+        (the map's boxes, the legend, the header's network button)."""
+        cr.set_line_width(1.6)
+        cr.set_line_cap(cairo.LINE_CAP_ROUND)
+        for cx, down in ((ax + 4, True), (ax + aw - 4, False)):
+            top, bottom = ay + 1, ay + ah - 1
+            cr.move_to(cx, top)
+            cr.line_to(cx, bottom)
+            tip = bottom if down else top
+            back = -3.5 if down else 3.5
+            cr.move_to(cx - 3, tip + back)
+            cr.line_to(cx, tip)
+            cr.line_to(cx + 3, tip + back)
+            cr.stroke()
+        cr.set_line_cap(cairo.LINE_CAP_BUTT)
+
     def draw_pin(self, cr, layout, node_id, x, y, w, faded):
         """The pin at the top right: filled when pinned, an outline while the box is hovered."""
         pinned = node_id in self.pinned
@@ -1701,6 +1778,11 @@ class LegendSample(Gtk.DrawingArea):
     def on_draw(self, _area, cr, width, height):
         kind, _sep, value = self.sample.partition(":")
         mid = height / 2
+        if kind == "traffic":
+            # A running agent's ⇅: lit while it moves data, dim when it is quiet.
+            cr.set_source_rgba(*self.colors("accent" if value == "moving" else "dim"))
+            MapView.traffic_arrows(cr, (width - 14) / 2, (height - 12) / 2, 14, 12)
+            return
         if kind in ("dot", "ring"):
             # As on a box: the icon tile with the status dot on its corner.
             self.box(cr, width, height)

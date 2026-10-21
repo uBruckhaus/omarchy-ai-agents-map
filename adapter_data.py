@@ -15,6 +15,7 @@ import tomllib
 import types
 from pathlib import Path
 
+import harnesses
 from harnesses import Harness, LocalLlm, Mcp, Sessions, Skills, Way, ref
 from i18n import _
 
@@ -39,7 +40,7 @@ TOP = {"command": STR, "name": STR, "label": STR, "full_name": STR, "icon": STR,
        "offered": BOOL, "short_model_flag": BOOL, "fixed_provider": STR, "self_served": BOOL, "homepage": STR,
        "data": STRS, "install": TABLES, "update": TABLE, "sessions": TABLE, "skills": TABLE, "mcp": TABLE,
        "access": TABLE, "security": TABLE, "login_status": TABLE, "installer": STR, "usage": STR,
-       "local_llm": TABLE, "ask": TABLE}
+       "local_llm": TABLE, "ask": TABLE, "configure": TABLES}
 WAY = {"kind": STR, "spec": STR, "tool": STR, "argv": STRS, "sudo": BOOL, "url": STR, "note": STR,
        "update": STRS, "packages": "a list of [manager, name]"}
 UPDATE = {"self": STRS, "latest": STR}
@@ -60,6 +61,7 @@ LOCAL_LLM = {"files": STRS, "hooks": BOOL}             # the files connect.plan 
 LOGIN_STATUS = {"argv": STRS, "no": STR, "yes": STR}     # a command whose output says signed in or not
 ACCESS = {"how": STR, "login": STR, "files": STRS, "env": STRS, "local_ok": BOOL, "logins": TABLES, "key": TABLE}
 LOGIN = {"label": STR, "argv": STRS, "note": STR}
+CONFIGURE = {"label": STR, "argv": STRS, "note": STR}    # its own setup command, in a terminal (Configure…)
 KEY = {"var": STR, "url": STR, "stdin": STRS, "env_file": STR}
 SECURITY = {"file": STR, "format": STR, "settings": TABLES, "rules": TABLES, "note": STR, "hook": BOOL}
 SETTING = {"key": STR, "title": STR, "explain": STR, "default": "a value", "recommended": "a value",
@@ -68,7 +70,7 @@ CHOICE = {"value": "a value", "unset": BOOL, "label": STR, "explain": STR, "risk
 RULE = {"key": STR, "title": STR, "also": STR, "keys_where": TABLE}   # also: a second file to fall back on;
                                                                         # keys_where: the table's keys whose
                                                                         # entry has these values
-REQUIRED = {"top": ("command", "name"), "way": ("kind",), "login": ("label", "argv"), "key": ("var",),
+REQUIRED = {"top": ("command", "name"), "way": ("kind",), "login": ("label", "argv"), "configure": ("label", "argv"), "key": ("var",),
             "setting": ("key", "title", "explain", "choices"), "choice": ("label", "explain"),
             "rule": ("key", "title"), "security": ("file", "format"), "access": ("how",), "skills": ("dirs", "own"),
             "listed": ("file", "format", "key"), "login_status": ("argv", "no", "yes"), "ask": ("argv",)}
@@ -142,6 +144,11 @@ def check(data: dict, name: str) -> None:
         for game in data["ask"].get("games", []):
             if game not in GAMES:
                 raise AdapterError(f"{name}: ask.games “{game}” is not one the app has ({', '.join(GAMES)})")
+    for i, entry in enumerate(data.get("configure", [])):
+        _check(entry, CONFIGURE, f"{name}: configure[{i}]", REQUIRED["configure"])
+        # The agent itself and plain words: never a shell, never another program.
+        if not harnesses.configure_ok(entry["argv"], (data["command"],)):
+            raise AdapterError(f"{name}: configure[{i}].argv must start with “{data['command']}”, plain words")
     sessions = data.get("sessions", {})
     _check(sessions, SESSIONS, f"{name}: sessions")
     if "reader" in sessions and sessions["reader"] not in READERS:
@@ -358,6 +365,8 @@ def harness(data: dict, name: str = "adapter", hooks=None) -> Harness:
         games=tuple(data["ask"].get("games", ())) if "ask" in data else (),
         effort=tuple((level, tuple(args)) for level, args in data["ask"].get("effort", {}).items())
         if "ask" in data else (),
+        configure=tuple(harnesses.Configure(_(c["label"]), tuple(c["argv"]), _(c["note"]) if c.get("note") else "")
+                        for c in data.get("configure", ())),
         data=tuple(data.get("data", ())), **simple)
 
 

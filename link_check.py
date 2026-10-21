@@ -26,7 +26,7 @@ import mcp_ctl
 import models_ctl
 import runtime_ctl
 import skills_ctl
-from i18n import _
+from i18n import _, ngettext
 
 MIN_AGENT_CONTEXT = 16384      # an agent's system prompt and tools alone take 8–15k tokens
 
@@ -53,6 +53,25 @@ def start_step(rt, agent_name: str) -> str:
     return llm_engine.of(rt).start_step(rt, agent_name)
 
 
+def slot_hints(rt, in_use: dict) -> list:
+    """With these models in use by its agents ({model: [agent names]}): what the app sets for how
+    many it keeps loaded (info), and the swapping and GPU memory warnings (model_slots)."""
+    import model_slots
+    if len(in_use) < 2:
+        return []
+    need = (model_slots.plan([rt], {f"runtime:{rt.key}": in_use}) or [None])[0]
+    if need is None:
+        return []
+    hints = []
+    if need.change:
+        hints.append(hint("info", ngettext("{0} will keep 1 model loaded at a time.",
+                                           "{0} will keep {1} models loaded at once, one for each model its agents "
+                                           "use: the app sets it.", need.count).format(rt.name, need.count)))
+        need.slots = need.count if need.kind != "switch" else 0
+    vram = gpu_usage.gpu_totals()[1]
+    return hints + [hint(h["level"], h["text"]) for h in model_slots.hints(need, vram)]
+
+
 def offered_models(rt) -> list | None:
     """Model ids the running local LLM's OpenAI API lists (lower case), None when it does not answer."""
     reply = gpu_usage.http_json(gpu_usage.port_of(rt), "/v1/models", timeout=3)
@@ -62,11 +81,14 @@ def offered_models(rt) -> list | None:
     return [str(r.get("id", "")).lower() for r in rows[:1000] if isinstance(r, dict)]
 
 
-def check_provider(agent: str, agent_name: str, rt, model: str, with_agents: bool | None = None) -> list:
+def check_provider(agent: str, agent_name: str, rt, model: str, with_agents: bool | None = None,
+                   before: bool = False) -> list:
+    """before: the check on the connect page, before anything is written (the agent's settings do
+    not have the provider yet; the model is the one picked there)."""
     hints = []
     if with_agents is None:
         with_agents = bool(ai_core.setting("providers_with_agents"))
-    if not connect.is_connected(agent, rt.key):
+    if not before and not connect.is_connected(agent, rt.key):
         hints.append(hint("error", _("{0}'s settings do not have {1} after writing them: another program may "
                                      "have changed them at the same time. Draw the line again.").format(agent_name, rt.name)))
     if not rt.installed:
@@ -78,7 +100,7 @@ def check_provider(agent: str, agent_name: str, rt, model: str, with_agents: boo
                           .format(rt.name, add_model_step(rt), agent_name)))
     elif model and model.lower() not in [m.lower() for m in rt.models]:
         hints.append(hint("error", _("{0} does not have the model {1} (any more).").format(rt.name, model)))
-    elif not model and not connect.is_active(agent, rt.key):
+    elif not model and not before and not connect.is_active(agent, rt.key):
         hints.append(hint("warning", _("{0} does not use a model of {1} yet: select {0} on the map and click one "
                                        "of {1}'s models.").format(agent_name, rt.name)))
     if not rt.running:
@@ -88,6 +110,9 @@ def check_provider(agent: str, agent_name: str, rt, model: str, with_agents: boo
         elif not with_agents:
             hints.append(hint("warning", _("{0} is not running, and local LLMs are not started with their agents "
                                            "(Settings): start it before working with {1}.").format(rt.name, agent_name)))
+        elif before:
+            hints.append(hint("info", _("{0} is not running now: it starts when {1} starts, and stops after.")
+                              .format(rt.name, agent_name)))
     else:
         port = gpu_usage.port_of(rt)
         owners = models_ctl.loopback_listeners(port) if port else []
@@ -111,8 +136,8 @@ def check_provider(agent: str, agent_name: str, rt, model: str, with_agents: boo
             hints.append(hint("warning", _("{0} loads {1} with {2} tokens of context; an agent's prompt needs at "
                                            "least {3}. Set a bigger one: right-click {0} → Models….")
                               .format(rt.name, model, ctx, MIN_AGENT_CONTEXT)))
-    if not hints:
-        hints.append(hint("ok", _("{0} can use {1} with {2}.").format(agent_name, rt.name, model or "?")))
+    if not any(h["level"] in ("error", "warning") for h in hints):
+        hints.insert(0, hint("ok", _("{0} can use {1} with {2}.").format(agent_name, rt.name, model or "?")))
     return hints
 
 

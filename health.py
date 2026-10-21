@@ -251,6 +251,15 @@ def check(agent_list, details: dict, inventory, built, pc: PC, agent_checks: dic
             area.findings.append(Finding("hint", _("{0} runs, but no agent uses it now").format(rt.name),
                                          _("It may hold video memory. With “Start local LLMs with their agents” on, "
                                            "it starts and stops with them."), ("runtime", rt.key)))
+    # Agents on different models of one local LLM: it must keep them all loaded, and they must fit.
+    import model_slots
+    try:
+        for need in model_slots.plan(runtimes, model_slots.models_in_use(built)):
+            for hint in model_slots.hints(need, pc.vram):
+                area.findings.append(Finding("warn", _("{0}: its agents use {1} different models")
+                                             .format(need.name, need.count), hint["text"], ("runtime", need.key)))
+    except (OSError, ValueError):
+        pass
     idle = graph_model.idle_folders(built) if built is not None else {}
     if idle:
         folders = ", ".join(f.replace(str(Path.home()), "~", 1) for f in sorted(idle))

@@ -102,3 +102,8 @@ title = "Always ask"
 [[security.rules]]
 key = "permissions.deny"
 title = "Never allowed"
+
+# Its own setup commands, in a terminal tab (Configure… on the map)
+[[configure]]
+label = "Check its setup"
+argv = ["claude", "doctor"]

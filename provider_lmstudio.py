@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 
 import llm_engine
-from harnesses import Way
+from harnesses import Configure, Way
 from providers import Provider
 
 
@@ -99,6 +99,48 @@ class Engine(llm_engine.Engine):
     def unload_all(self, rt):
         return self._lms("unload", "--all")
 
+    # LM Studio keeps one model loaded on request ("Only keep last JIT loaded model",
+    # developer.unloadPreviousJITModelOnLoad in its settings.json), or every one asked for until
+    # its idle time ends: one, or as many as fit. It reads the setting when it starts.
+    slots_kind = "switch"
+    SETTINGS = Path.home() / ".lmstudio/settings.json"
+
+    def _settings(self) -> dict:
+        try:
+            data = json.loads(self.SETTINGS.read_text(encoding="utf-8")[:2_000_000])
+        except (OSError, ValueError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def slots(self, rt):
+        developer = self._settings().get("developer")
+        one = developer.get("unloadPreviousJITModelOnLoad", True) if isinstance(developer, dict) else True
+        return 1 if one is not False else 0
+
+    def slots_fixed_by(self, rt):
+        return "" if self.SETTINGS.is_file() else "LM Studio"
+
+    def slot_changes(self, rt, count):
+        if self.slots_fixed_by(rt) or count < 1:
+            return []
+        data = self._settings()
+        developer = data.get("developer") if isinstance(data.get("developer"), dict) else {}
+        if developer.get("unloadPreviousJITModelOnLoad", True) is not False and count > 1 or \
+                developer.get("unloadPreviousJITModelOnLoad", True) is False and count == 1:
+            data["developer"] = {**developer, "unloadPreviousJITModelOnLoad": count == 1}
+            found = llm_engine.change(self.SETTINGS, json.dumps(data, indent=2) + "\n")
+            return [found] if found is not None else []
+        return []
+
+    def model_size(self, rt, name):
+        import context_ctl
+        point = context_ctl.lmstudio_entry(name).get("entryPoint")
+        path = point.get("absPath") if isinstance(point, dict) else None
+        try:
+            return Path(path).stat().st_size if isinstance(path, str) else 0
+        except OSError:
+            return 0
+
     def model_context(self, rt, name):
         import context_ctl
         return context_ctl.lmstudio_settings(context_ctl.lmstudio_entry(name))[0]
@@ -116,4 +158,6 @@ class Engine(llm_engine.Engine):
 PROVIDER = Provider("lmstudio", "LM Studio", "local", detect=_detect, installer=_installer, engine=Engine(),
                     connect_key="lmstudio-local", connect_label="LM Studio (local)",
                     install=(Way("installer"), Way("manual", url="https://lmstudio.ai/download")), data=("~/.lmstudio",),
+                    configure=(Configure("Open LM Studio", ("lm-studio",), window=True),
+                               Configure("Its server and loaded models", ("lms", "status"))),
                     homepage="https://lmstudio.ai")

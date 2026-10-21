@@ -62,18 +62,12 @@ class WidenTest(unittest.TestCase):
         stranger = dict(own, pid=os.getpid() + 1)          # another copy of the app is not ours
         self.assertIsNone(desktop_omarchy.own_window([stranger], app_entry.APP_ID))
 
-    def test_widen_moves_or_maximizes(self):
-        own = {"class": app_entry.APP_ID, "pid": os.getpid(), "workspace": {"id": 1}, "floating": False}
+    def test_maximize_names_the_window_by_its_class(self):
         calls = []
         with unittest.mock.patch.object(desktop_omarchy, "_dispatch", lambda lua: calls.append(lua) or True):
-            with unittest.mock.patch.object(desktop_omarchy, "_clients",
-                                            lambda: [own, {"class": "foot", "workspace": {"id": 1}}]):
-                desktop_omarchy.widen(app_entry.APP_ID)
-            with unittest.mock.patch.object(desktop_omarchy, "_clients", lambda: [own]):
-                desktop_omarchy.widen(app_entry.APP_ID)
-        self.assertIn('workspace = "emptym"', calls[0])
-        self.assertIn('mode = "maximized"', calls[1])
-        self.assertIn("class:^(org[.]omarchy[.]aiagentsmap)$", calls[1])
+            desktop_omarchy.maximize(app_entry.APP_ID)
+        self.assertIn('mode = "maximized"', calls[0])
+        self.assertIn("class:^(org[.]omarchy[.]aiagentsmap)$", calls[0])
 
     def test_app_id_is_checked_before_it_reaches_a_dispatcher(self):
         with unittest.mock.patch.object(desktop_omarchy, "_dispatch") as dispatch:

@@ -102,6 +102,8 @@ from setup_page import SetupPage
 from page_parts import PageParts
 from models_page import ModelsPage
 from connect_page import ConnectPage
+from configure_menu import ConfigureMenu
+from traffic_page import TrafficPage
 from skills_page import SkillsPage
 from mcp_pages import McpPages
 from details_pages import DetailsPages
@@ -152,7 +154,7 @@ class AppWindow(Adw.ApplicationWindow):
             GLib.idle_add(self.on_width, width)
 
 
-class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, DetailsPages, InfoPage, McpPages, SkillsPage, ConnectPage, ModelsPage,
+class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, DetailsPages, InfoPage, McpPages, SkillsPage, ConnectPage, ConfigureMenu, TrafficPage, ModelsPage,
                 Adw.Application):
     def __init__(self):
         super().__init__(application_id=desktop.app_id())
@@ -175,7 +177,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.agent_list = []
         self.inventory = inventory.Inventory()
         self.selection = []        # node ids selected on the map
-        self.split = False         # the window is wide enough for the whole map (else the widen hint shows)
+        self.split = False         # the window is wide enough for the whole map
         self.sessions = {}           # agent command -> terminal_pane.TerminalPane (an agent started here)
         # Downloads and installs run on as background jobs when their page is left (jobs.py).
         self.jobs = jobs.Jobs(lambda job: GLib.idle_add(self.job_changed, job))
@@ -325,14 +327,16 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             # Our own header row instead of Adw.HeaderBar: a header bar centres its title widget, so the
             # icon and title would not line up with the page (AI SETUP) at the card's 17 px. The handle
             # drags and double-click maximizes like a title bar; the desktop's buttons sit at the right.
-            bar = Gtk.WindowHandle()
+            # On a tiling desktop (Hyprland) a plain row: dragging a title bar there only floats the window.
+            bar = Gtk.WindowHandle() if desktop.header_moves_window() else Gtk.Box()
             bar.add_css_class("am-headerbar")
             row = Gtk.Box(spacing=8)
             row.add_css_class("am-header-row")
+            row.set_hexpand(True)
             header.set_hexpand(True)
             row.append(header)
             row.append(Gtk.WindowControls(side=Gtk.PackType.END))
-            bar.set_child(row)
+            bar.set_child(row) if isinstance(bar, Gtk.WindowHandle) else bar.append(row)
             toolbar = Adw.ToolbarView()
             toolbar.add_top_bar(bar)
             toolbar.set_content(self.toasts)
@@ -340,6 +344,10 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         else:
             window.set_content(self.toasts)
             card.append(header)
+        # Reordering the header's symbols (right mouse button) on the window itself: a window's
+        # capture phase comes before everything in it, also the title bar's own move and right-click
+        # (on Wayland they would take the press first, move the window and Hyprland floats it).
+        self.attach_header_drag(window)
 
         stack = Gtk.Stack()
         stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
@@ -350,8 +358,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         stack.add_named(self.build_main_page(), "main")
         stack.add_named(self.build_settings_page(), "settings")
         stack.add_named(self.build_help_page(), "help")
-        if desktop.NAME == "omarchy":
-            stack.add_named(self.build_info_page(), "info")     # the author's other Omarchy plugins
+        stack.add_named(self.build_info_page(), "info")     # the author's other Omarchy plugins
         stack.add_named(self.build_reorganize_page(), "reorganize")
         stack.add_named(self.build_setup_page(), "setup")
         if hasattr(self, "build_addons_page"):
@@ -367,6 +374,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         right.add_named(self.build_add_skills_page(), "addskills")
         right.add_named(self.build_status_page(), "status")
         right.add_named(self.build_health_page(), "health")
+        right.add_named(self.build_traffic_page(), "traffic")
         right.connect("notify::visible-child-name", lambda *_: self.update_header())
         self.guard_text_fields_in(window)
         stack.connect("notify::visible-child-name", lambda *_: (self.update_header(), self.on_setup_shown()))
@@ -404,20 +412,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         title.set_width_chars(12)          # in a header bar beside the window buttons: not just "…"
         header.append(title)
         self.title_label = title
-        # Too narrow for the map (a tiled window): a hint that also does it, centred in the room between
-        # the title and the buttons (the room stays when the hint is hidden: the buttons keep right).
-        hint_slot = Gtk.Box(hexpand=True)
-        header.append(hint_slot)
-        self.widen_hint = Gtk.Button(valign=Gtk.Align.CENTER, halign=Gtk.Align.CENTER, hexpand=True, visible=False)
-        content = Gtk.Box(spacing=6)
-        content.append(Gtk.Image.new_from_icon_name("view-fullscreen-symbolic"))
-        content.append(Gtk.Label(label=_("Maximize for more room")))
-        self.widen_hint.set_child(content)
-        self.widen_hint.add_css_class("am-small-btn")
-        self.widen_hint.add_css_class("am-widen-hint")
-        self.widen_hint.set_tooltip_text(desktop.text("widen_tip"))
-        self.widen_hint.connect("clicked", lambda *_: self.widen())
-        hint_slot.append(self.widen_hint)
+        header.append(Gtk.Box(hexpand=True))     # the room between the title and the buttons (they keep right)
         # Setup and Map (setup_page.py: what is on the map is set up, updated and removed there):
         # both on every page, the one in view highlighted.
         self.view_buttons = {}
@@ -469,6 +464,17 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         legend_button.set_create_popup_func(lambda button: button.set_popover(self.legend_popover()))
         header.append(legend_button)
         self.legend_button = legend_button
+        # Network: the running agents' traffic (traffic_page), lit while one moves data.
+        self.traffic_button = Gtk.MenuButton()
+        self.traffic_mark = LegendSample(lambda name, alpha=1.0: self.side_map.color(name, alpha), "traffic:quiet",
+                                         width=18, height=16)
+        self.traffic_button.set_child(self.traffic_mark)
+        self.traffic_button.set_tooltip_text(_("Network traffic of the running agents"))
+        self.traffic_button.add_css_class("flat")
+        self.traffic_button.add_css_class("am-header-btn")
+        self.traffic_button.add_css_class("am-gear-btn")
+        self.traffic_button.set_create_popup_func(lambda button: button.set_popover(self.traffic_popover()))
+        header.append(self.traffic_button)
 
         # Add-ons (Asterism only): everything the app understands, and what can be added.
         self.addons_button = None
@@ -482,19 +488,19 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             addons_button.connect("clicked", lambda *_: self.open_addons())
             header.append(addons_button)
             self.addons_button = addons_button
-        # Information (the Omarchy plugin): AI Playground and the author's other plugins.
-        if desktop.NAME == "omarchy":
-            import more_plugins
-            info_button = Gtk.Button()
-            info_mark = Gtk.Label(label=more_plugins.INFO_GLYPH)
-            info_mark.add_css_class("am-gear")
-            info_button.set_child(info_mark)
-            info_button.set_tooltip_text(_(more_plugins.INFORMATION))
-            info_button.add_css_class("flat")
-            info_button.add_css_class("am-header-btn")
-            info_button.add_css_class("am-gear-btn")
-            info_button.connect("clicked", lambda *_: self.open_info())
-            header.append(info_button)
+        # Information: AI Playground and the author's other plugins (from the marketplace).
+        import more_plugins
+        info_button = Gtk.Button()
+        info_mark = Gtk.Label(label=more_plugins.INFO_GLYPH)
+        info_mark.add_css_class("am-gear")
+        info_button.set_child(info_mark)
+        info_button.set_tooltip_text(_(more_plugins.INFORMATION))
+        info_button.add_css_class("flat")
+        info_button.add_css_class("am-header-btn")
+        info_button.add_css_class("am-gear-btn")
+        info_button.connect("clicked", lambda *_: self.open_info())
+        header.append(info_button)
+        self.info_button = info_button
         # Help (the manual: setting up by drawing, …), left of the gear, in the same bordered box.
         help_button = Gtk.Button()
         mark = Gtk.Label(label="?")
@@ -521,7 +527,146 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         settings_button.connect("clicked", lambda *_: self.open_settings())
         header.append(settings_button)   # rightmost
         self.settings_button = settings_button
+        self.setup_header_order(header)
         return header
+
+    # The header's symbols in the user's order: hold the left mouse button on one and drag it.
+    HEADER_ITEMS = ("problem", "playground", "legend", "traffic", "addons", "info", "help", "settings")
+
+    def header_items(self) -> dict:
+        found = {key: getattr(self, f"{key}_button", None) for key in self.HEADER_ITEMS}
+        return {key: widget for key, widget in found.items() if widget is not None}
+
+    def setup_header_order(self, header):
+        items = self.header_items()
+        for key, widget in items.items():
+            widget.header_key = key
+        self.apply_header_order()
+        self.header_drag = None
+        self.header_dragging = False
+        # The drop bar: where a dragged symbol will go (shown only while dragging).
+        self.header_drop = Gtk.Box(visible=False, valign=Gtk.Align.CENTER)
+        self.header_drop.add_css_class("am-header-drop")
+        header.append(self.header_drop)
+
+    def attach_header_drag(self, widget):
+        """Moving a header symbol: hold the left mouse button on it and drag it sideways. On the
+        window, in the capture phase, so it sees the press before the symbol's own click; it only
+        takes the press once the pointer has moved (a plain click stays the symbol's click)."""
+        drag = Gtk.GestureDrag(button=Gdk.BUTTON_PRIMARY)
+        drag.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        drag.connect("drag-begin", self.on_header_drag_begin)
+        drag.connect("drag-update", self.on_header_drag_update)
+        drag.connect("drag-end", self.on_header_drag_end)
+        drag.connect("cancel", self.on_header_drag_cancel)
+        widget.add_controller(drag)
+
+    def to_header(self, gesture, x: float, y: float) -> tuple[float, float]:
+        """A gesture's point in the header row's coordinates."""
+        widget = gesture.get_widget()
+        if widget is self.header:
+            return x, y
+        point = widget.translate_coordinates(self.header, x, y)     # (x, y), or None when unrelated
+        return (point[-2], point[-1]) if point else (x, y)
+
+    def apply_header_order(self):
+        """The saved order (setting header_order); symbols not in it keep their place after it."""
+        items = self.header_items()
+        saved = ai_core.setting("header_order")
+        order = [k for k in saved if k in items] if isinstance(saved, list) else []
+        order += [k for k in self.HEADER_ITEMS if k in items and k not in order]
+        first = min(items.values(), key=self.header_position)
+        anchor = first.get_prev_sibling()
+        for key in order:
+            self.header.reorder_child_after(items[key], anchor)
+            anchor = items[key]
+
+    def header_position(self, widget) -> int:
+        position, child = 0, self.header.get_first_child()
+        while child is not None and child is not widget:
+            position, child = position + 1, child.get_next_sibling()
+        return position
+
+    def header_item_at(self, x: float, y: float):
+        """The header symbol at (x, y) in the header row's coordinates, else None."""
+        for widget in self.header_items().values():
+            if not widget.get_visible():
+                continue
+            ok, bounds = widget.compute_bounds(self.header)
+            if ok and bounds.get_x() <= x <= bounds.get_x() + bounds.get_width() \
+                    and bounds.get_y() - 4 <= y <= bounds.get_y() + bounds.get_height() + 4:
+                return widget
+        return None
+
+    def on_header_drag_begin(self, gesture, x, y):
+        x, y = self.to_header(gesture, x, y)
+        widget = self.header_item_at(x, y)
+        if widget is None:
+            gesture.set_state(Gtk.EventSequenceState.DENIED)
+            return
+        self.header_drag = (widget, x)          # taken once it moves (on_header_drag_update)
+        self.header_dragging = False
+
+    def on_header_drag_update(self, gesture, dx, _dy):
+        """While dragging, the symbols stay; a bar (header_drop) shows where it will go: before the
+        first symbol whose middle is right of the pointer, else after the last."""
+        if self.header_drag is None:
+            return
+        widget, start = self.header_drag
+        if not self.header_dragging:
+            if abs(dx) < 8:
+                return                          # still a click
+            gesture.set_state(Gtk.EventSequenceState.CLAIMED)    # the symbol's click does not fire now
+            self.header_dragging = True
+            widget.add_css_class("am-header-moving")
+            self.header.set_cursor_from_name("grabbing")
+        x = start + dx
+        others = sorted((w for w in self.header_items().values() if w.get_visible() and w is not widget),
+                        key=self.header_position)
+        before = None
+        for other in others:
+            ok, bounds = other.compute_bounds(self.header)
+            if ok and x < bounds.get_x() + bounds.get_width() / 2:
+                before = other
+                break
+        # Where it is now: no bar (letting go there changes nothing).
+        own_next = next((w for w in others if self.header_position(w) > self.header_position(widget)), None)
+        if before is own_next:
+            self.header_drop.set_visible(False)
+            return
+        anchor = (before.get_prev_sibling() if before is not None else others[-1]) if others else widget
+        if anchor is self.header_drop:
+            anchor = self.header_drop.get_prev_sibling()
+        if self.header_drop.get_prev_sibling() is not anchor:
+            self.header.reorder_child_after(self.header_drop, anchor)
+        self.header_drop.set_visible(True)
+
+    def on_header_drag_cancel(self, _gesture, _sequence):
+        """Another gesture took the press: nothing moves."""
+        if self.header_drag is None:
+            return
+        widget, _start = self.header_drag
+        self.header_drag = None
+        self.header_drop.set_visible(False)
+        widget.remove_css_class("am-header-moving")
+        self.header.set_cursor_from_name(None)
+
+    def on_header_drag_end(self, _gesture, _dx, _dy):
+        """Let go: the symbol takes the bar's place."""
+        if self.header_drag is None:
+            return
+        widget, _start = self.header_drag
+        self.header_drag = None
+        if not self.header_dragging:
+            return                              # a click: the symbol's own
+        widget.remove_css_class("am-header-moving")
+        self.header.set_cursor_from_name(None)
+        if not self.header_drop.get_visible():
+            return
+        self.header.reorder_child_after(widget, self.header_drop)
+        self.header_drop.set_visible(False)
+        order = [w.header_key for w in sorted(self.header_items().values(), key=self.header_position)]
+        self.save_setting(header_order=order)
 
     def legend_popover(self) -> Gtk.Popover:
         """The legend: every dot, line and mark of the map, drawn as there, with what it means."""
@@ -537,6 +682,8 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                 ("model:loading", _("Model loading")),
                 ("model:sleeping", _("Model asleep: listed, GPU memory free")),
                 ("check", _("Selected (Shift + click selects more)")),
+                ("traffic:moving", _("A running agent's network traffic: lit while it sends or receives; "
+                                     "click it for its network statistics")),
             ]),
             (_("Lines"), [
                 ("line:active", _("In use now: light flows while the agent works")),
@@ -545,6 +692,8 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                 ("line:uses", _("The agent uses this provider")),
                 ("line:available", _("Set up, but not in use")),
                 ("line:serves", _("A provider or server offers this model")),
+                ("line:models", _("Agents use different models of one local LLM: it keeps them loaded at once, "
+                                  "or swaps them (see the warnings)")),
                 ("line:loaded", _("The provider has this model loaded in GPU memory; no agent uses it now")),
                 ("line:mcp", _("MCP server connected to the agent")),
                 ("line:skills", _("The agent's skills")),
@@ -569,6 +718,11 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                 label.add_css_class("am-legend-text")
                 line.append(label)
                 box.append(line)
+        order = Gtk.Label(label=_("Hold the left mouse button on a symbol in the header and drag it sideways to move it."),
+                          xalign=0, wrap=True, max_width_chars=50)
+        order.add_css_class("am-hint")
+        order.set_margin_top(6)
+        box.append(order)
         more = Gtk.Label(label=_("A column heading such as “Models (3/5) ▾”: some boxes are hidden; click it to choose."),
                          xalign=0, wrap=True, max_width_chars=50)
         more.add_css_class("am-hint")
@@ -693,6 +847,8 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.side_map.pin_tips = (_("Pin: keep its connections lit while the pointer moves over other boxes"),
                                   _("Unpin"))
         self.side_map.on_link = self.on_map_link
+        self.side_map.on_traffic = lambda node_id: self.open_traffic(node_id.partition(":")[2])
+        self.side_map.traffic_tip = self.traffic_tip
         self.side_map.on_relink = self.on_map_relink
         self.side_map.on_pick_model = self.on_map_pick_model
         self.side_map.on_remodel = self.on_map_remodel
@@ -755,6 +911,8 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         return inner if inner in RIGHT_PAGES else "main"
 
     def show_page(self, name: str):
+        if name == "connect":
+            self.connect_tidy()
         if name in RIGHT_PAGES:
             self.stack.set_visible_child_name("main")
             self.right_stack.set_visible_child_name(name)
@@ -1522,9 +1680,10 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         popover.connect("closed", lambda p: GLib.idle_add(p.unparent))
         popover.popup()
 
-    def start_agent(self, agent, anchor=None, where: str = "here"):
+    def start_agent(self, agent, anchor=None, where: str = "here", checked: bool = False):
         """Start an agent: here (its terminal right of the cards; a running one is shown again)
-        or in a terminal window of its own ("terminal")."""
+        or in a terminal window of its own ("terminal"). First, whether its local model still
+        fits in the graphics card's memory (start_gpu_check)."""
         pane = self.sessions.get(agent.command)
         if pane is not None and pane.running:
             self.show_terminal(agent.command)
@@ -1532,6 +1691,9 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         path = terminal_pane.program(agent.command)
         if path is None:
             self.show_notice(_("{0} cannot be started from here").format(agent.name))
+            return
+        if not checked:
+            self.start_gpu_check(agent, lambda: self.start_agent(agent, anchor, where, checked=True))
             return
         folder = self.agent_folder()
         if where == "terminal":
@@ -1554,6 +1716,59 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.sessions[agent.command] = pane
         self.right_stack.add_named(pane, f"term:{agent.command}")
         self.show_terminal(agent.command)
+
+    def start_gpu_check(self, agent, go):
+        """Before an agent starts: would loading its model go past the graphics card's memory?
+        Then ask: start anyway, free the memory other local LLMs hold first, or cancel. Measured
+        just now (on a thread); no local model, one in memory already, or unknown sizes: go."""
+        import model_slots
+        runtimes = list(self.inventory.runtimes)
+        graph = self.side_map.graph
+
+        def work():
+            try:
+                usage = gpu_usage.snapshot(runtimes)
+                check = model_slots.start_check(f"agent:{agent.command}", agent.name, graph, runtimes, usage)
+            except Exception:         # a check must never keep an agent from starting
+                check = None
+            GLib.idle_add(done, check)
+
+        def done(check):
+            if check is None or check.fits:
+                go()
+                return False
+            dialog = Adw.AlertDialog(heading=_("Not enough video memory for {0}?").format(agent.name),
+                                     body=model_slots.start_text(check))
+            dialog.add_response("cancel", _("Cancel"))
+            if check.others:
+                dialog.add_response("free", _("Free GPU memory, then start"))
+                dialog.set_response_appearance("free", Adw.ResponseAppearance.SUGGESTED)
+                dialog.set_default_response("free")
+            dialog.add_response("start", _("Start anyway"))
+            dialog.set_close_response("cancel")
+
+            def answered(_d, response):
+                if response == "start":
+                    go()
+                elif response == "free":
+                    self.free_other_gpu(check.key, go)
+            dialog.connect("response", answered)
+            dialog.present(self.window)
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def free_other_gpu(self, keep: str, then):
+        """Unload what the other local LLMs hold (they keep running), then `then`."""
+        others = [rt for rt in self.inventory.runtimes if rt.key != keep and rt.running]
+        self.show_note(_("Freeing GPU memory…"))
+
+        def work():
+            for rt in others:
+                runtime_ctl.unload(rt)
+            GLib.idle_add(lambda: then() and False)
+
+        threading.Thread(target=work, daemon=True).start()
 
     def show_terminal(self, command: str):
         self.stack.set_visible_child_name("main")
@@ -3074,6 +3289,10 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             if agent.installed and self.sign_in_access(agent.command) is not None:
                 own = list(own) + [self.menu_item(_("Sign in…"), popover, lambda: self.offer_sign_in(ident),
                                                   _("Subscription, account or API key"))]
+        if kind in ("agent", "runtime"):
+            configure = self.configure_menu_item(kind, ident, popover)
+            if configure is not None:
+                own = list(own) + [configure]
         danger = []
         if kind == "model":
             own, danger = self.model_menu(view, rect, node_id, popover)
@@ -3109,7 +3328,6 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         if self.split != split:
             self.place_panes()
             self.update_header()
-        self.update_widen_hint()
         self.auto_layers()
         return False
 
@@ -3157,34 +3375,6 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             self.set_selection([i for i in self.selection if i in set(self.map_view.selected)])
             self.update_layer_toggles()
 
-    def widen_mode(self) -> str:
-        mode = ai_core.setting("widen")
-        return mode if mode in previews.WIDEN_MODES else "workspace"
-
-    def set_widen_mode(self, mode: str):
-        self.save_setting(widen=mode)
-        self.update_widen_hint()
-
-    def widen(self):
-        work = desktop.maximize if self.widen_mode() == "maximize" else desktop.widen
-        threading.Thread(target=work, args=(desktop.app_id(),), daemon=True).start()
-
-    def update_widen_hint(self):
-        """Shown while the map does not fit, unless the window is maximized already
-        (then the screen itself is too narrow and maximizing cannot help): window_rules.widen_hint."""
-        geo = self.monitor_geometry() if self.window is not None else None
-        width, mode = self.real_width(), self.widen_mode()
-        if not window_rules.widen_hint(self.split, mode, None, width, None):
-            self.widen_hint.set_visible(False)
-            return
-
-        def work():
-            state = desktop.is_maximized(desktop.app_id())
-            GLib.idle_add(lambda: self.widen_hint.set_visible(window_rules.widen_hint(
-                self.split, mode, state, width, geo.width if geo is not None else None)) and False)
-
-        threading.Thread(target=work, daemon=True).start()
-
     def size_limits(self) -> tuple[int, int]:
         width = getattr(self.window, "last_width", 0) or (self.window.get_width() if self.window is not None else 0)
         if width <= 0:
@@ -3197,7 +3387,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         """As large as the screen allows (checked on every open: another monitor)."""
         self.card_w, self.list_h = self.size_limits()
         if getattr(self, "side_pane", None) is not None:
-            self.split = self.card_w >= SPLIT_WIDTH     # narrower: the map scrolls, the widen hint shows
+            self.split = self.card_w >= SPLIT_WIDTH     # narrower: the map scrolls
         for scroller in self.scrollers:
             # The card fills the window's height; the scrollers only need a small minimum.
             scroller.set_max_content_height(-1)
@@ -3273,6 +3463,8 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                 self.close_status()
             elif page == "health":
                 self.close_health()
+            elif page == "traffic":
+                self.close_traffic()
             elif page == "addmcp":
                 self.close_add_mcp()
             elif page == "addskills":
@@ -3288,11 +3480,12 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                 self.close_add_mcp() if page == "addmcp" else self.close_add_skills()
                 return True
             return False          # typing in the search fields
-        if page in ("settings", "connect", "install", "mcp", "status", "health"):
+        if page in ("settings", "connect", "install", "mcp", "status", "health", "traffic"):
             if keyval == Gdk.KEY_BackSpace:
                 {"settings": self.close_settings, "connect": self.close_connect,
                  "install": self.close_install, "mcp": self.close_mcp_details,
-                 "status": self.close_status, "health": self.close_health}[page]()
+                 "status": self.close_status, "health": self.close_health,
+                 "traffic": self.close_traffic}[page]()
                 return True
             return False          # Tab and arrows move between the controls
         if ctrl and keyval == Gdk.KEY_comma:
@@ -3349,6 +3542,13 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             GLib.idle_add(lambda: self.open_health() and False)
         elif page == "help":
             GLib.idle_add(lambda: self.open_help() and False)
+        elif page.startswith("connect:"):
+            # "connect:agent:<command>|runtime:<key>" (or "remove:…"): the page of a drawn line.
+            agent_id, _sep, target = page[8:].partition("|")
+            GLib.idle_add(lambda: self.on_map_link(agent_id, target) and False)
+        elif page.startswith("remove:"):
+            agent_id, _sep, target = page[7:].partition("|")
+            GLib.idle_add(lambda: self.on_map_link(agent_id, target, remove_only=True) and False)
         elif page == "addmcp":
             GLib.idle_add(lambda: self.open_add_mcp() and False)
         elif page == "addskills":

@@ -1,7 +1,7 @@
 """Jan: Jan's local API server and its models."""
 
 import llm_engine
-from harnesses import Way
+from harnesses import Configure, Way
 from providers import Provider
 
 
@@ -31,4 +31,5 @@ class Engine(llm_engine.LlamaRouter):
 PROVIDER = Provider("jan", "Jan", "local", detect=_detect, installer=_installer, engine=Engine(),
                     connect_key="jan-local", connect_label="Jan (local)",
                     install=(Way("installer"),),
+                    configure=(Configure("Open Jan", ("jan-desktop",), window=True),),
                     homepage="https://jan.ai")

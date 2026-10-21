@@ -38,6 +38,7 @@
  "ask": [],
  "games": [],
  "effort": [],
+ "configure": [],
  "access": {
   "how": "An API key for a provider, or a local LLM from the map",
   "login": "crush",

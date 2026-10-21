@@ -59,7 +59,6 @@ SCHEMA: dict[str, Setting] = {
     # The window
     "window_size": Setting(None, _size, "the window's size when it was last closed: [width, height]"),
     "last_view": Setting("main", _text, "the view open when the window was last closed"),
-    "widen": Setting("workspace", _text, "Settings › Too narrow for the map: what Maximize for more room does"),
     "chess_thinking": Setting("normal", _one_of("quick", "normal", "deep", "max"), "AI Playground › Chess › Thinking time"),
     "chess_strength": Setting("club", _one_of("beginner", "casual", "club", "master", "max"), "AI Playground › Chess › Strength"),
     "chess_rival_strength": Setting("club", _one_of("beginner", "casual", "club", "master", "max"),
@@ -86,6 +85,7 @@ SCHEMA: dict[str, Setting] = {
     "model_folders": Setting([], _texts, "Setup › Models: folders added by hand (Add folder, Change folder), ~-paths"),
     "add_where": Setting({}, _mapping, "the add pages' last tab: {\"mcp\": …, \"models\": …, \"skills\": …}"),
     "seen_found": Setting({}, _mapping, "programs and skill sets already shown as new on this PC"),
+    "header_order": Setting([], _texts, "the order of the header's symbols (hold the left mouse button + drag)"),
     "web_sources": Setting({}, _mapping, "the user's own search sites per kind (web_sources.py)"),
     "web_source": Setting({}, _mapping, "the search site picked last per kind (web_sources.py)"),
     # Local LLMs and models
@@ -104,7 +104,8 @@ RENAMED: dict[str, tuple[str, Callable[[Any], Any]]] = {
     "animate_lines": ("map_animations", lambda v: "off" if v is False else "all"),   # "Animate active lines"
 }
 # Keys nothing reads any more (Hide, the column lists, the overview's Show list, Setup · + Available).
-RETIRED = ("hidden_items", "hidden_nodes", "hidden_providers", "card_hidden", "start_scope", "show_more_hint",
+RETIRED = ("widen",                         # "Maximize for more room" in the header (removed)
+           "hidden_items", "hidden_nodes", "hidden_providers", "card_hidden", "start_scope", "show_more_hint",
            "setup_mode",                          # Setup's All/Installed switch
            "sidebar", "sidebar_width",            # the list beside the map
            "health_line",                         # the health check's line (now the header's !)

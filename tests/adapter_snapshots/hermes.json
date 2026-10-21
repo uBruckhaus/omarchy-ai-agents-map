@@ -106,6 +106,35 @@
    ]
   ]
  ],
+ "configure": [
+  {
+   "label": "Setup wizard",
+   "argv": [
+    "hermes",
+    "setup"
+   ],
+   "note": "",
+   "window": false
+  },
+  {
+   "label": "Model and provider",
+   "argv": [
+    "hermes",
+    "model"
+   ],
+   "note": "",
+   "window": false
+  },
+  {
+   "label": "Check its setup",
+   "argv": [
+    "hermes",
+    "doctor"
+   ],
+   "note": "",
+   "window": false
+  }
+ ],
  "access": {
   "how": "A provider key (hermes setup), or a local LLM from the map",
   "login": "hermes setup",

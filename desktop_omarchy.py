@@ -162,6 +162,11 @@ def stays_in_background() -> bool:
     return True
 
 
+def header_moves_window() -> bool:
+    """Hyprland tiles the window: a header that dragged it would only make it float."""
+    return False
+
+
 def decorated() -> bool:
     return False            # Hyprland draws the border; the header is the app's own
 
@@ -249,26 +254,25 @@ def is_maximized(app_id: str) -> bool | None:
     return None if own is None else bool(own.get("fullscreen"))
 
 
-def widen(app_id: str) -> bool:
-    """Room for the map: other windows on its workspace → to the first free workspace of this
-    monitor (alone there, it gets the whole width; the view follows it). Alone already
-    (floating, say) → maximized, as Omarchy's "Full width" (Super + Alt + F)."""
-    clients = _clients()
-    own = own_window(clients, app_id)
-    if own is not None and shares_workspace(clients, own):
-        moved = _dispatch(f'hl.dsp.window.move({{ workspace = "emptym", window = "{_selector(app_id)}" }})')
-        if moved and not own.get("floating"):
-            return True
-    return maximize(app_id)
-
-
 def maximize(app_id: str) -> bool:
-    """Settings → "Maximize where it is": over the other windows of its workspace."""
+    """Over the other windows of its workspace."""
     return _dispatch(f'hl.dsp.window.fullscreen({{ mode = "maximized", window = "{_selector(app_id)}" }})')
 
 
 
-# --- terminals ------------------------------------------------------------------------------------
+# --- apps and terminals ---------------------------------------------------------------------------
+
+def launch_app(argv: list) -> bool:
+    """An app window of its own (LM Studio), started as Omarchy starts apps (uwsm-app)."""
+    launcher = shutil.which("uwsm-app")
+    try:
+        subprocess.Popen(([launcher, "--"] if launcher else []) + [str(a) for a in argv], cwd=str(Path.home()),
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+    except OSError:
+        return False
+    return True
+
 
 def open_terminal(argv: list, cwd: str) -> bool:
     """A program in the user's terminal, a new window (no vte4 for the pane inside)."""
@@ -339,8 +343,6 @@ def text(key: str) -> str:
         "install_agent_short": _("Omarchy's menu: Setup → Defaults → Agent."),
         "install_coding_agent": _("Claude Code, Codex or OpenCode: Omarchy's menu → Setup → Defaults → Agent."),
         "install_terminal": _("Install the terminal launcher Omarchy uses:"),
-        "widen_tip": _("Only the cards fit at this width. A click moves the window to a free "
-                       "workspace, where it gets the whole width (or press Super + Alt + F)."),
     }[key]
 
 

@@ -266,9 +266,8 @@ class McpPages:
         self.connecting = {"skill_update": (file, old, new), "server": server, "tools": tools,
                            "from": self.view, "remove_only": False}
         self.connect_title.set_label(_("Update skill {0}").format(file.parent.name).upper())
+        self.connect_reset()
         form = self.connect_form
-        while (child := form.get_first_child()) is not None:
-            form.remove(child)
         self.connect_status.set_label("")
         self.connect_preview_heading.set_visible(True)
         self.connect_preview_scroller.set_visible(True)
@@ -345,14 +344,22 @@ class McpPages:
 
     # --- add a new MCP server: found on this PC, from the web, or by hand -----------------------
 
-    ADD_MCP_TABS = (("picks", N_("Recommended")), ("web", N_("MCP registry")), ("local", N_("On this PC")),
-                    ("hand", N_("By hand")))
+    ADD_MCP_TABS = (("installed", N_("Installed")), ("picks", N_("Recommended")), ("web", N_("MCP registry")),
+                    ("local", N_("On this PC")), ("hand", N_("By hand")))
+    # How a server runs, as a tag on its row (the models page's capability chips): text, colour, hint.
+    RUN_CHIPS = {"npm": (N_("Program"), "program", N_("Runs on this PC (Node.js).")),
+                 "pypi": (N_("Program"), "program", N_("Runs on this PC (Python, uv).")),
+                 "oci": ("Docker", "docker", N_("Runs on this PC in a Docker container.")),
+                 "remote": (N_("Web"), "web", N_("A service on the web: nothing is installed.")),
+                 "command": (N_("Program"), "program", N_("Runs on this PC.")),
+                 "url": (N_("Web"), "web", N_("A service on the web."))}
     RUN_TEXT = {
         "npm": N_("Runs on this PC with Node.js. npx downloads {0} on its first start and keeps it in its cache."),
         "pypi": N_("Runs on this PC with uv. uvx downloads {0} on its first start into an environment of its own."),
         "oci": N_("Runs on this PC in a Docker container ({0}), apart from your files unless you share a folder."),
         "remote": N_("Runs at {0}. Nothing is installed; what the agents send to it leaves your PC."),
     }
+    RUN_SHORT = {"npm": "npm", "pypi": "Python", "oci": "Docker", "remote": N_("Web")}
     RUN_KIND = {"npm": N_("Program · npm"), "pypi": N_("Program · Python"), "oci": N_("Program · Docker"),
                 "remote": N_("Web service")}
     RUNNERS = {"npx": N_("Node.js (npx) is not installed yet: sudo pacman -S nodejs npm"),
@@ -360,9 +367,9 @@ class McpPages:
                "docker": N_("Docker is not installed yet: sudo pacman -S docker")}
 
     def build_add_mcp_page(self) -> Gtk.Widget:
-        """Laid out like the models page: what MCP is, tabs (Recommended, the MCP registry, On this
-        PC, By hand), a list on the left and the chosen server's page on the right, with how it
-        runs, what it needs and the agents that get it."""
+        """Laid out like the models page: tabs (Installed, Recommended, the MCP registry, On this
+        PC, By hand), a list with tags on the left, the chosen server's page on the right (facts,
+        how it runs, what it needs, the agents that get it), Test and Add in the bar below."""
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         page.add_css_class("am-add-page")       # one text scale (see the CSS)
         header = Gtk.Box(spacing=8)
@@ -378,19 +385,23 @@ class McpPages:
         back.set_tooltip_text(_("Back without changing anything (Backspace, Esc)"))
         back.connect("clicked", lambda *_: self.close_add_mcp())
         header.append(back)
-        title = Gtk.Label(label=_("Add an MCP server").upper(), xalign=0, hexpand=True)
+        title = Gtk.Label(label=_("MCP servers").upper(), xalign=0)
         title.add_css_class("am-section-title")
         header.append(title)
+        # One line, as the models page's model folder; the whole explanation on hover.
+        about = Gtk.Label(label=_("New tools for your agents: files, web pages, a browser, GitHub…"), xalign=0,
+                          hexpand=True, ellipsize=Pango.EllipsizeMode.END)
+        about.add_css_class("am-agent-detail")
+        about.set_tooltip_text("\n\n".join([
+            _("A server can read your files, open web pages, drive a browser or work with GitHub. It is a small "
+              "program on this PC or a service on the web; the agents start or call it when a task needs it."),
+            _("Pick a server, fill in what it needs (a folder, a key), tick the agents, then Test and Add. "
+              "To give it to more agents later, draw a line on the map from the agent to the server.")]))
+        header.append(about)
         page.append(header)
         rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         rule.add_css_class("am-settings-rule")
         page.append(rule)
-        self.intro_card(page, _("MCP servers give your agents new tools."), [
-            _("A server can read your files, open web pages, drive a browser or work with GitHub. It is a small "
-              "program on this PC or a service on the web; the agents start or call it when a task needs it."),
-            _("Pick a server, fill in what it needs (a folder, a key), tick the agents, then Test and Add. "
-              "To give it to more agents later, draw a line on the map from the agent to the server."),
-        ])
 
         switch = Gtk.Box(spacing=0, halign=Gtk.Align.START)
         switch.add_css_class("am-segmented")
@@ -418,6 +429,19 @@ class McpPages:
             pane.append(scroller)
             self.add_details[key] = (scroller, detail)
             self.add_stack.add_named(pane, key)
+
+        # Installed: the servers the agents have (and the list keeps), each with its page.
+        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
+        self.add_installed_heading = Gtk.Label(xalign=0)
+        self.add_installed_heading.add_css_class("am-group-heading")
+        left.append(self.add_installed_heading)
+        self.add_installed = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
+        self.add_installed.add_css_class("am-list")
+        pick_cards(self.add_installed)
+        self.add_installed.connect("row-selected",
+                                   lambda _l, row: row is not None and self.show_installed_mcp(row.server))
+        left.append(self.scrolled(self.add_installed))
+        two_panes("installed", left)
 
         # Recommended: the reference servers and official ones of well-known makers.
         left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
@@ -492,7 +516,9 @@ class McpPages:
 
         # The setup, moved to the page shown: what it needs, the agents, the command, Test / Add.
         self.add_setup = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
-        self.add_form_heading = self.section_heading(self.add_setup, _("Set it up"))
+        self.add_form_heading = Gtk.Label(label=_("Set it up"), xalign=0)
+        self.add_form_heading.add_css_class("am-group-heading")
+        self.add_setup.append(self.add_form_heading)
         self.add_needs = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         self.add_setup.append(self.add_needs)
         self.add_key_link = Gtk.LinkButton(label=_("Where do I get it?"), halign=Gtk.Align.START, visible=False)
@@ -535,22 +561,9 @@ class McpPages:
         self.add_source.add_css_class("am-agent-detail")
         self.add_form.append(self.add_source)
 
-        buttons = Gtk.Box(spacing=10)
-        self.add_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1, hexpand=True)
-        self.add_status.add_css_class("am-agent-detail")
-        buttons.append(self.add_status)
-        self.add_test = Gtk.Button(label=_("Test"), valign=Gtk.Align.CENTER)
-        self.add_test.add_css_class("am-small-btn")
-        self.add_test.set_tooltip_text(_("Start it once and ask for its tools"))
-        self.add_test.connect("clicked", lambda *_: self.test_new_mcp())
-        buttons.append(self.add_test)
-        self.add_ok = Gtk.Button(label=_("Add"), valign=Gtk.Align.CENTER)
-        self.add_ok.add_css_class("am-primary")
-        self.add_ok.add_css_class("am-download-btn")
-        self.add_ok.connect("clicked", lambda *_: self.apply_new_mcp())
-        buttons.append(self.add_ok)
-        self.add_setup.append(buttons)
-        self.section_heading(self.add_setup, _("What changes"))
+        changes = Gtk.Label(label=_("What changes"), xalign=0)
+        changes.add_css_class("am-group-heading")
+        self.add_setup.append(changes)
         self.add_preview = Gtk.TextView(editable=False, cursor_visible=False, monospace=True)
         self.add_preview.add_css_class("am-diff")
         self.add_preview.set_wrap_mode(Gtk.WrapMode.CHAR)
@@ -563,6 +576,26 @@ class McpPages:
         self.add_timer = 0
         self.add_tab = "picks"
         self.add_pages = {}        # tab -> (Server, Pick or None) shown on its right
+
+        # Below every tab, as on the models page: what happened, Test and Add.
+        rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        rule.add_css_class("am-settings-rule")
+        page.append(rule)
+        self.add_bar = Gtk.Box(spacing=8)
+        self.add_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1, hexpand=True)
+        self.add_status.add_css_class("am-agent-detail")
+        self.add_bar.append(self.add_status)
+        self.add_test = Gtk.Button(label=_("Test"), valign=Gtk.Align.CENTER)
+        self.add_test.add_css_class("am-action-btn")
+        self.add_test.set_tooltip_text(_("Start it once and ask for its tools"))
+        self.add_test.connect("clicked", lambda *_: self.test_new_mcp())
+        self.add_bar.append(self.add_test)
+        self.add_ok = Gtk.Button(label=_("Add"), valign=Gtk.Align.CENTER)
+        self.add_ok.add_css_class("am-primary")
+        self.add_ok.add_css_class("am-action-btn")
+        self.add_ok.connect("clicked", lambda *_: self.apply_new_mcp())
+        self.add_bar.append(self.add_ok)
+        page.append(self.add_bar)
         self.fill_picks()
         return page
 
@@ -574,6 +607,9 @@ class McpPages:
     def show_add_tab(self, key: str, save: bool = False):
         self.add_tab = key
         self.add_stack.set_visible_child_name(key)
+        # Installed has nothing to add: the bar keeps only its status line there.
+        self.add_test.set_visible(key != "installed")
+        self.add_ok.set_visible(key != "installed")
         if save:
             stored = ai_core.setting("add_where")
             self.save_setting(add_where={**(stored if isinstance(stored, dict) else {}), "mcp": key})
@@ -597,6 +633,8 @@ class McpPages:
                 self.show_found_mcp()
                 self.mark_seen("mcp")
         self.add_changed()
+        if key == "installed":
+            self.add_status.set_label("")          # the form's hints belong to the other tabs
 
     def place_setup(self, key: str):
         """The setup goes under the page of the tab shown."""
@@ -627,9 +665,107 @@ class McpPages:
             for pick in (p for p in mcp_catalog.PICKS if p.group == group):
                 maker = _("set up") if pick.key in names else pick.maker
                 row = self.model_row(pick.title, _(pick.about), right=maker,
+                                     chips=self.run_chips(self.pick_kinds(pick), self.pick_needs_key(pick)),
                                      icon=MCP_GLYPHS.get(pick.key, MCP_GROUP_GLYPHS.get(group, "package")))
                 row.pick = pick
                 box.append(row)
+
+    # Tags and the Installed tab ----------------------------------------------------------------
+
+    def tag_chip(self, text: str, tone: str, tip: str = "") -> Gtk.Widget:
+        chip = Gtk.Label(label=text)
+        chip.add_css_class("am-cap")
+        chip.add_css_class(f"am-cap-{tone}")
+        if tip:
+            chip.set_tooltip_text(tip)
+        return chip
+
+    def run_chips(self, kinds, needs_key: bool = False) -> list:
+        """How it runs (Program, Docker, Web; each once) and Key when it needs one."""
+        chips, seen = [], set()
+        for kind in kinds:
+            text, tone, tip = self.RUN_CHIPS.get(kind, ("", "", ""))
+            if text and text not in seen:
+                seen.add(text)
+                chips.append(self.tag_chip(_(text), tone, _(tip)))
+        if needs_key:
+            chips.append(self.tag_chip(_("Key"), "key", _("Needs a key or token of yours.")))
+        return chips
+
+    @staticmethod
+    def pick_kinds(pick) -> list:
+        kinds = [p.get("registryType", "") for p in pick.spec.get("packages", [])]
+        return kinds + (["remote"] if pick.spec.get("remotes") else [])
+
+    @staticmethod
+    def pick_needs_key(pick) -> bool:
+        secret = any(v.get("isSecret") for p in pick.spec.get("packages", [])
+                     for v in p.get("environmentVariables", []))
+        return bool(pick.key_url) or secret
+
+    def fill_installed_mcp(self):
+        listbox = self.add_installed
+        self.clear_box(listbox)
+        servers = sorted(getattr(self, "inventory", None) and self.inventory.mcp or [], key=lambda m: m.name)
+        self.add_installed_heading.set_label(ngettext("1 server set up", "{0} servers set up", len(servers))
+                                             .format(len(servers)).upper())
+        names = self.agent_names()
+        for server in servers:
+            users = [names.get(a, a) for a in server.agents]
+            tools = mcp_tools.cached(server.name) or {}
+            count = len(tools.get("tools", [])) if tools.get("status") == "ok" else 0
+            right = ngettext("1 tool", "{0} tools", count).format(count) if count else ""
+            row = self.model_row(server.name, ", ".join(users) if users else _("not used by any agent"),
+                                 chips=self.run_chips([server.kind]), right=right,
+                                 icon=MCP_GLYPHS.get(server.name, RUN_GLYPHS.get(
+                                     "remote" if server.kind == "url" else "npm", "package")))
+            row.server = server
+            listbox.append(row)
+        if not servers:
+            self.add_empty("installed", _("No MCP server is set up yet: pick one under Recommended."))
+
+    def show_installed_mcp(self, server):
+        """A server the agents have: what it is, who uses it, its tools; Details and Remove."""
+        _scroller, box = self.add_details["installed"]
+        if self.add_setup.get_parent() is box:
+            box.remove(self.add_setup)
+        self.clear_box(box)
+        title = Gtk.Label(label=server.name, xalign=0, wrap=True, max_width_chars=1, selectable=True)
+        title.add_css_class("am-model-title")
+        box.append(title)
+        names = self.agent_names()
+        users = [names.get(a, a) for a in server.agents]
+        tools = mcp_tools.cached(server.name) or {}
+        count = len(tools.get("tools", [])) if tools.get("status") == "ok" else None
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
+        card.add_css_class("am-model-card")
+        self.facts_grid(card, [(_("Runs as"), _(self.RUN_CHIPS.get(server.kind, ("?",))[0])),
+                               (_("Agents"), str(len(users))),
+                               (_("Tools"), str(count) if count is not None else "–")])
+        what = Gtk.Label(label=(_("Program: {0}") if server.kind == "command" else _("Address: {0}"))
+                         .format(server.target), xalign=0, wrap=True, max_width_chars=1, selectable=True)
+        what.add_css_class("am-detail-value")
+        card.append(what)
+        box.append(card)
+        self.detail_heading(box, _("Used by"))
+        self.note(box, ", ".join(users) if users else _("No agent uses it: it stays in the list until you remove "
+                                                      "it. Draw a line on the map to give it to an agent."))
+        if count is not None:
+            self.detail_heading(box, _("Tools"))
+            self.note(box, ", ".join(str(t.get("name", "")) for t in tools.get("tools", [])[:40]
+                                     if isinstance(t, dict)) or _("none"))
+        buttons = Gtk.Box(spacing=8, halign=Gtk.Align.END)
+        details = Gtk.Button(label=_("Details…"))
+        details.add_css_class("am-small-btn")
+        details.connect("clicked", lambda *_: self.open_mcp_details(server.name))
+        buttons.append(details)
+        remove = Gtk.Button(label=_("Remove…"))
+        remove.add_css_class("am-small-btn")
+        remove.add_css_class("am-danger")
+        remove.set_tooltip_text(_("Take it from every agent and from the list"))
+        remove.connect("clicked", lambda *_: self.open_mcp_delete(server.name))
+        buttons.append(remove)
+        box.append(buttons)
 
     def open_add_mcp(self):
         if self.page_name() != "addmcp":
@@ -648,10 +784,13 @@ class McpPages:
                 flow.append(check)
                 self.add_checks[agent.command] = check
         self.fill_picks()
-        for key in ("picks", "web", "local"):
+        self.fill_installed_mcp()
+        for key in ("installed", "picks", "web", "local"):
             if self.add_setup.get_parent() is not self.add_details[key][1]:
                 if not self.add_details[key][1].get_first_child():
                     self.add_empty(key, {
+                        "installed": _("Pick a server on the left to see what it is, which agents use it and "
+                                       "its tools."),
                         "picks": _("Pick a server on the left to see what it does, what it needs and how it runs."),
                         "web": _("Pick a server on the left to see who published it, what it needs and how "
                                  "it runs."),
@@ -717,8 +856,9 @@ class McpPages:
                           selectable=True)
         title.add_css_class("am-model-title")
         box.append(title)
-        # Who made it, and how much that is checked.
-        trust = Gtk.Box(spacing=8)
+        # Who made it (and how much that is checked), when it changed, and its page on the web:
+        # one line, as the models page's downloads · updated · Open on the web.
+        meta = Gtk.Box(spacing=10)
         if pick is not None:
             chip = Gtk.Label(label=_(mcp_catalog.TRUST[pick.trust]).format(pick.maker))
             chip.set_tooltip_text(_(mcp_catalog.TRUST_HINTS[pick.trust]))
@@ -730,23 +870,18 @@ class McpPages:
                                    "domain": _("The registry checked that the publisher owns this domain.")}
                                   .get(kind, ""))
         chip.add_css_class("am-agent-badge")
-        trust.append(chip)
-        stats = [server.version and _("version {0}").format(server.version),
-                 server.updated and _("updated {0}").format(self.age_text(self.iso_time(server.updated)))]
-        for text in stats:
-            if text:
-                label = Gtk.Label(label=text)
-                label.add_css_class("am-agent-detail")
-                trust.append(label)
-        box.append(trust)
-        links = Gtk.Box(spacing=4)
-        for uri, label in ((server.repository, _("Repository")), (server.website, _("Website"))):
+        meta.append(chip)
+        if server.updated:
+            label = Gtk.Label(label=_("updated {0}").format(self.age_text(self.iso_time(server.updated))))
+            label.add_css_class("am-agent-detail")
+            meta.append(label)
+        meta.append(Gtk.Box(hexpand=True))
+        for uri, label in ((server.website, _("Website")), (server.repository, _("Open on the web"))):
             if uri.startswith("https://"):
                 link = Gtk.LinkButton(uri=uri, label=label)
                 link.set_tooltip_text(uri)
-                links.append(link)
-        if links.get_first_child() is not None:
-            box.append(links)
+                meta.append(link)
+        box.append(meta)
         if pick is None:
             note = Gtk.Label(label=_("Anyone can publish to the registry. Look at the repository before you add a "
                                      "server: a program from it runs with your rights."),
@@ -758,25 +893,34 @@ class McpPages:
             warn.add_css_class("am-warning-text")
             box.append(warn)
 
+        # The facts card: big values on top (as a model's parameters, context, format), the tags,
+        # then what it does, what it needs and what to ask an agent.
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         card.add_css_class("am-model-card")
+        kinds = list(dict.fromkeys(_(self.RUN_CHIPS[o.kind][0]) for o in server.options if o.kind in self.RUN_CHIPS))
+        needs = sorted({n.name for o in server.options for n in o.needs if n.required})
+        secret = any(n.required and n.secret for o in server.options for n in o.needs)
+        self.facts_grid(card, [(_("Runs as"), " | ".join(kinds)), (_("Version"), server.version),
+                               (_("Ways to run"), str(len(server.options)) if len(server.options) > 1 else "")])
+        if secret or (pick is not None and self.pick_needs_key(pick)):
+            chips = Gtk.Box(spacing=6)          # how it runs is in the facts above: only what it adds
+            for chip in self.run_chips([], True):
+                chips.append(chip)
+            card.append(chips)
         about = Gtk.Label(label=_(pick.about) if pick else server.description or _("No description."),
                           xalign=0, wrap=True, max_width_chars=1, selectable=True)
         about.add_css_class("am-detail-value")
         card.append(about)
-        kinds = list(dict.fromkeys(_(self.RUN_KIND[o.kind]) for o in server.options))
-        needs = sorted({n.name for o in server.options for n in o.needs if n.required})
-        for key_text, value in ((_("Runs as"), " | ".join(kinds)),
-                                (_("Needs"), _(pick.needs) if pick else
-                                 (", ".join(needs) if needs else _("nothing to fill in")))):
-            line = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-            key_label = Gtk.Label(label=key_text.upper(), xalign=0)
-            key_label.add_css_class("am-fact-key")
-            line.append(key_label)
-            value_label = Gtk.Label(label=value, xalign=0, wrap=True, max_width_chars=1, selectable=True)
-            value_label.add_css_class("am-detail-value")
-            line.append(value_label)
-            card.append(line)
+        need_line = Gtk.Box(spacing=8)
+        key_label = Gtk.Label(label=_("Needs").upper(), xalign=0, valign=Gtk.Align.START)
+        key_label.add_css_class("am-fact-key")
+        need_line.append(key_label)
+        value_label = Gtk.Label(label=_(pick.needs) if pick else (", ".join(needs) if needs else
+                                                                  _("nothing to fill in")),
+                                xalign=0, wrap=True, max_width_chars=1, hexpand=True, selectable=True)
+        value_label.add_css_class("am-detail-value")
+        need_line.append(value_label)
+        card.append(need_line)
         if pick is not None and pick.tries:
             tries = Gtk.Label(label=_("Then ask an agent, e.g.:") + "\n" + "\n".join(
                 "“" + _(t) + "”" for t in pick.tries), xalign=0, wrap=True, max_width_chars=1, selectable=True)
@@ -784,17 +928,18 @@ class McpPages:
             card.append(tries)
         box.append(card)
 
-        # How it runs: one row per way, the best one chosen.
-        self.section_heading(box, _("How it runs"))
+        # How it runs: one line per way (as the download options), the best one chosen.
+        self.detail_heading(box, _("How it runs"))
         options = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
         options.add_css_class("am-list")
         options.add_css_class("boxed-list")
         best = None
-        for option in server.options[:6]:
-            row = self.run_option_row(option, server)
+        rows = [self.run_option_row(option, server) for option in server.options[:6]]
+        best = next((row for row in rows if row.option.runnable), None)
+        for row in rows:
+            if row is best and len(rows) > 1:
+                row.badge.set_visible(True)
             options.append(row)
-            if best is None and option.runnable:
-                best = row
         box.append(options)
         self.add_server, self.add_options = server, options
         self.add_pages[key] = (server, pick)
@@ -805,28 +950,36 @@ class McpPages:
         options.select_row(best or options.get_row_at_index(0))
 
     def run_option_row(self, option, server) -> Gtk.ListBoxRow:
+        """One way to run it on one line, as a download option: the kind, what that means, the
+        package or host at the right; a line under it when its runner is missing."""
         row = Gtk.ListBoxRow()
-        column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3, margin_start=10, margin_end=10,
-                         margin_top=6, margin_bottom=6)
-        top = Gtk.Box(spacing=10)
-        kind = Gtk.Label(label=_(self.RUN_KIND[option.kind]), xalign=0, hexpand=True)
-        kind.add_css_class("am-model-name")
-        top.append(kind)
-        if option.kind != "remote":
-            ident = option.label.split(" · ", 1)[-1]
-            what = Gtk.Label(label=ident, xalign=1)
-            what.set_ellipsize(Pango.EllipsizeMode.START)
-            what.set_max_width_chars(36)
-            what.add_css_class("am-agent-detail")
-            top.append(what)
-        column.append(top)
+        column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, margin_start=10, margin_end=10,
+                         margin_top=5, margin_bottom=5)
+        line = Gtk.Box(spacing=10)
+        kind = Gtk.Label(label=_(self.RUN_SHORT[option.kind]), xalign=0, width_chars=7)
+        kind.add_css_class("am-name-part")
+        kind.set_tooltip_text(_(self.RUN_KIND[option.kind]))
+        line.append(kind)
         if option.kind == "remote":
-            text = _(self.RUN_TEXT["remote"]).format(urllib.parse.urlsplit(option.entry["url"]).hostname or "")
+            ident = urllib.parse.urlsplit(option.entry["url"]).hostname or ""
+            text = _(self.RUN_TEXT["remote"]).format(ident)
         else:
-            text = _(self.RUN_TEXT[option.kind]).format(option.label.split(" · ", 1)[-1])
-        explain = Gtk.Label(label=text, xalign=0, wrap=True, max_width_chars=1)
+            ident = option.label.split(" · ", 1)[-1]
+            text = _(self.RUN_TEXT[option.kind]).format(ident)
+        explain = Gtk.Label(label=text, xalign=0, hexpand=True)
+        explain.set_ellipsize(Pango.EllipsizeMode.END)
+        explain.set_max_width_chars(1)
         explain.add_css_class("am-agent-detail")
-        column.append(explain)
+        line.append(explain)
+        row.badge = Gtk.Label(label=_("recommended"), visible=False)
+        row.badge.add_css_class("am-agent-badge")
+        line.append(row.badge)
+        what = Gtk.Label(label=ident, xalign=1)
+        what.set_ellipsize(Pango.EllipsizeMode.START)
+        what.set_max_width_chars(28)
+        what.add_css_class("am-agent-detail")
+        line.append(what)
+        column.append(line)
         if not option.runnable:
             missing = Gtk.Label(label=_(self.RUNNERS.get(option.entry["command"], N_("Needs {0}, not installed")))
                                 .format(option.entry["command"]), xalign=0, wrap=True, max_width_chars=1,
@@ -834,6 +987,7 @@ class McpPages:
             missing.add_css_class("am-warning-text")
             column.append(missing)
         row.set_child(column)
+        row.set_tooltip_text(text)
         row.option = option
         return row
 
@@ -1092,10 +1246,11 @@ class McpPages:
                 self.add_web_status.set_label(ngettext("1 server found.", "{0} servers found.", len(result))
                                               .format(len(result)))
             for server in result[:30]:
-                kind, who = mcp_registry.publisher(server.name)
-                kinds = " | ".join(dict.fromkeys(_(self.RUN_KIND[o.kind]) for o in server.options))
+                secret = any(n.required and getattr(n, "secret", False) for o in server.options for n in o.needs)
                 row = self.model_row(server.title or server.short, server.description or server.name,
-                                     right=kinds, icon=RUN_GLYPHS.get(server.options[0].kind, "package")
+                                     right=self.age_text(self.iso_time(server.updated)),
+                                     chips=self.run_chips([o.kind for o in server.options], secret),
+                                     icon=RUN_GLYPHS.get(server.options[0].kind, "package")
                                      if server.options else "package")
                 row.set_tooltip_text(server.name)
                 row.server = server
@@ -1261,7 +1416,8 @@ class McpPages:
             self.add_ok.set_sensitive(False)
             # Why Add is off, right under the button (the preview is further down).
             self.add_ok.set_tooltip_text(text)
-            self.add_status.set_label("⚠ " + text)
+            if getattr(self, "add_tab", "") != "installed":     # Installed has no form
+                self.add_status.set_label("⚠ " + text)
         self.add_preview.get_buffer().set_text(text)
         return False
 

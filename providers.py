@@ -38,6 +38,7 @@ class Provider:
     homepage: str = ""                # its web page (the Add-ons page's Homepage button)
     usage: Callable | None = None     # usage(runtime) -> agent_status.Usage from its own logs or metrics
                                       # (else the app derives it from the agents' sessions)
+    configure: tuple = ()             # (harnesses.Configure, …): its own setup commands or app window
     engine: object = None             # llm_engine.Engine: how the app starts, stops, asks and explains it
                                       # (None: llm_engine.Engine(), a user service + an OpenAI-compatible API)
     # online providers
@@ -143,6 +144,11 @@ def add(provider: Provider, owner: str) -> None:
     """An add-on's provider; refused when the key or one of its settings ids is taken."""
     if not isinstance(provider, Provider) or not provider.key or provider.kind not in ("local", "online"):
         raise ValueError("not a Provider")
+    import harnesses
+    # Its own setup commands: its own program and plain words, never a shell.
+    if any(not isinstance(c, harnesses.Configure) or not harnesses.configure_ok(c.argv, c.argv[:1])
+           for c in provider.configure):
+        raise ValueError(f"the provider {provider.key} has a setup command that is not allowed")
     taken_ids = {pid for p in online() for pid in p.ids}
     if any(p.key == provider.key for p in all_providers()) or taken_ids & set(provider.ids):
         raise ValueError(f"the provider {provider.key} exists already")

@@ -74,6 +74,7 @@
    ]
   ]
  ],
+ "configure": [],
  "access": {
   "how": "Sign in inside Pi (/login: Claude, ChatGPT, Copilot …), an API key, or a local LLM from the map",
   "login": "pi  →  /login",

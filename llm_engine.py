@@ -50,6 +50,39 @@ def basename(path: str) -> str:
     return os.path.basename(path or "")
 
 
+def change(path, new_text: str):
+    """A connect.Change of one settings file (its text now, then new_text); None when it stays."""
+    import connect
+    from pathlib import Path
+    path = Path(path)
+    try:
+        old_text = path.read_text(encoding="utf-8")[:1_000_000]
+    except FileNotFoundError:
+        old_text = ""
+    except OSError:
+        return None
+    return connect.Change(path, old_text, new_text) if new_text != old_text else None
+
+
+def env_with(text: str, name: str, value: str) -> str:
+    """An environment file's text with NAME=value set (replaced in place, else added at the end)."""
+    import re
+    line = f"{name}={value}"
+    if re.search(rf"^\s*(?:export\s+)?{re.escape(name)}=.*$", text, re.MULTILINE):
+        return re.sub(rf"^\s*(?:export\s+)?{re.escape(name)}=.*$", lambda _m: line, text, count=1, flags=re.MULTILINE)
+    return text + ("" if text.endswith("\n") or not text else "\n") + line + "\n"
+
+
+def arg_number(argv, flag: str) -> int | None:
+    """The number after --flag (or --flag=N) in a command line, else None."""
+    for i, arg in enumerate(argv or []):
+        value = argv[i + 1] if arg == flag and i + 1 < len(argv) else arg.split("=", 1)[1] \
+            if arg.startswith(flag + "=") else None
+        if value is not None and value.strip().lstrip("-").isdigit():
+            return int(value)
+    return None
+
+
 class Engine:
     """The defaults: a user service and an OpenAI-compatible server."""
 
@@ -102,6 +135,31 @@ class Engine:
 
     def model_context(self, rt, name: str) -> int:
         """The context it loads the model with (0: not known)."""
+        return 0
+
+    # --- how many models it keeps loaded at once ----------------------------------------------
+    # "count": a number the app can set; "switch": one, or as many as fit (LM Studio); "": fixed.
+    slots_kind = ""
+
+    def slots(self, rt) -> int:
+        """The models it keeps loaded at once (0: no limit)."""
+        return 1
+
+    def slots_fixed_by(self, rt) -> str:
+        """Where the user fixed it themselves (their own start script), so the app does not change
+        it; "" when the app may."""
+        return ""
+
+    def slot_changes(self, rt, count: int) -> list:
+        """The settings changes (connect.Change) that let it keep `count` models loaded; [] when
+        nothing needs to change or it cannot be changed here."""
+        return []
+
+    def after_slot_change(self, rt):
+        """What else a slot change needs (systemd reading a changed unit)."""
+
+    def model_size(self, rt, name: str) -> int:
+        """The model file's size in bytes (0: not known), for the GPU memory warning."""
         return 0
 
     # --- what the user is told -----------------------------------------------------------------

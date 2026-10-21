@@ -1,5 +1,5 @@
 """The window's sizes and the decisions that depend on them, without GTK (so they are tested):
-when the window counts as narrow or really maximized, whether the "Maximize for more room" hint
+when the window counts as narrow or really maximized, whether the
 shows, and which of the map's categories (Show) a window gets on its own."""
 
 # Smallest card (a small monitor); normally the card fills the screen.
@@ -11,9 +11,10 @@ SCROLLER_MIN_HEIGHT = 120
 SCREEN_MARGIN = 120    # space kept free above and below the card
 WINDOW_SIZE = (1600, 960)   # first open; afterwards the size it was closed with
 AGENT_SPACING = 8
-SPLIT_WIDTH = 1300        # from this window width the whole map fits (narrower: the widen hint)
+SPLIT_WIDTH = 1300        # from this window width the whole map fits
 MODEL_LIST_WIDTH = 460       # the models page's list (search results, installed models)
-RIGHT_PAGES = ("connect", "install", "models", "mcp", "addmcp", "addskills", "status", "health", "terminal")   # open in the map's place
+RIGHT_PAGES = ("connect", "install", "models", "mcp", "addmcp", "addskills", "status", "health", "terminal",
+               "traffic")   # open in the map's place
 DETAIL_LABEL_WIDTH = 90   # the dim labels of a compact detail grid
 FULL_WIDTH_SHARE = 0.9    # of the monitor's width: a window this wide is really maximized
 
@@ -37,14 +38,6 @@ def really_maximized(reported, width: int, monitor_width: int | None) -> bool:
     if reported is not True:
         return False
     return monitor_width is None or width >= monitor_width * FULL_WIDTH_SHARE
-
-
-def widen_hint(split: bool, mode: str, reported_maximized, width: int, monitor_width: int | None) -> bool:
-    """Show "Maximize for more room": the map does not fit, the hint is wanted, and maximizing can
-    still help (a window already as wide as the screen cannot grow)."""
-    if split or mode == "off":
-        return False
-    return not really_maximized(reported_maximized, width, monitor_width)
 
 
 def layer_situation(width: int, agent_running: bool):

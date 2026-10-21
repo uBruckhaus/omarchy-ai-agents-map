@@ -104,6 +104,14 @@ class CheckTest(unittest.TestCase):
         self.assertIn("click one of Ollama's models", hints[0]["text"])
         self.assertIn("ollama serve", hints[1]["text"])
 
+    def test_before_connecting_the_settings_are_not_asked_for(self):
+        # On the connect page nothing is written yet: no "settings do not have it" error; a local LLM
+        # that starts with the agent is said in an info line, under the ready line.
+        with mock.patch.object(link_check.connect, "is_connected", lambda a, k: False), \
+                mock.patch.object(link_check, "model_context", lambda rt, m: 32768):
+            hints = link_check.check_provider("pi", "Pi", self.runtime(), "gemma-4-e2b", with_agents=True, before=True)
+        self.assertEqual(self.levels(hints), ["ok", "info"])
+
     def test_provider_running_on_a_foreign_port(self):
         with mock.patch.object(link_check.connect, "is_connected", lambda a, k: True), \
                 mock.patch.object(link_check.models_ctl, "loopback_listeners", lambda port: [os.getuid() + 1]), \

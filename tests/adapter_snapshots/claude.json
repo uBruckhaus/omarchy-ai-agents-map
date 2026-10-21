@@ -80,6 +80,17 @@
    ]
   ]
  ],
+ "configure": [
+  {
+   "label": "Check its setup",
+   "argv": [
+    "claude",
+    "doctor"
+   ],
+   "note": "",
+   "window": false
+  }
+ ],
  "access": {
   "how": "A Claude Pro or Max subscription (claude.ai), or an API key from console.anthropic.com",
   "login": "claude auth login",

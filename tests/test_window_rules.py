@@ -30,19 +30,6 @@ class SizeTest(unittest.TestCase):
         self.assertTrue(rules.really_maximized(True, HALF, None))      # no monitor known: trust it
 
 
-class WidenHintTest(unittest.TestCase):
-    def test_half_screen_tile_gets_the_hint(self):
-        self.assertTrue(rules.widen_hint(False, "workspace", True, HALF, MONITOR))
-
-    def test_no_hint_when_the_map_fits_or_switched_off(self):
-        self.assertFalse(rules.widen_hint(True, "workspace", False, FULL, MONITOR))
-        self.assertFalse(rules.widen_hint(False, "off", False, HALF, MONITOR))
-
-    def test_no_hint_when_already_as_wide_as_the_screen(self):
-        # A small screen: maximized and still too narrow, maximizing cannot help.
-        self.assertFalse(rules.widen_hint(False, "maximize", True, 1240, 1280))
-
-
 class LayersTest(unittest.TestCase):
     SAVED = ["online", "local", "models", "mcp", "skills"]
 

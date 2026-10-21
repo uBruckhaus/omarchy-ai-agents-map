@@ -24,14 +24,15 @@ The interface (each implementation provides all of it):
     rounding_source() -> str      who set it: "user", "theme", "default" or "desktop"
     corners_note() -> str         the Corners setting's explanation (translated)
     decorated() -> bool           whether the desktop draws the window's title bar
+    header_moves_window() -> bool whether dragging the header moves the window (not on a tiling desktop)
     stays_in_background() -> bool whether closing only hides the window (else it quits when nothing runs in it)
     attach_window(window)         the app's Gtk.Window, once it exists
     focus_window(app_id) -> bool  bring the app's window to the front (switching workspaces)
     focus_process(pids) -> bool   bring the window of one of these programs (or of a parent: its terminal)
                                   to the front; False when the desktop cannot
     is_maximized(app_id) -> bool|None
-    widen(app_id) -> bool         room for the map: move to a free workspace, else maximize
     maximize(app_id) -> bool      maximize where it is
+    launch_app(argv) -> bool                      an app window of its own (LM Studio)
     open_terminal(argv, cwd) -> bool              a program in the user's terminal (a new window)
     run_in_terminal(command) -> bool              a fixed command in a terminal that waits at the end
     run_steps_in_terminal(commands) -> bool       several, one after the other while each succeeds
@@ -43,7 +44,7 @@ The interface (each implementation provides all of it):
     install_command(package) -> str               the command that installs "vte4" or "xdg-terminal-exec" ("" unknown)
     text(key) -> str              a translated text that says how something is done on this desktop:
                                   install_agent, install_agent_first, install_agent_short,
-                                  install_coding_agent, install_terminal, widen_tip
+                                  install_coding_agent, install_terminal
     launcher_entry() -> bool      whether the app offers its own app-launcher entry (Settings)
 """
 

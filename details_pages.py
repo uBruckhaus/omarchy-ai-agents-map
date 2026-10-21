@@ -701,9 +701,8 @@ class DetailsPages:
         self.connecting = {"agent": agent, "security": setting.key, "value": choice.value, "title": setting.title,
                            "label": choice.label, "from": self.view}
         self.connect_title.set_label(_("{0}: {1}").format(agent.name, setting.title).upper())
+        self.connect_reset()
         form = self.connect_form
-        while (child := form.get_first_child()) is not None:
-            form.remove(child)
         old = setting.choice()
         levels = agent_security.LEVELS
         self.connect_intro.set_label(_("{0} → {1}: {2}").format(old.label, choice.label, choice.explain) + " "

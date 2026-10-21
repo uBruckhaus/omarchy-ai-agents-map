@@ -25,3 +25,8 @@ listed = { file = "~/.omp/agent/settings.json", format = "json", key = "skills" 
 [mcp]
 path = "~/.omp/agent/mcp.json"
 shape = "omp"
+
+# Its own setup commands, in a terminal tab (Configure… on the map)
+[[configure]]
+label = "Setup wizard"
+argv = ["omp", "setup"]

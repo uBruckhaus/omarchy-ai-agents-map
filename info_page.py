@@ -1,7 +1,8 @@
-"""AI Agents Map's Information page (the Omarchy plugin only; a mixin of ai_popup.AgentsMap): AI
-Playground in a section of its own, then cards for the author's other Omarchy plugins (more_plugins,
-made in ~/Projects/omarchy-plugin-i18n). A card opens the plugin's page in the Omarchy Plugin
-Marketplace; nothing is read from the network.
+"""AI Agents Map's Information page (a mixin of ai_popup.AgentsMap; the ⓘ in the header): AI
+Playground in a section of its own, then cards for the author's other Omarchy plugins in
+LLM Monitor's layout (more_plugins, made in ~/Projects/omarchy-plugin-i18n). The list comes from
+the marketplace catalog when the page opens (plugin_catalog: at most hourly, only if it changed;
+the cached or built-in list otherwise); a card opens the plugin's page in the marketplace.
 
 When AI Playground is installed (the Omarchy plugin, or the app on PATH for other desktops), the
 header shows its button and its section here starts it, with the agent selected on the map chosen
@@ -17,10 +18,14 @@ import stat
 import subprocess
 from pathlib import Path
 
-from gi.repository import Gtk, Pango
+import threading
+import time
+
+from gi.repository import GLib, Gtk, Pango
 
 import ai_core
 import more_plugins
+import plugin_catalog
 from i18n import _
 
 OWN_ID = "ubruckhaus.ai-agents-map"
@@ -95,9 +100,47 @@ class InfoPage:
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         body.add_css_class("am-settings")
         body.append(self.playground_section())
-        body.append(more_plugins.build_cards(OWN_ID, "am", leave_out=(PLAYGROUND_ID,)))
+        # The author's plugins, from the marketplace (plugin_catalog): filled when the page opens.
+        self.info_cards = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        body.append(self.info_cards)
+        self.info_source = Gtk.Label(xalign=0, wrap=True, max_width_chars=1)
+        self.info_source.add_css_class("am-agent-detail")
+        body.append(self.info_source)
+        self.info_shown = None
+        self.fill_info_cards(plugin_catalog.load().get("plugins", []), plugin_catalog.load().get("checked"))
         page.append(self.page_scroller(body))
         return page
+
+    def fill_info_cards(self, plugins: list, checked=None):
+        """The cards for this list (AI Agents Map itself and AI Playground left out: this app, and
+        its section above); the built-in list when there is none yet."""
+        cards = plugin_catalog.cards(plugins)
+        if cards != self.info_shown:
+            self.info_shown = cards
+            self.clear_box(self.info_cards)
+            self.info_cards.append(more_plugins.build_cards(OWN_ID, "am", leave_out=(PLAYGROUND_ID,), plugins=cards))
+        if checked:
+            when = time.strftime("%d.%m.%Y %H:%M", time.localtime(float(checked)))
+            self.info_source.set_label(_("From the Omarchy Plugin Marketplace, checked {0}.").format(when))
+        else:
+            self.info_source.set_label(_("The marketplace could not be read yet: the plugins known to this "
+                                         "version are shown."))
+
+    def refresh_info_cards(self):
+        """On opening the page: the marketplace's list (at most hourly, only if it changed), on a thread."""
+        if getattr(self, "info_refreshing", False):
+            return
+        self.info_refreshing = True
+
+        def work():
+            plugins = plugin_catalog.refresh()
+            GLib.idle_add(done, plugins, plugin_catalog.load().get("checked"))
+
+        def done(plugins, checked):
+            self.info_refreshing = False
+            self.fill_info_cards(plugins, checked)
+            return False
+        threading.Thread(target=work, daemon=True).start()
 
     def playground_section(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -171,6 +214,7 @@ class InfoPage:
         if self.page_name() not in ("settings", "help", "info"):
             self.remember_page()
         self.show_page("info")
+        self.refresh_info_cards()
 
     def close_info(self):
         self.back_to_last_page()

@@ -7,19 +7,6 @@ import previews  # noqa: E402
 
 
 class WidenTest(unittest.TestCase):
-    def test_modes(self):
-        start = previews.widen_frame(0.0, "workspace")
-        self.assertEqual((start["slide"], start["grow"]), (0.0, 0.0))
-        moved = previews.widen_frame(4.0, "workspace")
-        self.assertEqual((moved["slide"], moved["grow"]), (1.0, 0.0))
-        grown = previews.widen_frame(4.0, "maximize")
-        self.assertEqual((grown["slide"], grown["grow"]), (0.0, 1.0))
-        self.assertTrue(previews.widen_frame(1.4, "workspace")["click"])
-        off = previews.widen_frame(4.0, "off")
-        self.assertEqual((off["slide"], off["grow"], off["hint"], off["click"]), (0.0, 0.0, False, False))
-
-
-class SetupTest(unittest.TestCase):
     def test_story(self):
         self.assertEqual(previews.setup_state(0)["caption"], 0)
         middle = previews.setup_state(1.5)
