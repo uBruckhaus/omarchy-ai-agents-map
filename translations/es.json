@@ -1,4 +1,9 @@
 {
+ "{0}: {1} gets a context of {2} tokens, the best for this graphics card": "{0}: {1} recibe un contexto de {2} tokens, el mejor para esta tarjeta gráfica",
+ "(the best for this graphics card)": "(el mejor para esta tarjeta gráfica)",
+ "Default layout": "Disposición predeterminada",
+ "Put the cards back in their columns and the boxes in the map's own order": "Devolver las tarjetas a sus columnas y los cuadros al orden propio del mapa",
+ "Drag to move this card. Drag a box inside its card to change the order": "Arrastra para mover esta tarjeta. Arrastra un cuadro dentro de su tarjeta para cambiar el orden",
  "\u0004+ 1 folder with unused models": [
   "+ 1 carpeta con modelos sin usar",
   "+ {0} carpetas con modelos sin usar"

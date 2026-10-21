@@ -184,10 +184,73 @@ class Engine:
         """model -> the context it loads it with, for the agents' settings (llama.cpp's models.ini)."""
         return {}
 
+    def auto_context(self, rt, name: str, vram: int | None = None) -> tuple:
+        """For a model with no context of its own yet: (the best context for this card, the changes
+        that set it — None when set_context sets it). A context already set (by the user, or the
+        local LLM's own setting) is kept: (that context, []). (0, []) when it cannot be worked out."""
+        import os
+        from pathlib import Path
+        import context_ctl
+        if not self.context_settable or not name:
+            return 0, []
+        folder = Path(os.path.expanduser(rt.models_dir)) if rt.models_dir else None
+        if folder is None and self.own_model_folder:
+            return 0, []                          # no model folder: no model file to size it from
+        try:
+            found = self.context_now(rt, folder, name)
+        except (OSError, ValueError, KeyError, TypeError):
+            return 0, []
+        if found is None:
+            return 0, []
+        now, cache, model_file = found
+        if now:
+            return now, []
+        if vram is None:
+            import gpu_usage
+            vram = gpu_usage.gpu_totals()[1]
+        if model_file is None or vram <= 0:
+            return 0, []
+        try:
+            best = context_ctl.fit(model_file, vram, cache or "f16").best
+        except (OSError, ValueError, KeyError, Exception):     # an unreadable or unusual GGUF
+            return 0, []
+        if best <= 0:
+            return 0, []
+        try:
+            return best, self.context_changes(rt, name, best)
+        except (OSError, ValueError):
+            return 0, []
+
     def connect_extra(self, rt, model: str) -> tuple:
-        """(context, changes) a connection to `model` brings along (LM Studio: the model's context,
-        set in its own settings, in the same preview, backup and Undo)."""
-        return {}, []
+        """(context, changes, contexts set through the local LLM) a connection to `model` brings
+        along: a model without a context of its own gets the best one for this card, in the same
+        preview, backup and Undo (a file change), or set through its API when the connection is
+        written (Ollama: [(runtime, model, context)]). The context is handed to the agent too."""
+        ctx, changes = self.auto_context(rt, model)
+        if not ctx:
+            return {}, [], []
+        if changes is None:
+            return {model: ctx}, [], [(rt, model, ctx)]
+        return {model: ctx}, changes, []
+
+    def set_new_contexts(self, rt, names) -> list:
+        """After a download: each new model without a context gets the best one for this card,
+        written at once (with a backup). Returns [(name, context)] set."""
+        import connect
+        done = []
+        for name in names:
+            ctx, changes = self.auto_context(rt, name)
+            try:
+                if changes is None and ctx:
+                    self.set_context(rt, name, ctx)
+                elif changes:
+                    connect.apply(connect.Plan(rt.name, rt.key, "", changes))
+                else:
+                    continue
+            except (OSError, ValueError, RuntimeError):
+                continue
+            done.append((name, ctx))
+        return done
 
     def gpu_build(self, vendor: str) -> str:
         """The graphics interface its build uses on this card ("ROCm", "CUDA"), for the install page."""

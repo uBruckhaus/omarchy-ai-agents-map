@@ -79,6 +79,8 @@ class Plan:
     notes: list = field(default_factory=list)          # what stays as it is (skills: folders read anyway)
     files_add: list = field(default_factory=list)      # (path, bytes, executable): new files (a fetched skill)
     retire: list = field(default_factory=list)         # folders moved into the backup (an app's old version)
+    contexts: list = field(default_factory=list)       # (runtime, model, context) set through the local
+                                                       # LLM's API after writing (Ollama; not undone)
 
     def diff(self) -> str:
         parts = []
@@ -223,8 +225,12 @@ def plan(agent: str, runtime, model: str, use_now: bool, remove: bool = False, c
         # What the local LLM brings along (LM Studio: the model's context in its own settings, in
         # the same preview, backup and Undo, and handed to the agent too).
         import llm_engine
-        more, extra = llm_engine.of(runtime).connect_extra(runtime, model)
+        more, extra, contexts = llm_engine.of(runtime).connect_extra(runtime, model)
         context = {**(context or {}), **more}
+        result.contexts = contexts
+        from i18n import _
+        result.notes += [_("{0}: {1} gets a context of {2} tokens, the best for this graphics card")
+                         .format(rt.name, name, ctx) for rt, name, ctx in contexts]
     files = paths_for(agent)
     old = [_read(p) for p in files]
     texts = list(old)
@@ -321,6 +327,12 @@ def apply(result: Plan, backup_root: Path = BACKUP_ROOT) -> Path:
             os.rename(path, folder / name)       # same file system: instant, nothing copied
         except OSError:
             pass                                 # elsewhere (or in use oddly): it stays where it is
+    import llm_engine
+    for runtime, model, ctx in result.contexts:
+        try:
+            llm_engine.of(runtime).set_context(runtime, model, ctx)
+        except (OSError, ValueError, RuntimeError):
+            pass                                 # the connection stands; the context stays as it was
     return folder
 
 
@@ -455,4 +467,6 @@ def merge(plans: list) -> Plan:
         result.links_remove += item.links_remove
         result.files_add += item.files_add
         result.retire += [path for path in item.retire if path not in result.retire]
+        result.contexts += [c for c in item.contexts if c not in result.contexts]
+        result.notes += [n for n in item.notes if n not in result.notes]
     return result

@@ -928,15 +928,42 @@ class ModelsPage:
                                          base=spec["base"], into=into)
                 engine.refresh(rt)            # e.g. the new model gets an id the local LLM answers to
 
+        before = set(rt.models)                # what is new afterwards gets the best context
         return self.jobs.start(spec["kind"], f"{label} · {rt.name}", work, spec, f"runtime:{rt.key}",
-                               on_end=lambda job: GLib.idle_add(self.model_job_ended, job, rt.key, label),
+                               on_end=lambda job: GLib.idle_add(self.model_job_ended, job, rt.key, label, before),
                                replaces=replaces)
 
-    def model_job_ended(self, job, key: str, label: str):
+    def set_new_contexts(self, key: str, before: set):
+        """A downloaded model without a context of its own gets the best one for this card (like a
+        connection would), so the local LLM never starts it with its own small default."""
+        rt = next((r for r in self.inventory.runtimes if r.key == key), None)
+        if rt is None or not llm_engine.of(rt).context_settable:
+            return
+        new = [name for name in rt.models if name not in before]
+        if not new:
+            return
+
+        def work():
+            done = llm_engine.of(rt).set_new_contexts(rt, new)
+            GLib.idle_add(finish, done)
+
+        def finish(done):
+            if done:
+                self.show_note("; ".join(_("{0}: context set to {1}").format(name, ctx) for name, ctx in done)
+                               + " " + _("(the best for this graphics card)"))
+                state = self.models_state
+                if state is not None and state["rt"].key == key:
+                    self.fill_model_list(state["rt"])
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def model_job_ended(self, job, key: str, label: str, before: set = frozenset()):
         state = self.models_state
         here = state is not None and state["rt"].key == key and state.get("job") == job.id
         if job.state == "done":
             self.collect()
+            self.set_new_contexts(key, before)
             self.refresh_overview()
             self.refresh_map()
             self.show_note(_("Downloaded: {0}").format(label))

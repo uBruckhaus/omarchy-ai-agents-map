@@ -99,7 +99,7 @@ class Engine(llm_engine.Engine):
         ctx, path, old_text, new_text = context_ctl.lmstudio_auto_context(model, gpu_usage.gpu_totals()[1])
         import connect
         changes = [connect.Change(path, old_text, new_text)] if path is not None and new_text != old_text else []
-        return ({model: ctx} if ctx else {}), changes
+        return ({model: ctx} if ctx else {}), changes, []
 
     def owns_process(self, comm, argv):
         exe = argv[0] if argv else ""

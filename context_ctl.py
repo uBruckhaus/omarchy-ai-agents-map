@@ -215,10 +215,10 @@ def _ini_sections(text: str) -> dict:
     return sections
 
 
-def llama_settings(name: str, ini: Path = MODELS_INI) -> tuple[int, str]:
+def llama_settings(name: str, ini: Path | None = None) -> tuple[int, str]:
     """(ctx-size, KV cache type) for a router model: its section, else [*]."""
     try:
-        sections = _ini_sections(ini.read_text(encoding="utf-8"))
+        sections = _ini_sections((ini or MODELS_INI).read_text(encoding="utf-8"))
     except OSError:
         sections = {}
     own, shared = sections.get(name, {}), sections.get("*", {})

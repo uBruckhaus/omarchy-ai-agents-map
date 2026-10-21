@@ -106,6 +106,16 @@ class GenericTest(unittest.TestCase):
         hypr.maximize.assert_called_once_with("x")
         window.maximize.assert_not_called()
 
+    def test_like_windows_follows_hyprland_rounding(self):
+        # On Hyprland the windows' corners are its rounding (Omarchy: square), not libadwaita's.
+        for rounding, expected in ((0, 0), (8, 8), (None, g.RADIUS)):
+            hypr = mock.Mock(window_rounding=mock.Mock(return_value=rounding))
+            with mock.patch.object(g, "_hyprland", return_value=hypr):
+                self.assertEqual(g.window_rounding(), expected)
+        with mock.patch.object(g, "_hyprland", return_value=None):
+            self.assertEqual(g.window_rounding(), g.RADIUS)
+            self.assertEqual(g.rounding_source(), "desktop")
+
     def test_hyprland_only_when_its_session_runs(self):
         with mock.patch.dict("os.environ", {}, clear=True):
             self.assertIsNone(g._hyprland())

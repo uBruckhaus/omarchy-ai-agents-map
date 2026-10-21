@@ -1,4 +1,9 @@
 {
+ "{0}: {1} gets a context of {2} tokens, the best for this graphics card": "{0}: {1} krijgt een context van {2} tokens, de beste voor deze grafische kaart",
+ "(the best for this graphics card)": "(de beste voor deze grafische kaart)",
+ "Default layout": "Standaardindeling",
+ "Put the cards back in their columns and the boxes in the map's own order": "Zet de kaarten terug in hun kolommen en de vakken in de eigen volgorde van de kaart",
+ "Drag to move this card. Drag a box inside its card to change the order": "Sleep om deze kaart te verplaatsen. Sleep een vak binnen zijn kaart om de volgorde te wijzigen",
  "\u0004+ 1 folder with unused models": [
   "+ 1 map met ongebruikte modellen",
   "+ {0} mappen met ongebruikte modellen"

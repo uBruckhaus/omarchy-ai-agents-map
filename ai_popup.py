@@ -94,7 +94,7 @@ import model_layout
 import jobs
 import health
 import web_sources
-from map_view import LegendSample, MapView, Meter
+from map_view import ORDER_KEEP, LegendSample, MapView, Meter
 from gi.repository import PangoCairo  # noqa: E402  (map_view asked for its version)
 from palette import ThemePalette, outside_color
 from settings_pages import SettingsPages
@@ -870,6 +870,9 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         side.append(map_scroller)
         self.side_map.set_zoom(ai_core.setting("map_zoom")
                                if isinstance(ai_core.setting("map_zoom"), (int, float)) else 1.0)
+        self.load_map_layout()
+        self.side_map.on_layout = self.save_map_layout
+        self.side_map.card_tip = _("Drag to move this card. Drag a box inside its card to change the order")
         self.zoom_label.set_label(f"{round(self.side_map.zoom * 100)} %")
         # The right of the Overview: the map, or a page opened from a card or from the map.
         right = Gtk.Stack(hexpand=True)
@@ -2056,6 +2059,23 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.zoom_label.set_label(f"{round(self.side_map.zoom * 100)} %")
         self.save_setting(map_zoom=self.side_map.zoom)
 
+    def load_map_layout(self):
+        """The order of the boxes in each card and the cards moved by hand (Settings: map_layout)."""
+        saved = ai_core.setting("map_layout")
+        saved = saved if isinstance(saved, dict) else {}
+        order, cards = saved.get("order"), saved.get("cards")
+        self.side_map.order = {str(k): [str(i) for i in v][:ORDER_KEEP]
+                               for k, v in (order.items() if isinstance(order, dict) else ())
+                               if isinstance(v, list) and all(isinstance(i, str) for i in v)}
+        self.side_map.cards = {str(k): [float(v[0]), float(v[1])]
+                               for k, v in (cards.items() if isinstance(cards, dict) else ())
+                               if isinstance(v, list) and len(v) == 2
+                               and all(isinstance(n, (int, float)) and 0 <= n < 100000 for n in v)}
+
+    def save_map_layout(self):
+        self.save_setting(map_layout={"order": self.side_map.order,
+                                      "cards": {k: [round(v[0]), round(v[1])] for k, v in self.side_map.cards.items()}})
+
     def build_layer_toggles(self) -> Gtk.Widget:
         """One toggle per category: shorten the map to what you are setting up."""
         row = Gtk.Box(spacing=6)
@@ -2077,6 +2097,13 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.layers_note.set_ellipsize(Pango.EllipsizeMode.END)
         self.layers_note.set_margin_start(6)
         row.append(self.layers_note)
+        # Right: back to the map's own layout (cards in their columns, boxes in the map's order).
+        row.append(Gtk.Box(hexpand=True))
+        reset = Gtk.Button(label=_("Default layout"))
+        reset.add_css_class("am-chip")
+        reset.set_tooltip_text(_("Put the cards back in their columns and the boxes in the map's own order"))
+        reset.connect("clicked", lambda _b: self.side_map.default_layout())
+        row.append(reset)
         return row
 
     def model_users(self) -> dict:
@@ -2173,7 +2200,11 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         built = graph.build(self.agent_list, details, self.inventory, labels, link_hints.load(), self.running)
         headers = [_("MCP servers · skills"), _("Agents"), _("LLM providers"), _("Models")]
         for view in (self.side_map,):
-            view.group_titles = {"mcp": _("MCP servers"), "skills": _("Skills"), "online": _("Online")}
+            # Card titles by group key ("cloud": the online providers' card; "online": the online
+            # models' card detail).
+            view.group_titles = {"mcp": _("MCP servers"), "skills": _("Skills"), "online": _("Online"),
+                                 "agents": _("Agents"), "cloud": _("Online providers"), "local": _("Local LLMs"),
+                                 "models": _("Models")}
             view.set_graph(built, headers)
             view.set_layers(self.map_view.layers)
         ids = {n.id for n in built.nodes}

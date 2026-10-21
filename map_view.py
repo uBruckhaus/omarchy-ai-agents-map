@@ -53,9 +53,12 @@ import icons  # noqa: E402
 
 NODE_H = 42
 NODE_GAP = 8
-GROUP_GAP = 22           # column 0: between the MCP servers and the skill sets
-GROUP_LABEL_H = 16       # the small heading above each group
-HEADER_H = 30
+GROUP_GAP = 18           # between two cards of a column
+CARD_HEAD = 26           # a card's header: its title, a count, the grip to move the card
+CARD_PAD = 8             # room around the boxes inside a card
+GROUP_LABEL_H = CARD_HEAD + 2   # from a card's top to its first box
+HEADER_H = 12            # room above the cards (their headers carry the titles)
+ORDER_KEEP = 300         # ids a group's saved order keeps (also of boxes gone for now, so they come back in place)
 PAD = 12
 ZOOM_STEPS = (0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5)
 COLUMN_GAP_MIN = 56
@@ -102,8 +105,13 @@ class MapView(Gtk.DrawingArea):
         self.boxes = {}          # node id -> (x, y, w, h)
         self.hover = None
         self.defaults = set()    # model ids some agent uses by default
-        self.group_titles = {}   # node kind -> heading of its group in column 0 (mcp, skills)
-        self.group_labels = []   # (x, y, text, column) drawn above the groups
+        self.group_titles = {}   # group key or node kind -> its card's title (translated by the window)
+        self.group_labels = []   # (key, (x, y, w, h) of the card, title, detail, count, kind) drawn this time
+        self.order = {}          # group key -> box ids in the user's order (saved; new boxes go last)
+        self.cards = {}          # group key -> [x, y] where the user put its card (map units; saved)
+        self.card_rects = {}     # group key -> (x, y, w, h) of its card as drawn
+        self.on_layout = None    # callback() after the order or a card's place changed (the window saves it)
+        self.card_tip = "Drag to move this card. Drag a box inside its card to change the order"
         self.active = {}         # agent id -> edge indexes of its active path (provider in use, its model)
         self.selected = []       # node ids picked by clicking, in click order
         self.on_selection = None # callback(list of selected nodes)
@@ -247,44 +255,100 @@ class MapView(Gtk.DrawingArea):
             self.selected = [i for i in self.selected if i in ids]
             self.selection_changed()
         self.pinned = [i for i in self.pinned if i in ids]
+        if self.keep_order() and self.on_layout is not None:
+            self.on_layout()            # boxes new to the map: remembered at the end of their card
         self.set_content_height(int(self.needed_height() * self.zoom))
         self.queue_draw()
 
+    @staticmethod
+    def group_key(node) -> str:
+        """The card a box is in: one per category, the models one per folder."""
+        if node.kind in ("mcp", "skills"):
+            return node.kind
+        if node.kind == "agent":
+            return "agents"
+        if node.kind == "cloud":
+            return "online"
+        if node.kind == "runtime":
+            return "local"
+        return f"models:{node.group or ''}"
+
+    def all_groups(self, column: int, nodes=None) -> list:
+        """[(key, boxes)] of a column (all its boxes, or `nodes`), each group in the user's order:
+        column 0 MCP servers then skill sets, column 2 online providers then local LLMs, column 3
+        one group per model folder ("+ N more" boxes last)."""
+        groups = {}
+        for node in self.graph.column(column) if nodes is None else nodes:
+            groups.setdefault(self.group_key(node), []).append(node)
+        first = {"mcp": 0, "skills": 1, "online": 0, "local": 1}
+        keys = sorted(groups, key=lambda k: first.get(k, 0))      # stable: models folders keep their order
+        return [(key, self.in_order(key, groups[key])) for key in keys]
+
+    def in_order(self, key: str, nodes) -> list:
+        """The boxes of a group in its saved order; boxes it does not know yet keep the map's order
+        after them, and the "+ N more" box stays last."""
+        saved = {node_id: i for i, node_id in enumerate(self.order.get(key, ()))}
+        known = [n for n in nodes if n.id in saved and n.kind != "more"]
+        new = [n for n in nodes if n.id not in saved and n.kind != "more"]
+        return sorted(known, key=lambda n: saved[n.id]) + new + [n for n in nodes if n.kind == "more"]
+
+    def keep_order(self) -> bool:
+        """Remember the order of every group as it is now, new boxes at the end, so that a new
+        connection (which changes the map's own order) moves nothing. True if it changed."""
+        changed = False
+        for column in range(4):
+            for key, nodes in self.all_groups(column):
+                ids = [n.id for n in nodes if n.kind != "more"]
+                saved = list(self.order.get(key, ()))
+                merged = saved + [i for i in ids if i not in saved]
+                merged = merged[-ORDER_KEEP:] if len(merged) > ORDER_KEEP else merged
+                if merged != saved:
+                    self.order[key] = merged
+                    changed = True
+        return changed
+
+    def default_layout(self):
+        """Back to the map's own layout: cards in their columns, boxes in the map's order."""
+        self.order, self.cards = {}, {}
+        self.keep_order()
+        self.layout_changed()
+
+    def layout_changed(self):
+        if self.on_layout is not None:
+            self.on_layout()
+        self.relayout()
+
     def groups(self, column: int) -> list:
-        """The shown boxes of a column in groups: column 0 has MCP servers and
-        skill sets, column 3 one group per model folder ("+ Model" box last)."""
-        nodes = self.shown(column)
-        if column == 0:
-            return [g for g in ([n for n in nodes if n.kind == "mcp"], [n for n in nodes if n.kind != "mcp"]) if g]
-        if column == 3:
-            folders = {}
-            for node in nodes:
-                folders.setdefault(node.group, []).append(node)
-            return list(folders.values())
-        return [nodes] if nodes else []
+        """The shown boxes of a column in groups (all_groups without the hidden boxes)."""
+        return [nodes for _key, nodes in self.all_groups(column, self.shown(column))]
 
-    def titled(self, column: int) -> bool:
-        """Groups get a heading and a gap: always in column 0, for models only with more than one folder."""
-        return column == 0 or (column == 3 and len(self.groups(3)) > 1)
-
-    def group_title(self, nodes) -> str:
+    def group_title(self, nodes) -> tuple[str, str]:
+        """(title, detail) of a group's card: a model folder's card says which folder."""
         first = nodes[0]
-        if first.column == 3:
-            return first.group or self.group_titles.get("online", "").upper()
-        return self.group_titles.get(first.kind, "")
+        key = self.group_key(first)
+        if key.startswith("models:"):
+            return self.group_titles.get("models", ""), first.group or self.group_titles.get("online", "")
+        return self.group_titles.get({"online": "cloud"}.get(key, key), ""), ""
+
+    @staticmethod
+    def card_height(rows: int) -> int:
+        return GROUP_LABEL_H + rows * NODE_H + max(0, rows - 1) * NODE_GAP + CARD_PAD
 
     def column_height(self, column: int) -> int:
-        groups = self.groups(column)
-        rows = sum(len(g) for g in groups)
-        height = rows * NODE_H + max(0, rows - 1) * NODE_GAP
-        if self.titled(column) and groups:
-            height += len(groups) * GROUP_LABEL_H + (len(groups) - 1) * GROUP_GAP
-        return height
+        """The height of a column's cards that stay in it (a card moved by hand is out of it)."""
+        groups = [g for g in self.groups(column) if self.group_key(g[0]) not in self.cards]
+        return sum(self.card_height(len(g)) for g in groups) + max(0, len(groups) - 1) * GROUP_GAP
 
     def needed_height(self) -> int:
         if self.graph is None:
             return 0
-        return HEADER_H + PAD * 2 + max((self.column_height(c) for c in range(4)), default=0)
+        height = HEADER_H + PAD * 2 + max((self.column_height(c) for c in range(4)), default=0)
+        for column in range(4):
+            for nodes in self.groups(column):
+                key = self.group_key(nodes[0])
+                if key in self.cards:      # a card moved down by hand: the map is as tall as needed
+                    height = max(height, self.cards[key][1] + self.card_height(len(nodes)) + PAD)
+        return int(height)
 
     # --- layout -----------------------------------------------------------------------
 
@@ -305,23 +369,37 @@ class MapView(Gtk.DrawingArea):
         self.column_x = {}
         self.group_labels = []
         self.group_rects = {}
+        self.card_rects = {}
+        card_w = node_w + 2 * CARD_PAD
         for slot, column in enumerate(active):
             y = self.column_top(self.column_height(column), height, hub=column == 1)
             x = left + slot * (node_w + gap)
             self.column_x[column] = x
-            titled = self.titled(column)
-            for number, nodes in enumerate(self.groups(column)):
-                if titled:
-                    if number:
-                        y += GROUP_GAP - NODE_GAP
-                    self.group_labels.append((x, y, self.group_title(nodes), column))
-                    y += GROUP_LABEL_H
-                top = y - (GROUP_LABEL_H if titled else 0)
+            for nodes in self.groups(column):
+                key = self.group_key(nodes[0])
+                card_h = self.card_height(len(nodes))
+                if key in self.cards:
+                    # Put somewhere by hand: there, kept inside the map's width.
+                    cx, cy = self.cards[key]
+                    cx = max(0.0, min(float(cx), width - card_w))
+                    cy = max(0.0, float(cy))
+                else:
+                    cx, cy = x - CARD_PAD, y
+                    y += card_h + GROUP_GAP
+                self.card_rects[key] = (cx, cy, card_w, card_h)
+                title, detail = self.group_title(nodes)
+                self.group_labels.append((key, (cx, cy, card_w, card_h), title, detail,
+                                          sum(1 for n in nodes if n.kind != "more"), nodes[0].kind))
+                by = cy + GROUP_LABEL_H
                 for node in nodes:
-                    self.boxes[node.id] = (x, y, node_w, NODE_H)
-                    y += NODE_H + NODE_GAP
+                    self.boxes[node.id] = (cx + CARD_PAD, by, node_w, NODE_H)
+                    by += NODE_H + NODE_GAP
                 if column == 3 and nodes[0].group:
-                    self.group_rects[nodes[0].group] = (x, top, node_w, y - NODE_GAP - top)
+                    self.group_rects[nodes[0].group] = (cx, cy, card_w, card_h)
+        # Drawn in this order (the last on top): cards in their columns, then the ones moved by hand,
+        # the latest last (self.cards keeps that order).
+        moved = list(self.cards)
+        self.group_labels.sort(key=lambda label: moved.index(label[0]) + 1 if label[0] in moved else 0)
         return node_w, gap
 
     def hidden(self) -> set:
@@ -629,6 +707,13 @@ class MapView(Gtk.DrawingArea):
         hook = self.hook_at(x, y)
         if hook is not None:
             self.selected_edge = hook          # a hook is grabbed at once: its line is the one moved
+        card = self.card_header_at(x, y) if hook is None else None
+        if card is not None:
+            # A card's header: dragging it moves the card anywhere on the map.
+            cx, cy, _w, _h = self.card_rects[card]
+            self.link = {"card": card, "origin": (cx, cy), "start": (x, y), "x": x, "y": y, "target": None,
+                         "drawing": False}
+            return
         if hook is not None or self.near_selected_edge(x, y):
             source, target = self.selected_edge
             if self.kind_of(source) == "runtime":       # a model line: its model end moves
@@ -644,11 +729,14 @@ class MapView(Gtk.DrawingArea):
             self.link = {"from": node_id, "move": True, "start": (x, y), "x": x, "y": y, "target": None,
                          "drawing": False}
             return
-        if node_id is None or self.kind_of(node_id) not in ("agent", "runtime", "mcp", "skills"):
+        if node_id is None or self.kind_of(node_id) == "more":
             gesture.set_state(Gtk.EventSequenceState.DENIED)
             self.link = None
             return
-        self.link = {"from": node_id, "start": (x, y), "x": x, "y": y, "target": None, "drawing": False}
+        # Every box can be moved inside its card (a new place in its order); some also draw lines.
+        only = self.kind_of(node_id) not in ("agent", "runtime", "mcp", "skills")
+        self.link = {"from": node_id, "start": (x, y), "x": x, "y": y, "target": None, "drawing": False,
+                     "order_only": only}
 
     def on_link_update(self, gesture, dx, dy):
         if self.link is None:
@@ -659,9 +747,23 @@ class MapView(Gtk.DrawingArea):
                 return
             self.link["drawing"] = True
             gesture.set_state(Gtk.EventSequenceState.CLAIMED)   # a drag, not a click
-            self.set_cursor_from_name("crosshair")
         x0, y0 = self.link["start"]
         self.link["x"], self.link["y"] = x0 + dx, y0 + dy
+        if self.link.get("card"):
+            ox, oy = self.link["origin"]
+            self.cards.pop(self.link["card"], None)          # last in the order: drawn on top
+            self.cards[self.link["card"]] = [round(ox + dx), round(oy + dy)]
+            self.set_cursor_from_name("grabbing")
+            self.queue_draw()
+            return
+        self.link["slot"] = self.order_slot(self.link["from"], self.link["x"], self.link["y"]) \
+            if not self.link.get("relink") and not self.link.get("remodel") else None
+        if self.link["slot"] is not None or self.link.get("order_only"):
+            self.link["target"] = None           # inside its own card: a new place, not a line
+            self.set_cursor_from_name("grabbing")
+            self.queue_draw()
+            return
+        self.set_cursor_from_name("crosshair")
         if self.link.get("move"):
             self.link["target"] = self.folder_at(self.link["x"], self.link["y"], self.link["from"])
             self.queue_draw()
@@ -681,6 +783,15 @@ class MapView(Gtk.DrawingArea):
         link, self.link = self.link, None
         self.set_cursor_from_name(None)
         self.queue_draw()
+        if link and link.get("card"):
+            if link["drawing"]:
+                self.layout_changed()            # the card stays where it was let go
+            return
+        if link and link.get("slot") is not None and link["drawing"]:
+            self.reorder(link["from"], link["slot"])
+            return
+        if link and link.get("order_only"):
+            return
         if link and link.get("move"):
             if link["drawing"] and link["target"] and self.on_move is not None:
                 self.on_move(link["from"], link["target"], self.to_pixels(self.group_rects[link["target"]]))
@@ -711,10 +822,77 @@ class MapView(Gtk.DrawingArea):
             agent, runtime = (a, b) if self.kind_of(a) == "agent" else (b, a)
             self.on_link(agent, runtime)
 
+    def siblings(self, node_id) -> list:
+        """The other shown boxes of a box's card, top to bottom ("+ N more" boxes left out)."""
+        node = next((n for n in self.graph.nodes if n.id == node_id), None)
+        if node is None:
+            return []
+        key = self.group_key(node)
+        return [n.id for column in range(4) for k, nodes in self.all_groups(column, self.shown(column))
+                if k == key for n in nodes if n.id != node_id and n.kind != "more" and n.id in self.boxes]
+
+    def order_slot(self, node_id, x, y):
+        """While a box is dragged inside its own card: the place among the other boxes it would go to
+        (0 = first), else None."""
+        node = next((n for n in self.graph.nodes if n.id == node_id), None)
+        rect = self.card_rects.get(self.group_key(node)) if node is not None else None
+        if rect is None:
+            return None
+        cx, cy, cw, ch = rect
+        if not (cx <= x <= cx + cw and cy + CARD_HEAD <= y <= cy + ch):
+            return None
+        return sum(1 for other in self.siblings(node_id) if self.boxes[other][1] + NODE_H / 2 < y)
+
+    def reorder(self, node_id, slot: int):
+        """Put a box at a new place in its card (slot among the other shown boxes) and keep it there."""
+        node = next((n for n in self.graph.nodes if n.id == node_id), None)
+        if node is None:
+            return
+        key = self.group_key(node)
+        others = self.siblings(node_id)
+        order = [i for i in self.order.get(key, ()) if i != node_id]
+        for i in others:                          # every shown box is in the order (keep_order)
+            if i not in order:
+                order.append(i)
+        if slot < len(others):
+            order.insert(order.index(others[slot]), node_id)
+        elif others:
+            order.insert(order.index(others[-1]) + 1, node_id)
+        else:
+            order.append(node_id)
+        if order != self.order.get(key):
+            self.order[key] = order
+            self.layout_changed()
+
+    def draw_order(self, cr, link):
+        """A box being moved inside its card: a bar where it would go, the box following the pointer."""
+        node_id, slot = link["from"], link.get("slot")
+        if slot is not None:
+            others = self.siblings(node_id)
+            _x, _y, w, _h = self.boxes[node_id]
+            if slot < len(others):
+                bx, by, _bw, _bh = self.boxes[others[slot]]
+                bar_y = by - NODE_GAP / 2
+            elif others:
+                bx, by, _bw, bh = self.boxes[others[-1]]
+                bar_y = by + bh + NODE_GAP / 2
+            else:
+                bx, bar_y = self.boxes[node_id][0], self.boxes[node_id][1]
+            cr.set_source_rgba(*self.color("accent", 0.95))
+            self.rounded(cr, bx, bar_y - 1.5, w, 3, 1.5)
+            cr.fill()
+            for end in (bx, bx + w):
+                cr.arc(end, bar_y, 3.5, 0, 2 * math.pi)
+                cr.fill()
+        self.draw_ghost(cr, link)
+
     def draw_link(self, cr):
         """The line being drawn, and the boxes it may end on."""
         link = self.link
-        if not link or not link["drawing"] or link["from"] not in self.boxes:
+        if not link or not link["drawing"] or link.get("card") or link["from"] not in self.boxes:
+            return
+        if link.get("slot") is not None or link.get("order_only"):
+            self.draw_order(cr, link)
             return
         if link.get("move"):
             self.draw_move(cr, link)
@@ -758,6 +936,10 @@ class MapView(Gtk.DrawingArea):
             cr.set_dash([] if target else [4, 3])
             cr.stroke()
             cr.set_dash([])
+        self.draw_ghost(cr, link)
+
+    def draw_ghost(self, cr, link):
+        """The dragged box, following the pointer."""
         _sx, _sy, sw, sh = self.boxes[link["from"]]
         x, y = link["x"] - sw / 2, link["y"] - sh / 2
         self.rounded(cr, x, y, sw, sh, self.radius)
@@ -782,8 +964,12 @@ class MapView(Gtk.DrawingArea):
         x, y = x / self.zoom, y / self.zoom
         self.set_shift(bool(controller.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK))
         found = self.node_at(x, y)
-        self.set_cursor_from_name("pointer" if found else None)
+        header = self.card_header_at(x, y) if found is None else None
+        self.set_cursor_from_name("pointer" if found else "grab" if header else None)
         self.set_hover(found)
+        if header is not None:
+            self.set_tooltip_text(self.card_tip)
+            return
         pin = self.pin_at(x, y)
         if pin is not None:
             self.set_tooltip_text(self.pin_tips[1 if pin in self.pinned else 0])
@@ -933,6 +1119,8 @@ class MapView(Gtk.DrawingArea):
         """Click: select this box only (again: none). Shift+click: add or remove it.
         A click on a box's pin pins or unpins it."""
         x, y = x / self.zoom, y / self.zoom
+        if self.node_at(x, y) is None and self.card_header_at(x, y) is not None:
+            return                               # a card's header only moves the card
         pin = self.pin_at(x, y)
         if pin is not None:
             self.toggle_pin(pin)
@@ -1252,29 +1440,6 @@ class MapView(Gtk.DrawingArea):
         only_lit = self.focus() is None and lit_edges is not None and bool(self.selected)
         layout = PangoCairo.create_layout(cr)
 
-        # Column headings.
-        for column, title in enumerate(self.headers):
-            if column not in self.column_x:
-                continue
-            x = self.column_x[column]
-            text = title.upper()
-            layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 8"))
-            layout.set_text(text, -1)
-            layout.set_width(node_w * Pango.SCALE)
-            layout.set_ellipsize(Pango.EllipsizeMode.END)
-            cr.set_source_rgba(*self.color("accent"))
-            cr.move_to(x, 6)
-            PangoCairo.show_layout(cr, layout)
-
-        # Small headings above the groups of column 0.
-        layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 7"))
-        layout.set_width(node_w * Pango.SCALE)
-        layout.set_ellipsize(Pango.EllipsizeMode.END)
-        for gx, gy, text, column in self.group_labels:
-            layout.set_text(text if column == 3 else text.upper(), -1)   # folder paths keep their case
-            cr.set_source_rgba(*self.color("dim"))
-            cr.move_to(gx + 2, gy)
-            PangoCairo.show_layout(cr, layout)
 
         # Edges first, under the boxes; the active paths last, on top.
         active_edges, active_models = self.active_now(lit_edges)
@@ -1343,9 +1508,16 @@ class MapView(Gtk.DrawingArea):
         self.stop_rects = {}
         self.battery_rects = {}
         self.traffic_rects = {}
-        for node in self.graph.nodes:
+        # Each card with its boxes, one card after the other: a card moved by hand lies over the others.
+        z = {key: i for i, (key, *_rest) in enumerate(self.group_labels)}
+        cards_drawn = set()
+        for node in sorted(self.graph.nodes, key=lambda n: z.get(self.group_key(n), -1)):
             if node.id not in self.boxes:
                 continue
+            key = self.group_key(node)
+            if key not in cards_drawn:
+                cards_drawn.add(key)
+                self.draw_cards(cr, layout, key)
             x, y, w, h = self.boxes[node.id]
             faded = lit_nodes is not None and node.id not in lit_nodes
             alpha = 0.25 if faded else (0.55 if node.dim or node.status == "missing" else 1.0)
@@ -1429,6 +1601,102 @@ class MapView(Gtk.DrawingArea):
 
         self.draw_hooks(cr)                       # over the boxes: a hook is never half hidden
         self.draw_link(cr)
+
+    CARD_KINDS = {"agents": "agent", "online": "cloud", "local": "runtime", "mcp": "mcp", "skills": "skills"}
+
+    def draw_cards(self, cr, layout, only=None):
+        """A card under each group of boxes: a light panel, and a header with the kind's icon in its
+        line colour, the title (a model folder's card also names the folder), the number of boxes
+        and a grip (drag the header to move the card)."""
+        moving = self.link.get("card") if self.link and self.link.get("drawing") else None
+        for key, (x, y, w, h), title, detail, count, kind in self.group_labels:
+            if only is not None and key != only:
+                continue
+            lifted = key == moving
+            self.rounded(cr, x, y, w, h, self.radius + 2)
+            cr.set_source_rgba(*self.color("bg", 1.0))           # opaque: a card over another hides it
+            cr.fill_preserve()
+            cr.set_source_rgba(*self.color("fg", 0.045 if lifted else 0.03))
+            if lifted:                                          # no frame, only while it is dragged
+                cr.fill_preserve()
+                cr.set_source_rgba(*self.color("accent", 0.7))
+                cr.set_line_width(1.5)
+                cr.stroke()
+            else:
+                cr.fill()
+            # The header band: a little stronger, with a line under it.
+            self.rounded_top(cr, x, y, w, CARD_HEAD, self.radius + 2)
+            cr.set_source_rgba(*self.color("fg", 0.05))
+            cr.fill()
+            cr.set_source_rgba(*self.color("fg", 0.10))
+            cr.set_line_width(1)
+            cr.move_to(x + 1, y + CARD_HEAD + 0.5)
+            cr.line_to(x + w - 1, y + CARD_HEAD + 0.5)
+            cr.stroke()
+            node_kind = self.CARD_KINDS.get(key, "model")
+            glyph_text = glyph(TILE_GLYPHS.get(node_kind, "model"))
+            tone = TILE_TONES.get(node_kind, "accent")
+            colour = self.color(tone if tone != "muted" else "fg", 0.9)
+            gx, size = x + 9, 14
+            if not self.draw_icon(cr, glyph_text, "", gx, y + (CARD_HEAD - size) / 2, size, colour):
+                layout.set_font_description(Pango.FontDescription.from_string("JetBrainsMono Nerd Font, Symbols Nerd Font 10"))
+                layout.set_width(-1)
+                layout.set_text(glyph_text, -1)
+                cr.set_source_rgba(*colour)
+                cr.move_to(gx, y + (CARD_HEAD - layout.get_pixel_size()[1]) / 2)
+                PangoCairo.show_layout(cr, layout)
+            gx += size + 7
+            # The number of boxes, right; the grip left of it.
+            layout.set_width(-1)
+            layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 8"))
+            layout.set_text(str(count), -1)
+            cw, ch = layout.get_pixel_size()
+            bx = x + w - 10 - cw - 8
+            self.rounded(cr, bx, y + (CARD_HEAD - ch - 2) / 2, cw + 8, ch + 2, (ch + 2) / 2)
+            cr.set_source_rgba(*self.color("fg", 0.10))
+            cr.fill()
+            cr.set_source_rgba(*self.color("dim"))
+            cr.move_to(bx + 4, y + (CARD_HEAD - ch) / 2)
+            PangoCairo.show_layout(cr, layout)
+            grip_x = bx - 14
+            cr.set_source_rgba(*self.color("dim", 0.8))
+            for row in range(3):
+                for col in range(2):
+                    cr.arc(grip_x + col * 4, y + CARD_HEAD / 2 - 4 + row * 4, 1.1, 0, 2 * math.pi)
+                    cr.fill()
+            # Title (bold, upper case) and the folder after it (dim, its own case, shortened in front).
+            room = grip_x - 8 - gx
+            layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 8"))
+            layout.set_text(title.upper(), -1)
+            layout.set_width(int(room * Pango.SCALE))
+            layout.set_ellipsize(Pango.EllipsizeMode.END)
+            tw, th = layout.get_pixel_size()
+            cr.set_source_rgba(*self.color("accent" if lifted else "fg", 0.9))
+            cr.move_to(gx, y + (CARD_HEAD - th) / 2)
+            PangoCairo.show_layout(cr, layout)
+            if detail and room - tw > 30:
+                layout.set_font_description(Pango.FontDescription.from_string("Sans 8"))
+                layout.set_text(detail, -1)
+                layout.set_width(int((room - tw - 8) * Pango.SCALE))
+                layout.set_ellipsize(Pango.EllipsizeMode.START)
+                cr.set_source_rgba(*self.color("dim"))
+                cr.move_to(gx + tw + 8, y + (CARD_HEAD - layout.get_pixel_size()[1]) / 2)
+                PangoCairo.show_layout(cr, layout)
+            layout.set_ellipsize(Pango.EllipsizeMode.END)
+        layout.set_width(-1)
+
+    def card_header_at(self, x, y):
+        """The group key whose card header is at (x, y), the top-most card first."""
+        for key, (cx, cy, cw, _ch), *_rest in reversed(self.group_labels):
+            if cx <= x <= cx + cw and cy <= y <= cy + CARD_HEAD:
+                return key
+        return None
+
+    def card_at(self, x, y):
+        for key, (cx, cy, cw, ch), *_rest in reversed(self.group_labels):
+            if cx <= x <= cx + cw and cy <= y <= cy + ch:
+                return key
+        return None
 
     def tile_glyph(self, node) -> tuple[str, str]:
         """(glyph, font) of a box's icon tile: an agent's own icon, else one for its kind."""

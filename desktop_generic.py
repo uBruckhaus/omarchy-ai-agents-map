@@ -121,15 +121,22 @@ def _adw_style():
 
 
 def window_rounding() -> int:
-    return RADIUS
+    """The windows' corner radius: on Hyprland its own rounding (square on Omarchy unless a theme or
+    the user rounds it), elsewhere libadwaita's."""
+    hypr = _hyprland()
+    rounding = hypr.window_rounding() if hypr is not None else None
+    return RADIUS if rounding is None else rounding
 
 
 def rounding_source() -> str:
-    return "desktop"
+    return "hyprland" if _hyprland() is not None else "desktop"
 
 
 def corners_note() -> str:
     from i18n import _
+    if _hyprland() is not None:
+        return _("Corners of the window, its cards and the map's boxes. “Like windows” follows Hyprland's "
+                 "window rounding.")
     return _("Your windows have the desktop's rounded corners.")
 
 

@@ -66,6 +66,8 @@ SCHEMA: dict[str, Setting] = {
     "map_layers": Setting(list(MAP_LAYERS), _texts, "the map's Show switches of the full-size window"),
     "map_animations": Setting("all", _one_of(*MAP_ANIMATIONS), "Settings › Map animations"),
     "map_zoom": Setting(1.0, _number, "the map's zoom"),
+    "map_layout": Setting({}, _mapping, "the map's cards: {\"order\": {card: [box ids]}, \"cards\": {card: [x, y]}} "
+                          "(drag a box inside its card, a card by its header; Default layout clears it)"),
     # Pages
     "setup_done": Setting(False, _bool, "Asterism's welcome page was finished once"),
     "first_connection_done": Setting(False, _bool, "the card above the map that shows the first connection: done or closed"),
