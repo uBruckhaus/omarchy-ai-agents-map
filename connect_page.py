@@ -378,7 +378,7 @@ class ConnectPage:
         if agent is None or runtime is None:
             return
         if agent.command not in connect.SUPPORTED:
-            self.show_note(_("{0} cannot be changed from here yet. Hermes, Pi and OpenCode can.").format(agent.name))
+            self.show_note(self.not_connectable_text(agent, runtime, model))
             return
         try:
             context = inventory.llama_context() if runtime.key == "llamacpp" else {}
@@ -394,6 +394,18 @@ class ConnectPage:
         self.refresh_overview()
         self.refresh_map()
         self.show_undo(_("{0} uses {1} ({2}) now").format(agent.name, model, runtime.name), backup)
+
+    @staticmethod
+    def not_connectable_text(agent, runtime, model: str = "") -> str:
+        """An agent the app cannot point at a local LLM (its add-on says nothing about how): what the
+        user can do by hand, and which agents the app can set up."""
+        import harnesses
+        able = sorted(h.name for c in connect.SUPPORTED if (h := harnesses.get(c)) is not None)
+        model = model or next(iter(connect.chat_models(runtime.models)), "")
+        how = _("{0} cannot be connected from here yet. Set it up in {0}'s own settings: an OpenAI-compatible "
+                "provider at {1}, no API key needed, model {2}.").format(
+            agent.name, connect.base_url(runtime.address), model or _("(one of {0}'s models)").format(runtime.name))
+        return how + " " + _("These agents can be connected from here: {0}.").format(", ".join(able))
 
     def on_map_link(self, agent_id: str, runtime_id: str, replaces_id: str | None = None,
                     remove_only: bool = False):
@@ -438,10 +450,7 @@ class ConnectPage:
                  _("{0} can only use {1}'s models (and its own cloud); it cannot be connected to {2}."))
                 .format(agent.name, fixed_name, runtime.name))
         elif not supported:
-            import harnesses
-            able = sorted(h.name for c in connect.SUPPORTED if (h := harnesses.get(c)) is not None)
-            self.connect_intro.set_label(_("{0} cannot be connected from here yet. These can: {1}.").format(
-                agent.name, ", ".join(able)))
+            self.connect_intro.set_label(self.not_connectable_text(agent, runtime))
         else:
             already = connect.is_connected(agent.command, runtime.key)
             # Set to use it, with the provider gone (a broken line): removing clears that setting.

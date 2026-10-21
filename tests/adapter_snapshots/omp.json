@@ -45,7 +45,22 @@
  "installer": null,
  "detect": false,
  "limits": false,
- "local_llm": null,
+ "local_llm": {
+  "files": [
+   "~/.omp/agent/models.yml",
+   "~/.omp/agent/config.yml"
+  ],
+  "added": [
+   "providers:\n  llamacpp:\n    auth: none\n    baseUrl: \"http://127.0.0.1:8080/v1\"\n    api: openai-completions\n    models:\n      - id: \"m1\"\n        name: \"m1\"\n        contextWindow: 8192\n      - id: \"m2\"\n        name: \"m2\"\n",
+   "modelRoles:\n  default: \"llamacpp/m1\"\n"
+  ],
+  "connected": true,
+  "active": true,
+  "removed": [
+   "",
+   ""
+  ]
+ },
  "skills": {
   "dirs": [
    "~/.omp/agent/skills"

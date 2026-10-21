@@ -1,4 +1,4 @@
-# Oh My Pi (docs/adapter-format.md): facts only, nothing in this file runs.
+# Oh My Pi (docs/adapter-format.md). Connecting a local LLM (YAML text) is a hook (omp.py).
 command = "omp"
 name = "Oh My Pi"
 label = "omp"
@@ -12,6 +12,10 @@ data = ["~/.omp"]
 [[install]]
 kind = "mise"
 spec = "github:can1357/oh-my-pi"
+
+[local_llm]
+files = ["~/.omp/agent/models.yml", "~/.omp/agent/config.yml"]
+hooks = true
 
 [skills]
 dirs = ["~/.omp/agent/skills"]

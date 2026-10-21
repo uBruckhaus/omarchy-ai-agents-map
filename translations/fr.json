@@ -2360,5 +2360,8 @@
  "right-click {0} on the map → Models… and download one that fits your card.": "clic droit sur {0} sur la carte → Modèles… et télécharges-en un adapté à ta carte graphique.",
  "open LM Studio and turn on its server (Developer → Start server) before working with {0}.": "ouvre LM Studio et active son serveur (Developer → Start server) avant de travailler avec {0}.",
  "start it yourself ({0}) before working with {1}.": "démarre-le toi-même ({0}) avant de travailler avec {1}.",
- "start it yourself before working with {0}.": "démarre-le toi-même avant de travailler avec {0}."
+ "start it yourself before working with {0}.": "démarre-le toi-même avant de travailler avec {0}.",
+ "{0} cannot be connected from here yet. Set it up in {0}'s own settings: an OpenAI-compatible provider at {1}, no API key needed, model {2}.": "{0} ne peut pas encore être connecté d’ici. Configure-le dans les réglages de {0} : un fournisseur compatible OpenAI à {1}, sans clé d’API, modèle {2}.",
+ "(one of {0}'s models)": "(un des modèles de {0})",
+ "These agents can be connected from here: {0}.": "Ces agents peuvent être connectés d’ici : {0}."
 }

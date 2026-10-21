@@ -139,6 +139,35 @@ class ConnectTest(unittest.TestCase):
         self.assertIn("ollama-local", data["provider"])
         self.assertEqual(data["model"], "anthropic/claude")
 
+    def test_omp_yaml_add_use_and_remove(self):
+        config = self.write(".omp/agent/config.yml", "# mine\ntheme: dark\nmodelRoles:\n  smol: anthropic/haiku\n")
+        models = self.write(".omp/agent/models.yml", "providers:\n  work:\n    baseUrl: https://x/v1\n")
+        rt = inventory.Runtime("ollama", "Ollama", True, False, address="127.0.0.1:11434", models=["qwen3:8b"])
+        backup = connect.apply(connect.plan("omp", rt, "qwen3:8b", use_now=True, context={"qwen3:8b": 32768}),
+                               self.home / "b")
+        self.assertTrue(connect.is_connected("omp", "ollama"))
+        self.assertTrue(connect.is_active("omp", "ollama"))
+        text = config.read_text()
+        self.assertIn("# mine\ntheme: dark\n", text)
+        self.assertIn('  default: "ollama-local/qwen3:8b"', text)
+        self.assertIn("  smol: anthropic/haiku", text)
+        self.assertIn("  work:\n    baseUrl: https://x/v1\n", models.read_text())
+        self.assertIn('      - id: "qwen3:8b"\n        name: "qwen3:8b"\n        contextWindow: 32768', models.read_text())
+        connect.apply(connect.plan("omp", rt, "qwen3:8b", use_now=False, remove=True), self.home / "b")
+        self.assertFalse(connect.is_connected("omp", "ollama"))
+        self.assertEqual(config.read_text(), "# mine\ntheme: dark\nmodelRoles:\n  smol: anthropic/haiku\n")
+        self.assertEqual(models.read_text(), "providers:\n  work:\n    baseUrl: https://x/v1\n")
+        self.assertTrue(backup.is_dir())
+
+    def test_omp_without_settings_files(self):
+        rt = inventory.Runtime("llamacpp", "llama.cpp", True, False, address="127.0.0.1:8080", models=["Gemma"])
+        connect.apply(connect.plan("omp", rt, "Gemma", use_now=True), self.home / "b")
+        self.assertEqual((self.home / ".omp/agent/config.yml").read_text(),
+                         'modelRoles:\n  default: "llama-local/Gemma"\n')
+        connect.apply(connect.plan("omp", rt, "Gemma", use_now=False, remove=True), self.home / "b")
+        self.assertEqual((self.home / ".omp/agent/config.yml").read_text(), "")
+        self.assertEqual((self.home / ".omp/agent/models.yml").read_text(), "")
+
     def test_opencode_new_file_and_undo_deletes_it(self):
         result = connect.plan("opencode", self.rt, "Qwen", use_now=True)
         backup = connect.apply(result, self.home / "b")
