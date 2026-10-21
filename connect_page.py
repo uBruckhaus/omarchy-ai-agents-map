@@ -9,6 +9,7 @@ import connect
 import inventory
 import link_check
 import link_hints
+import llm_engine
 import mcp_ctl
 import mcp_library
 import mcp_scan
@@ -215,7 +216,7 @@ class ConnectPage:
     def attach_apply(self, agents: list, runtime, model: str):
         """The ticked agents get the model (one Undo for all); then the model is loaded (the local
         LLM started first if needed), on a thread; one message says both."""
-        context = inventory.llama_context() if runtime.key == "llamacpp" else {}
+        context = llm_engine.of(runtime).agent_context(runtime)
         backups = []
         try:
             for agent in agents:
@@ -334,7 +335,7 @@ class ConnectPage:
         threading.Thread(target=work, daemon=True).start()
 
     def remodel_apply(self, agents: list, runtime, model: str | None, names: str, old: str, free: bool = False):
-        context = inventory.llama_context() if runtime.key == "llamacpp" else {}
+        context = llm_engine.of(runtime).agent_context(runtime)
         backups = []
         try:
             for agent in agents:
@@ -449,7 +450,7 @@ class ConnectPage:
             self.show_note(self.not_connectable_text(agent, runtime, model))
             return
         try:
-            context = inventory.llama_context() if runtime.key == "llamacpp" else {}
+            context = llm_engine.of(runtime).agent_context(runtime)
             plan_now = connect.plan(agent.command, runtime, model, use_now=True, context=context)
             if not plan_now.changes:
                 self.show_note(_("{0} uses {1} already.").format(agent.name, model))
@@ -594,7 +595,7 @@ class ConnectPage:
             self.settings_ready = False
             models = connect.chat_models(runtime.models)
             self.connect_models = models
-            context = inventory.llama_context() if runtime.key == "llamacpp" else {}
+            context = llm_engine.of(runtime).agent_context(runtime)
             self.connect_context = context
             self.connect_model = self.dropdown(models or [_("(no models found)")], 0,
                                                lambda _i: (self.update_connect_preview(), self.connect_run_check()))

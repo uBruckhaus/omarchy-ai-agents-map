@@ -20,7 +20,10 @@ from providers import Provider  # noqa: E402
 
 # Core modules that work through engines only: no provider key may appear in them as a string.
 # Later steps of moving provider knowledge into the providers add their modules here.
-ENGINE_ONLY = ("llm_engine.py", "runtime_ctl.py", "gpu_usage.py", "link_check.py")
+ENGINE_ONLY = ("llm_engine.py", "runtime_ctl.py", "gpu_usage.py", "link_check.py", "model_slots.py",
+               "configure_ctl.py", "traffic.py", "connect.py", "connect_page.py", "model_folders.py",
+               "model_move.py", "disk_usage.py", "health.py", "agent_status.py", "setup_page.py",
+               "settings_pages.py", "models_page.py", "model_layout.py")
 
 
 def string_constants(path: Path) -> set:
@@ -38,6 +41,47 @@ class NoProviderNamesInTheCore(unittest.TestCase):
         for name in ENGINE_ONLY:
             with self.subTest(name):
                 self.assertEqual(string_constants(ROOT / name) & keys, set())
+
+
+class FactsTest(unittest.TestCase):
+    """The engines' facts say what the core's name lists said before (no change in behaviour)."""
+
+    def keys(self, fact) -> set:
+        return {p.key for p in providers.built_in_local() if getattr(llm_engine.of(p.key), fact)}
+
+    def test_same_as_the_old_lists(self):
+        self.assertEqual(self.keys("gguf_folder"), {"llamacpp", "lmstudio", "koboldcpp"})     # GGUF_RUNTIMES, MOVABLE
+        self.assertEqual(self.keys("reorganize"), {"llamacpp", "lmstudio", "ollama", "koboldcpp"})
+        self.assertEqual({p.key for p in providers.built_in_local()} - self.keys("models_page"), {"vllm"})
+        self.assertEqual({p.key for p in providers.built_in_local()} - self.keys("own_model_folder"), {"jan"})
+        self.assertEqual(self.keys("stop_to_move"), {"ollama"})
+        self.assertEqual(self.keys("app_without_server"), {"lmstudio"})
+        self.assertEqual(llm_engine.of("lmstudio").gguf_layout, "publisher")
+        self.assertEqual(min(providers.built_in_local(), key=lambda p: llm_engine.of(p.key).models_root_rank).key,
+                         "lmstudio")
+
+    def test_models_page_same_as_before(self):
+        of = llm_engine.of
+        self.assertEqual({k for k in ("llamacpp", "lmstudio", "koboldcpp", "ollama", "jan", "vllm")
+                          if of(k).download}, {"llamacpp", "lmstudio", "koboldcpp", "ollama"})
+        self.assertEqual(of("ollama").download, "pull")
+        self.assertEqual(of("ollama").removable, "api")
+        self.assertEqual(self.keys("removable"), {"llamacpp", "lmstudio", "koboldcpp", "ollama"})
+        self.assertEqual(self.keys("context_settable"), {"llamacpp", "lmstudio", "koboldcpp", "ollama", "jan"})
+        self.assertEqual({k: of(k).context_effect for k in ("llamacpp", "jan", "lmstudio", "koboldcpp", "ollama")},
+                         {"llamacpp": "restart", "jan": "restart", "lmstudio": "next-load",
+                          "koboldcpp": "next-load", "ollama": ""})
+        self.assertTrue(of("ollama").models_page_note(None))
+        self.assertIsNone(of("vllm").context_now(None, None, "x"))
+
+    def test_a_new_provider_gets_careful_defaults(self):
+        engine = llm_engine.Engine()
+        self.assertEqual((engine.models_page, engine.own_model_folder, engine.gguf_folder, engine.reorganize,
+                          engine.stop_to_move), (True, True, False, False, False))
+        self.assertEqual((engine.download, engine.removable, engine.context_settable), ("", "", False))
+        self.assertIsNone(engine.context_changes(None, "x", 4096))
+        with self.assertRaises(ValueError):
+            engine.pull_name(None, "a/b", None, "")
 
 
 class NewProviderTest(unittest.TestCase):

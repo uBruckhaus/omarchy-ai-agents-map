@@ -20,9 +20,11 @@ import disk_usage
 import i18n
 import install_ctl
 import inventory
+import llm_engine
 import model_layout
 import previews
 import provider_watch
+import runtime_ctl
 import web_sources
 from i18n import _, N_, ngettext
 from ui_helpers import SpaceBar, size_text
@@ -562,12 +564,15 @@ class SettingsPages:
     # --- one models folder, and Reorganize (a preview first) ---------------------------------------
 
     def models_root(self) -> str:
-        """The setting, else where the local LLMs keep models now (LM Studio's folder first)."""
+        """The setting, else where the local LLMs keep models now (in their engines' models_root_rank:
+        LM Studio's folder first, then Ollama's)."""
+        import llm_engine
         value = ai_core.setting("models_root")
         if isinstance(value, str) and value.startswith(("/", "~")):
             return value
-        folders = {r.key: r.models_dir for r in self.inventory.runtimes if r.installed and r.models_dir}
-        return folders.get("lmstudio") or folders.get("ollama") or next(iter(folders.values()), "~/Models")
+        ranked = sorted((llm_engine.of(r).models_root_rank, i, r.models_dir)
+                        for i, r in enumerate(self.inventory.runtimes) if r.installed and r.models_dir)
+        return ranked[0][2] if ranked else "~/Models"
 
     def save_models_root(self, entry):
         text = entry.get_text().strip()
@@ -601,10 +606,22 @@ class SettingsPages:
                 self.save_models_root(entry)
         dialog.select_folder(self.window, None, done)
 
+    def folder_holders(self, steps) -> list:
+        """The running local LLMs whose model folder moves and that hold their files open while they
+        run (engine stop_to_move: Ollama): stopped for the move, started again after."""
+        moving = {st.provider for st in steps if st.kind == "folder"}
+        return [rt for rt in self.inventory.runtimes if rt.key in moving and rt.running
+                and llm_engine.of(rt).stop_to_move and runtime_ctl.can_control(rt)]
+
+    @staticmethod
+    def stop_holders(holders) -> list:
+        """Stop them (on the worker thread); the ones that stopped, to start again."""
+        return [rt for rt in holders if runtime_ctl.stop(rt)[0]]
+
     def layout_providers(self) -> list:
         found = []
         for rt in self.inventory.runtimes:
-            if not rt.installed or rt.key not in ("llamacpp", "lmstudio", "ollama", "koboldcpp"):
+            if not rt.installed or not llm_engine.of(rt).reorganize:
                 continue
             inst = install_ctl.installer(rt.key)
             ours = inst is not None and inst.installed_folder() is not None
@@ -740,8 +757,8 @@ class SettingsPages:
             return _("Pick a models folder of its own (not / or your home folder).")
         if problem == "space":
             return _("Not enough free space for the copies to another disk.")
-        if problem == "lmstudio-running":
-            return _("Quit LM Studio first: it writes its settings when it closes.")
+        if problem.startswith("running:"):
+            return _("Quit {0} first: it writes its settings when it closes.").format(problem[8:])
         if problem.startswith("conflict:"):
             return _("Already there, a different file: {0}").format(inventory.tilde(problem[9:]))
         return problem
@@ -794,25 +811,22 @@ class SettingsPages:
         self.reorg_bar.set_visible(True)
         self.reorg_bar.set_fraction(0)
         self.reorg_status.set_label(_("Reorganizing…"))
-        stop_ollama = any(st.kind == "folder" and st.provider == "ollama" for st in plan.steps)
+        holders = self.folder_holders(plan.steps)
 
         def progress(fraction, text):
             GLib.idle_add(lambda: (self.reorg_bar.set_fraction(max(0.0, min(1.0, fraction))),
                                    self.reorg_status.set_label(text or "")) and False)
 
         def work():
-            ran = False
+            stopped = self.stop_holders(holders)
             try:
-                if stop_ollama:
-                    ran = install_ctl._systemctl("is-active", "--quiet", "ollama.service")[0]
-                    install_ctl._systemctl("stop", "ollama.service")
                 done = model_layout.apply(plan, self.set_provider_folder, progress)
                 error = ""
             except (OSError, ValueError, RuntimeError, model_layout.Cancelled) as problem:
                 done, error = [], str(problem)
             finally:
-                if stop_ollama and ran:
-                    install_ctl._systemctl("start", "ollama.service")
+                for rt in stopped:
+                    runtime_ctl.start(rt)
             GLib.idle_add(finished, done, error)
 
         def finished(done, error):
@@ -841,18 +855,16 @@ class SettingsPages:
         self.reorg_undo.set_sensitive(False)
         self.reorg_apply.set_sensitive(False)
         self.reorg_status.set_label(_("Putting everything back…"))
-        stop_ollama = any(st.kind == "folder" and st.provider == "ollama" for st in model_layout.load_journal())
+        holders = self.folder_holders(model_layout.load_journal())
 
         def work():
-            ran = stop_ollama and install_ctl._systemctl("is-active", "--quiet", "ollama.service")[0]
-            if stop_ollama:
-                install_ctl._systemctl("stop", "ollama.service")
+            stopped = self.stop_holders(holders)
             try:
                 problems = model_layout.undo(self.set_provider_folder)
             except (OSError, RuntimeError) as error:
                 problems = [str(error)]
-            if ran:
-                install_ctl._systemctl("start", "ollama.service")
+            for rt in stopped:
+                runtime_ctl.start(rt)
             GLib.idle_add(finished, problems)
 
         def finished(problems):

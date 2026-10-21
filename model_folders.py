@@ -33,7 +33,12 @@ from pathlib import Path
 
 import model_move
 
-GGUF_RUNTIMES = ("llamacpp", "lmstudio", "koboldcpp")      # the local LLMs that read GGUF folders
+
+
+def reads_gguf(rt) -> bool:
+    """A local LLM that reads a folder of GGUF files (its engine's gguf_folder)."""
+    import llm_engine
+    return llm_engine.of(rt).gguf_folder
 MAX_DEPTH = 3                 # folders looked into below a model folder
 MAX_FILES = 20_000
 SPLIT = re.compile(r"-\d{5}-of-\d{5}$")
@@ -86,7 +91,7 @@ def discover(runtimes, added=()) -> list[Folder]:
         return folders.setdefault(path, Folder(path))
 
     for rt in runtimes:
-        if rt.key not in GGUF_RUNTIMES or not getattr(rt, "installed", True) or not rt.models_dir:
+        if not reads_gguf(rt) or not getattr(rt, "installed", True) or not rt.models_dir:
             continue
         root = real(rt.models_dir)
         if not root.is_dir():
@@ -159,7 +164,7 @@ def plan(folder: Folder, new, runtimes, repointable=lambda key: False, ini: Path
     change = Change(move)
     moved = {str(s): d for s, d in steps}
     for rt in runtimes:
-        if rt.key not in GGUF_RUNTIMES or not rt.models_dir:
+        if not reads_gguf(rt) or not rt.models_dir:
             continue
         root = real(rt.models_dir)
         relinked = False

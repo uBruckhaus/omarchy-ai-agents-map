@@ -47,6 +47,62 @@ class Engine(llm_engine.Engine):
     # the app writes for its own install; without it, Ollama's own default.
     slots_kind = "count"
     DEFAULT_SLOTS = 3
+    reorganize = True
+    stop_to_move = True                 # it holds its blobs open
+    gguf_layout = "blobs"               # its own store in OLLAMA_MODELS
+    store_parts = ("blobs", "manifests", "manifests-v2", "metadata")
+    models_root_rank = 1
+    download = "pull"
+    removable = "api"
+    context_settable = True
+
+    def models_page_note(self, rt):
+        from i18n import _
+        return _("Ollama is started for a download if it is not running.")
+
+    def context_now(self, rt, folder, name):
+        import context_ctl
+        import install_ctl
+        env = install_ctl.read_env(install_ctl.Ollama.env_file)
+        now = context_ctl.ollama_context(folder, name, int(env.get("OLLAMA_CONTEXT_LENGTH", "0") or 0))
+        return now, env.get("OLLAMA_KV_CACHE_TYPE", "f16"), context_ctl.ollama_model_file(folder, name)
+
+    def set_context(self, rt, name, ctx):
+        import context_ctl
+        context_ctl.ollama_set_context(name, ctx, rt.address)
+
+    def pull_name(self, rt, repo, entry, base):
+        import models_ctl
+        from i18n import _
+        if (base or models_ctl.HF) != models_ctl.HF:
+            raise ValueError(_("Ollama downloads Hugging Face models only from huggingface.co."))
+        return models_ctl.ollama_name_for(repo, entry)
+
+    def pull(self, rt, name, progress, cancelled):
+        import time
+        import models_ctl
+        import runtime_ctl
+        from i18n import _
+        port = int(rt.address.rsplit(":", 1)[-1])
+        if not models_ctl.loopback_listeners(port):
+            progress(0.0, _("Starting Ollama…"))
+            runtime_ctl.start(rt)
+            for _attempt in range(40):
+                if models_ctl.loopback_listeners(port):
+                    break
+                time.sleep(0.5)
+        models_ctl.ollama_pull(name, rt.address, progress, cancelled)
+
+    def add_file(self, rt, path):
+        import models_ctl
+        models_ctl.ollama_create(path, rt.address)
+
+    def remove(self, rt, name):
+        import models_ctl
+        models_ctl.ollama_delete(name, rt.address)
+
+    def gpu_build(self, vendor):
+        return {"amd": "ROCm", "nvidia": "CUDA"}.get(vendor, "")
 
     def slots(self, rt):
         import install_ctl

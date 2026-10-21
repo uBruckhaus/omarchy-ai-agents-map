@@ -473,14 +473,15 @@ class SetupPage:
         box.append(flow)
 
     def fill_model_sections(self, box):
-        runtimes = [r for r in self.inventory.runtimes if r.installed and r.key != "vllm"]
+        import llm_engine
+        runtimes = [r for r in self.inventory.runtimes if r.installed and llm_engine.of(r).models_page]
         if not runtimes:
             return
         import install_ctl
         import model_folders
         names = {r.key: r.name for r in runtimes}
         folders = model_folders.discover(runtimes, self.added_model_folders())
-        others = [r for r in runtimes if r.key not in model_folders.GGUF_RUNTIMES]
+        others = [r for r in runtimes if not model_folders.reads_gguf(r)]
         box = self.setup_section(box, "models", _("Models"),
                                  sum(len(f.models) for f in folders) + sum(len(r.models) for r in others))
         self.note(box, _("Your model files, one card per folder, with the local LLMs that read it."))
@@ -489,7 +490,7 @@ class SetupPage:
         add.set_tooltip_text(_("Choose or make a folder for models; it gets a card of its own here"))
         add.connect("clicked", lambda *_a: self.add_model_folder())
         box.append(add)
-        gguf = [r for r in runtimes if r.key in model_folders.GGUF_RUNTIMES]
+        gguf = [r for r in runtimes if model_folders.reads_gguf(r)]
         for folder in folders:
             readers = [names[k] for k in folder.readers if k in names]
             count = ngettext("1 model", "{0} models", len(folder.models)).format(len(folder.models))
@@ -526,11 +527,12 @@ class SetupPage:
             for model in sorted(rt.models, key=str.lower):
                 flow.append(self.item_card(f"model:runtime:{rt.key}:{model.lower()}", glyph("model"), model, "",
                                            None, small=True))
-            if rt.key != "jan":
+            own_folder = llm_engine.of(rt).own_model_folder
+            if own_folder:
                 flow.append(self.add_tile(_("Add model"), _("Download for {0}").format(rt.name), "model",
                                           lambda r=rt: self.open_models(r), small=True))
             inst = install_ctl.installer(rt.key)
-            if rt.key != "jan" and inst is not None and inst.installed_folder() is not None:
+            if own_folder and inst is not None and inst.installed_folder() is not None:
                 flow.append(self.add_tile(_("Model folder…"), _("Another or a new folder for {0}").format(rt.name),
                                           "folder", lambda r=rt: self.open_install(r, "models"), small=True))
             card.append(flow)

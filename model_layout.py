@@ -30,7 +30,6 @@ import ai_core
 
 HOME = Path.home()
 JOURNAL = HOME / ".local/state/ai-agents-map/reorganize.json"
-OLLAMA_STORE = ("blobs", "manifests", "manifests-v2", "metadata")   # what Ollama keeps in OLLAMA_MODELS
 FLAT = "llama.cpp"
 LOCAL = "local"
 MAX_DEPTH = 5
@@ -43,12 +42,22 @@ CHUNK = 8 * 1024 * 1024
 
 @dataclass
 class Provider:
-    """A local LLM as the plan sees it."""
-    key: str                 # "llamacpp", "lmstudio", "ollama", "koboldcpp", …
+    """A local LLM as the plan sees it. layout and store come from its engine when not given:
+    "flat" GGUF files (llama.cpp, KoboldCpp), "publisher" folders (LM Studio), "blobs" (a store
+    of its own, moved whole: Ollama, its parts in `store`)."""
+    key: str
     name: str
     folder: Path | None      # its model folder now
     ours: bool               # installed by AI Agents Map: its folder setting can be changed
     running: bool = False
+    layout: str = ""
+    store: tuple = ()
+
+    def __post_init__(self):
+        if not self.layout:
+            import llm_engine
+            self.layout = llm_engine.layout(self.key)
+            self.store = self.store or tuple(llm_engine.of(self.key).store_parts)
 
 
 @dataclass
@@ -162,17 +171,15 @@ def plan(root: Path, providers: list, keep_old_paths: bool = True) -> Plan:
     if not root.is_absolute() or root == Path("/") or root == HOME or not _SAFE_ROOT.fullmatch(str(root)):
         result.problems.append("root")
         return result
-    by_key = {p.key: p for p in providers}
-    gguf_providers = [p for p in providers if p.key in ("llamacpp", "lmstudio", "koboldcpp") and p.folder]
-    ollama = by_key.get("ollama")
+    gguf_providers = [p for p in providers if p.layout in ("flat", "publisher") and p.folder]
+    stores = [p for p in providers if p.layout == "blobs"]
     flat = root / FLAT
-    ollama_dir = root / "ollama"
 
-    # Folders left out of the walk: Ollama's store, our flat link folder.
-    skip = {flat, ollama_dir}
-    for p in providers:
-        if p.key == "ollama" and p.folder:
-            skip |= {Path(os.path.realpath(p.folder)) / name for name in OLLAMA_STORE}
+    # Folders left out of the walk: the stores (Ollama's), our flat link folder.
+    skip = {flat, *(root / p.key for p in stores)}
+    for p in stores:
+        if p.folder:
+            skip |= {Path(os.path.realpath(p.folder)) / name for name in p.store}
     bases = [Path(os.path.realpath(p.folder)) for p in gguf_providers] + [root]
     files, links = [], []
     for base in dict.fromkeys(bases):
@@ -221,33 +228,36 @@ def plan(root: Path, providers: list, keep_old_paths: bool = True) -> Plan:
         if keep_old_paths or any(old.parent == f for f in fixed):
             result.steps.append(Step("link", str(old), str(new)))
 
-    # Ollama: its whole store into <root>/ollama, when we can point it there.
-    if ollama and ollama.folder:
-        current = Path(os.path.realpath(ollama.folder))
-        if current != ollama_dir:
-            if ollama.ours:
-                for name in OLLAMA_STORE:
-                    item = current / name
-                    if item.is_dir() and not item.is_symlink():
-                        size = _tree_size(item)
-                        copy = device(item) != device(root)
-                        result.steps.append(Step("move", str(item), str(ollama_dir / name), size, copy=copy))
-                        if copy:
-                            result.copy_bytes += size
-                result.steps.append(Step("folder", provider="ollama", target=str(ollama_dir), old=str(ollama.folder)))
-            else:
-                result.steps.append(Step("note", provider="ollama", source=str(ollama.folder)))
+    # A store of its own (Ollama): whole into <root>/<key>, when we can point it there.
+    for store in stores:
+        if not store.folder:
+            continue
+        current, store_dir = Path(os.path.realpath(store.folder)), root / store.key
+        if current == store_dir:
+            continue
+        if store.ours:
+            for name in store.store:
+                item = current / name
+                if item.is_dir() and not item.is_symlink():
+                    size = _tree_size(item)
+                    copy = device(item) != device(root)
+                    result.steps.append(Step("move", str(item), str(store_dir / name), size, copy=copy))
+                    if copy:
+                        result.copy_bytes += size
+            result.steps.append(Step("folder", provider=store.key, target=str(store_dir), old=str(store.folder)))
+        else:
+            result.steps.append(Step("note", provider=store.key, source=str(store.folder)))
 
     # The GGUF local LLMs.
     final = sorted({*(moved.values()), *(f for f in files if f not in moved)})
     models = [f for f in final if "mmproj" not in f.name.lower() and f.is_relative_to(root)]
     for p in gguf_providers:
         current = Path(os.path.realpath(p.folder))
-        if p.key == "lmstudio":
+        if p.layout == "publisher":
             if current != root:
-                result.steps.append(Step("folder", provider="lmstudio", target=str(root), old=str(p.folder)))
+                result.steps.append(Step("folder", provider=p.key, target=str(root), old=str(p.folder)))
                 if p.running:
-                    result.problems.append("lmstudio-running")
+                    result.problems.append(f"running:{p.name}")      # it writes its settings when it closes
         elif p.ours and current != flat:
             result.steps.append(Step("folder", provider=p.key, target=str(flat), old=str(p.folder)))
         elif not p.ours:

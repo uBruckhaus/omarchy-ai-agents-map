@@ -23,6 +23,27 @@ class Engine(llm_engine.LlamaRouter):
         import jan_ctl
         return jan_ctl.settings(name)[0]
 
+    own_model_folder = False            # its models live in Jan's data folder; Jan moves it itself
+    context_settable = True
+    context_effect = "restart"
+
+    def models_page_note(self, rt):
+        from i18n import _
+        return _("Jan adds models in its own app (Hub); here you set their context.")
+
+    def context_now(self, rt, folder, name):
+        import jan_ctl
+        return jan_ctl.settings(name)
+
+    def context_changes(self, rt, name, ctx):
+        # Jan's preset (the engine) and the model's model.yml (the app), one backup.
+        import jan_ctl
+        return jan_ctl.context_changes(name, ctx)
+
+    def data_folders(self, rt):
+        import inventory
+        return [str(inventory.jan_data_folder())]
+
     def add_model_step(self, rt):
         from i18n import _
         return _("add one in the Jan app (Hub), or right-click Jan on the map → Models….")

@@ -54,6 +54,7 @@ import mcp_registry
 import mcp_scan
 import mcp_tools
 import link_check
+import llm_engine
 import link_hints
 import llm_clients
 import jan_ctl
@@ -1269,7 +1270,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         closes) runs while the setting is on and some agent is connected to a local LLM.
         It is a user service, so it works with this window closed and after a reboot."""
         wanted = bool(ai_core.setting("providers_with_agents")) and \
-            any(rt.installed and rt.agents and (rt.service or rt.key == "lmstudio") for rt in self.inventory.runtimes)
+            any(rt.agents and runtime_ctl.can_control(rt) for rt in self.inventory.runtimes)
         threading.Thread(target=provider_watch.ensure_service, args=(wanted,), daemon=True).start()
 
     def refresh_overview(self):
@@ -1885,10 +1886,9 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         def work():
             mcp_scan.cleanup_old_cache()
             connect.prune_retired()
-            kobold = install_ctl.installer("koboldcpp")
-            if kobold is not None and kobold.installed_folder() is not None and kobold.models_folder():
+            for rt in (r for r in runtimes if r.installed):
                 try:
-                    kobold.sync(Path(kobold.models_folder()))      # models added since: router ids
+                    llm_engine.of(rt).refresh(rt)      # its own state (KoboldCpp: models added since)
                 except (OSError, ValueError):
                     pass
             try:
@@ -2716,12 +2716,12 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                 str(folders[0]), folders)
             if not inst.uses_models:
                 pass                       # an agent: no model folder
-            elif rt.key == "jan":
-                # Jan's data folder holds its models, chats and settings; Jan moves it later itself.
-                models = [inventory.jan_data_folder()]
+            elif not llm_engine.of(rt).own_model_folder:
+                # Its app's data folder holds its models, chats and settings; the app moves it later itself.
+                models = [Path(os.path.expanduser(d)) for d in llm_engine.of(rt).data_folders(rt)[:1]] or [folders[0]]
                 self.install_models = self.folder_field(
-                    form, _("Data folder"), _("Jan's models, chats and settings. Change it later in Jan "
-                                              "(Settings › General)."), str(models[0]), models)
+                    form, _("Data folder"), _("{0}'s models, chats and settings. Change it later in {0}.")
+                    .format(rt.name), str(models[0]), models)
             else:
                 models = install_ctl.models_suggestions(runtimes, folders[0], rt.key)
                 self.install_models = self.folder_field(
@@ -2817,9 +2817,8 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                 # The chosen build names the interface (Vulkan, ROCm, CUDA, CPU).
                 label = dict(info["inst"].builds).get(info.get("build"), "")
                 card = f"{short_gpu(gpu.name, gpu.vram)} ({label})" if label else short_gpu(gpu.name, gpu.vram)
-            elif info["rt"].key == "ollama":
-                card = {"amd": _("{0} (ROCm)"), "nvidia": _("{0} (CUDA)")}.get(gpu.vendor, "{0}").format(
-                    short_gpu(gpu.name, gpu.vram))
+            elif llm_engine.of(info["rt"]).gpu_build(gpu.vendor):
+                card = f"{short_gpu(gpu.name, gpu.vram)} ({llm_engine.of(info['rt']).gpu_build(gpu.vendor)})"
             else:
                 card = short_gpu(gpu.name, gpu.vram)
             current = info["inst"].current_version()
@@ -3008,8 +3007,9 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             actions.append((_("Install…"), "install"))
         elif ours:
             actions += ([(_("Update…"), "update")] if inst.can_install else []) \
-                + ([] if rt.key == "jan" else [(_("Model folder…"), "models")]) + [(_("Uninstall…"), "uninstall")]
-        if rt.installed and rt.key in ("ollama", "llamacpp", "lmstudio", "jan", "koboldcpp"):
+                + ([(_("Model folder…"), "models")] if llm_engine.of(rt).own_model_folder else []) \
+                + [(_("Uninstall…"), "uninstall")]
+        if rt.installed and llm_engine.of(rt).models_page:
             actions.insert(0, (_("Models…"), "download"))
         if inst is not None and not inst.can_install and (ours or not rt.installed):
             items.append(self.menu_note(_("{0} publishes no checksum for its download, so AI Agents Map does not "
@@ -3091,7 +3091,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         if rt is None:
             return
         users = self.runtime_users(rt.key)
-        lms = rt.key == "lmstudio"
+        lms = llm_engine.of(rt).app_without_server
         body = _("{0}: {1}").format(_("Free GPU memory"),
                                     _("Unloads its models; it keeps running and loads one again when asked."))
         if runtime_ctl.can_control(rt):

@@ -18,6 +18,7 @@ def _installer():
 class Engine(llm_engine.Engine):
     """One model per server, no unloading: freeing GPU memory stops it (the default)."""
     start_command = "vllm serve <model>"
+    models_page = False                 # its one model is VLLM_MODEL in its env file
 
     def owns_process(self, comm, argv):
         if comm.startswith("VLLM") or (len(argv) > 1 and any(llm_engine.basename(a) == "vllm" for a in argv[:2])
@@ -35,4 +36,5 @@ class Engine(llm_engine.Engine):
 PROVIDER = Provider("vllm", "vLLM", "local", detect=_detect, installer=_installer, engine=Engine(),
                     connect_key="vllm-local", connect_label="vLLM (local)",
                     install=(Way("installer"),),
+                    data=("~/.cache/vllm",),
                     homepage="https://docs.vllm.ai")

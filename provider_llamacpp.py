@@ -26,9 +26,32 @@ class Engine(llm_engine.LlamaRouter):
         return llm_engine.BY_NAME if comm.startswith("llama-") or llm_engine.basename(argv[0] if argv else "") \
             in self.programs else 0
 
+    gguf_folder = True
+    reorganize = True
+    download = "file"
+    removable = "file"
+    context_settable = True
+    context_effect = "restart"
+
+    def context_now(self, rt, folder, name):
+        import context_ctl
+        now, cache = context_ctl.llama_settings(name)
+        return now, cache, context_ctl.llama_model_file(folder, name)
+
+    def context_changes(self, rt, name, ctx):
+        # Like a connection: written with a backup, and Undo puts it back.
+        import connect
+        import context_ctl
+        before = connect._read(context_ctl.MODELS_INI)
+        return [connect.Change(context_ctl.MODELS_INI, before, context_ctl.llama_context_text(before, name, ctx))]
+
     def model_context(self, rt, name):
         import context_ctl
         return context_ctl.llama_settings(name)[0]
+
+    def agent_context(self, rt):
+        import inventory
+        return inventory.llama_context()
 
     # How many models the router keeps loaded: --models-max, else LLAMA_ARG_MODELS_MAX (the env
     # file the app writes), else llama.cpp's default. A number on the start command wins over the
@@ -144,4 +167,5 @@ class Engine(llm_engine.LlamaRouter):
 PROVIDER = Provider("llamacpp", "llama.cpp", "local", detect=_detect, installer=_installer, engine=Engine(),
                     connect_key="llama-local", connect_label="llama.cpp (local)",
                     install=(Way("installer"),),
+                    data=("~/.cache/llama.cpp",),
                     homepage="https://github.com/ggml-org/llama.cpp")

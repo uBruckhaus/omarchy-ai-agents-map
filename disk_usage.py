@@ -26,9 +26,6 @@ MAX_ENTRIES = 400_000
 DEADLINE = 60.0
 MAX_SCRIPT = 16 * 1024
 
-# Data a local LLM keeps besides its models (its models folder is measured on its own).
-RUNTIME_DATA = {"ollama": "~/.ollama", "lmstudio": "~/.lmstudio", "llamacpp": "~/.cache/llama.cpp",
-                "vllm": "~/.cache/vllm", "koboldcpp": "~/.koboldcpp"}
 # More data folders than agent_details.CONFIG_DIRS names.
 AGENT_DATA = {"opencode": ["~/.local/share/opencode"], "crush": ["~/.local/share/crush"],
               "cursor-agent": ["~/.config/cursor"], "claude": ["~/.claude.json"], "pi": ["~/.pi"]}
@@ -162,12 +159,11 @@ def runtime_items(runtimes) -> list:
             program = locate(inst.command)
         if program is not None:
             item.places.append(Place("program", program))
-        data = RUNTIME_DATA.get(rt.key)
-        if rt.key == "jan":
-            import inventory
-            data = str(inventory.jan_data_folder())
-        if data and _expand(data).exists():
-            item.places.append(Place("data", _expand(data)))
+        # Data a local LLM keeps besides its models (its models folder is measured on its own).
+        import llm_engine
+        for data in llm_engine.of(rt).data_folders(rt)[:4]:
+            if data and _expand(data).exists():
+                item.places.append(Place("data", _expand(data)))
         items.append(item)
         if rt.models_dir:
             folders.setdefault(rt.models_dir, []).append(rt.name)

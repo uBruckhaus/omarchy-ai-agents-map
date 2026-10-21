@@ -219,17 +219,12 @@ def plan(agent: str, runtime, model: str, use_now: bool, remove: bool = False, c
         raise ValueError(agent)
     result = Plan(agent, runtime.key, KEYS[runtime.key], connected=is_connected(agent, runtime.key))
     extra = []
-    if runtime.key == "lmstudio" and model and not remove:
-        # LM Studio loads a model with 8192 tokens unless told otherwise: too few for
-        # an agent. Its context is set with the connection (same preview, backup, Undo)
-        # and handed to the agent too, unless the user set one in LM Studio already.
-        import context_ctl
-        import gpu_usage
-        ctx, path, old_text, new_text = context_ctl.lmstudio_auto_context(model, gpu_usage.gpu_totals()[1])
-        if ctx:
-            context = {**(context or {}), model: ctx}
-        if path is not None and new_text != old_text:
-            extra.append(Change(path, old_text, new_text))
+    if model and not remove:
+        # What the local LLM brings along (LM Studio: the model's context in its own settings, in
+        # the same preview, backup and Undo, and handed to the agent too).
+        import llm_engine
+        more, extra = llm_engine.of(runtime).connect_extra(runtime, model)
+        context = {**(context or {}), **more}
     files = paths_for(agent)
     old = [_read(p) for p in files]
     texts = list(old)

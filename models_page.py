@@ -10,14 +10,12 @@ import context_ctl
 import datetime as dt
 import install_ctl
 import inventory
-import jan_ctl
-import kobold_ctl
+import llm_engine
 import model_move
 import model_names
 import models_ctl
 import os
 import re
-import runtime_ctl
 import struct
 import subprocess
 import threading
@@ -214,10 +212,9 @@ class ModelsPage:
         self.models_title.set_label(_("Models of {0}").format(rt.name).upper())
         self.models_folder_label.set_label(_("Model folder: {0}").format(inventory.tilde(into or rt.models_dir))
                                            if into or rt.models_dir else "")
-        self.models_pull_row.set_visible(rt.key == "ollama")
-        self.models_status.set_label(
-            _("Ollama is started for a download if it is not running.") if rt.key == "ollama" else
-            _("Jan adds models in its own app (Hub); here you set their context.") if rt.key == "jan" else "")
+        engine = llm_engine.of(rt)
+        self.models_pull_row.set_visible(engine.download == "pull")
+        self.models_status.set_label(engine.models_page_note(rt))
         self.models_bar.set_fraction(0)
         for listbox in (self.models_repos, self.models_files):
             while (row := listbox.get_first_child()) is not None:
@@ -463,7 +460,8 @@ class ModelsPage:
         box.append(title)
         facts = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         box.append(facts)
-        if rt.key in ("llamacpp", "koboldcpp", "lmstudio"):
+        engine = llm_engine.of(rt)
+        if engine.removable == "file":
             try:
                 files = models_ctl.removal(rt.key, rt.models_dir, name)
                 where = Path(os.path.realpath(files.paths[0]))
@@ -492,8 +490,7 @@ class ModelsPage:
                      if fit_info.known else ""),
                     (_("Trained for"), context_ctl.short_context(fit_info.native) if fit_info.native else ""),
                 ])
-                if fit_info.known and best and best != now and rt.key in ("llamacpp", "ollama", "lmstudio",
-                                                                             "jan", "koboldcpp"):
+                if fit_info.known and best and best != now and engine.context_settable:
                     set_row = Gtk.Box(spacing=8)
                     hint = Gtk.Label(label=_("Each token of context takes {0} of video memory.")
                                      .format(size_text(fit_info.per_token)), xalign=0, hexpand=True, wrap=True,
@@ -509,11 +506,11 @@ class ModelsPage:
         self.removal_box(box, rt, name)
 
     def removal_box(self, box, rt, name: str):
-        """Remove: asks first, says what goes where (the trash; links only; Ollama's own store)."""
+        """Remove: asks first, says what goes where (the trash; links only; the local LLM's own store)."""
         self.detail_heading(box, _("Remove"))
         area = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         box.append(area)
-        if rt.key not in ("llamacpp", "koboldcpp", "lmstudio", "ollama"):
+        if not llm_engine.of(rt).removable:
             note = Gtk.Label(label=_("Remove it in {0} itself.").format(rt.name), xalign=0)
             note.add_css_class("am-agent-detail")
             area.append(note)
@@ -524,7 +521,8 @@ class ModelsPage:
         def ask(_button):
             self.clear_box(area)
             try:
-                plan = None if rt.key == "ollama" else models_ctl.removal(rt.key, rt.models_dir, name, others)
+                plan = None if llm_engine.of(rt).removable == "api" \
+                    else models_ctl.removal(rt.key, rt.models_dir, name, others)
             except (OSError, ValueError) as problem:
                 note = Gtk.Label(label=_("Cannot remove it here: {0}").format(problem), xalign=0, wrap=True,
                                  max_width_chars=1)
@@ -532,7 +530,7 @@ class ModelsPage:
                 area.append(note)
                 return
             if plan is None:
-                text = _("Ollama deletes {0} from its own store (Ollama has no trash).").format(name)
+                text = _("{0} deletes {1} from its own store (it has no trash).").format(rt.name, name)
             elif plan.links_only:
                 text = _("Only the link in the model folder goes to the trash; the file itself stays where it is.")
             else:
@@ -544,7 +542,7 @@ class ModelsPage:
             note.add_css_class("am-detail-value")
             area.append(note)
             buttons = Gtk.Box(spacing=8)
-            go = Gtk.Button(label=_("Delete in Ollama") if plan is None else _("Move to trash"))
+            go = Gtk.Button(label=_("Delete in {0}").format(rt.name) if plan is None else _("Move to trash"))
             go.add_css_class("am-small-btn")
             go.add_css_class("am-danger")
             go.connect("clicked", lambda *_: self.remove_model(rt, name, plan))
@@ -570,7 +568,7 @@ class ModelsPage:
         def work():
             try:
                 if plan is None:
-                    models_ctl.ollama_delete(name, rt.address)
+                    llm_engine.of(rt).remove(rt, name)
                 else:
                     models_ctl.trash(plan.paths)
                 error = None
@@ -600,25 +598,10 @@ class ModelsPage:
         folder = Path(os.path.expanduser(rt.models_dir)) if rt.models_dir else None
         if folder is None:
             return None, None, "no model folder"
-        if rt.key == "llamacpp":
-            now, cache = context_ctl.llama_settings(name)
-            model_file = context_ctl.llama_model_file(folder, name)
-        elif rt.key == "ollama":
-            env = install_ctl.read_env(install_ctl.Ollama.env_file)
-            cache = env.get("OLLAMA_KV_CACHE_TYPE", "f16")
-            default = int(env.get("OLLAMA_CONTEXT_LENGTH", "0") or 0)
-            now = context_ctl.ollama_context(folder, name, default)
-            model_file = context_ctl.ollama_model_file(folder, name)
-        elif rt.key == "lmstudio":
-            entry = context_ctl.lmstudio_entry(name)
-            now, cache = context_ctl.lmstudio_settings(entry)
-            model_file = context_ctl.lmstudio_model_file(entry)
-        elif rt.key == "jan":
-            now, cache, model_file = jan_ctl.settings(name)
-        elif rt.key == "koboldcpp":
-            (now, model_file), cache = kobold_ctl.settings(name), "f16"
-        else:
-            return None, None, _("set the context in vLLM itself")
+        found = llm_engine.of(rt).context_now(rt, folder, name)
+        if found is None:
+            return None, None, _("set the context in {0} itself").format(rt.name)
+        now, cache, model_file = found
         if model_file is None:
             return now, None, "model file not found"
         return now, context_ctl.fit(model_file, vram, cache), None
@@ -630,32 +613,13 @@ class ModelsPage:
         def work():
             try:
                 backup = None
-                if rt.key == "llamacpp":
+                engine = llm_engine.of(rt)
+                changes = engine.context_changes(rt, name, ctx)
+                if changes is None:
+                    engine.set_context(rt, name, ctx)
+                elif changes:
                     # Like a connection: written with a backup, and Undo puts it back.
-                    ini = context_ctl.MODELS_INI
-                    before = connect._read(ini)
-                    change = connect.Change(ini, before, context_ctl.llama_context_text(before, name, ctx))
-                    backup = connect.apply(connect.Plan("llama.cpp", "llamacpp", "", [change]))
-                elif rt.key == "lmstudio":
-                    # LM Studio's own per-model defaults file, the same way (backup, Undo).
-                    path = context_ctl.lmstudio_defaults_file(context_ctl.lmstudio_entry(name))
-                    if path is None:
-                        raise ValueError(_("LM Studio does not list this model"))
-                    before = connect._read(path)
-                    change = connect.Change(path, before, context_ctl.lmstudio_context_text(before, ctx))
-                    backup = connect.apply(connect.Plan("LM Studio", "lmstudio", "", [change]))
-                elif rt.key == "jan":
-                    # Jan's preset (the engine) and the model's model.yml (the app), one backup.
-                    backup = connect.apply(connect.Plan("Jan", "jan", "", jan_ctl.context_changes(name, ctx)))
-                elif rt.key == "koboldcpp":
-                    path = kobold_ctl.config_path(name)
-                    if path is None:
-                        raise ValueError(_("KoboldCpp does not list this model"))
-                    before = connect._read(path)
-                    change = connect.Change(path, before, kobold_ctl.context_text(before, ctx))
-                    backup = connect.apply(connect.Plan("KoboldCpp", "koboldcpp", "", [change]))
-                else:
-                    context_ctl.ollama_set_context(name, ctx, rt.address)
+                    backup = connect.apply(connect.Plan(rt.name, rt.key, "", changes))
                 error = None
             except (OSError, ValueError, RuntimeError) as problem:
                 error, backup = str(problem), None
@@ -669,10 +633,11 @@ class ModelsPage:
             if error:
                 self.models_status.set_label(_("Not changed: {0}").format(error))
                 return False
+            effect = llm_engine.of(rt).context_effect
             note = _(" Restart {0} for it to take effect.").format(rt.name) \
-                if rt.key in ("llamacpp", "jan") and rt.running else \
+                if effect == "restart" and rt.running else \
                 _(" It takes effect the next time {0} loads the model.").format(rt.name) \
-                if rt.key in ("lmstudio", "koboldcpp") else ""
+                if effect == "next-load" else ""
             self.models_status.set_label(_("{0}: context set to {1}").format(name, ctx) + "." + note)
             self.fill_model_list(state["rt"])
             return False
@@ -858,7 +823,7 @@ class ModelsPage:
         state = self.models_state
         job = self.model_job(state)
         busy = bool(state and (state["busy"] or job is not None))
-        rt_ok = state is not None and state["rt"].key in ("ollama", "llamacpp", "lmstudio", "koboldcpp")
+        rt_ok = state is not None and llm_engine.of(state["rt"]).download in ("file", "pull")
         file_row = self.models_files.get_selected_row()
         if file_row is not None and getattr(file_row, "entry", None) is not None:
             entry = file_row.entry
@@ -883,6 +848,8 @@ class ModelsPage:
         if state is None or state["busy"] or self.model_job(state) is not None:
             return
         rt = state["rt"]
+        engine = llm_engine.of(rt)
+        pulls = engine.download == "pull"
         entry = None
         if pull:
             name = self.models_pull_entry.get_text().strip()
@@ -893,14 +860,17 @@ class ModelsPage:
             if row is None:
                 return
             entry = row.entry
-            name = models_ctl.ollama_name_for(state["repo"], entry) if rt.key == "ollama" else ""
-            if rt.key == "ollama" and (state.get("base") or models_ctl.HF) != models_ctl.HF:
-                self.models_status.set_label(_("Ollama downloads Hugging Face models only from huggingface.co."))
-                return
-        if rt.key != "ollama" and not rt.models_dir:
+            name = ""
+            if pulls:
+                try:
+                    name = engine.pull_name(rt, state["repo"], entry, state.get("base") or models_ctl.HF)
+                except ValueError as problem:
+                    self.models_status.set_label(str(problem))
+                    return
+        if not pulls and not rt.models_dir:
             self.models_status.set_label(_("{0} has no model folder yet.").format(rt.name))
             return
-        spec = {"kind": "pull" if rt.key == "ollama" else "model", "runtime": rt.key, "name": name,
+        spec = {"kind": "pull" if pulls else "model", "runtime": rt.key, "name": name,
                 "repo": state["repo"] or "", "base": state.get("base") or models_ctl.HF,
                 "into": state.get("into") or "",
                 "entry": {"name": entry.name, "paths": list(entry.paths), "size": entry.size} if entry else None}
@@ -934,9 +904,11 @@ class ModelsPage:
                 self.render_jobs()
             return None
         label = entry.name if entry is not None else spec["name"]
+        engine = llm_engine.of(rt)
         models_dir = Path(os.path.expanduser(rt.models_dir)) if rt.models_dir else None
         try:                                   # a folder chosen on Setup (its card's Add model)
-            into = install_ctl.check_folder(spec["into"]) if spec.get("into") and rt.key != "ollama" else None
+            into = install_ctl.check_folder(spec["into"]) if spec.get("into") and engine.download == "file" \
+                else None
         except ValueError as error:
             self.show_note(_("Not downloaded: {0}").format(error))
             return None
@@ -947,23 +919,14 @@ class ModelsPage:
                     text = _("{0} of {1}").format(size_text(int(fraction * entry.size)), size_text(entry.size))
                 progress(fraction, text)
 
-            if rt.key == "ollama":
-                if not models_ctl.loopback_listeners(int(rt.address.rsplit(":", 1)[-1])):
-                    show(0.0, _("Starting Ollama…"))
-                    runtime_ctl.start(rt)
-                    for _attempt in range(40):
-                        if models_ctl.loopback_listeners(int(rt.address.rsplit(":", 1)[-1])):
-                            break
-                        time.sleep(0.5)
-                models_ctl.ollama_pull(spec["name"], rt.address, show, cancelled)
+            if spec["kind"] == "pull":
+                engine.pull(rt, spec["name"], show, cancelled)
             else:
                 if models_dir is None:
                     raise RuntimeError(_("{0} has no model folder yet.").format(rt.name))
                 models_ctl.download_gguf(rt.key, models_dir, spec["repo"], entry, show, cancelled,
                                          base=spec["base"], into=into)
-                if rt.key == "koboldcpp":
-                    # The new model becomes a .kcpps: an id the router answers to.
-                    install_ctl.installer("koboldcpp").sync(models_dir)
+                engine.refresh(rt)            # e.g. the new model gets an id the local LLM answers to
 
         return self.jobs.start(spec["kind"], f"{label} · {rt.name}", work, spec, f"runtime:{rt.key}",
                                on_end=lambda job: GLib.idle_add(self.model_job_ended, job, rt.key, label),
@@ -1064,7 +1027,8 @@ class ModelsPage:
         if state is None or row is None:
             return
         rt, item = state["rt"], row.local
-        if rt.key != "ollama" and not rt.models_dir:
+        engine = llm_engine.of(rt)
+        if engine.download == "file" and not rt.models_dir:
             self.models_status.set_label(_("{0} has no model folder yet.").format(rt.name))
             return
         state["busy"] = True
@@ -1073,12 +1037,7 @@ class ModelsPage:
 
         def work():
             try:
-                if rt.key == "ollama":
-                    models_ctl.ollama_create(item.path, rt.address)
-                else:
-                    models_ctl.add_local(rt.key, Path(os.path.expanduser(rt.models_dir)), item.path)
-                    if rt.key == "koboldcpp":
-                        install_ctl.installer("koboldcpp").sync(Path(os.path.expanduser(rt.models_dir)))
+                engine.add_file(rt, item.path)
                 error = None
             except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as problem:
                 error = str(problem)
@@ -1135,11 +1094,11 @@ class ModelsPage:
     def folder_owners(self, folder: str) -> list:
         """The installed local LLMs (that read GGUF files) whose model folder this is."""
         return [r for r in self.inventory.runtimes
-                if r.installed and r.models_dir == folder and r.key in model_move.MOVABLE]
+                if r.installed and r.models_dir == folder and model_move.movable(r.key)]
 
     def move_target_ok(self, node_id: str, folder: str) -> bool:
         rt, _name = self.model_runtime(node_id)
-        return rt is not None and rt.key in model_move.MOVABLE and bool(rt.models_dir) \
+        return rt is not None and model_move.movable(rt.key) and bool(rt.models_dir) \
             and folder != rt.models_dir and bool(self.folder_owners(folder))
 
     def model_menu(self, view, rect, node_id: str, popover) -> tuple[list, list]:
@@ -1154,7 +1113,7 @@ class ModelsPage:
                                _("Into the model folder of another local LLM; or drag the box onto that folder"))] \
             if folders else []
         delete = [self.menu_item(_("Delete…"), popover, lambda: self.confirm_delete(view, rect, rt, name))] \
-            if rt.key in ("llamacpp", "koboldcpp", "lmstudio", "ollama") else []
+            if llm_engine.of(rt).removable else []
         return move, delete
 
     def pick_move_folder(self, view, rect, node_id: str, folders):
@@ -1239,18 +1198,19 @@ class ModelsPage:
         threading.Thread(target=work, daemon=True).start()
 
     def confirm_delete(self, view, rect, rt, name: str):
-        """What Delete does (the trash; links only; Ollama's own store), then do it or Keep."""
+        """What Delete does (the trash; links only; the local LLM's own store), then do it or Keep."""
         popover = self.context_popover(view, rect)
         others = {r.name: (r.key, r.models_dir) for r in self.inventory.runtimes
                   if r.installed and r.models_dir and r.key != rt.key}
         try:
-            plan = None if rt.key == "ollama" else models_ctl.removal(rt.key, rt.models_dir, name, others)
+            plan = None if llm_engine.of(rt).removable == "api" \
+                    else models_ctl.removal(rt.key, rt.models_dir, name, others)
         except (OSError, ValueError) as problem:
             self.show_menu(popover, _("Delete {0}?").format(name),
                            [[self.menu_note(_("Cannot remove it here: {0}").format(problem))]])
             return
         if plan is None:
-            text = _("Ollama deletes {0} from its own store (Ollama has no trash).").format(name)
+            text = _("{0} deletes {1} from its own store (it has no trash).").format(rt.name, name)
         elif plan.links_only:
             text = _("Only the link in the model folder goes to the trash; the file itself stays where it is.")
         else:
@@ -1260,7 +1220,7 @@ class ModelsPage:
             text += " " + _("{0} reads the same file and loses it too.").format(", ".join(plan.shared))
         self.show_menu(popover, _("Delete {0}?").format(name), [
             [self.menu_note(text)],
-            [self.menu_item(_("Delete in Ollama") if plan is None else _("Move to trash"), popover,
+            [self.menu_item(_("Delete in {0}").format(rt.name) if plan is None else _("Move to trash"), popover,
                             lambda: self.delete_model(rt, name, plan)),
              self.menu_item(_("Keep"), popover, lambda: None)]])
 
@@ -1270,7 +1230,7 @@ class ModelsPage:
         def work():
             try:
                 if plan is None:
-                    models_ctl.ollama_delete(name, rt.address)
+                    llm_engine.of(rt).remove(rt, name)
                 else:
                     models_ctl.trash(plan.paths)
                 error = None

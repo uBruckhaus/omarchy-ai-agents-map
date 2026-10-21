@@ -151,6 +151,14 @@ def card_name(pc: PC) -> str:
     return (pc.gpu or pc.vendor.upper())[:60]
 
 
+def first_local_llm() -> str:
+    """The local LLM suggested first: the first one the app installs itself (its built-in order)."""
+    import install_ctl
+    import providers
+    return next((p.key for p in providers.local() if install_ctl.installer(p.key) is not None),
+                next((p.key for p in providers.local()), ""))
+
+
 # --- the checks ----------------------------------------------------------------------------------
 
 def check(agent_list, details: dict, inventory, built, pc: PC, agent_checks: dict, runtime_checks: dict,
@@ -232,7 +240,7 @@ def check(agent_list, details: dict, inventory, built, pc: PC, agent_checks: dic
         area.findings.append(Finding("hint", _("No local LLM installed"),
                                      _("Optional: a local LLM (llama.cpp or Ollama) runs models on this PC, private "
                                        "and without costs. Right-click llama.cpp on the map → Install."),
-                                     ("install", "llamacpp")))
+                                     ("install", first_local_llm())))
     for rt in runtimes:
         checks = runtime_checks.get(rt.key, [])
         bad = [c for c in checks if c.state in ("missing", "warn")]
@@ -321,7 +329,7 @@ def check(agent_list, details: dict, inventory, built, pc: PC, agent_checks: dic
     elif not runtimes:
         use.steps.append(Finding("hint", _("Quick answers offline"),
                                  _("A small local model (2–4 GB) answers simple questions without internet or costs."),
-                                 ("install", "llamacpp")))
+                                 ("install", first_local_llm())))
     uses.append(use)
 
     use = UseCase("coding", _("Vibe coding"), "\U000f0169",

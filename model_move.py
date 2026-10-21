@@ -19,10 +19,16 @@ import stat
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import llm_engine
 import model_layout
 import models_ctl
 
-MOVABLE = ("llamacpp", "koboldcpp", "lmstudio")
+
+
+def movable(key: str) -> bool:
+    """Its models can be moved between model folders: a local LLM that reads GGUF folders."""
+    import llm_engine
+    return llm_engine.of(key).gguf_folder
 
 
 @dataclass
@@ -50,7 +56,7 @@ def _own_dir(path: Path) -> bool:
 def plan(src_key: str, src_dir, name: str, dst_key: str, dst_dir) -> Move:
     """What moving model `name` from one local LLM's folder to another's does; ValueError
     (with the reason) when it cannot be done."""
-    if src_key not in MOVABLE or dst_key not in MOVABLE:
+    if not movable(src_key) or not movable(dst_key):
         raise ValueError("only llama.cpp, KoboldCpp and LM Studio models move between folders")
     if not src_dir or not dst_dir:
         raise ValueError("no model folder")
@@ -65,7 +71,8 @@ def plan(src_key: str, src_dir, name: str, dst_key: str, dst_dir) -> Move:
     move = Move(name, root=target, back=source)
     for path in removal.paths:
         real = Path(os.path.abspath(path))
-        dest = model_layout.canonical(real, source, target) if dst_key == "lmstudio" else target / real.name
+        dest = model_layout.canonical(real, source, target) \
+            if llm_engine.of(dst_key).gguf_layout == "publisher" else target / real.name
         if not dest.is_relative_to(target) or ".." in dest.relative_to(target).parts:
             raise ValueError("the target lies outside the model folder")
         if dest.exists() or dest.is_symlink():

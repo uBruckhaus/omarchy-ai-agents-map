@@ -162,6 +162,85 @@ class Engine:
         """The model file's size in bytes (0: not known), for the GPU memory warning."""
         return 0
 
+    # --- its models on disk, and what the app's pages offer for it --------------------------------
+    models_page = True          # Models… (search, download, context); False: its model is set elsewhere (vLLM)
+    own_model_folder = True     # a model folder the app chooses and changes; False: its app's data folder (Jan)
+    gguf_folder = False         # reads a folder of GGUF files: model folders, moving models between them
+    gguf_layout = "flat"        # how it keeps them: "flat" files, "publisher" (publisher/repo/file), or
+                                # "blobs" (a store of its own: its parts in store_parts)
+    store_parts: tuple = ()     # "blobs": the folders of its store, moved together
+    reorganize = False          # the Reorganize page may move its model folder
+    stop_to_move = False        # must be stopped while its model folder moves (it holds the files open)
+    models_root_rank = 9        # where the app looks first for one folder of all models (lower: earlier)
+
+    def data_folders(self, rt) -> list:
+        """Its own folders of models and settings ("~/…"), for disk usage: its provider's data."""
+        import providers
+        provider = providers.get(rt.key)
+        built_in = next((p for p in providers.built_in_local() if p.key == rt.key), None)
+        return list(getattr(provider, "data", ()) or getattr(built_in, "data", ()))
+
+    def agent_context(self, rt) -> dict:
+        """model -> the context it loads it with, for the agents' settings (llama.cpp's models.ini)."""
+        return {}
+
+    def connect_extra(self, rt, model: str) -> tuple:
+        """(context, changes) a connection to `model` brings along (LM Studio: the model's context,
+        set in its own settings, in the same preview, backup and Undo)."""
+        return {}, []
+
+    def gpu_build(self, vendor: str) -> str:
+        """The graphics interface its build uses on this card ("ROCm", "CUDA"), for the install page."""
+        return ""
+
+    def refresh(self, rt):
+        """When the app opens, and after a model was added: bring its own state up to date
+        (KoboldCpp: one entry per model file)."""
+
+    # --- the Models page: adding, removing and tuning its models ----------------------------------
+    download = ""               # "file": GGUF files into its folder; "pull": its own download; "": not here
+    removable = ""              # "file": its files to the trash; "api": its own delete; "": in its own app
+    context_settable = False    # the page sets a model's context for it
+    context_effect = ""         # when a new context counts: "restart", "next-load", "" (at once)
+
+    def models_page_note(self, rt) -> str:
+        """A line above its model lists (where its models come from, what happens on a download)."""
+        return ""
+
+    def context_now(self, rt, folder, name: str):
+        """(context now, KV cache type, model file) of an installed model; None: not known here."""
+        return None
+
+    def context_changes(self, rt, name: str, ctx: int):
+        """The settings changes (connect.Change) that give `name` the context ctx (backup, Undo);
+        None when it is set another way (set_context). Raises ValueError when it cannot."""
+        return None
+
+    def set_context(self, rt, name: str, ctx: int):
+        raise ValueError("the context is set in the local LLM itself")
+
+    def pull_name(self, rt, repo: str, entry, base: str) -> str:
+        """download "pull": the name it downloads a Hugging Face file under; ValueError: it cannot."""
+        raise ValueError("no download of its own")
+
+    def pull(self, rt, name: str, progress, cancelled):
+        """download "pull": its own download of `name` (started first when it does not run)."""
+        raise ValueError("no download of its own")
+
+    def add_file(self, rt, path):
+        """A GGUF file on this PC becomes one of its models: into its folder (links where it can)."""
+        import os
+        from pathlib import Path
+        import models_ctl
+        if not rt.models_dir:
+            raise ValueError(f"{rt.name} has no model folder yet")
+        models_ctl.add_local(rt.key, Path(os.path.expanduser(rt.models_dir)), path)
+        self.refresh(rt)
+
+    def remove(self, rt, name: str):
+        """removable "api": its own delete of `name`."""
+        raise ValueError("not removed here")
+
     # --- what the user is told -----------------------------------------------------------------
 
     def add_model_step(self, rt) -> str:
@@ -222,6 +301,15 @@ def of(rt_or_key) -> Engine:
     built_in = next((p for p in providers.built_in_local() if p.key == key), None)
     engine = getattr(built_in, "engine", None)
     return engine if isinstance(engine, Engine) else DEFAULT
+
+
+def layout(rt_or_key) -> str:
+    """How a local LLM keeps its model files: "flat" (GGUF files in its folder), "publisher"
+    (publisher/repo/file), "blobs" (a store of its own), or "" (not in a folder the app manages)."""
+    engine = of(rt_or_key)
+    if engine.gguf_folder:
+        return "publisher" if engine.gguf_layout == "publisher" else "flat"
+    return "blobs" if engine.gguf_layout == "blobs" else ""
 
 
 def runtime_of(comm: str, argv: list) -> str:

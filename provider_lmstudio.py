@@ -59,6 +59,44 @@ class Engine(llm_engine.Engine):
     """LM Studio has no user service: its own CLI (lms) starts and stops its server and loads models."""
     can_load = True
     app_without_server = True
+    gguf_folder = True
+    gguf_layout = "publisher"           # publisher/repo/file, as LM Studio downloads them
+    reorganize = True
+    models_root_rank = 0                # its folder first, when the app looks for one folder of all models
+    download = "file"
+    removable = "file"
+    context_settable = True
+    context_effect = "next-load"
+
+    def context_now(self, rt, folder, name):
+        import context_ctl
+        entry = context_ctl.lmstudio_entry(name)
+        now, cache = context_ctl.lmstudio_settings(entry)
+        return now, cache, context_ctl.lmstudio_model_file(entry)
+
+    def context_changes(self, rt, name, ctx):
+        # LM Studio's own per-model defaults file (backup, Undo).
+        import connect
+        import context_ctl
+        from i18n import _
+        path = context_ctl.lmstudio_defaults_file(context_ctl.lmstudio_entry(name))
+        if path is None:
+            raise ValueError(_("LM Studio does not list this model"))
+        before = connect._read(path)
+        return [connect.Change(path, before, context_ctl.lmstudio_context_text(before, ctx))]
+
+    def connect_extra(self, rt, model):
+        """LM Studio loads a model with 8192 tokens unless told otherwise: too few for an agent. Its
+        context is set with the connection (same preview, backup and Undo) and handed to the agent
+        too, unless the user set one in LM Studio already."""
+        import context_ctl
+        import gpu_usage
+        if not model:
+            return {}, []
+        ctx, path, old_text, new_text = context_ctl.lmstudio_auto_context(model, gpu_usage.gpu_totals()[1])
+        import connect
+        changes = [connect.Change(path, old_text, new_text)] if path is not None and new_text != old_text else []
+        return ({model: ctx} if ctx else {}), changes
 
     def owns_process(self, comm, argv):
         exe = argv[0] if argv else ""

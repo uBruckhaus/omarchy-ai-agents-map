@@ -19,6 +19,7 @@ from pathlib import Path
 
 import desktop
 import harnesses
+import runtime_ctl
 from i18n import _
 
 HOME = Path.home()
@@ -532,7 +533,7 @@ def agent_checks(agent, info, record: dict, inventory, hints: dict, logged_in: b
                                 _("The app is open, but the agent reaches it only through its server."),
                                 _("Start server in its menu on the map (lms server start).")))
         elif p.active and not rt.running:
-            checks.append(Check("ok", rt.name, _("starts with the agent") if rt.service or rt.key == "lmstudio"
+            checks.append(Check("ok", rt.name, _("starts with the agent") if runtime_ctl.can_control(rt)
                                 else _("installed, not running")))
         else:
             checks.append(Check("ok", rt.name, _("running") if rt.running else _("set up")))
@@ -568,7 +569,7 @@ def runtime_checks(rt, hints: dict, agent_names: dict, login: bool | None) -> li
     checks.append(Check("ok", _("Installed"), rt.address))
     if rt.running:
         checks.append(Check("ok", _("Running"), rt.address))
-    elif rt.service or rt.key == "lmstudio":
+    elif runtime_ctl.can_control(rt):
         checks.append(Check("info", _("Not running"), _("starts with an agent that uses it")
                             if rt.active_agents else _("nothing uses it now"),
                             "" if rt.active_agents else _("Right-click → Start to run it now.")))

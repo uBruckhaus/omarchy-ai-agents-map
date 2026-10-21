@@ -2487,5 +2487,10 @@
  "Agents use different models of one local LLM: it keeps them loaded at once, or swaps them (see the warnings)": "Des agents utilisent des modèles différents d’un même LLM local : il les garde chargés à la fois ou les alterne (voir les avertissements)",
  "From the Omarchy Plugin Marketplace, checked {0}.": "Depuis l’Omarchy Plugin Marketplace, vérifié le {0}.",
  "The marketplace could not be read yet: the plugins known to this version are shown.": "Le Marketplace n’a pas encore pu être lu : les plugins connus de cette version sont affichés.",
- "Hold the left mouse button on a symbol in the header and drag it sideways to move it.": "Maintiens le bouton gauche de la souris sur un symbole de l’en-tête et fais-le glisser sur le côté pour le déplacer."
+ "Hold the left mouse button on a symbol in the header and drag it sideways to move it.": "Maintiens le bouton gauche de la souris sur un symbole de l’en-tête et fais-le glisser sur le côté pour le déplacer.",
+ "Delete in {0}": "Supprimer dans {0}",
+ "Quit {0} first: it writes its settings when it closes.": "Quittez d’abord {0} : il enregistre ses réglages à la fermeture.",
+ "set the context in {0} itself": "réglez le contexte dans {0} lui-même",
+ "{0} deletes {1} from its own store (it has no trash).": "{0} supprime {1} de son propre stockage (il n’a pas de corbeille).",
+ "{0}'s models, chats and settings. Change it later in {0}.": "Les modèles, discussions et réglages de {0}. À changer plus tard dans {0}."
 }

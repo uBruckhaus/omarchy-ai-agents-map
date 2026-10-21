@@ -17,6 +17,35 @@ def _installer():
 
 class Engine(llm_engine.Engine):
     start_command = "koboldcpp --admin --routermode"
+    gguf_folder = True
+    reorganize = True
+    download = "file"
+    removable = "file"
+    context_settable = True
+    context_effect = "next-load"
+
+    def context_now(self, rt, folder, name):
+        import kobold_ctl
+        now, model_file = kobold_ctl.settings(name)
+        return now, "f16", model_file
+
+    def context_changes(self, rt, name, ctx):
+        import connect
+        import kobold_ctl
+        from i18n import _
+        path = kobold_ctl.config_path(name)
+        if path is None:
+            raise ValueError(_("KoboldCpp does not list this model"))
+        before = connect._read(path)
+        return [connect.Change(path, before, kobold_ctl.context_text(before, ctx))]
+
+    def refresh(self, rt):
+        """Model files added since: router ids (.kcpps), when the app installed it."""
+        from pathlib import Path
+        import install_ctl
+        kobold = install_ctl.installer("koboldcpp")
+        if kobold is not None and kobold.installed_folder() is not None and kobold.models_folder():
+            kobold.sync(Path(kobold.models_folder()))
 
     def owns_process(self, comm, argv):
         exe = llm_engine.basename(argv[0] if argv else "")
@@ -46,4 +75,5 @@ PROVIDER = Provider("koboldcpp", "KoboldCpp", "local", detect=_detect, installer
                     # the watcher unloads its model instead of stopping it.
                     stays_up=True, unload=("/api/admin/reload_config", {"filename": "unload_model"}),
                     install=(Way("installer"),),
+                    data=("~/.koboldcpp",),
                     homepage="https://github.com/LostRuins/koboldcpp")

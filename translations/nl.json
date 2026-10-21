@@ -2487,5 +2487,10 @@
  "Agents use different models of one local LLM: it keeps them loaded at once, or swaps them (see the warnings)": "Agenten gebruiken verschillende modellen van één lokale LLM: die houdt ze tegelijk geladen of wisselt ertussen (zie de waarschuwingen)",
  "From the Omarchy Plugin Marketplace, checked {0}.": "Uit de Omarchy Plugin Marketplace, gecontroleerd op {0}.",
  "The marketplace could not be read yet: the plugins known to this version are shown.": "De Marketplace kon nog niet worden gelezen: de plugins die deze versie kent worden getoond.",
- "Hold the left mouse button on a symbol in the header and drag it sideways to move it.": "Houd de linkermuisknop ingedrukt op een symbool in de kopregel en sleep het opzij om het te verplaatsen."
+ "Hold the left mouse button on a symbol in the header and drag it sideways to move it.": "Houd de linkermuisknop ingedrukt op een symbool in de kopregel en sleep het opzij om het te verplaatsen.",
+ "Delete in {0}": "Verwijderen in {0}",
+ "Quit {0} first: it writes its settings when it closes.": "Sluit eerst {0} af: het schrijft zijn instellingen bij het afsluiten.",
+ "set the context in {0} itself": "stel de context in {0} zelf in",
+ "{0} deletes {1} from its own store (it has no trash).": "{0} verwijdert {1} uit zijn eigen opslag (het heeft geen prullenbak).",
+ "{0}'s models, chats and settings. Change it later in {0}.": "De modellen, chats en instellingen van {0}. Later te wijzigen in {0}."
 }

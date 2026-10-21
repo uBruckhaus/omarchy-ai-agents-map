@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import install_ctl
+import llm_engine
 
 HF = "https://huggingface.co"
 REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}/[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
@@ -279,7 +280,7 @@ def gguf_target(runtime_key: str, models_dir: Path, repo: str) -> tuple[Path, Pa
     they point into several folders, into <their common folder>/<publisher>/<repo>/
     (LM Studio's layout). Never as a real file among the links: a tool that keeps
     such a folder (llama-models-sync) may take every name it does not know away."""
-    if runtime_key == "lmstudio":
+    if llm_engine.layout(runtime_key) == "publisher":
         publisher, name = repo.split("/", 1)
         return models_dir / publisher / name, None
     try:
@@ -322,7 +323,7 @@ def download_gguf(runtime_key: str, models_dir: Path, repo: str, entry: GgufFile
     if into is not None:
         folder = into
         same = Path(os.path.realpath(into)) == Path(os.path.realpath(models_dir))
-        link_dir = models_dir if runtime_key in ("llamacpp", "koboldcpp") and not same else None
+        link_dir = models_dir if llm_engine.layout(runtime_key) == "flat" and not same else None
     folder.mkdir(parents=True, exist_ok=True)
     done = 0
     first = None
@@ -375,9 +376,10 @@ def seen_by(runtime_key: str, folder: Path) -> set:
     those at least two folders down (<publisher>/<model>/…), Ollama its blobs
     (hard links count), llama.cpp and KoboldCpp the folder and one level below."""
     folder = Path(folder)
-    if runtime_key == "lmstudio":
+    kind = llm_engine.layout(runtime_key)
+    if kind == "publisher":
         paths = folder.glob("*/*/**/*.gguf")
-    elif runtime_key == "ollama":
+    elif kind == "blobs":
         paths = (folder / "blobs").glob("sha256-*")
     else:
         paths = [*folder.glob("*.gguf"), *folder.glob("*/*.gguf")]
@@ -428,7 +430,7 @@ def add_local(runtime_key: str, models_dir: Path, file: Path) -> Path:
     split = SPLIT_RE.match(file.name)
     if split:
         parts = sorted(file.parent.glob(f"{split.group(1)}-*-of-{split.group(3)}.gguf"))
-    if runtime_key == "lmstudio":
+    if llm_engine.layout(runtime_key) == "publisher":
         folder = models_dir / model_layout.LOCAL / model_layout.model_dir_name(file.name)
         parts += [p for p in file.parent.glob("*.gguf") if "mmproj" in p.name.lower()]
     else:
@@ -474,7 +476,8 @@ def removal(runtime_key: str, models_dir: Path, name: str, others: dict | None =
     one of them reads the same file. Ollama removes its own models (ollama_delete)."""
     import context_ctl
     models_dir = Path(os.path.expanduser(str(models_dir)))
-    if runtime_key == "lmstudio":
+    kind = llm_engine.layout(runtime_key)
+    if kind == "publisher":
         file = context_ctl.lmstudio_model_file(context_ctl.lmstudio_entry(name))
         if file is None:
             raise ValueError("LM Studio does not list this model in its folder")
@@ -485,7 +488,7 @@ def removal(runtime_key: str, models_dir: Path, name: str, others: dict | None =
         if not rest:
             paths += sorted(p for p in folder.glob("*.gguf") if "mmproj" in p.name.lower())
         root = models_dir
-    elif runtime_key in ("llamacpp", "koboldcpp"):
+    elif kind == "flat":
         exact = models_dir / f"{name}.gguf"
         if exact.exists() or exact.is_symlink():
             paths = [exact]
