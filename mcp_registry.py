@@ -9,13 +9,21 @@ How a result runs:
 - remote        -> its streamable-http (or sse) address and headers
 Anyone can publish to the registry: the page shows where a server comes
 from (package, image or address, and its repository) before it is added.
+
+The registry's own search takes 10–30 s, its plain list well under a second a page: the list is
+saved in the background when the app starts (refresh_list: at most every 12 hours, after the first
+time only what changed since) and searched here. Until it is there, the registry is searched.
 """
 
 import json
+import os
 import re
 import shutil
+import threading
+import time
 import urllib.parse
 from dataclasses import dataclass, field
+from pathlib import Path
 
 API = "https://registry.modelcontextprotocol.io/v0/servers"
 TIMEOUT = 45                # its search often takes 10 s or more
@@ -226,17 +234,175 @@ def parse(data: dict) -> list[Server]:
     return servers
 
 
-def search(query: str, limit: int = 30, base: str = "") -> list[Server]:
-    """base: another registry with the same API (web_sources), else the official one."""
-    params = urllib.parse.urlencode({"search": query.strip()[:100], "limit": limit, "version": "latest"})
+PAGE = 20                    # results asked for at a time; "Next 20 results" asks for the next ones
+
+# The saved list: {"fetched": ISO time the last download started, "checked": epoch, "servers": {name: item}}.
+LIST_FILE = Path.home() / ".cache/ai-agents-map/mcp-registry.json"
+LIST_MAX_AGE = 12 * 3600
+LIST_MAX_PAGES = 1000         # 100 servers a page, per start (the registry had 30,000+ in 2026-10)
+SAVE_EVERY = 10               # pages between saves (a download cut short goes on from there)
+LIST_MAX_FILE = 96 * 1024 * 1024
+_list_lock = threading.Lock()
+_list_cache = None           # (mtime, the loaded list)
+
+
+SERVER_KEYS = ("name", "title", "description", "version", "repository", "websiteUrl", "packages", "remotes")
+
+
+def _kept(item) -> dict | None:
+    """Only what parse() reads of a list item."""
+    server = item.get("server") if isinstance(item, dict) else None
+    if not isinstance(server, dict) or not isinstance(server.get("name"), str):
+        return None
+    server = {k: server[k] for k in SERVER_KEYS if k in server}
+    meta = item.get("_meta") if isinstance(item.get("_meta"), dict) else {}
+    official = meta.get("io.modelcontextprotocol.registry/official")
+    return {"server": server, "_meta": {"io.modelcontextprotocol.registry/official": official}} \
+        if isinstance(official, dict) else {"server": server}
+
+
+def load_list(path: Path | None = None) -> dict | None:
+    """The saved list, or None (not there yet, or not readable)."""
+    global _list_cache
+    path = path or LIST_FILE
+    try:
+        info = path.stat()
+        if info.st_size > LIST_MAX_FILE:
+            return None
+        if _list_cache is not None and _list_cache[0] == (str(path), info.st_mtime_ns):
+            return _list_cache[1]
+        data = json.loads(path.read_bytes())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("servers"), dict):
+        return None
+    _list_cache = ((str(path), info.st_mtime_ns), data)
+    return data
+
+
+def _write_list(path: Path, data: dict):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    part = path.with_name(path.name + ".part")
+    fd = os.open(part, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "w") as handle:
+        json.dump(data, handle, ensure_ascii=False)
+    os.replace(part, path)
+
+
+def refresh_list(path: Path | None = None, now: float | None = None, fetch=None) -> bool:
+    """Download the registry's list (or what changed since the last time) into path, when it is
+    older than LIST_MAX_AGE; one at a time. Saved every SAVE_EVERY pages with where it stopped
+    ("resume"), so a download cut short (the app closed, no connection) goes on at the next start.
+    False: not needed, already running, or stopped early."""
+    now = time.time() if now is None else now
+    path = path or LIST_FILE
+    if not _list_lock.acquire(blocking=False):
+        return False
+    try:
+        old = load_list(path) or {}
+        resume = old.get("resume") if isinstance(old.get("resume"), dict) else None
+        if resume is None and old.get("fetched") and now - float(old.get("checked") or 0) < LIST_MAX_AGE:
+            return False
+        if fetch is None:
+            import netfetch
+            fetch = netfetch.fetch_json
+        if resume is None:
+            resume = {"since": str(old.get("fetched") or ""), "cursor": "",
+                      "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))}
+        data_out = {"fetched": old.get("fetched", ""), "checked": old.get("checked", 0),
+                    "servers": dict(old.get("servers") or {}), "resume": dict(resume)}
+        servers, cursor = data_out["servers"], str(resume.get("cursor") or "")
+        for page in range(1, LIST_MAX_PAGES + 1):
+            params = {"limit": 100, "version": "latest"}
+            if resume.get("since"):
+                params["updated_since"] = resume["since"]
+            if cursor:
+                params["cursor"] = cursor
+            try:
+                data = fetch(f"{API}?{urllib.parse.urlencode(params)}", max_bytes=MAX_BYTES, timeout=30,
+                             redirects=0, headers={"Accept": "application/json"})
+            except Exception:                  # no connection, a timeout, an odd answer: on at the next start
+                if page > 1:
+                    _write_list(path, data_out)
+                return False
+            data = data if isinstance(data, dict) else {}
+            for item in data.get("servers") or []:
+                kept = _kept(item)
+                if kept is not None:
+                    servers[kept["server"]["name"][:200]] = kept
+            meta = data.get("metadata") if isinstance(data.get("metadata"), dict) else {}
+            following = meta.get("nextCursor") if isinstance(meta.get("nextCursor"), str) else ""
+            if not following or following == cursor or not data.get("servers"):
+                break
+            cursor = following[:300]
+            data_out["resume"]["cursor"] = cursor
+            if page % SAVE_EVERY == 0:
+                _write_list(path, data_out)
+        else:
+            _write_list(path, data_out)      # LIST_MAX_PAGES this time: on at the next start
+            return False
+        _write_list(path, {"fetched": resume["started"], "checked": now, "servers": servers})
+        return True
+    except OSError:
+        return False
+    finally:
+        _list_lock.release()
+
+
+def search_list(query: str, offset: int = 0, limit: int = PAGE, path: Path | None = None):
+    """(servers, cursor for the next ones or "") from the saved list; None when there is none.
+    Every word of the query in the name, title or description; names that hold the query first."""
+    data = load_list(path)
+    if data is None or not data.get("fetched"):
+        return None                          # not downloaded in full once yet: the registry is asked
+    words = query.lower().split()
+    query_text = query.strip().lower()
+    matched = []
+    for name, item in data["servers"].items():
+        server = item.get("server") if isinstance(item, dict) else None
+        if not isinstance(server, dict):
+            continue
+        text = " ".join(str(server.get(k) or "") for k in ("name", "title", "description")).lower()
+        if all(word in text for word in words):
+            meta = (item.get("_meta") or {}).get("io.modelcontextprotocol.registry/official") or {}
+            matched.append((query_text not in name.lower(), -_epoch(meta.get("updatedAt")), name, item))
+    matched.sort(key=lambda m: m[:3])
+    servers = [s for s in parse({"servers": [m[3] for m in matched]}) if s.status in ("", "active")]
+    page = servers[offset:offset + limit]
+    return page, f"#{offset + limit}" if offset + limit < len(servers) else ""
+
+
+def _epoch(text) -> float:
+    try:
+        return time.mktime(time.strptime(str(text)[:19], "%Y-%m-%dT%H:%M:%S"))
+    except (ValueError, OverflowError):
+        return 0.0
+
+
+def search(query: str, limit: int = PAGE, base: str = "", cursor: str = "") -> tuple[list[Server], str]:
+    """(servers, the cursor for the next page or ""). base: another registry with the same API
+    (web_sources), else the official one; cursor: the one a previous page returned. The official
+    registry is searched in the saved list when there is one ("#<offset>" cursors)."""
+    if not base and (not cursor or cursor.startswith("#")):
+        offset = int(cursor[1:]) if cursor[1:].isdigit() else 0
+        found = search_list(query, offset, limit)
+        if found is not None:
+            return found
+        cursor = ""
+    params = {"search": query.strip()[:100], "limit": limit, "version": "latest"}
+    if cursor:
+        params["cursor"] = cursor[:300]
     import netfetch
     api = f"{base}/v0/servers" if base else API
     try:
-        data = netfetch.fetch_json(f"{api}?{params}", max_bytes=MAX_BYTES, timeout=TIMEOUT, redirects=0,
-                                   headers={"Accept": "application/json"})
+        data = netfetch.fetch_json(f"{api}?{urllib.parse.urlencode(params)}", max_bytes=MAX_BYTES, timeout=TIMEOUT,
+                                   redirects=0, headers={"Accept": "application/json"})
     except netfetch.FetchError as error:
         raise ValueError(str(error)) from error
-    return parse(data if isinstance(data, dict) else {})
+    data = data if isinstance(data, dict) else {}
+    meta = data.get("metadata") if isinstance(data.get("metadata"), dict) else {}
+    following = meta.get("nextCursor") if isinstance(meta.get("nextCursor"), str) else ""
+    return parse(data), following[:300] if following != cursor else ""
 
 
 def fill(entry: dict, values: dict) -> dict:

@@ -57,12 +57,6 @@ def config_dir() -> Path:
     return CONFIG_DIR
 
 
-def use_identity(name: str, app_id: str, folder: Path) -> None:
-    """Another app built from this core (AI Playground): its own name, app id and settings."""
-    global APP_NAME, APP_ID, CONFIG_DIR
-    APP_NAME, APP_ID, CONFIG_DIR = name, app_id, Path(folder)
-
-
 # --- theme ----------------------------------------------------------------------------------------
 
 def theme_dir() -> Path:

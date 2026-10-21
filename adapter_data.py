@@ -42,7 +42,7 @@ TOP = {"command": STR, "name": STR, "label": STR, "full_name": STR, "icon": STR,
        "data": STRS, "install": TABLES, "update": TABLE, "sessions": TABLE, "skills": TABLE, "mcp": TABLE,
        "access": TABLE, "security": TABLE, "login_status": TABLE, "installer": STR, "usage": STR,
        "local_llm": TABLE, "ask": TABLE, "configure": TABLES, "home": STR, "activity": STRS, "details": TABLE,
-       "program_dir": STR, "web_search": BOOL, "chat_app": BOOL, "herdr": STR, "research": TABLE, "rewrite": TABLE,
+       "program_dir": STR, "start": STRS, "web_search": BOOL, "chat_app": BOOL, "herdr": STR, "research": TABLE, "rewrite": TABLE,
        "models": TABLE, "tools": TABLE}
 WAY = {"kind": STR, "spec": STR, "tool": STR, "argv": STRS, "sudo": BOOL, "url": STR, "note": STR,
        "update": STRS, "packages": "a list of [manager, name]"}
@@ -188,6 +188,9 @@ def check(data: dict, name: str) -> None:
         # The agent itself and plain words: never a shell, never another program.
         if not harnesses.configure_ok(entry["argv"], (data["command"],)):
             raise AdapterError(f"{name}: configure[{i}].argv must start with “{data['command']}”, plain words")
+    # Arguments for the agent itself: plain words, never a shell or another program.
+    if data.get("start") and not harnesses.configure_ok([data["command"], *data["start"]], (data["command"],)):
+        raise AdapterError(f"{name}: start must be plain words")
     sessions = data.get("sessions", {})
     _check(sessions, SESSIONS, f"{name}: sessions")
     if "reader" in sessions and sessions["reader"] not in READERS:
@@ -417,7 +420,7 @@ def harness(data: dict, name: str = "adapter", hooks=None) -> Harness:
         sandbox_setting=security.get("sandbox", ""), asks_setting=security.get("asks", ""),
         home=data.get("home", ""), activity=tuple(data.get("activity", ())), details=details,
         program_dir=data.get("program_dir", ""), web_search=data.get("web_search", False),
-        chat_app=data.get("chat_app", False), herdr=data.get("herdr", ""),
+        chat_app=data.get("chat_app", False), herdr=data.get("herdr", ""), start=tuple(data.get("start", ())),
         logout=tuple(data.get("access", {}).get("logout", ())),
         research=tuple(data["research"]["argv"]) if "research" in data else (),
         rewrite=tuple(data["rewrite"]["argv"]) if "rewrite" in data else (), models=models,

@@ -446,6 +446,10 @@ class SettingsPages:
                         _("When a new agent is installed, Claude Code or Codex finds out on the web where it keeps "
                           "MCP servers and skills (once, a few minutes in the background)."),
                         ai_core.setting("look_up_new_agents"), lambda on: self.save_setting(look_up_new_agents=on))
+        self.switch_row(group, _("Keep the MCP server list"),
+                        _("When the app starts, the MCP registry's list of servers is saved in the background "
+                          "(at most every 12 hours, then only what changed), so searching it takes no time."),
+                        ai_core.setting("mcp_list") is not False, lambda on: self.save_setting(mcp_list=on))
         self.switch_row(group, _("Terminal tabs above the map"),
                         _("While agents run in terminals here: a tab for each, with a dot for working, running "
                           "or ended, above the map and the terminals. A click shows the terminal."),
@@ -646,9 +650,9 @@ class SettingsPages:
         back_box = Gtk.Box(spacing=6)
         back_box.append(Gtk.Image.new_from_icon_name("go-previous-symbolic"))
         back_box.append(Gtk.Label(label=_("Back")))
-        back_box.append(Gtk.Label(label="· Esc"))
+        back_box.append(Gtk.Label(label="· ⌫"))
         back.set_child(back_box)
-        back.set_tooltip_text(_("Back without changing anything (Esc)"))
+        back.set_tooltip_text(_("Back without changing anything (Backspace, Esc)"))
         back.connect("clicked", lambda *_: self.close_reorganize())
         header.append(back)
         title = Gtk.Label(label=_("Reorganize models").upper(), xalign=0, hexpand=True)

@@ -10,6 +10,7 @@ homepage = "https://www.npmjs.com/package/@deepseek-ai/dsh"
 data = ["~/.dsh"]
 home = "~/.dsh"
 activity = ["~/.dsh/sessions"]
+start = ["--profile", "web"]           # dsh alone only asks for a profile: the one the map sets up
 
 [[install]]
 kind = "installer"

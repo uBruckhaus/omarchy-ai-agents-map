@@ -1,6 +1,6 @@
 """Is a local server on 127.0.0.1 ours? Before anything is sent to a local LLM's port: the
 socket listening there must belong to this user account, else another account could have put
-a program on that port to read what we send (models_ctl, AI Playground's local LLM test).
+a program on that port to read what we send (models_ctl).
 """
 
 import os

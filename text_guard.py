@@ -1,8 +1,7 @@
 """Text fields that take text from other clients only through bounded reads (a mixin of the app
-windows: AI Agents Map / Asterism and AI Playground). GTK's own paste, middle-click paste and text
-drops buffer the whole offer in memory with no limit or deadline; these go through
-ai_core.clipboard_text (wl-paste, byte cap, deadline) instead. The window shows notes with its
-show_note (AI Agents Map) or toast (AI Playground)."""
+window: AI Agents Map / Asterism). GTK's own paste, middle-click paste and text drops buffer the
+whole offer in memory with no limit or deadline; these go through ai_core.clipboard_text
+(wl-paste, byte cap, deadline) instead. The window shows notes with its show_note."""
 
 from __future__ import annotations
 
@@ -68,8 +67,7 @@ class TextGuard:
 
     def insert_pasted(self, field, pasted):
         if pasted is None:
-            note = getattr(self, "show_note", None) or getattr(self, "toast")
-            note(_("Clipboard text is too long to paste (max {0} KiB)").format(ai_core.MAX_PASTE_BYTES // 1024))
+            self.show_note(_("Clipboard text is too long to paste (max {0} KiB)").format(ai_core.MAX_PASTE_BYTES // 1024))
         elif pasted and isinstance(field, Gtk.TextView):
             buffer = field.get_buffer()
             buffer.delete_selection(True, True)

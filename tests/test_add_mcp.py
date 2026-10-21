@@ -3,6 +3,7 @@ import os
 import sys
 import tempfile
 import unittest
+import urllib.parse
 from pathlib import Path
 from unittest import mock
 
@@ -30,6 +31,99 @@ REGISTRY = {"servers": [
 
 
 class RegistryTest(unittest.TestCase):
+    def test_search_pages_of_twenty(self):
+        import netfetch
+        asked = []
+
+        def fetch(url, **_kw):
+            asked.append(url)
+            return {**REGISTRY, "metadata": {"nextCursor": "io.github.acme/mcp-server-notes:1.2.0", "count": 1}}
+        with mock.patch.object(netfetch, "fetch_json", fetch), \
+                mock.patch.object(mcp_registry, "LIST_FILE", Path("/nonexistent/mcp-registry.json")):
+            servers, following = mcp_registry.search("notes")
+            self.assertEqual(len(servers), 1)
+            self.assertEqual(following, "io.github.acme/mcp-server-notes:1.2.0")
+            self.assertIn("limit=20", asked[0])
+            self.assertNotIn("cursor=", asked[0])
+            # The next page: the cursor goes along; the same cursor back again means no more pages.
+            _servers, following = mcp_registry.search("notes", cursor=following)
+            self.assertIn("cursor=io.github.acme%2Fmcp-server-notes%3A1.2.0", asked[1])
+            self.assertEqual(following, "")
+
+    @staticmethod
+    def listed(n: int, word: str = "notes") -> dict:
+        return {"server": {"name": f"io.github.acme/{word}-{n}", "description": f"{word} server {n}",
+                           "packages": [{"registryType": "npm", "identifier": f"@acme/{word}-{n}", "version": "1.0.0",
+                                         "transport": {"type": "stdio"}}]},
+                "_meta": {"io.modelcontextprotocol.registry/official":
+                          {"status": "active", "updatedAt": f"2026-10-{1 + n % 28:02d}T00:00:00Z"}}}
+
+    def test_saved_list_downloaded_then_searched_here(self):
+        pages = {"": {"servers": [self.listed(n) for n in range(25)], "metadata": {"nextCursor": "c1"}},
+                 "c1": {"servers": [self.listed(n, "pdf") for n in range(3)], "metadata": {}}}
+        asked = []
+
+        def fetch(url, **_kw):
+            asked.append(url)
+            cursor = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(url).query)).get("cursor", "")
+            return pages[cursor]
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder, "mcp-registry.json")
+            self.assertTrue(mcp_registry.refresh_list(path, now=1000.0, fetch=fetch))
+            self.assertEqual(oct(path.stat().st_mode & 0o777), "0o600")
+            self.assertEqual(len(mcp_registry.load_list(path)["servers"]), 28)
+            # Not again within 12 hours; afterwards only what changed since the last download.
+            self.assertFalse(mcp_registry.refresh_list(path, now=2000.0, fetch=fetch))
+            self.assertTrue(mcp_registry.refresh_list(path, now=1000.0 + 13 * 3600, fetch=fetch))
+            self.assertIn("updated_since=1970-01-01T00%3A16%3A40Z", asked[-1])
+            # Searched here, 20 at a time.
+            first, following = mcp_registry.search_list("notes", path=path)
+            self.assertEqual((len(first), following), (20, "#20"))
+            rest, following = mcp_registry.search_list("notes", 20, path=path)
+            self.assertEqual((len(rest), following), (5, ""))
+            found, _ = mcp_registry.search_list("pdf server", path=path)
+            self.assertEqual(sorted(s.name for s in found), [f"io.github.acme/pdf-{n}" for n in range(3)])
+            with mock.patch.object(mcp_registry, "LIST_FILE", path):
+                self.assertEqual(len(mcp_registry.search("pdf")[0]), 3)    # no registry request
+
+    def test_download_cut_short_goes_on_at_the_next_start(self):
+        import netfetch
+        # 15 pages of one server: cursors "", c1 … c14; the last has no next cursor.
+        pages = {(f"c{i}" if i else ""): {"servers": [self.listed(i)],
+                                          "metadata": {"nextCursor": f"c{i + 1}"} if i < 14 else {}}
+                 for i in range(15)}
+        asked, broken = [], {"on": True}
+
+        def fetch(url, **_kw):
+            cursor = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(url).query)).get("cursor", "")
+            asked.append(cursor)
+            if broken["on"] and cursor == "c12":
+                raise netfetch.FetchError("offline")
+            return pages[cursor]
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder, "mcp-registry.json")
+            self.assertFalse(mcp_registry.refresh_list(path, now=1000.0, fetch=fetch))
+            saved = mcp_registry.load_list(path)
+            self.assertEqual((len(saved["servers"]), saved["resume"]["cursor"]), (12, "c12"))
+            self.assertIsNone(mcp_registry.search_list("notes", path=path))   # not complete once yet
+            broken["on"] = False
+            asked.clear()
+            self.assertTrue(mcp_registry.refresh_list(path, now=1100.0, fetch=fetch))
+            self.assertEqual(asked[0], "c12")                                 # went on where it stopped
+            saved = mcp_registry.load_list(path)
+            self.assertEqual((len(saved["servers"]), "resume" in saved), (15, False))
+            self.assertEqual(len(mcp_registry.search_list("notes", path=path)[0]), 15)
+
+    def test_no_connection_no_list(self):
+        def fetch(url, **_kw):
+            import netfetch
+            raise netfetch.FetchError("offline")
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder, "mcp-registry.json")
+            self.assertFalse(mcp_registry.refresh_list(path, now=1000.0, fetch=fetch))
+            self.assertFalse(path.exists())
+            self.assertIsNone(mcp_registry.search_list("pdf", path=path))
+
     def test_package_and_remote(self):
         servers = mcp_registry.parse(REGISTRY)
         self.assertEqual(len(servers), 1)              # the bad identifier is dropped

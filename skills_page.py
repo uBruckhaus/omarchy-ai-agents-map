@@ -26,7 +26,7 @@ class SkillsPage:
         back_box = Gtk.Box(spacing=6)
         back_box.append(Gtk.Image.new_from_icon_name("go-previous-symbolic"))
         back_box.append(Gtk.Label(label=_("Back")))
-        back_box.append(Gtk.Label(label="· Esc"))
+        back_box.append(Gtk.Label(label="· ⌫"))
         back.set_child(back_box)
         back.set_tooltip_text(_("Back without changing anything (Backspace, Esc)"))
         back.connect("clicked", lambda *_: self.close_add_skills())

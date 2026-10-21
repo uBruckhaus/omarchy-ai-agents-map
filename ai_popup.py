@@ -108,7 +108,6 @@ from traffic_page import TrafficPage
 from skills_page import SkillsPage
 from mcp_pages import McpPages
 from details_pages import DetailsPages
-import info_page
 from info_page import InfoPage
 try:
     from addons_page import AddonsPage      # Asterism only: the Add-ons page (not in the Omarchy plugin)
@@ -440,18 +439,6 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.problem_button.add_css_class("am-problem-btn")
         self.problem_button.connect("clicked", lambda *_: self.open_health())
         header.append(self.problem_button)
-        # AI Playground (only when it is installed): tests and chess with the agents set up here,
-        # the agent selected on the map chosen there.
-        self.playground_button = Gtk.Button(valign=Gtk.Align.CENTER, visible=False)
-        pad = Gtk.Label(label=info_page.PLAYGROUND_GLYPH)
-        pad.add_css_class("am-gear")
-        self.playground_button.set_child(pad)
-        self.playground_button.add_css_class("flat")
-        self.playground_button.add_css_class("am-header-btn")
-        self.playground_button.add_css_class("am-gear-btn")
-        self.playground_button.connect("clicked", lambda *_: self.start_playground())
-        header.append(self.playground_button)
-        self.mark_playground()
 
         # The legend (as in App Manager): what the map's dots, lines and marks mean.
         legend_button = Gtk.MenuButton()
@@ -489,7 +476,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             addons_button.connect("clicked", lambda *_: self.open_addons())
             header.append(addons_button)
             self.addons_button = addons_button
-        # Information: AI Playground and the author's other plugins (from the marketplace).
+        # Information: the author's other plugins (from the marketplace).
         import more_plugins
         info_button = Gtk.Button()
         info_mark = Gtk.Label(label=more_plugins.INFO_GLYPH)
@@ -532,7 +519,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         return header
 
     # The header's symbols in the user's order: hold the left mouse button on one and drag it.
-    HEADER_ITEMS = ("problem", "playground", "legend", "traffic", "addons", "info", "help", "settings")
+    HEADER_ITEMS = ("problem", "legend", "traffic", "addons", "info", "help", "settings")
 
     def header_items(self) -> dict:
         found = {key: getattr(self, f"{key}_button", None) for key in self.HEADER_ITEMS}
@@ -1625,7 +1612,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
 
     def start_outside(self, agent, path: str, folder: str):
         """The agent in a terminal window of its own (the desktop's terminal)."""
-        ok = terminal_pane.open_outside(path, folder)
+        ok = terminal_pane.open_outside(path, folder, agent.command)
         if not ok:
             try:
                 agent_status.remember_issue(agent.command, "terminal")
@@ -1665,7 +1652,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
 
         def start_outside(*_args):
             popover.popdown()
-            ok = terminal_pane.open_outside(path, folder)
+            ok = terminal_pane.open_outside(path, folder, agent.command)
             if not ok:
                 try:
                     agent_status.remember_issue(agent.command, "terminal")
@@ -2136,7 +2123,6 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                                          "▶ starts an agent."))
         self.side_filter.set_tooltip_text(self.side_filter.get_label())
         self.map_show_all.set_visible(bool(nodes))
-        self.mark_playground()
 
     def show_batteries(self):
         """Online agents' limits and running local LLMs' free GPU memory, on the map and Setup's cards."""
@@ -3413,6 +3399,22 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
 
     # --- keys ------------------------------------------------------------------------
 
+    def back_actions(self) -> dict:
+        """page name -> what its Back button does."""
+        return {"help": self.close_help, "info": self.close_info, "addons": self.close_addons,
+                "reorganize": self.close_reorganize, "settings": self.close_settings,
+                "connect": self.close_connect, "install": self.close_install,   # an install goes on
+                "models": self.close_models, "mcp": self.close_mcp_details, "status": self.close_status,
+                "health": self.close_health, "traffic": self.close_traffic,
+                "addmcp": self.close_add_mcp, "addskills": self.close_add_skills}
+
+    def editing(self) -> bool:
+        """A text field (an entry, a search field, a number field, a text box) has the keyboard."""
+        focus = self.window.get_focus()
+        if isinstance(focus, Gtk.TextView):
+            return focus.get_editable()
+        return isinstance(focus, Gtk.Editable) and focus.get_editable()
+
     def on_key_released(self, _controller, keyval, _keycode, _state):
         if keyval in (Gdk.KEY_Shift_L, Gdk.KEY_Shift_R):
             self.map_view.set_shift(False)
@@ -3431,63 +3433,22 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         if keyval == Gdk.KEY_F5 and (page == "main" or page == "setup" and not self.setup_welcome):
             self.reload_setup()
             return True
-        if page == "help" and keyval in (Gdk.KEY_Escape, Gdk.KEY_BackSpace):
-            self.close_help()
-            return True
-        if page == "info" and keyval in (Gdk.KEY_Escape, Gdk.KEY_BackSpace):
-            self.close_info()
-            return True
-        if page == "addons" and (keyval == Gdk.KEY_Escape or keyval == Gdk.KEY_BackSpace
-                                 and not self.addons_search.has_focus()
-                                 and not self.addons_search.get_delegate().has_focus()):
-            self.close_addons()
-            return True
-        if page == "setup" and keyval == Gdk.KEY_Escape:
-            self.close_setup()
-            return True
-        if page == "reorganize" and keyval == Gdk.KEY_Escape:
-            self.close_reorganize()
-            return True
-        if keyval == Gdk.KEY_Escape:
-            if page == "settings":
-                self.close_settings()
-            elif page == "connect":
-                self.close_connect()
-            elif page == "install":
-                self.close_install()       # a running install goes on in the background
-            elif page == "models":
-                self.close_models()
-            elif page == "mcp":
-                self.close_mcp_details()
-            elif page == "status":
-                self.close_status()
-            elif page == "health":
-                self.close_health()
-            elif page == "traffic":
-                self.close_traffic()
-            elif page == "addmcp":
-                self.close_add_mcp()
-            elif page == "addskills":
-                self.close_add_skills()
-            elif page == "main" and self.selection:
-                self.set_selection([])   # Esc clears the selection; the window stays (an app)
-            return True
-        if page in ("install", "models", "addmcp", "addskills") and keyval == Gdk.KEY_BackSpace and \
-                isinstance(self.window.get_focus(), (Gtk.Text, Gtk.TextView)):
-            return False          # Backspace edits the folder fields
-        if page in ("models", "addmcp", "addskills"):
-            if page in ("addmcp", "addskills") and keyval == Gdk.KEY_BackSpace:
-                self.close_add_mcp() if page == "addmcp" else self.close_add_skills()
+        if keyval in (Gdk.KEY_Escape, Gdk.KEY_BackSpace):
+            # A page with a Back button: Esc and Backspace go back, unless a field on it is being
+            # edited (then both keys do what they do in the field).
+            back = self.back_actions().get(page)
+            if back is not None:
+                if self.editing():
+                    return False
+                back()
                 return True
-            return False          # typing in the search fields
-        if page in ("settings", "connect", "install", "mcp", "status", "health", "traffic"):
-            if keyval == Gdk.KEY_BackSpace:
-                {"settings": self.close_settings, "connect": self.close_connect,
-                 "install": self.close_install, "mcp": self.close_mcp_details,
-                 "status": self.close_status, "health": self.close_health,
-                 "traffic": self.close_traffic}[page]()
+            if page == "setup" and keyval == Gdk.KEY_Escape:
+                self.close_setup()
                 return True
-            return False          # Tab and arrows move between the controls
+            if page == "main" and keyval == Gdk.KEY_Escape and not self.editing():
+                if self.selection:
+                    self.set_selection([])   # Esc clears the selection; the window stays (an app)
+                return True
         if ctrl and keyval == Gdk.KEY_comma:
             self.open_settings()
             return True
@@ -3499,6 +3460,14 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         return False
 
     # --- open / close ------------------------------------------------------------
+
+    def refresh_mcp_list(self):
+        """The MCP registry's list, saved in the background for a quick search (setting "mcp_list";
+        nothing happens without a connection, it is tried again on the next start)."""
+        if ai_core.setting("mcp_list") is False:
+            return
+        import mcp_registry
+        threading.Thread(target=mcp_registry.refresh_list, daemon=True).start()
 
     def toggle(self):
         """The bar icon: open it, bring it to the front, or (already in front) hide it."""
@@ -3519,6 +3488,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.sync_provider_watch()
         self.start_gpu_poll()
         self.research_new_agents()
+        self.refresh_mcp_list()
         self.check_new_apps()
         self.look_for_addons()
         self.run_health()

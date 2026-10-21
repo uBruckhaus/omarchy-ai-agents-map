@@ -466,46 +466,9 @@ class ThemeCss:
         .am-card .am-choice:hover {{ background: alpha({fg_hex}, 0.05); }}
         .am-card .am-choice:hover .am-leader {{ border-bottom-color: alpha({accent_hex}, 0.8); }}
         .am-canvas {{ border: 1px dashed alpha({fg_hex}, 0.25); border-radius: {radius}px; padding: 12px; }}
-        /* The chess page: a card per kind of piece above and below the board, the agent's words. */
-        .am-chess-card {{ background: alpha({fg_hex}, 0.04); border: 1px solid alpha({fg_hex}, 0.12);
-            border-radius: {radius}px; padding: 4px 2px; }}
-        button.am-chess-card:hover {{ background: alpha({fg_hex}, 0.09); }}
-        .am-chess-card.am-chess-picked {{ background: alpha({accent_hex}, 0.16); border: 2px solid {accent_hex}; }}
-        .am-chess-card.am-chess-gone {{ opacity: 0.4; }}
-        .am-chess-glyph {{ font-family: "DejaVu Sans", "Noto Sans Symbols 2", sans-serif; font-size: 34px; }}
-        .am-chess-white {{ color: #f7f5ee; text-shadow: 0 0 1px #1e1e24, 0 0 2px #1e1e24; }}
-        .am-chess-black {{ color: #19191e; text-shadow: 0 0 1px #d8d6cc, 0 0 2px #d8d6cc; }}
-        .am-chess-count {{ font-size: 11px; color: {dim_hex}; }}
-        .am-chess-glyph.am-chess-taken-glyph {{ font-size: 24px; margin: -3px 0; }}
-        .am-chess-answer {{ background: alpha({accent_hex}, 0.08); border-left: 3px solid {accent_hex};
-            border-radius: {radius}px; padding: 8px 10px; }}
-        .am-chess-answer-title {{ font-weight: 700; font-size: 12px; }}
-        .am-chess-status {{ font-size: 13px; font-weight: 600; }}
-        .am-chess-said {{ font-size: 13px; }}
-        /* Its dropdowns as the other pages' (settings lines): small, not bold, in the choice text colour. */
-        .am-chess-controls dropdown > button {{ min-height: 0; padding: 2px 8px; border: 1px solid alpha({fg_hex}, 0.35); }}
-        .am-chess-controls dropdown label {{ font-size: 11px; font-weight: normal; color: {choice_hex}; }}
-        .am-chess-controls > label {{ font-size: 12px; }}
-        /* The Board and pieces menu: preview tiles, the chosen one framed in the accent colour. */
-        button.am-look-tile {{ padding: 4px; border: 2px solid transparent; border-radius: {radius}px; background: none; }}
-        button.am-look-tile:hover {{ background: alpha({fg_hex}, 0.06); }}
-        button.am-look-tile:checked {{ border-color: {accent_hex}; background: alpha({accent_hex}, 0.12); }}
-        .am-look-name {{ font-size: 11px; }}
-        /* AI Playground's chess tab: what can be dropped on it, and the frame while something is dragged over it. */
         .am-warning-text {{ color: {yellow_hex}; font-size: 12px; }}
-        .am-drop-hint {{ padding: 6px 10px; border: 1px dashed alpha({fg_hex}, 0.30); border-radius: {radius}px;
-            color: {dim_hex}; font-size: 12px; }}
-        .am-import-bar {{ padding: 8px 12px; border: 1px solid {accent_hex}; border-radius: {radius}px;
-            background: alpha({accent_hex}, 0.10); }}
-        .am-drop-zone.am-drop-active {{ box-shadow: inset 0 0 0 2px {accent_hex}; background: alpha({accent_hex}, 0.06);
-            border-radius: {radius}px; }}    /* "Opponent", "compared with": as small as the row */
-        button.am-chess-promote {{ font-family: "DejaVu Sans", "Noto Sans Symbols 2", sans-serif; font-size: 28px;
-            padding: 2px 8px; }}
-        /* AI Playground's question fields. */
-        textview.am-prompt {{ border: 1px solid alpha({fg_hex}, 0.25); border-radius: {radius}px; }}
-        textview.am-prompt:focus-within {{ border-color: {accent_hex}; }}
         """
-        import more_plugins                  # the Information page's cards (info_page, AI Playground)
+        import more_plugins                  # the Information page's cards (info_page)
         css += more_plugins.css("am", fg_hex, dim_hex, accent_hex, radius)
         for view in (getattr(self, "map_view", None), getattr(self, "side_map", None)):
             if view is not None:

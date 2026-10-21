@@ -68,6 +68,13 @@ def program(command: str) -> str | None:
     return shutil.which(command)
 
 
+def start_argv(command: str, path: str) -> list[str]:
+    """The agent's program with the arguments its adapter starts it with (start = […])."""
+    import harnesses
+    harness = harnesses.get(command)
+    return [path, *(harness.start if harness is not None else ())]
+
+
 def child_env(environ=None) -> list[str]:
     import ai_core
     env = dict(os.environ if environ is None else environ)
@@ -78,10 +85,10 @@ def child_env(environ=None) -> list[str]:
     return [f"{k}={v}" for k, v in env.items() if "\0" not in k + v]
 
 
-def open_outside(path: str, cwd: str) -> bool:
+def open_outside(path: str, cwd: str, command: str = "") -> bool:
     """No vte4: the agent in the user's own terminal (a new window)."""
     import desktop
-    return desktop.open_terminal([path], cwd)
+    return desktop.open_terminal(start_argv(command, path) if command else [path], cwd)
 
 
 class TerminalPane(Gtk.Box):
@@ -156,7 +163,7 @@ class TerminalPane(Gtk.Box):
         self.terminal.reset(True, True)
         self.started = time.monotonic()
         self.set_state(True, _("starting…"))
-        self.terminal.spawn_async(Vte.PtyFlags.DEFAULT, self.cwd, self.argv or [path], child_env(),
+        self.terminal.spawn_async(Vte.PtyFlags.DEFAULT, self.cwd, self.argv or start_argv(self.agent.command, path), child_env(),
                                   GLib.SpawnFlags.DEFAULT, None, None, -1, None, self.on_spawned)
 
     def on_spawned(self, _terminal, pid, error, *_rest):

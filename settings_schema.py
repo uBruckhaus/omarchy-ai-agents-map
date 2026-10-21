@@ -59,17 +59,6 @@ SCHEMA: dict[str, Setting] = {
     # The window
     "window_size": Setting(None, _size, "the window's size when it was last closed: [width, height]"),
     "last_view": Setting("main", _text, "the view open when the window was last closed"),
-    "chess_thinking": Setting("normal", _one_of("quick", "normal", "deep", "max"), "AI Playground › Chess › Thinking time"),
-    "chess_strength": Setting("club", _one_of("beginner", "casual", "club", "master", "max"), "AI Playground › Chess › Strength"),
-    "chess_rival_strength": Setting("club", _one_of("beginner", "casual", "club", "master", "max"),
-                                    "AI Playground › Chess › agent against agent: White's strength"),
-    "chess_board": Setting("theme", _one_of("theme", "wood", "green", "blue", "grey"), "AI Playground › Chess › Board and pieces › Board"),
-    "chess_pieces": Setting("classic", _one_of("classic", "flat", "theme"), "AI Playground › Chess › Board and pieces › Pieces"),
-    "chess_coordinates": Setting(True, _bool, "AI Playground › Chess › Board and pieces › Coordinates"),
-    # AI Playground (its own settings file; the same schema)
-    "playground_tab": Setting("chess", _text, "AI Playground: the tab open when it was last closed"),
-    "playground_agents": Setting([], _texts, "AI Playground › Speed and cost: the agents ticked"),
-    "duel_scores": Setting({}, _mapping, "AI Playground › Head to head: {\"a|b\": [a wins, ties, b wins]}"),
     "terminal_tabs": Setting(True, _bool, "Settings › Terminal tabs above the map"),
     "launcher_entry": Setting(None, _bool, "Settings › In the app launcher (None: not asked yet)"),
     "agent_folder": Setting(None, _text, "Settings › Agents start in: the folder agents start in"),
@@ -93,6 +82,7 @@ SCHEMA: dict[str, Setting] = {
     "models_root": Setting(None, _text, "Settings › Models folder"),
     "removed_models_folders": Setting({}, _mapping, "{local LLM: its models folder} of local LLMs uninstalled here"),
     "look_up_new_agents": Setting(True, _bool, "Settings › Look up new agents"),
+    "mcp_list": Setting(True, _bool, "Settings › Keep the MCP server list (mcp_registry.refresh_list on start)"),
     # Add-ons (Asterism)
     "addons_enabled": Setting([], _texts, "the add-ons switched on"),
     "addons_online": Setting(True, _bool, "Settings › Look for add-ons online"),
@@ -109,7 +99,10 @@ RETIRED = ("widen",                         # "Maximize for more room" in the he
            "setup_mode",                          # Setup's All/Installed switch
            "sidebar", "sidebar_width",            # the list beside the map
            "health_line",                         # the health check's line (now the header's !)
-           "chess_window")                        # where chess opened (chess moved to AI Playground)
+           "chess_window",                        # where chess opened (chess moved to AI Playground)
+           # AI Playground's (a plugin of its own now, with its own settings)
+           "chess_thinking", "chess_strength", "chess_rival_strength", "chess_board", "chess_pieces",
+           "chess_coordinates", "playground_tab", "playground_agents", "duel_scores")
 
 
 def value(settings: dict, key: str):

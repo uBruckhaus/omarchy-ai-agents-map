@@ -13,10 +13,15 @@ import agent_details as ad
 
 
 def pi_like(config_dir, details: "ad.Details"):
-    """pi and Oh My Pi: settings.json (default provider/model) and models.json (custom providers)."""
+    """pi and Oh My Pi: settings.json (default provider/model) and models.json (custom providers);
+    Oh My Pi's own YAML (config.yml modelRoles.default, models.yml providers) where it has it."""
     config_dir = ad._expand(str(config_dir))
     settings = ad.read_json(config_dir / "settings.json")
     model, provider = ad._text(settings.get("defaultModel")), ad._text(settings.get("defaultProvider"), 40)
+    role = _omp_default(ad._read(config_dir / "config.yml") or "")
+    if role:
+        provider, _slash, model = role.partition("/")
+        model, provider = ad._text(model), ad._text(provider, 40)
     details.model = f"{model} ({provider})" if model and provider else model
     providers = ad.read_json(config_dir / "models.json").get("providers")
     if isinstance(providers, dict):
@@ -25,6 +30,30 @@ def pi_like(config_dir, details: "ad.Details"):
                 details.providers.append(ad.provider_for_url(name, entry.get("baseUrl"),
                                                              ad._model_count(entry.get("models")),
                                                              active=not provider or name == provider))
+    for name, url, count in _omp_providers(ad._read(config_dir / "models.yml") or ""):
+        if not any(p.name == name for p in details.providers):
+            details.providers.append(ad.provider_for_url(name, url, count, active=not provider or name == provider))
+
+
+def _omp_default(text: str) -> str:
+    """config.yml's `modelRoles: default: "<provider>/<model>"`, read with a pattern."""
+    block = re.search(r"^modelRoles:[ \t]*\n((?:[ \t]+.*\n?)+)", text, re.MULTILINE)
+    found = block and re.search(r"^[ \t]+default:[ \t]*['\"]?([^'\"\n#]*)", block.group(1), re.MULTILINE)
+    value = found.group(1).strip() if found else ""
+    return value if "/" in value else ""
+
+
+def _omp_providers(text: str) -> list:
+    """models.yml's `providers:` → [(name, baseUrl, number of models)], read with a pattern."""
+    block = re.search(r"^providers:[ \t]*\n((?:[ \t]+.*\n?|\n)+)", text, re.MULTILINE)
+    entries = re.split(r"^  (?=[A-Za-z0-9_.-]+:)", block.group(1), flags=re.MULTILINE) if block else []
+    found = []
+    for entry in entries[:50]:
+        name = re.match(r"([A-Za-z0-9_.-]{1,64}):", entry)
+        url = re.search(r"^    baseUrl:[ \t]*['\"]?([^'\"\s#]+)", entry, re.MULTILINE)
+        if name and url:
+            found.append((name.group(1), url.group(1), len(re.findall(r"^      - id:", entry, re.MULTILINE))))
+    return found
 
 
 def opencode(details: "ad.Details"):

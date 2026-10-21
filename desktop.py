@@ -15,8 +15,6 @@ The interface (each implementation provides all of it):
     NAME                          "omarchy" or "generic"
     app_name() -> str             "AI Agents Map" (the Omarchy plugin) or "Asterism"
     app_id() -> str               the GTK application id, window class and icon name
-    use_identity(name, app_id, folder)  another app built from this core (AI Playground): its name,
-                                  app id and settings folder from then on
     config_dir() -> Path          the app's own settings folder
     theme_dir() -> Path | None    a folder to watch for theme changes (None: none)
     theme_colors() -> dict        the theme's colours as a TOML-like dict ({} when unknown)

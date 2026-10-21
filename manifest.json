@@ -5,7 +5,7 @@
   "version": "0.17.0",
   "author": "Uwe Bruckhaus",
   "license": "MIT",
-  "description": "Your AI setup on one map: coding agents with plan, limits and usage, local LLMs (llama.cpp, Ollama, LM Studio, vLLM, Jan, KoboldCpp) and their models, MCP servers and skills. Setup installs, updates and signs in everything; connect by drawing a line, with preview and Undo. A red ! lists open problems, batteries show limits and free GPU memory, local LLMs get a stop button. New: drag model lines, switch online models, OpenClaw on local LLMs, AI Playground from the header. 8 languages.",
+  "description": "Your AI setup on one map: coding agents with plan, limits and usage, local LLMs (llama.cpp, Ollama, LM Studio, vLLM, Jan, KoboldCpp) and their models, MCP servers and skills. Setup installs, updates and signs in everything; connect by drawing a line, with preview and Undo. A red ! lists open problems, batteries show limits and free GPU memory, local LLMs get a stop button. New: drag model lines, switch online models, OpenClaw on local LLMs. 8 languages.",
   "kinds": [
     "bar-widget"
   ],

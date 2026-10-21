@@ -55,6 +55,7 @@
  "chat_app": false,
  "herdr": "cursor",
  "logout": [],
+ "start": [],
  "research": [],
  "rewrite": [],
  "tools_setting": [],

@@ -187,6 +187,7 @@ class Harness:
     chat_app: bool = False            # a chat app, not a coding agent in a terminal (Bionic)
     herdr: str = ""                   # herdr's name for it when it is not the command
     logout: tuple = ()                # argv of its own sign-out (run in a terminal)
+    start: tuple = ()                 # arguments ▶ starts it with (DeepSeek Harness: its profile)
     research: tuple = ()              # argv: one prompt looked up on the web, no other tools
                                       # ("{prompt}", "{schema}": a JSON schema file for the answer)
     rewrite: tuple = ()               # argv: the prompt on stdin, no tools at all; "{answer}": the file
@@ -351,7 +352,7 @@ def _extended(harness: Harness) -> Harness:
 # Facts newer than add-on API 1: an agent add-on signed before them does not bring them, so the
 # app's own adapter for the same agent gives them until the add-on is signed again.
 NEWER_FACTS = ("home", "activity", "details", "program_dir", "web_search", "chat_app", "herdr", "logout",
-               "research", "rewrite", "models", "tools_setting", "sandbox_setting", "asks_setting")
+               "start", "research", "rewrite", "models", "tools_setting", "sandbox_setting", "asks_setting")
 
 
 def _with_newer_facts(harness: Harness) -> Harness:

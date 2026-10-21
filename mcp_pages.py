@@ -388,7 +388,7 @@ class McpPages:
         back_box = Gtk.Box(spacing=6)
         back_box.append(Gtk.Image.new_from_icon_name("go-previous-symbolic"))
         back_box.append(Gtk.Label(label=_("Back")))
-        back_box.append(Gtk.Label(label="· Esc"))
+        back_box.append(Gtk.Label(label="· ⌫"))
         back.set_child(back_box)
         back.set_tooltip_text(_("Back without changing anything (Backspace, Esc)"))
         back.connect("clicked", lambda *_: self.close_add_mcp())
@@ -478,6 +478,13 @@ class McpPages:
         self.add_web_list.connect("row-selected",
                                   lambda _l, row: row is not None and self.show_registry_server(row.server))
         left.append(self.scrolled(self.add_web_list))
+        # More in the registry than shown: the next 20 below them, on a click.
+        self.registry_next = Gtk.Button(label=_("Next {0} results").format(mcp_registry.PAGE),
+                                        halign=Gtk.Align.START, visible=False)
+        self.registry_next.add_css_class("am-small-btn")
+        self.registry_next.connect("clicked", lambda *_a: self.search_mcp(more=True))
+        left.append(self.registry_next)
+        self.registry_cursor, self.registry_shown = "", 0
         two_panes("web", left)
 
         # On this PC: programs that offer an MCP server and are not set up yet.
@@ -593,7 +600,7 @@ class McpPages:
         self.add_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1, hexpand=True)
         self.add_status.add_css_class("am-agent-detail")
         self.add_bar.append(self.add_status)
-        self.add_test = Gtk.Button(label=_("Test"), valign=Gtk.Align.CENTER)
+        self.add_test = Gtk.Button(label=_("Test"), valign=Gtk.Align.CENTER, sensitive=False)   # update_add_test
         self.add_test.add_css_class("am-action-btn")
         self.add_test.set_tooltip_text(_("Start it once and ask for its tools"))
         self.add_test.connect("clicked", lambda *_: self.test_new_mcp())
@@ -1227,33 +1234,49 @@ class McpPages:
         self.add_from = {"appimage": candidate.appimage, "inner": candidate.inner} if candidate.appimage else None
         self.fill_add_form(candidate.name, 0, " ".join(shlex.quote(c) for c in command), "", "", [], source)
 
-    def search_mcp(self):
+    def search_mcp(self, more: bool = False):
+        """The registry's first 20 servers for the query; more: the next 20 below them."""
         query = self.add_query.get_text().strip()
         if not query:
             return
+        if not more:
+            self.registry_cursor, self.registry_shown = "", 0
+            if self.add_pages.pop("web", None) is not None:     # a new list: nothing picked from it yet
+                self.add_server = self.add_from = None
+                self.add_empty("web", _("Pick a server on the left to see who published it, what it needs and "
+                                        "how it runs."))
+                self.update_add_test()
+        cursor = self.registry_cursor if more else ""
         self.add_web_status.set_label(_("Searching… The registry often takes 10 seconds or more."))
         base = web_sources.chosen("mcp")
+        self.registry_next.set_sensitive(False)
+        if not more:
+            self.registry_next.set_visible(False)
 
         def work():
             try:
-                result = mcp_registry.search(query, base=base if base != web_sources.DEFAULTS["mcp"] else "")
+                result, following = mcp_registry.search(
+                    query, base=base if base != web_sources.DEFAULTS["mcp"] else "", cursor=cursor)
                 error = ""
             except (OSError, ValueError) as failure:
-                result, error = [], str(failure)
-            GLib.idle_add(done, result, error)
+                result, following, error = [], "", str(failure)
+            GLib.idle_add(done, result, following, error)
 
-        def done(result, error):
+        def done(result, following, error):
             box = self.add_web_list
-            self.clear_box(box)
-            result = [s for s in result if s.status in ("", "active")] or result
             if self.add_query.get_text().strip() != query:
                 return False                 # a newer search runs
+            if not more:
+                self.clear_box(box)
+            result = [s for s in result if s.status in ("", "active")] or result
             if error:
                 self.add_web_status.set_label(_("Search failed: {0}").format(error))
+                following = cursor if more else ""        # the button stays to try again
             else:
-                self.add_web_status.set_label(ngettext("1 server found.", "{0} servers found.", len(result))
-                                              .format(len(result)))
-            for server in result[:30]:
+                self.registry_shown += len(result)
+                self.add_web_status.set_label(ngettext("1 server found.", "{0} servers found.", self.registry_shown)
+                                              .format(self.registry_shown))
+            for server in result[:mcp_registry.PAGE]:
                 secret = any(n.required and getattr(n, "secret", False) for o in server.options for n in o.needs)
                 row = self.model_row(server.title or server.short, server.description or server.name,
                                      right=self.age_text(self.iso_time(server.updated)),
@@ -1263,6 +1286,9 @@ class McpPages:
                 row.set_tooltip_text(server.name)
                 row.server = server
                 box.append(row)
+            self.registry_cursor = following
+            self.registry_next.set_visible(bool(following))
+            self.registry_next.set_sensitive(True)
             return False
 
         threading.Thread(target=work, daemon=True).start()
@@ -1427,7 +1453,21 @@ class McpPages:
             if getattr(self, "add_tab", "") != "installed":     # Installed has no form
                 self.add_status.set_label("⚠ " + text)
         self.add_preview.get_buffer().set_text(text)
+        self.update_add_test()
         return False
+
+    def update_add_test(self):
+        """Test only for a server picked from the list (or, By hand, a filled-in form)."""
+        if getattr(self, "add_testing", False):
+            return
+        picked = self.add_tab == "hand" or self.add_tab in self.add_pages
+        try:
+            ready = picked and bool(self.new_mcp_entry())
+            why = "" if picked else _("Pick a server from the list first")
+        except (OSError, ValueError) as error:
+            ready, why = False, str(error)
+        self.add_test.set_sensitive(ready)
+        self.add_test.set_tooltip_text(_("Start it once and ask for its tools") if ready else why)
 
     def test_new_mcp(self):
         try:
@@ -1437,6 +1477,7 @@ class McpPages:
             return
         found = (self.add_from or {})
         self.add_status.set_label(_("Asking the server…"))
+        self.add_testing = True
         self.add_test.set_sensitive(False)
 
         def work():
@@ -1458,7 +1499,8 @@ class McpPages:
             GLib.idle_add(done, text)
 
         def done(text):
-            self.add_test.set_sensitive(True)
+            self.add_testing = False
+            self.update_add_test()
             self.add_status.set_label(text)
             return False
 

@@ -160,17 +160,10 @@ server's details show each agent's settings file, command or address (names only
 variables and headers) and, on request, the server's tools; **Remove** takes it from every agent. A
 skill folder's details list every skill with its description and how each agent gets the folder.
 
-## AI Playground and Information
+## Information
 
-Chess and other tests with your agents are in a plugin of their own, **AI Playground**: an agent
-plays chess against you (or two agents against each other), speed and cost side by side, two answers
-judged blind, pictures and video frames, and your local LLMs. It uses the agents that are set up here.
-
-- When AI Playground is installed, its button (a gamepad) appears in the header. Select an agent on
-  the map first, and AI Playground opens with that agent chosen. Without AI Playground the button is
-  not shown.
-- **ⓘ Information** (beside Help) describes AI Playground and links to the author's other Omarchy
-  plugins; a card opens the plugin's page in the Omarchy Plugin Marketplace in your browser.
+**ⓘ Information** (beside Help) links to the author's other Omarchy plugins; a card opens the
+plugin's page in the Omarchy Plugin Marketplace in your browser.
 
 ## Connecting by drawing
 
@@ -315,8 +308,12 @@ ticked agents at once: one preview, one Undo). No agent is ticked unless you sel
   **Check for updates** (On this PC) does all of it at once after your click: it looks inside the
   new versions, offers every update in one preview with one backup and one Undo, and then tests
   each updated server (a note names any that does not answer).
-- **MCP registry**: a search of the official MCP registry (`registry.modelcontextprotocol.io`; its
-  search often takes 10 seconds or more). Each result names its publisher as the registry checked it
+- **MCP registry**: a search of the official MCP registry (`registry.modelcontextprotocol.io`), 20
+  results at a time (**Next 20 results** for more). Its own search takes 10–30 s, so its list of
+  servers is saved in the background when the app starts (Settings › Keep the MCP server list, on by
+  default; at most every 12 hours, after the first time only what changed; nothing without a
+  connection) in `~/.cache/ai-agents-map/mcp-registry.json` (only for you) and searched there; until
+  it is there, the registry itself is searched. Each result names its publisher as the registry checked it
   (a GitHub account for `io.github.<user>/…`, a domain for `com.example/…`). npm packages run with
   `npx`, PyPI packages with `uvx`, images with `docker` (of the image's own `docker run`
   arguments only `-e NAME=value`, passed as `-e NAME` with the value in docker's environment),
@@ -568,11 +565,6 @@ the backup and Undo), and the agent is told the same context. A context you set 
   `manifest.json` (a plain plugin id only), an agent by its name, else the program's name. Nothing
   of what they send is read. AI Agents Map itself and LLM Monitor (status reads only) are left out.
   At most 16 names per local LLM, each forgotten 30 s after its last request; shown as plain text.
-- **The AI Playground button** runs only `~/.config/omarchy/plugins/ubruckhaus.ai-playground/ai-playground`,
-  and only when that file is a regular executable of your own (not a link) that no other account may
-  change; on other desktops `ai-playground` on `PATH`, owned by you or root, likewise unwritable for
-  others. It is started as an argv list without a shell, with `--agent <command>` of the agent selected
-  on the map (letters, digits, `-`, `_`, `.` only). Nothing else of that plugin is read or run.
 - **ⓘ Information** opens fixed `https://plugins.omarchy.org/plugin.html?id=…` addresses in your
   browser on a click; nothing is fetched by AI Agents Map.
 - **LM Studio without its server**: while the LM Studio app runs but nothing of yours listens on its
@@ -610,7 +602,8 @@ the backup and Undo), and the agent is told the same context. A context you set 
   127.0.0.1 only after checking that the listening socket belongs to you; the same for each running
   local LLM's own API every 2 s while the window is open (which models are loaded) and for
   **Free GPU memory** (unload); answers are capped at 1 MiB and only shown, never run;
-  `registry.modelcontextprotocol.io`; `skills.sh`, `api.github.com` and
+  `registry.modelcontextprotocol.io` (its server list also automatically on start, at most every 12 h, see
+  **MCP registry**); `skills.sh`, `api.github.com` and
   `raw.githubusercontent.com` for skills; the update check (automatic when the window opens, at
   most every 6 h): the npm registry's dist-tags of `@anthropic-ai/claude-code`, the release API
   of the local LLMs and agents AI Agents Map installed, and what `mise outdated` asks; a search site you added yourself (Add a site…: https

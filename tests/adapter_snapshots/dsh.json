@@ -47,6 +47,10 @@
  "chat_app": false,
  "herdr": "",
  "logout": [],
+ "start": [
+  "--profile",
+  "web"
+ ],
  "research": [],
  "rewrite": [],
  "tools_setting": [],

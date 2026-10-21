@@ -873,6 +873,9 @@ class MapView(Gtk.DrawingArea):
         """The node, what it is joined to, and for an agent also its providers' models."""
         nodes, edges = {start}, set()
         frontier = [start]
+        # An agent's own model: on the provider serving it, only that model's line is lit.
+        own = {e.target for e in self.graph.edges if e.kind == "default" and e.source == start}
+        served = {(e.source, e.target) for e in self.graph.edges if e.kind == "serves"}
         for depth in range(2):
             following = []
             for node_id in frontier:
@@ -883,6 +886,8 @@ class MapView(Gtk.DrawingArea):
                         other = edge.target if edge.source == node_id else edge.source
                         # Second step only outwards from an agent: its provider's models.
                         if depth == 1 and not (edge.kind == "serves" and edge.source == node_id):
+                            continue
+                        if depth == 1 and other not in own and any((node_id, m) in served for m in own):
                             continue
                         edges.add(index)
                         if other not in nodes:
@@ -1033,13 +1038,21 @@ class MapView(Gtk.DrawingArea):
                     paths.setdefault(agent, set()).update({i, index[(target, model)]})
         return paths
 
+    def single_agent(self):
+        """The one agent hovered, or the only agent selected; else None."""
+        if self.focus() is not None:
+            return self.focus() if self.focus().startswith("agent:") else None
+        agents = [i for i in self.selected if i.startswith("agent:")]
+        return agents[0] if len(agents) == 1 else None
+
     def active_now(self, lit_edges):
         """(edge indexes, model ids) of the active paths to draw bold: the hovered
-        agent's, else the selected agents', else every agent's; never outside the lit lines."""
+        agent's, else the selected agents', else every agent's; never outside the lit lines.
+        A pinned agent only keeps its lines lit: it does not hide the other agents' paths."""
         if self.focus() is not None and self.focus().startswith("agent:"):
             agents = [self.focus()]
         else:
-            agents = [i for i in self.selected + self.pinned if i.startswith("agent:")] or list(self.active)
+            agents = [i for i in self.selected if i.startswith("agent:")] or list(self.active)
         edges = set().union(*(self.active.get(a, set()) for a in agents)) if agents else set()
         if lit_edges is not None:
             edges &= lit_edges
@@ -1247,6 +1260,8 @@ class MapView(Gtk.DrawingArea):
         # Edges first, under the boxes; the active paths last, on top.
         active_edges, active_models = self.active_now(lit_edges)
         order = [i for i in range(len(self.graph.edges)) if i not in active_edges] + sorted(active_edges)
+        agent = self.single_agent()
+        own_path = self.active.get(agent, set()) if agent else set()
         markers = []                 # failed lines: a "!" on each, drawn over all lines
         drawn = set()                # edge indexes drawn this time
         for index in order:
@@ -1278,7 +1293,8 @@ class MapView(Gtk.DrawingArea):
                 cr.set_dash([0.1, 5])
             else:
                 # Loaded in its local LLM but no agent's: solid and light (EDGE_COLORS["loaded"]).
-                tint = self.tints.get(index)              # agents on different models: the model's colour
+                # Agents on different models: violet; the one picked agent's own path stays in the accent.
+                tint = None if index in own_path else self.tints.get(index)
                 cr.set_source_rgba(*self.color(tint or ("accent" if active else "outside" if outside
                                                else EDGE_COLORS.get("loaded" if loaded else edge.kind, "muted")),
                                                0.85 if loaded and alpha == 1.0 else alpha))

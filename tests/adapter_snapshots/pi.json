@@ -84,6 +84,7 @@
  "chat_app": false,
  "herdr": "",
  "logout": [],
+ "start": [],
  "research": [],
  "rewrite": [],
  "tools_setting": [
