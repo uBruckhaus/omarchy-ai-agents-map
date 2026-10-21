@@ -33,9 +33,6 @@ MAX_SCAN = 3000              # directory entries looked at for "last used"
 USAGE_MAX_AGE = 10 * 60      # seconds before an expanded card asks Omarchy for fresh usage
 USAGE_TIMEOUT = 90
 
-# Local runtimes by their usual port (as LLM Monitor tells them apart).
-LOCAL_PORTS = {8080: "llama.cpp", 11434: "Ollama", 1234: "LM Studio", 8000: "vLLM", 6767: "Jan", 1337: "Jan",
-               5001: "KoboldCpp"}
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
 
 @dataclass
@@ -145,6 +142,17 @@ def _expand(path: str) -> Path:
 
 # --- providers --------------------------------------------------------------
 
+def local_ports() -> dict:
+    """{port: name} of the local LLMs by their usual ports (their engines'), the first one wins."""
+    import llm_engine
+    import providers
+    found = {}
+    for p in providers.local():
+        for port in llm_engine.of(p.key).ports:
+            found.setdefault(port, p.name)
+    return found
+
+
 def provider_for_url(name: str, url, models: int = 0, active: bool = True) -> Provider:
     """A provider entry; local when its address is this machine."""
     try:
@@ -153,7 +161,7 @@ def provider_for_url(name: str, url, models: int = 0, active: bool = True) -> Pr
     except ValueError:
         host, port = None, None
     local = host in LOCAL_HOSTS
-    runtime = LOCAL_PORTS.get(port, "") if local else ""
+    runtime = local_ports().get(port, "") if local else ""
     return Provider(name=_text(name, 40), local=local, runtime=runtime, models=models, active=active)
 
 
@@ -161,145 +169,6 @@ def _model_count(value) -> int:
     if isinstance(value, (list, dict)):
         return min(len(value), 9999)
     return 0
-
-
-def pi_like(config_dir, details: Details):
-    """pi and Oh My Pi: settings.json (default provider/model) and models.json (custom providers)."""
-    config_dir = _expand(str(config_dir))
-    settings = read_json(config_dir / "settings.json")
-    model, provider = _text(settings.get("defaultModel")), _text(settings.get("defaultProvider"), 40)
-    details.model = f"{model} ({provider})" if model and provider else model
-    providers = read_json(config_dir / "models.json").get("providers")
-    if isinstance(providers, dict):
-        for name, entry in list(providers.items())[:50]:
-            if isinstance(entry, dict):
-                details.providers.append(provider_for_url(name, entry.get("baseUrl"),
-                                                          _model_count(entry.get("models")),
-                                                          active=not provider or name == provider))
-
-
-def opencode(details: Details):
-    root = _expand("~/.config/opencode")
-    config = read_json(root / "opencode.json") or read_json(root / "opencode.jsonc")
-    details.model = _text(config.get("model"))
-    providers = config.get("provider")
-    if isinstance(providers, dict):
-        for name, entry in list(providers.items())[:50]:
-            if isinstance(entry, dict):
-                options = entry.get("options") if isinstance(entry.get("options"), dict) else {}
-                details.providers.append(provider_for_url(
-                    name, options.get("baseURL"), _model_count(entry.get("models")),
-                    active=not details.model or details.model.startswith(name + "/")))
-
-
-def claude(details: Details):
-    settings = read_json(_expand("~/.claude/settings.json"))
-    details.model = _text(settings.get("model"))
-    env = settings.get("env") if isinstance(settings.get("env"), dict) else {}
-    base = env.get("ANTHROPIC_BASE_URL")
-    if isinstance(base, str) and base:
-        details.providers.append(provider_for_url("Anthropic API", base))
-
-
-def codex(details: Details):
-    config = read_toml(_expand("~/.codex/config.toml"))
-    details.model = _text(config.get("model"))
-    chosen = _text(config.get("model_provider"), 40)
-    providers = config.get("model_providers")
-    if isinstance(providers, dict):
-        for name, entry in list(providers.items())[:50]:
-            if isinstance(entry, dict):
-                details.providers.append(provider_for_url(_text(entry.get("name"), 40) or name,
-                                                          entry.get("base_url"), active=name == chosen))
-    if chosen and details.model:
-        details.model = f"{details.model} ({chosen})"
-
-
-def copilot(details: Details):
-    config = read_json(_expand("~/.copilot/config.json"))
-    details.model = _text(config.get("model"))
-
-
-def cursor(details: Details):
-    config = read_json(_expand("~/.cursor/cli-config.json"))
-    model = config.get("model")
-    details.model = _text(model.get("displayName") or model.get("modelId")) if isinstance(model, dict) else _text(model)
-
-
-def hermes(details: Details):
-    """config.yaml's top-level `model:` block (default + provider + base_url),
-    read with a pattern: the file is YAML and only these three keys matter."""
-    text = _read(_expand("~/.hermes/config.yaml")) or ""
-    block = re.search(r"^model:\s*\n((?:[ \t]+.*\n?)+)", text, re.MULTILINE)
-    if not block:
-        return
-    values = dict(re.findall(r"^[ \t]+(default|provider|base_url):[ \t]*['\"]?([^'\"\n#]*)", block.group(1),
-                             re.MULTILINE))
-    model, provider = _text(values.get("default")), _text(values.get("provider"), 40)
-    details.model = f"{model} ({provider})" if model and provider else model
-    if values.get("base_url", "").strip():
-        details.providers.append(provider_for_url(provider or "custom", values["base_url"].strip()))
-    # Its own providers (`providers:` → name: {api: URL, models: {id: …}}): the
-    # active one is the model block's provider.
-    block = re.search(r"^providers:[ \t]*\n((?:[ \t]+.*\n?|\n)+)", text, re.MULTILINE)
-    entries = re.split(r"^  (?=[A-Za-z0-9_.-]+:)", block.group(1), flags=re.MULTILINE) if block else []
-    for entry in entries[:50]:
-        name = re.match(r"([A-Za-z0-9_.-]{1,64}):", entry)
-        api = re.search(r"^    (?:api|base_url):[ \t]*['\"]?([^'\"\s#]+)", entry, re.MULTILINE)
-        if not name or not api:
-            continue
-        models = re.search(r"^    models:[ \t]*\n((?:      .*\n?)+)", entry, re.MULTILINE)
-        count = len(re.findall(r"^      [^ \s][^:]*:", models.group(1), re.MULTILINE)) if models else 0
-        if not any(p.name == name.group(1) for p in details.providers):
-            details.providers.append(provider_for_url(name.group(1), api.group(1), count,
-                                                      active=name.group(1) == provider))
-
-
-def dsh(details: Details):
-    """DeepSeek Harness: providers and default model from its web profile's patch."""
-    import dsh_ctl
-    text = _read(dsh_ctl.PATCH) or ""
-    if not dsh_ctl.available() or not text:
-        return
-    provider, model = dsh_ctl.default_model(text)
-    details.model = f"{_text(model)} ({_text(provider, 40)})" if model and provider else _text(model)
-    for name, entry in list(dsh_ctl.providers(text).items())[:50]:
-        if isinstance(entry, dict):
-            details.providers.append(provider_for_url(str(name), entry.get("baseURL"),
-                                                      _model_count(entry.get("models")),
-                                                      active=not provider or name == provider))
-
-
-# OpenClaw's own local providers, used without an entry in models.providers (their usual address).
-OPENCLAW_LOCAL = {"llama-cpp": "http://127.0.0.1:8080/v1", "ollama": "http://127.0.0.1:11434",
-                  "lmstudio": "http://127.0.0.1:1234/v1"}
-
-
-def openclaw(details: Details):
-    """OpenClaw: ~/.openclaw/openclaw.json, agents.defaults.model (a "provider/model" or
-    {primary: …}) and models.providers (custom and local servers). JSON5 with comments is not read."""
-    config = read_json(_expand("~/.openclaw/openclaw.json"))
-    agents = config.get("agents") if isinstance(config.get("agents"), dict) else {}
-    defaults = agents.get("defaults") if isinstance(agents.get("defaults"), dict) else {}
-    chosen = defaults.get("model")
-    primary = _text(chosen.get("primary") if isinstance(chosen, dict) else chosen, 160)
-    provider, _sep, model = primary.partition("/") if "/" in primary else ("", "", primary)
-    provider = _text(provider, 40)
-    details.model = f"{_text(model)} ({provider})" if model and provider else _text(model)
-    models = config.get("models") if isinstance(config.get("models"), dict) else {}
-    providers = models.get("providers") if isinstance(models.get("providers"), dict) else {}
-    for name, entry in list(providers.items())[:50]:
-        if isinstance(entry, dict):
-            details.providers.append(provider_for_url(name, entry.get("baseUrl"), _model_count(entry.get("models")),
-                                                      active=not provider or name == provider))
-    if provider in OPENCLAW_LOCAL and provider not in providers:
-        details.providers.append(provider_for_url(provider, OPENCLAW_LOCAL[provider]))
-
-
-def bionic(details: Details):
-    """LM Studio Bionic runs local models with LM Studio's engine and models
-    (no providers to set up): always LM Studio."""
-    details.providers.append(Provider(name="LM Studio", local=True, runtime="LM Studio", active=True))
 
 
 def activity(command: str) -> tuple:

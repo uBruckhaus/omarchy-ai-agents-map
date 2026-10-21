@@ -16,6 +16,7 @@ def _installer():
 
 
 class Engine(llm_engine.Engine):
+    ports = (5001,)
     start_command = "koboldcpp --admin --routermode"
     gguf_folder = True
     reorganize = True

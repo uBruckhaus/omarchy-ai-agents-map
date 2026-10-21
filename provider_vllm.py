@@ -17,6 +17,7 @@ def _installer():
 
 class Engine(llm_engine.Engine):
     """One model per server, no unloading: freeing GPU memory stops it (the default)."""
+    ports = (8000,)
     start_command = "vllm serve <model>"
     models_page = False                 # its one model is VLLM_MODEL in its env file
 

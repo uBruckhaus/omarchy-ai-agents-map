@@ -197,6 +197,13 @@ class Engine:
         """When the app opens, and after a model was added: bring its own state up to date
         (KoboldCpp: one entry per model file)."""
 
+    # How the provider watcher starts and stops it when it has no user service: one of the watcher's
+    # own controllers (provider_watch.CONTROLS: "lms"), never a command line.
+    watch_control = ""
+
+    # Its usual ports: an agent's provider at this machine on one of them is this local LLM.
+    ports: tuple = ()
+
     # Its own chat uses MCP servers (harnesses.Mcp): read and shown with the agents', never written.
     mcp = None
 

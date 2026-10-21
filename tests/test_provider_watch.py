@@ -60,6 +60,21 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(runtimes, {"ollama": {"service": "ollama", "port": 0}, "kobold": {"service": "k", "port": 5001}})
         self.assertEqual(agents, {})
 
+    def test_a_controller_only_by_name(self):
+        """Without a user service, only a controller the watcher has (never a command line)."""
+        self.path.write_text(json.dumps({"agents": {}, "runtimes": {
+            "lmstudio": {"service": "", "port": 1234, "control": "lms"},
+            "other": {"service": "", "port": 1, "control": "sh -c reboot"},
+            "plain": {"service": "", "port": 2}}}))
+        _agents, runtimes = pw.read_config(self.path)
+        self.assertEqual(runtimes, {"lmstudio": {"service": "", "port": 1234, "control": "lms"}})
+
+    def test_the_engine_names_the_controller(self):
+        inv = FakeInventory([FakeRuntime("lmstudio", "", "127.0.0.1:1234", ["hermes"])])
+        pw.write_config(inv, self.path)
+        _agents, runtimes = pw.read_config(self.path)
+        self.assertEqual(runtimes["lmstudio"]["control"], "lms")
+
 
 class WatcherTest(unittest.TestCase):
     def setUp(self):
@@ -203,7 +218,7 @@ class LmStudioTest(unittest.TestCase):
             with tempfile.TemporaryDirectory() as folder:
                 path = Path(folder) / "c.json"
                 path.write_text(json.dumps({"agents": {"hermes": ["lmstudio"]},
-                                            "runtimes": {"lmstudio": {"service": "", "port": 1234}}}))
+                                            "runtimes": {"lmstudio": {"service": "", "port": 1234, "control": "lms"}}}))
                 calls, state = [], {"now": 0.0, "running": {"hermes"}}
                 watcher = pw.Watcher(path, runner=lambda argv: calls.append(argv[1:]) or True,
                                      clock=lambda: state["now"], agents_now=lambda _n: (set(state["running"]), set()),

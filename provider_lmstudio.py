@@ -57,6 +57,8 @@ def lms_loaded(runner=None) -> dict:
 
 class Engine(llm_engine.Engine):
     """LM Studio has no user service: its own CLI (lms) starts and stops its server and loads models."""
+    ports = (1234,)
+    watch_control = "lms"               # no user service: the watcher runs `lms server start|stop`
     can_load = True
     app_without_server = True
     gguf_folder = True

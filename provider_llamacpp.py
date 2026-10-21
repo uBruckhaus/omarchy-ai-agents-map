@@ -18,6 +18,7 @@ def _installer():
 
 
 class Engine(llm_engine.LlamaRouter):
+    ports = (8080,)
     programs = ("llama-server",)
     start_command = "llama-server --models-dir <folder>"
 

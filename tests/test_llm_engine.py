@@ -18,12 +18,20 @@ import providers  # noqa: E402
 import runtime_ctl  # noqa: E402
 from providers import Provider  # noqa: E402
 
-# Core modules that work through engines only: no provider key may appear in them as a string.
-# Later steps of moving provider knowledge into the providers add their modules here.
-ENGINE_ONLY = ("llm_engine.py", "runtime_ctl.py", "gpu_usage.py", "link_check.py", "model_slots.py",
-               "configure_ctl.py", "traffic.py", "connect.py", "connect_page.py", "model_folders.py",
-               "model_move.py", "disk_usage.py", "health.py", "agent_status.py", "setup_page.py",
-               "settings_pages.py", "models_page.py", "model_layout.py")
+# The core works through engines only: no module names a local LLM (key or name), except the
+# provider modules themselves and these libraries and registries, which the provider modules call
+# or which list the built-ins.
+LIBRARIES = {
+    "providers.py": "the registry (the built-ins' order)",
+    "inventory.py": "detect functions the provider modules call",
+    "install_ctl.py": "installers the provider modules call",
+    "models_ctl.py": "Ollama's library and pull API, called from its provider module",
+    "agent_readers.py": "agents' settings readers (Bionic is LM Studio, OpenClaw's own provider names)",
+    "model_layout.py": "the shared flat model folder keeps its old name (llama.cpp)",
+    "skills_scan.py": "big data folders skipped by name",
+    "previews.py": "made-up pictures for the add-on pages",
+    "i18n.py": "translations", "edition.py": "editions",
+}
 
 
 def string_constants(path: Path) -> set:
@@ -36,11 +44,13 @@ def string_constants(path: Path) -> set:
 
 
 class NoProviderNamesInTheCore(unittest.TestCase):
-    def test_engine_only_modules_name_no_provider(self):
-        keys = {p.key for p in providers.built_in_local()}
-        for name in ENGINE_ONLY:
-            with self.subTest(name):
-                self.assertEqual(string_constants(ROOT / name) & keys, set())
+    def test_the_core_names_no_local_llm(self):
+        names = {p.key for p in providers.built_in_local()} | {p.name for p in providers.built_in_local()}
+        for path in sorted(ROOT.glob("*.py")):
+            if path.name in LIBRARIES or (path.name.startswith("provider_") and path.name != "provider_watch.py"):
+                continue
+            with self.subTest(path.name):
+                self.assertEqual(string_constants(path) & names, set())
 
 
 class FactsTest(unittest.TestCase):

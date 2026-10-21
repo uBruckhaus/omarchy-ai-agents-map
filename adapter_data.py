@@ -94,7 +94,7 @@ INSTALLERS = {"agy": ("install_ctl", "Agy"), "dsh": ("install_ctl", "Dsh"),   # 
               "bionic": ("install_ctl", "Bionic")}
 USAGE = {"pi": ("agent_status", "pi"), "hermes": ("agent_status", "hermes"),      # usage readers the app has
          "opencode": ("agent_status", "opencode")}
-DETAIL_READERS = {name: ("agent_details", function) for name, function in (     # model + providers readers
+DETAIL_READERS = {name: ("agent_readers", function) for name, function in (     # model + providers readers
     ("claude", "claude"), ("codex", "codex"), ("copilot", "copilot"), ("cursor", "cursor"),
     ("opencode", "opencode"), ("pi", "pi_like"), ("hermes", "hermes"), ("dsh", "dsh"), ("openclaw", "openclaw"),
     ("lmstudio-app", "bionic"))}

@@ -93,18 +93,24 @@ def _unload(value) -> dict | None:
     return {"path": value["path"], "body": dict(body)}
 
 
+# How a local LLM without a user service is started and stopped: controllers built in here (the
+# config names one, never a command line).
+CONTROLS = ("lms",)                  # LM Studio's own CLI: `lms server start|stop`
+
+
 def _entry(key, entry) -> dict | None:
-    """A checked {"service": unit, "port": int[, "stays_up": True, "unload": {...}]} for a runtime
-    key, or None."""
+    """A checked {"service": unit, "port": int[, "control": name][, "stays_up": True, "unload": {...}]}
+    for a runtime key, or None."""
     if not isinstance(key, str) or not NAME_RE.fullmatch(key) or not isinstance(entry, dict):
         return None
     service = entry.get("service") if isinstance(entry.get("service"), str) else ""
     port = entry.get("port") if isinstance(entry.get("port"), int) and 0 < entry.get("port") < 65536 else 0
     if service and not UNIT_RE.fullmatch(service):
         return None
-    if not service and key != "lmstudio":
+    control = entry.get("control") if entry.get("control") in CONTROLS else ""
+    if not service and not control:
         return None
-    checked = {"service": service, "port": port}
+    checked = {"service": service, "port": port, **({"control": control} if control else {})}
     unload_request = _unload(entry.get("unload"))
     if entry.get("stays_up") is True and unload_request is not None:
         checked.update(stays_up=True, unload=unload_request)
@@ -139,14 +145,17 @@ def write_config(inventory, path: Path = CONFIG) -> bool:
     connected to). Every connected LLM is listed under "runtimes", so the watcher
     knows how to stop it. Returns True when the file changed."""
     import harnesses      # app side only: the watcher itself never writes its config
+    import llm_engine
     import providers
     self_served = {h.command for h in harnesses.all_harnesses() if h.self_served}
     runtimes, agents = {}, {}
     for rt in inventory.runtimes:
-        if not rt.installed or not rt.agents or not (rt.service or rt.key == "lmstudio"):
+        control = llm_engine.of(rt).watch_control
+        if not rt.installed or not rt.agents or not (rt.service or control):
             continue
         port = rt.address.rpartition(":")[2]
-        runtimes[rt.key] = {"service": rt.service, "port": int(port) if port.isdigit() else 0}
+        runtimes[rt.key] = {"service": rt.service, "port": int(port) if port.isdigit() else 0,
+                            **({"control": control} if control and not rt.service else {})}
         provider = providers.get(rt.key)
         if provider is not None and provider.stays_up and provider.unload:
             runtimes[rt.key].update(stays_up=True, unload={"path": provider.unload[0], "body": provider.unload[1]})
@@ -576,7 +585,7 @@ def _exited(fd: int) -> bool:
 def command(key: str, entry: dict, action: str) -> list | None:
     if entry.get("service"):
         return ["systemctl", "--user", action, f"{entry['service']}.service"]
-    if key == "lmstudio" and lms_binary():
+    if entry.get("control") == "lms" and lms_binary():
         return [lms_binary(), "server", action]
     return None
 
@@ -689,7 +698,7 @@ class Watcher:
         if argv:
             ok = self.run(argv)
             log(f"stop {key} ({why}): {'ok' if ok else 'failed'}")
-            if key == "lmstudio" and not self.lms_was_up:
+            if entry.get("control") == "lms" and not self.lms_was_up:
                 # `lms server start` also started LM Studio's daemon (the app in the background).
                 self.stop_lms(argv[0])
         self.started.pop(key, None)
@@ -704,7 +713,7 @@ class Watcher:
             if key not in self.needed or (key in self.started and now - self.started[key] > RETRY
                                           and not self.started.get(f"{key}:ok")):
                 argv = command(key, self.runtimes[key], "start")
-                if argv and key == "lmstudio" and key not in self.needed:
+                if argv and self.runtimes[key].get("control") == "lms" and key not in self.needed:
                     self.lms_was_up = self.lms_up()
                 if argv:
                     ok = self.run(argv)

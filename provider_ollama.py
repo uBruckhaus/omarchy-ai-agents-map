@@ -16,6 +16,7 @@ def _installer():
 
 
 class Engine(llm_engine.Engine):
+    ports = (11434,)
     programs = ("ollama",)
     start_command = "ollama serve"
     can_load = True

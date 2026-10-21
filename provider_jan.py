@@ -17,6 +17,7 @@ def _installer():
 
 class Engine(llm_engine.LlamaRouter):
     """Jan's engine (jan-llama-worker) answers like llama.cpp's router."""
+    ports = (6767, 1337)
     programs = ("jan-llama-worker", "jan-llama-worke")      # comm is cut to 15 characters
 
     def model_context(self, rt, name):
