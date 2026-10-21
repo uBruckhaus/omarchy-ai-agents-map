@@ -264,9 +264,14 @@ def ollama_manifest(models_root: Path, name: str) -> dict:
         parts = ["registry.ollama.ai", "library", parts[0]]
     elif len(parts) == 2:
         parts = ["registry.ollama.ai", *parts]
-    path = models_root / "manifests" / Path(*parts) / tag
-    if any(p in ("..", "") for p in parts) or ".." in tag:
+    if any(p in ("..", "") for p in parts) or ".." in tag or "/" in tag:
         raise ValueError("bad model name")
+    path = models_root / "manifests" / Path(*parts) / tag
+    if not path.is_file() and parts[0] == "registry.ollama.ai":
+        # Newer Ollama keeps new pulls in manifests-v2/ollama.com/…
+        v2 = models_root / "manifests-v2" / "ollama.com" / Path(*parts[1:]) / tag
+        if v2.is_file():
+            path = v2
     return json.loads(path.read_text(encoding="utf-8")[:1_000_000])
 
 

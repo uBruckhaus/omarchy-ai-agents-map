@@ -170,7 +170,9 @@ def unit_for(binary: str) -> tuple[str, dict]:
                 text += "\n" + (ad._read(extra) or "")
         except OSError:
             pass
-        exec_lines = re.findall(r"^ExecStart=\S*?([^/\s]+)(?:\s|$)", text, re.MULTILINE)
+        # The program may be in double quotes (our installers write it so, see
+        # install_ctl.unit_path) and may carry systemd's -@:+! prefixes.
+        exec_lines = re.findall(r'^ExecStart=[-@:+!]*"?\S*?([^/\s"]+)"?(?:\s|$)', text, re.MULTILINE)
         if binary not in exec_lines:
             continue
         env = {}
@@ -277,27 +279,33 @@ def dedupe_models(names: list[str]) -> list[str]:
     return out[:MAX_ITEMS]
 
 
+OLLAMA_HOSTS = ("registry.ollama.ai", "ollama.com")    # the default registry: no host in the name
+
+
 def ollama_models(root: Path) -> list[str]:
     """name:tag for every manifest (registry.ollama.ai/library/<name>/<tag>; other
-    registries keep their path)."""
-    manifests = root / "manifests"
+    registries keep their path). Newer Ollama keeps new pulls in manifests-v2
+    (ollama.com/library/<name>/<tag>), older ones stay in manifests."""
     names = []
-    try:
-        hosts = sorted(manifests.iterdir())[:20]
-    except OSError:
-        return names
-    for host in hosts:
+    for store in ("manifests", "manifests-v2"):
         try:
-            for owner in sorted(host.iterdir())[:200]:
-                for model in sorted(owner.iterdir())[:MAX_ITEMS]:
-                    for tag in sorted(model.iterdir())[:50]:
-                        prefix = "" if host.name == "registry.ollama.ai" and owner.name == "library" \
-                            else f"{owner.name}/" if host.name == "registry.ollama.ai" else f"{host.name}/{owner.name}/"
-                        names.append(f"{prefix}{model.name}:{tag.name}")
-                        if len(names) >= MAX_ITEMS:
-                            return names
+            hosts = sorted((root / store).iterdir())[:20]
         except OSError:
             continue
+        for host in hosts:
+            try:
+                for owner in sorted(host.iterdir())[:200]:
+                    for model in sorted(owner.iterdir())[:MAX_ITEMS]:
+                        for tag in sorted(model.iterdir())[:50]:
+                            prefix = "" if host.name in OLLAMA_HOSTS and owner.name == "library" \
+                                else f"{owner.name}/" if host.name in OLLAMA_HOSTS else f"{host.name}/{owner.name}/"
+                            name = f"{prefix}{model.name}:{tag.name}"
+                            if name not in names:
+                                names.append(name)
+                            if len(names) >= MAX_ITEMS:
+                                return names
+            except OSError:
+                continue
     return names
 
 
@@ -313,7 +321,7 @@ def ollama(processes) -> Runtime:
     candidates = [Path(os.path.expanduser(folder))] if folder else []
     candidates += [HOME / ".ollama/models", Path("/var/lib/ollama/.ollama/models"), Path("/var/lib/ollama")]
     for path in candidates:
-        if (path / "manifests").is_dir():
+        if (path / "manifests").is_dir() or (path / "manifests-v2").is_dir():
             rt.models_dir = tilde(path)
             rt.models = ollama_models(path)
             break

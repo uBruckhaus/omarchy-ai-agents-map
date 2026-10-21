@@ -130,6 +130,15 @@ class ConnectTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             connect.plan("openclaw", self.rt, "Qwen", use_now=True)
 
+    def test_no_model_known_keeps_the_agents_model(self):
+        # A freshly installed local LLM may not list a model yet: "ollama-local/" would break OpenCode.
+        self.write(".config/opencode/opencode.json", '{"model": "anthropic/claude"}')
+        rt = inventory.Runtime("ollama", "Ollama", True, False, address="127.0.0.1:11434")
+        connect.apply(connect.plan("opencode", rt, "", use_now=True), self.home / "b")
+        data = json.loads((self.home / ".config/opencode/opencode.json").read_text())
+        self.assertIn("ollama-local", data["provider"])
+        self.assertEqual(data["model"], "anthropic/claude")
+
     def test_opencode_new_file_and_undo_deletes_it(self):
         result = connect.plan("opencode", self.rt, "Qwen", use_now=True)
         backup = connect.apply(result, self.home / "b")

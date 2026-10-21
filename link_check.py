@@ -58,6 +58,30 @@ def model_context(rt, name: str) -> int:
     return 0
 
 
+def add_model_step(rt) -> str:
+    """Where a provider's models come from, as one step for the user."""
+    if rt.key == "jan":
+        return _("add one in the Jan app (Hub), or right-click Jan on the map → Models….")
+    if rt.key == "lmstudio":
+        return _("download one in LM Studio (Discover), or right-click LM Studio on the map → Models….")
+    if rt.key == "vllm":
+        return _("vLLM serves one Hugging Face model: write its id into {0} (VLLM_MODEL=…), then start vLLM.") \
+            .format(install_ctl.Vllm.env_file)
+    return _("right-click {0} on the map → Models… and download one that fits your card.").format(rt.name)
+
+
+def start_step(rt, agent_name: str) -> str:
+    """How the user gets a provider running that the map cannot start itself."""
+    if rt.key == "lmstudio":
+        return _("open LM Studio and turn on its server (Developer → Start server) before working with {0}.") \
+            .format(agent_name)
+    commands = {"ollama": "ollama serve", "llamacpp": "llama-server --models-dir <folder>",
+                "vllm": "vllm serve <model>", "koboldcpp": "koboldcpp --admin --routermode"}
+    if rt.key in commands:
+        return _("start it yourself ({0}) before working with {1}.").format(commands[rt.key], agent_name)
+    return _("start it yourself before working with {0}.").format(agent_name)
+
+
 def offered_models(rt) -> list | None:
     """Model ids the running local LLM's OpenAI API lists (lower case), None when it does not answer."""
     reply = gpu_usage.http_json(gpu_usage.port_of(rt), "/v1/models", timeout=3)
@@ -77,12 +101,19 @@ def check_provider(agent: str, agent_name: str, rt, model: str, with_agents: boo
     if not rt.installed:
         hints.append(hint("error", _("{0} is not installed: install it (right-click it on the map).").format(rt.name)))
         return hints
-    if model and model.lower() not in [m.lower() for m in rt.models]:
+    if not rt.models:
+        # Freshly installed: nothing to choose yet. Say where models come from for this one.
+        hints.append(hint("error", _("{0} has no models yet: {1} Then select {2} on the map and click the model.")
+                          .format(rt.name, add_model_step(rt), agent_name)))
+    elif model and model.lower() not in [m.lower() for m in rt.models]:
         hints.append(hint("error", _("{0} does not have the model {1} (any more).").format(rt.name, model)))
+    elif not model and not connect.is_active(agent, rt.key):
+        hints.append(hint("warning", _("{0} does not use a model of {1} yet: select {0} on the map and click one "
+                                       "of {1}'s models.").format(agent_name, rt.name)))
     if not rt.running:
         if not runtime_ctl.can_control(rt):
-            hints.append(hint("error", _("{0} is not running and has no service to start it with {1}: start it "
-                                         "yourself before working with {1}.").format(rt.name, agent_name)))
+            hints.append(hint("error", _("{0} is not running and has no service to start it with {1}: {2}")
+                              .format(rt.name, agent_name, start_step(rt, agent_name))))
         elif not with_agents:
             hints.append(hint("warning", _("{0} is not running, and local LLMs are not started with their agents "
                                            "(Settings): start it before working with {1}.").format(rt.name, agent_name)))

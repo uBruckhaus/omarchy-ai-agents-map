@@ -524,8 +524,9 @@ def agent_checks(agent, info, record: dict, inventory, hints: dict, logged_in: b
             checks.append(Check(problem, _("{0} is not installed").format(p.runtime or p.name), unused,
                                 _("Install it: its card on Setup → Install.")))
         elif not rt.models:
-            checks.append(Check(problem, _("{0} has no models").format(rt.name), unused,
-                                _("Download one: Add model on Setup, or Models… in its menu on the map.")))
+            import link_check
+            step = link_check.add_model_step(rt)
+            checks.append(Check(problem, _("{0} has no models").format(rt.name), unused, step[:1].upper() + step[1:]))
         elif p.active and getattr(rt, "server_off", False):
             checks.append(Check("missing", _("{0}'s server is off").format(rt.name),
                                 _("The app is open, but the agent reaches it only through its server."),

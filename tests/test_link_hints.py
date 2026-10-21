@@ -84,6 +84,26 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(self.levels(hints), ["error", "error", "error", "warning"])
         self.assertIn("8192", hints[-1]["text"])
 
+    def test_freshly_installed_provider_says_what_to_do(self):
+        # No models yet and no model chosen: each provider names its own next step.
+        for key, name, words in (("ollama", "Ollama", "Models…"), ("llamacpp", "llama.cpp", "Models…"),
+                                 ("lmstudio", "LM Studio", "Discover"), ("jan", "Jan", "Jan app"),
+                                 ("koboldcpp", "KoboldCpp", "Models…"), ("vllm", "vLLM", "VLLM_MODEL")):
+            with self.subTest(key), mock.patch.object(link_check.connect, "is_connected", lambda a, k: True):
+                rt = inventory.Runtime(key, name, True, False, service=key, address="127.0.0.1:1")
+                hints = link_check.check_provider("pi", "Pi", rt, "", with_agents=True)
+                self.assertEqual(self.levels(hints), ["error"])
+                self.assertIn(words, hints[0]["text"])
+
+    def test_no_model_chosen_and_no_service_say_how_to_go_on(self):
+        with mock.patch.object(link_check.connect, "is_connected", lambda a, k: True), \
+                mock.patch.object(link_check.connect, "is_active", lambda a, k: False):
+            rt = inventory.Runtime("ollama", "Ollama", True, False, address="127.0.0.1:1", models=["qwen3:8b"])
+            hints = link_check.check_provider("opencode", "OpenCode", rt, "", with_agents=True)
+        self.assertEqual(self.levels(hints), ["warning", "error"])
+        self.assertIn("click one of Ollama's models", hints[0]["text"])
+        self.assertIn("ollama serve", hints[1]["text"])
+
     def test_provider_running_on_a_foreign_port(self):
         with mock.patch.object(link_check.connect, "is_connected", lambda a, k: True), \
                 mock.patch.object(link_check.models_ctl, "loopback_listeners", lambda port: [os.getuid() + 1]), \

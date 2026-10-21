@@ -61,6 +61,50 @@ class InventoryTest(unittest.TestCase):
         self.assertEqual(rt.address, "127.0.0.1:11500")
         self.assertEqual(sorted(rt.models), ["hf.co/someone/model-gguf:Q4", "qwen3:8b"])
 
+    def test_ollama_quoted_exec_start_and_manifests_v2(self):
+        # The installer writes ExecStart="<path>" serve; newer Ollama pulls into manifests-v2.
+        models = self.home / "models"
+        (models / "manifests/registry.ollama.ai/library/qwen3").mkdir(parents=True)
+        (models / "manifests/registry.ollama.ai/library/qwen3/8b").write_text("{}")
+        (models / "manifests-v2/ollama.com/library/gemma4").mkdir(parents=True)
+        (models / "manifests-v2/ollama.com/library/gemma4/latest").write_text("{}")
+        (models / "manifests-v2/ollama.com/library/qwen3").mkdir(parents=True)
+        (models / "manifests-v2/ollama.com/library/qwen3/8b").write_text("{}")
+        self.write("ollama.env", f"OLLAMA_MODELS={models}\n")
+        self.write(".config/systemd/user/ollama.service",
+                   f'[Service]\nEnvironmentFile={self.home}/ollama.env\nExecStart="{self.home}/bin/ollama" serve\n')
+        rt = invmod.ollama([])
+        self.assertEqual(rt.service, "ollama")
+        self.assertEqual(rt.models_dir, invmod.tilde(models))
+        self.assertEqual(sorted(rt.models), ["gemma4:latest", "qwen3:8b"])
+
+    def test_every_installers_service_is_found_while_stopped(self):
+        # A provider freshly installed from the map is stopped: the map must still find its
+        # service (to start it with an agent) and its model folder (to list its models).
+        import install_ctl
+        real = str(install_ctl.HOME)
+        models = self.home / "models"
+        (models / "manifests/registry.ollama.ai/library/qwen3").mkdir(parents=True)
+        (models / "manifests/registry.ollama.ai/library/qwen3/8b").write_text("{}")
+        (models / "Qwen-7B-Q4_K_M.gguf").write_text("")
+        gpu = install_ctl.Gpu("amd", index=0)
+        cases = ((install_ctl.Ollama(), invmod.ollama, True), (install_ctl.LlamaCpp(), invmod.llamacpp, True),
+                 (install_ctl.Vllm(), invmod.vllm, False), (install_ctl.KoboldCpp(), invmod.koboldcpp, True),
+                 (install_ctl.Jan(), invmod.jan, False))
+        for installer, detect, has_folder in cases:
+            with self.subTest(installer.key):
+                unit = installer.unit_text(models).replace(real, str(self.home))
+                self.write(f".config/systemd/user/{installer.service}.service", unit)
+                env = installer.env_text(models, gpu)
+                if env and installer.env_file != install_ctl.HOME:
+                    self.write(str(installer.env_file.relative_to(install_ctl.HOME)), env)
+                rt = detect([])
+                self.assertEqual(rt.service, installer.service)
+                self.assertTrue(rt.installed)
+                self.assertFalse(rt.running)
+                if has_folder:
+                    self.assertEqual(rt.models_dir, invmod.tilde(models))
+
     def test_llamacpp_folder_and_presets_deduplicated(self):
         folder = self.home / "gguf"
         folder.mkdir()

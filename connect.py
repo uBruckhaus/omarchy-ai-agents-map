@@ -188,6 +188,8 @@ def _transform(agent: str, texts: list, runtime, model: str, use_now: bool, remo
     provider = KEYS[runtime.key]
     url = base_url(runtime.address)
     models = chat_models(runtime.models) or ([model] if model else [])
+    # Without a model there is nothing to switch to: "<provider>/" would break the agent.
+    use_now = use_now and bool(model)
     return list(_llm(agent).transform(texts, provider, LABELS[runtime.key], url, models, context, model, use_now,
                                       remove))
 

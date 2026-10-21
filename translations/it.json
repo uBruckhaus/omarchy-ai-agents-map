@@ -2350,5 +2350,15 @@
  ],
  "Reading the moves needs an agent that sees pictures and runs without tools: Claude Code or Pi, signed in or connected to a local vision model.": "Per leggere le mosse serve un agente che veda le immagini e funzioni senza strumenti: Claude Code o Pi, con accesso effettuato o collegato a un modello di visione locale.",
  "Left out: {0}. It can read files on this computer, and a video's text or pictures could ask it to.": "Escluso: {0}. Può leggere file su questo computer, e il testo o le immagini di un video potrebbero chiederglielo.",
- "Only an agent without tools may read a video.": "Solo un agente senza strumenti può leggere un video."
+ "Only an agent without tools may read a video.": "Solo un agente senza strumenti può leggere un video.",
+ "{0} has no models yet: {1} Then select {2} on the map and click the model.": "{0} non ha ancora modelli: {1} Poi seleziona {2} sulla mappa e fai clic sul modello.",
+ "{0} does not use a model of {1} yet: select {0} on the map and click one of {1}'s models.": "{0} non usa ancora un modello di {1}: seleziona {0} sulla mappa e fai clic su uno dei modelli di {1}.",
+ "{0} is not running and has no service to start it with {1}: {2}": "{0} non è in esecuzione e non ha un servizio che lo avvii con {1}: {2}",
+ "add one in the Jan app (Hub), or right-click Jan on the map → Models….": "aggiungine uno nell’app Jan (Hub), oppure clic destro su Jan sulla mappa → Modelli….",
+ "download one in LM Studio (Discover), or right-click LM Studio on the map → Models….": "scaricane uno in LM Studio (Discover), oppure clic destro su LM Studio sulla mappa → Modelli….",
+ "vLLM serves one Hugging Face model: write its id into {0} (VLLM_MODEL=…), then start vLLM.": "vLLM serve un solo modello Hugging Face: scrivi il suo id in {0} (VLLM_MODEL=…), poi avvia vLLM.",
+ "right-click {0} on the map → Models… and download one that fits your card.": "clic destro su {0} sulla mappa → Modelli… e scaricane uno adatto alla tua scheda grafica.",
+ "open LM Studio and turn on its server (Developer → Start server) before working with {0}.": "apri LM Studio e attiva il suo server (Developer → Start server) prima di lavorare con {0}.",
+ "start it yourself ({0}) before working with {1}.": "avvialo tu stesso ({0}) prima di lavorare con {1}.",
+ "start it yourself before working with {0}.": "avvialo tu stesso prima di lavorare con {0}."
 }

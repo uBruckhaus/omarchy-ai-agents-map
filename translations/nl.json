@@ -2350,5 +2350,15 @@
  ],
  "Reading the moves needs an agent that sees pictures and runs without tools: Claude Code or Pi, signed in or connected to a local vision model.": "Om de zetten te lezen is een agent nodig die afbeeldingen ziet en zonder tools werkt: Claude Code of Pi, aangemeld of verbonden met een lokaal vision-model.",
  "Left out: {0}. It can read files on this computer, and a video's text or pictures could ask it to.": "Weggelaten: {0}. Die kan bestanden op deze computer lezen, en de tekst of beelden van een video zouden daarom kunnen vragen.",
- "Only an agent without tools may read a video.": "Alleen een agent zonder tools mag een video lezen."
+ "Only an agent without tools may read a video.": "Alleen een agent zonder tools mag een video lezen.",
+ "{0} has no models yet: {1} Then select {2} on the map and click the model.": "{0} heeft nog geen modellen: {1} Selecteer daarna {2} op de kaart en klik op het model.",
+ "{0} does not use a model of {1} yet: select {0} on the map and click one of {1}'s models.": "{0} gebruikt nog geen model van {1}: selecteer {0} op de kaart en klik op een van de modellen van {1}.",
+ "{0} is not running and has no service to start it with {1}: {2}": "{0} draait niet en heeft geen dienst die het met {1} start: {2}",
+ "add one in the Jan app (Hub), or right-click Jan on the map → Models….": "voeg er een toe in de Jan-app (Hub), of rechtsklik op Jan op de kaart → Modellen….",
+ "download one in LM Studio (Discover), or right-click LM Studio on the map → Models….": "download er een in LM Studio (Discover), of rechtsklik op LM Studio op de kaart → Modellen….",
+ "vLLM serves one Hugging Face model: write its id into {0} (VLLM_MODEL=…), then start vLLM.": "vLLM serveert één Hugging Face-model: zet de id ervan in {0} (VLLM_MODEL=…) en start daarna vLLM.",
+ "right-click {0} on the map → Models… and download one that fits your card.": "rechtsklik op {0} op de kaart → Modellen… en download er een die bij je videokaart past.",
+ "open LM Studio and turn on its server (Developer → Start server) before working with {0}.": "open LM Studio en zet de server aan (Developer → Start server) voordat je met {0} werkt.",
+ "start it yourself ({0}) before working with {1}.": "start het zelf ({0}) voordat je met {1} werkt.",
+ "start it yourself before working with {0}.": "start het zelf voordat je met {0} werkt."
 }
