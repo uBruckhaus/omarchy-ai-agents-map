@@ -241,6 +241,7 @@ LIST_FILE = Path.home() / ".cache/ai-agents-map/mcp-registry.json"
 LIST_MAX_AGE = 12 * 3600
 LIST_MAX_PAGES = 1000         # 100 servers a page, per start (the registry had 30,000+ in 2026-10)
 SAVE_EVERY = 10               # pages between saves (a download cut short goes on from there)
+LIST_PAGE_TIMEOUT = 90        # some pages take the registry 50 s and more
 LIST_MAX_FILE = 96 * 1024 * 1024
 _list_lock = threading.Lock()
 _list_cache = None           # (mtime, the loaded list)
@@ -319,7 +320,7 @@ def refresh_list(path: Path | None = None, now: float | None = None, fetch=None)
             if cursor:
                 params["cursor"] = cursor
             try:
-                data = fetch(f"{API}?{urllib.parse.urlencode(params)}", max_bytes=MAX_BYTES, timeout=30,
+                data = fetch(f"{API}?{urllib.parse.urlencode(params)}", max_bytes=MAX_BYTES, timeout=LIST_PAGE_TIMEOUT,
                              redirects=0, headers={"Accept": "application/json"})
             except Exception:                  # no connection, a timeout, an odd answer: on at the next start
                 if page > 1:
