@@ -38,6 +38,21 @@
  "games": [],
  "effort": [],
  "configure": [],
+ "home": "~/.lmstudio/apps/bionic",
+ "activity": [
+  "~/.lmstudio/apps/bionic/conversations",
+  "~/.lmstudio/apps/bionic/.internal/ng-sessions.sqlite"
+ ],
+ "program_dir": "",
+ "web_search": false,
+ "chat_app": true,
+ "herdr": "",
+ "logout": [],
+ "research": [],
+ "rewrite": [],
+ "tools_setting": [],
+ "sandbox_setting": "",
+ "asks_setting": "",
  "access": {
   "how": "Nothing: it runs models on this computer",
   "login": "",
@@ -54,6 +69,8 @@
  "installer": "Bionic",
  "detect": false,
  "limits": false,
+ "details": true,
+ "models": null,
  "local_llm": null,
  "skills": {
   "dirs": [

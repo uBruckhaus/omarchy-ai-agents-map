@@ -9,6 +9,7 @@ package = "openclaw"
 package_only = true
 homepage = "https://github.com/openclaw/openclaw"
 data = ["~/.openclaw"]
+home = "~/.openclaw"
 
 [[install]]
 kind = "command"
@@ -46,3 +47,6 @@ argv = ["openclaw", "onboard"]
 [[configure]]
 label = "Check its setup"
 argv = ["openclaw", "doctor"]
+
+[details]                              # its model and providers (the agent's card)
+reader = "openclaw"

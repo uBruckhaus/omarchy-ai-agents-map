@@ -22,13 +22,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import desktop
+import harnesses
 from i18n import _, ngettext
 
 GiB = 1024 ** 3
 
-# Agents with their own web search (no MCP server needed for it).
-WEB_AGENTS = {"claude", "codex", "gemini", "grok", "copilot", "cursor-agent"}
-NOT_CODING = {"bionic"}            # chat apps among the agents
 CODER = re.compile(r"cod(e|er|ing)|devstral|starcoder|codestral|swe", re.I)
 VISION = re.compile(r"(^|[-_.\s])(vl|vision|llava|pixtral|minicpm-v|moondream)([-_.\s]|$)|gemma-?[34]|mmproj", re.I)
 IMAGE_GEN = re.compile(r"flux|sdxl|stable-?diffusion|sd[-_]?3|hidream|qwen-?image", re.I)
@@ -317,9 +315,10 @@ def check(agent_list, details: dict, inventory, built, pc: PC, agent_checks: dic
 
     # What you can do with it -----------------------------------------------------------------------
     uses = []
-    coding = [a.name for a in installed if a.command not in NOT_CODING]
+    facts = {a.command: harnesses.get(a.command) for a in installed}
+    coding = [a.name for a in installed if not (facts[a.command] and facts[a.command].chat_app)]
     online = [a.name for a in installed if any(not p.local for p in getattr(details.get(a.command), "providers", []) or [])
-              or a.command in WEB_AGENTS]
+              or (facts[a.command] and facts[a.command].web_search)]
 
     use = UseCase("pc", _("Everyday help on the PC"), "\U000f0379",
                   _("Ask questions, sort files, fix settings, explain errors."))

@@ -5,6 +5,7 @@ label = "Muse Code"
 icon = "U+F06E4"
 spec = "http:muse[url=https://api.meta.ai/muse-launcher.sh,bin=muse]"
 data = ["~/.config/muse"]
+home = "~/.config/muse"
 
 [[install]]
 kind = "mise"

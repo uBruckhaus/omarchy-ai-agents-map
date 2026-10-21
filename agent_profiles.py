@@ -176,19 +176,19 @@ def needs_research(command: str, now: dt.datetime | None = None) -> bool:
 # --- looking it up --------------------------------------------------------------------------------
 
 def researchers(installed) -> list[str]:
-    """Installed agents that can look things up on the web without a prompt, best first."""
-    return [c for c in ("claude", "codex") if c in installed and shutil.which(c)]
+    """Installed agents that can look things up on the web without a prompt (their adapter's
+    research fact: the web and nothing else), in the agent list's order."""
+    import harnesses
+    return [h.command for h in harnesses.all_harnesses()
+            if h.research and h.command in installed and shutil.which(h.command)]
 
 
 def research_command(researcher: str, prompt: str, schema_file: Path) -> list[str]:
+    import harnesses
+    argv = harnesses.get(researcher).research
     binary = shutil.which(researcher) or researcher
-    if researcher == "claude":
-        # Only the two web tools: no shell, no file access, no MCP servers, no session kept.
-        return [binary, "-p", prompt, "--tools", "WebSearch", "WebFetch", "--allowedTools", "WebSearch", "WebFetch",
-                "--strict-mcp-config", "--no-session-persistence", "--disable-slash-commands",
-                "--output-format", "text"]
-    return [binary, "--search", "exec", "--sandbox", "read-only", "--skip-git-repo-check",
-            "--output-schema", str(schema_file), prompt]
+    fill = {"{prompt}": prompt, "{schema}": str(schema_file)}
+    return [binary] + [fill.get(a, a) for a in argv[1:]]
 
 
 def first_json(text: str):
@@ -222,7 +222,7 @@ def research(agent, installed, run=_bounded) -> dict:
     now = dt.datetime.now().isoformat(timespec="seconds")
     found = researchers(installed)
     if not found:
-        result = {"status": "failed", "checked": now, "error": "no agent that can search the web (Claude Code, Codex)"}
+        result = {"status": "failed", "checked": now, "error": "no agent that can search the web"}
         save(agent.command, result)
         return result
     import agents as agents_mod

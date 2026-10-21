@@ -12,6 +12,9 @@ short_model_flag = true
 usage = "hermes"
 homepage = "https://github.com/NousResearch/hermes-agent"
 data = ["~/.hermes"]
+home = "~/.hermes"
+activity = ["~/.hermes/state.db", "~/.hermes/sessions"]
+program_dir = "~/.hermes/hermes-agent"
 
 [[install]]
 kind = "command"
@@ -65,6 +68,7 @@ label = "Setup wizard (account or key)"
 argv = ["hermes", "setup"]
 
 [security]
+asks = "approvals.mode"     # the setting that says when it asks first
 file = "~/.hermes/config.yaml"
 format = "yaml"
 
@@ -117,3 +121,6 @@ argv = ["hermes", "model"]
 [[configure]]
 label = "Check its setup"
 argv = ["hermes", "doctor"]
+
+[details]                              # its model and providers (the agent's card)
+reader = "hermes"

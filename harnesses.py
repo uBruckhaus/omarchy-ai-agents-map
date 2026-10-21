@@ -178,6 +178,23 @@ class Harness:
     games: tuple = ()                 # games it can play through `ask` ("chess"): AI Playground offers them
     effort: tuple = ()                # ((level, options), …): how hard it thinks per Thinking time level
     configure: tuple = ()             # (Configure, …): its own setup commands (Configure… on the map)
+    # where it keeps things, and what it is (the feature modules ask these instead of naming agents)
+    home: str = ""                    # "~/…" folder of its settings (shown in its card)
+    activity: tuple = ()              # "~/…" files and folders whose last change is its last use
+    details: Callable | None = None   # details(agent_details.Details): its model and providers
+    program_dir: str = ""             # "~/…" folder of its program when it is not where mise or PATH say
+    web_search: bool = False          # searches the web itself (no MCP server needed for it)
+    chat_app: bool = False            # a chat app, not a coding agent in a terminal (Bionic)
+    herdr: str = ""                   # herdr's name for it when it is not the command
+    logout: tuple = ()                # argv of its own sign-out (run in a terminal)
+    research: tuple = ()              # argv: one prompt looked up on the web, no other tools
+                                      # ("{prompt}", "{schema}": a JSON schema file for the answer)
+    rewrite: tuple = ()               # argv: the prompt on stdin, no tools at all; "{answer}": the file
+                                      # it writes its answer to (else its output is the answer)
+    models: tuple | None = None       # (choices(current, home), plan(model, home)): its online models
+    tools_setting: tuple = ()         # ("~/…" JSON file, key): the tools it is given
+    sandbox_setting: str = ""         # the security setting that is its sandbox
+    asks_setting: str = ""            # the security setting that says when it asks before acting
 
 
 # --- helpers for the adapters ----------------------------------------------------------------------
@@ -331,9 +348,23 @@ def _extended(harness: Harness) -> Harness:
     return dataclasses.replace(harness, **filled) if filled else harness
 
 
+# Facts newer than add-on API 1: an agent add-on signed before them does not bring them, so the
+# app's own adapter for the same agent gives them until the add-on is signed again.
+NEWER_FACTS = ("home", "activity", "details", "program_dir", "web_search", "chat_app", "herdr", "logout",
+               "research", "rewrite", "models", "tools_setting", "sandbox_setting", "asks_setting")
+
+
+def _with_newer_facts(harness: Harness) -> Harness:
+    own = next((h for h in built_in_adapters() if h.command == harness.command), None)
+    if own is None or own is harness:
+        return harness
+    filled = {n: getattr(own, n) for n in NEWER_FACTS if _empty(harness, n) and not _empty(own, n)}
+    return dataclasses.replace(harness, **filled) if filled else harness
+
+
 def _all() -> tuple:
     if not _CACHE:
-        added = sorted((h for _owner, h in _ADDED), key=_order)
+        added = sorted((_with_newer_facts(h) for _owner, h in _ADDED), key=_order)
         _CACHE.append(tuple(_extended(h) for h in _built_in() + tuple(added)))
     return _CACHE[0]
 

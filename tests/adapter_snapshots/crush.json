@@ -39,6 +39,20 @@
  "games": [],
  "effort": [],
  "configure": [],
+ "home": "~/.config/crush",
+ "activity": [
+  "~/.local/share/crush"
+ ],
+ "program_dir": "",
+ "web_search": false,
+ "chat_app": false,
+ "herdr": "",
+ "logout": [],
+ "research": [],
+ "rewrite": [],
+ "tools_setting": [],
+ "sandbox_setting": "",
+ "asks_setting": "",
  "access": {
   "how": "An API key for a provider, or a local LLM from the map",
   "login": "crush",
@@ -68,6 +82,8 @@
  "installer": null,
  "detect": false,
  "limits": false,
+ "details": false,
+ "models": null,
  "local_llm": null,
  "skills": {
   "dirs": [

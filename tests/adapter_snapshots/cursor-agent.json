@@ -46,6 +46,20 @@
  "games": [],
  "effort": [],
  "configure": [],
+ "home": "~/.cursor",
+ "activity": [
+  "~/.cursor/projects"
+ ],
+ "program_dir": "",
+ "web_search": true,
+ "chat_app": false,
+ "herdr": "cursor",
+ "logout": [],
+ "research": [],
+ "rewrite": [],
+ "tools_setting": [],
+ "sandbox_setting": "sandbox.mode",
+ "asks_setting": "approvalMode",
  "access": {
   "how": "A Cursor account (cursor.com)",
   "login": "cursor-agent login",
@@ -104,7 +118,8 @@
      "bypass"
     ],
     "editable": true,
-    "recommended": "allowlist"
+    "recommended": "allowlist",
+    "warn": []
    },
    {
     "key": "sandbox.mode",
@@ -132,7 +147,8 @@
      "sandbox"
     ],
     "editable": true,
-    "recommended": "enabled"
+    "recommended": "enabled",
+    "warn": []
    },
    {
     "key": "sandbox.networkAccess",
@@ -166,7 +182,8 @@
      "network"
     ],
     "editable": true,
-    "recommended": "user_config_with_defaults"
+    "recommended": "user_config_with_defaults",
+    "warn": []
    },
    {
     "key": "autoAcceptWebSearch",
@@ -194,7 +211,8 @@
      "injection"
     ],
     "editable": true,
-    "recommended": false
+    "recommended": false,
+    "warn": []
    }
   ],
   "rules": [
@@ -217,6 +235,8 @@
  "installer": null,
  "detect": false,
  "limits": false,
+ "details": true,
+ "models": null,
  "local_llm": null,
  "skills": {
   "dirs": [

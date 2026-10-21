@@ -5,6 +5,7 @@ from gi.repository import Adw, GLib, Gtk, Pango
 
 import ai_core
 import connect
+import harnesses
 import mcp_catalog
 import mcp_ctl
 import mcp_library
@@ -25,6 +26,11 @@ from i18n import _, N_, ngettext
 from pathlib import Path
 from ui_helpers import glyph_label, MCP_GLYPHS, MCP_GROUP_GLYPHS, pick_cards, RUN_GLYPHS
 from window_rules import MODEL_LIST_WIDTH
+
+
+def agent_name(command: str) -> str:
+    harness = harnesses.get(command)
+    return harness.name if harness is not None else command
 
 
 class McpPages:
@@ -74,7 +80,7 @@ class McpPages:
               "draw a line on the map from that agent to the server."),
         ])
         names = {a.command: a.name for a in self.agent_list}
-        names["lmstudio"] = "LM Studio"
+        names.update(mcp_ctl.llm_clients())
         for command in server.agents:
             self.section_heading(body, names.get(command, command))
             entry = mcp_ctl.normal(mcp_ctl.raw_entries(command).get(name))
@@ -95,7 +101,8 @@ class McpPages:
     def mcp_rows(command: str, entry) -> list:
         """(label, value, tip) of one agent's entry. Values of env and headers stay hidden."""
         files = mcp_ctl.paths_for(command)
-        file = "~/.claude.json" if command == "claude" else (skills_ctl.tilde(files[0]) if files else "")
+        harness = harnesses.get(command)
+        file = skills_ctl.tilde(files[0]) if files else harness.mcp.path if harness and harness.mcp else ""
         rows = [(_("Settings file"), file, _("Where this agent keeps the server."))]
         if entry is None:
             return rows + [(_("Type"), _("cannot be read"), "")]
@@ -201,7 +208,8 @@ class McpPages:
                 button.set_tooltip_text(_(
                     "Asks the server for its tools, then {0} rewrites the skill to match them (without any "
                     "tools of its own). You see the change first; Undo brings the old skill back.").format(
-                    " / ".join(skill_update.writers(self.installed_commands())) or "Claude Code / Codex"))
+                    " / ".join(agent_name(c) for c in skill_update.writers(self.installed_commands())
+                               or [h.command for h in harnesses.all_harnesses() if h.rewrite])))
                 button.set_sensitive(str(file) not in self.updating_skills
                                      and bool(skill_update.writers(self.installed_commands())))
                 button.connect("clicked", lambda _b, f=file: self.update_skill(server, f))
@@ -237,7 +245,7 @@ class McpPages:
                 GLib.idle_add(done, None, None, tools, tools.get("error", ""))
                 return
             GLib.idle_add(say, _("{0} rewrites the skill (this can take a few minutes)…").format(
-                " / ".join(skill_update.writers(installed))))
+                " / ".join(agent_name(c) for c in skill_update.writers(installed))))
             try:
                 old = file.read_text(encoding="utf-8")
                 new, writer = skill_update.rewrite(file, name, tools, installed)
@@ -277,7 +285,7 @@ class McpPages:
         self.connect_intro.set_label(_(
             "{0} rewrote {1} to match the tools {2} offers now ({3}). Read the change before you take it: it "
             "was written by an AI. Undo brings the old skill back.").format(
-            {"claude": "Claude Code", "codex": "Codex"}.get(writer, writer), skills_ctl.tilde(file),
+            agent_name(writer), skills_ctl.tilde(file),
             server, tools.get("server") or server))
         self.update_connect_preview()
         self.show_page("connect")

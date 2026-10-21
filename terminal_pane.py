@@ -28,7 +28,6 @@ from i18n import _  # noqa: E402
 _VTE = None
 
 # Agents that are programs with a window of their own, not a terminal program.
-NOT_CLI = {"bionic"}
 FONT = "JetBrainsMono Nerd Font, Symbols Nerd Font, monospace 11"
 # The 16 terminal colours: color0…color15 when the theme has them, else Omarchy's names.
 ANSI = (("dark_background", "#1e1e2e"), ("red", "#f38ba8"), ("green", "#a6e3a1"), ("yellow", "#f9e2af"),
@@ -62,7 +61,9 @@ def vte():
 
 def program(command: str) -> str | None:
     """The agent's program on PATH, or None (a GUI app, or not installed)."""
-    if command in NOT_CLI:
+    import harnesses
+    harness = harnesses.get(command)
+    if harness is not None and harness.chat_app:       # a chat app, no program for a terminal
         return None
     return shutil.which(command)
 

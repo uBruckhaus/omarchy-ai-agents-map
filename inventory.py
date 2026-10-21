@@ -16,6 +16,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import agent_details as ad
+import harnesses
 import mcp_ctl
 import providers
 import skills_ctl
@@ -559,10 +560,12 @@ def servers_in(mapping) -> list[tuple[str, str, str]]:
 
 def mcp_for(command: str) -> list[tuple[str, str, str]]:
     found = servers_in(mcp_ctl.raw_entries(command))
-    if command == "hermes" and not found:
-        # Without PyYAML: at least the names.
-        text = ad._read(Path(os.path.expanduser("~/.hermes/config.yaml"))) or ""
-        block = re.search(r"^mcp_servers:[ \t]*\n((?:[ \t]+.*\n?|\n)+)", text, re.MULTILINE)
+    harness = harnesses.get(command)
+    spec = harness.mcp if harness is not None else None
+    if not found and spec is not None and spec.format == "yaml" and spec.path:
+        # Without PyYAML: at least the names under its key.
+        text = ad._read(Path(os.path.expanduser(spec.path))) or ""
+        block = re.search(rf"^{re.escape(spec.key)}:[ \t]*\n((?:[ \t]+.*\n?|\n)+)", text, re.MULTILINE)
         names = re.findall(r"^  ([A-Za-z0-9_.-]{1,64}):", block.group(1), re.MULTILINE) if block else []
         return [(n, "", "") for n in names[:100]]
     return found
@@ -657,15 +660,17 @@ def collect(agent_list) -> Inventory:
                 if key not in paths:
                     paths.append(key)
         inv.agent_skills[command] = paths
-        tools = ad.read_json(Path(os.path.expanduser(f"~/.{command}/agent/settings.json"))).get("defaultTools") \
-            if command in ("pi", "omp") else None
+        harness = harnesses.get(command)
+        setting = harness.tools_setting if harness is not None else ()
+        tools = ad.read_json(Path(os.path.expanduser(setting[0]))).get(setting[1]) if setting else None
         if isinstance(tools, list):
             inv.agent_tools[command] = [clean(t) for t in tools[:50] if clean(t)]
-    # LM Studio has MCP servers of its own (its chat uses them).
-    for name, kind, target in servers_in(ad.read_json(HOME / ".lmstudio/mcp.json").get("mcpServers")):
-        server = servers.setdefault(name, McpServer(name, kind, target))
-        if "lmstudio" not in server.agents:
-            server.agents.append("lmstudio")
+    # Local LLMs with MCP servers of their own (their chat uses them, e.g. LM Studio).
+    for key in mcp_ctl.llm_clients():
+        for name, kind, target in servers_in(mcp_ctl.raw_entries(key)):
+            server = servers.setdefault(name, McpServer(name, kind, target))
+            if key not in server.agents:
+                server.agents.append(key)
     # The servers AI Agents Map knows: remember what is in use, list the rest too (no agents).
     import mcp_library
     used = {}

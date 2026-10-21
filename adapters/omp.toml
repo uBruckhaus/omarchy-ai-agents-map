@@ -8,6 +8,8 @@ icon_font = "omarchy"
 spec = "github:can1357/oh-my-pi"
 homepage = "https://github.com/can1357/oh-my-pi"
 data = ["~/.omp"]
+home = "~/.omp"
+activity = ["~/.omp/agent/sessions"]
 
 [[install]]
 kind = "mise"
@@ -30,3 +32,11 @@ shape = "omp"
 [[configure]]
 label = "Setup wizard"
 argv = ["omp", "setup"]
+
+[details]                              # its model and providers (the agent's card)
+reader = "pi"
+dir = "~/.omp/agent"
+
+[tools]                                # the tools it is given
+file = "~/.omp/agent/settings.json"
+key = "defaultTools"

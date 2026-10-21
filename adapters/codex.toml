@@ -7,6 +7,9 @@ icon_font = "omarchy"
 short_model_flag = true
 homepage = "https://github.com/openai/codex"
 data = ["~/.codex"]
+home = "~/.codex"
+activity = ["~/.codex/history.jsonl", "~/.codex/sessions", "~/.codex/state_5.sqlite"]
+web_search = true                      # searches the web itself (no MCP server needed)
 
 [[install]]
 kind = "mise"
@@ -29,6 +32,7 @@ effort = { quick = ["-c", "model_reasoning_effort=low"], normal = ["-c", "model_
 note = "read-only sandbox, no session kept"
 
 [access]
+logout = ["codex", "logout"]     # its own sign-out, in a terminal
 how = "A ChatGPT plan (Plus, Pro, Business), or an API key from platform.openai.com"
 login = "codex login"
 files = [".codex/auth.json"]
@@ -45,6 +49,8 @@ url = "https://platform.openai.com/api-keys"
 stdin = ["codex", "login", "--with-api-key"]
 
 [security]
+sandbox = "sandbox_mode"                  # the setting that is its sandbox
+asks = "approval_policy"     # the setting that says when it asks first
 file = "~/.codex/config.toml"
 format = "toml"
 
@@ -96,3 +102,16 @@ keys_where = { trust_level = "trusted" }
 [[configure]]
 label = "Check its setup"
 argv = ["codex", "doctor"]
+
+[details]                              # its model and providers (the agent's card)
+reader = "codex"
+
+[models]                               # the online models the map can switch it to
+reader = "codex"
+
+[research]                             # a web look-up (Add skills, MCP): read-only sandbox, the answer as JSON
+argv = ["codex", "--search", "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--output-schema", "{schema}",
+        "{prompt}"]
+
+[rewrite]                              # a skill rewritten for an MCP server: read-only, the prompt on stdin
+argv = ["codex", "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--output-last-message", "{answer}", "-"]

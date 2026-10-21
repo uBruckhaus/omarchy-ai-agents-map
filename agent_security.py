@@ -56,6 +56,7 @@ class Setting:
     terms: tuple = ()         # glossary words this setting uses
     editable: bool = True
     recommended: object = None
+    warn: tuple = ()          # (title, why, what lowers it): a low risk while a risk-1 choice is set
 
     def value(self):
         return self.default if self.current is None else self.current
@@ -247,30 +248,24 @@ def _setting(report: Report, key: str):
     return next((s for s in report.settings if s.key == key), None)
 
 
-def _risk_of(report: Report, key: str) -> int:
-    setting = _setting(report, key)
-    return setting.choice().risk if setting else -1
-
-
 def risks(report: Report, mcp_servers: int = 0) -> list:
     """What the settings mean together, most serious first, each with what lowers it."""
+    import harnesses
     found = []
-    agent = report.agent
-    sandbox_key = {"claude": "sandbox.enabled", "codex": "sandbox_mode", "cursor-agent": "sandbox.mode"}.get(agent)
+    harness = harnesses.get(report.agent)
+    sandbox_key = harness.sandbox_setting if harness is not None else ""
     sandbox = _setting(report, sandbox_key) if sandbox_key else None
     sandboxed = sandbox is not None and sandbox.value() in (True, "enabled", "read-only", "workspace-write")
-    asks_key = {"claude": "permissions.defaultMode", "codex": "approval_policy", "copilot": "defaultPermissionMode",
-                "cursor-agent": "approvalMode", "hermes": "approvals.mode", "opencode": "permission.bash",
-                "pi": "defaultTools"}.get(agent)
+    asks_key = harness.asks_setting if harness is not None else ""
     asks = _setting(report, asks_key) if asks_key else None
     if asks is not None and asks.choice().risk >= 3:
         found.append(Risk("high", _("Runs commands without asking"), _(
             "{0}: a wrong command or a prompt injection is carried out at once, with your rights.").format(
                 asks.choice().label),
             _("Let it ask first, or use this only in a container or virtual machine."), asks.key, asks.recommended))
-    if agent == "codex" and _risk_of(report, "sandbox_mode") == 3:
+    if sandbox is not None and sandbox.choice().risk >= 3:
         found.append(Risk("high", _("No sandbox"), _("Commands may change anything in your home folder."),
-                          _("Use the project-folder sandbox."), "sandbox_mode", "workspace-write"))
+                          _("Use the project-folder sandbox."), sandbox_key, sandbox.recommended))
     elif sandbox_key and not sandboxed and asks is not None and asks.choice().risk >= 2:
         found.append(Risk("medium", _("Acts on its own without a sandbox"), _(
             "It may do things without asking, and nothing fences in what the commands touch."),
@@ -278,6 +273,8 @@ def risks(report: Report, mcp_servers: int = 0) -> list:
     for setting in report.settings:
         if setting.key in (asks_key, sandbox_key):
             continue
+        if setting.warn and setting.choice().risk == 1:
+            continue                      # below, after the rules (as low risks)
         if setting.choice().risk >= 2 and setting.editable:
             found.append(Risk("medium", setting.title, setting.choice().explain,
                               _("Choose “{0}”.").format(next(
@@ -288,10 +285,8 @@ def risks(report: Report, mcp_servers: int = 0) -> list:
             found.append(Risk("high", _("Every shell command allowed"), _(
                 "An allow rule lets any command run without asking."), _(
                 "Allow single commands such as Bash(git status) instead.")))
-    if agent == "claude" and _risk_of(report, "permissions.disableBypassPermissionsMode") == 1:
-        found.append(Risk("low", _("Bypass mode can be switched on"), _(
-            "Starting it with --dangerously-skip-permissions switches every check off."),
-            _("Block bypass mode."), "permissions.disableBypassPermissionsMode", "disable"))
+    found += [Risk("low", *s.warn, s.key, s.recommended) for s in report.settings
+              if s.warn and s.choice().risk == 1]
     if mcp_servers:
         found.append(Risk("low", ngettext("1 MCP server", "{0} MCP servers", mcp_servers).format(mcp_servers), _(
             "Each runs as you and gives the agent more tools; one that is compromised can read or change "

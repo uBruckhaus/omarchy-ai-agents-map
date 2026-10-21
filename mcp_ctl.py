@@ -37,7 +37,6 @@ def _rebuild():
 _rebuild()
 harnesses.on_change(_rebuild)
 
-LMSTUDIO_FILE = HOME / ".lmstudio/mcp.json"     # LM Studio (a local LLM) keeps MCP servers too
 NAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 
 
@@ -45,6 +44,24 @@ def _spec(agent: str):
     """The agent's harnesses.Mcp, or None (unknown agent, or set up in its own app)."""
     h = harnesses.get(agent)
     return h.mcp if h is not None and h.mcp is not None and not h.mcp.in_app else None
+
+
+def llm_clients() -> dict:
+    """{key: name} of the local LLMs whose own chat uses MCP servers (read only, never written)."""
+    import llm_engine
+    import providers
+    return {p.key: p.name for p in providers.local() if llm_engine.of(p.key).mcp is not None}
+
+
+def _read_spec(agent: str):
+    """Where to read the servers: an agent's, or a local LLM's own (its engine's mcp)."""
+    spec = _spec(agent)
+    if spec is None and harnesses.get(agent) is None:
+        import llm_engine
+        import providers
+        if providers.get(agent) is not None:
+            spec = llm_engine.of(agent).mcp
+    return spec
 
 
 def supported(agent: str) -> bool:
@@ -57,9 +74,7 @@ def _expand(path: str) -> Path:
 
 
 def paths_for(agent: str) -> list[Path]:
-    if agent == "lmstudio":
-        return [LMSTUDIO_FILE]
-    spec = _spec(agent)
+    spec = _read_spec(agent)
     if spec is None:
         profile = agent_profiles.mcp_profile(agent)
         return [_expand(profile["file"])] if profile else []
@@ -133,10 +148,8 @@ def _profile_entries(profile: dict):
 
 def raw_entries(agent: str) -> dict:
     """name -> the agent's own entry (as stored), enabled or not."""
-    spec = _spec(agent)
-    if agent == "lmstudio":
-        found = _read_json(LMSTUDIO_FILE).get("mcpServers")
-    elif spec is None:
+    spec = _read_spec(agent)
+    if spec is None:
         profile = agent_profiles.mcp_profile(agent)
         found = _profile_entries(profile) if profile else None
     elif spec.format == "claude":

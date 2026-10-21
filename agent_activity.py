@@ -7,7 +7,7 @@ An agent counts as working when any of these says so (all read-only, cheap, ever
   idle at its prompt): the CPU time of its processes and their finished children, from
   /proc/<pid>/stat of this user's own processes;
 - its session files were written in the last few seconds (each answer and tool call is
-  appended there; agent_details.ACTIVITY lists where);
+  appended there; its adapter's activity fact lists where);
 - the local LLM it uses now is generating (the graphics card is busy with a loaded model).
 """
 
@@ -71,7 +71,7 @@ class Activity:
             if "working" in states or agent in generating_for or shares.get(agent, 0) >= CPU_BUSY:
                 busy.add(agent)
                 continue
-            newest = agent_details.newest_mtime(agent_details.ACTIVITY.get(agent, []))
+            newest = agent_details.newest_mtime(list(agent_details.activity(agent)))
             if newest is not None and wall - newest.timestamp() <= RECENT:
                 busy.add(agent)
         return busy

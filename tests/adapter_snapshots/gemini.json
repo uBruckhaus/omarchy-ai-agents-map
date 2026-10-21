@@ -38,6 +38,20 @@
  "games": [],
  "effort": [],
  "configure": [],
+ "home": "~/.gemini",
+ "activity": [
+  "~/.gemini/tmp"
+ ],
+ "program_dir": "",
+ "web_search": true,
+ "chat_app": false,
+ "herdr": "",
+ "logout": [],
+ "research": [],
+ "rewrite": [],
+ "tools_setting": [],
+ "sandbox_setting": "",
+ "asks_setting": "",
  "access": {
   "how": "A Google account (free tier), or an API key from aistudio.google.com",
   "login": "gemini",
@@ -73,6 +87,8 @@
  "installer": null,
  "detect": false,
  "limits": false,
+ "details": false,
+ "models": null,
  "local_llm": null,
  "skills": {
   "dirs": [

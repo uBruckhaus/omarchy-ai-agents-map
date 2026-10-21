@@ -38,6 +38,20 @@
  "games": [],
  "effort": [],
  "configure": [],
+ "home": "~/.copilot",
+ "activity": [
+  "~/.copilot/session-state"
+ ],
+ "program_dir": "",
+ "web_search": true,
+ "chat_app": false,
+ "herdr": "",
+ "logout": [],
+ "research": [],
+ "rewrite": [],
+ "tools_setting": [],
+ "sandbox_setting": "",
+ "asks_setting": "defaultPermissionMode",
  "access": {
   "how": "A GitHub Copilot subscription (github.com/features/copilot)",
   "login": "copilot  →  /login",
@@ -96,7 +110,8 @@
      "bypass"
     ],
     "editable": true,
-    "recommended": "manual"
+    "recommended": "manual",
+    "warn": []
    }
   ],
   "rules": [
@@ -126,6 +141,8 @@
  "installer": null,
  "detect": false,
  "limits": false,
+ "details": true,
+ "models": null,
  "local_llm": null,
  "skills": {
   "dirs": [

@@ -38,6 +38,20 @@
  "games": [],
  "effort": [],
  "configure": [],
+ "home": "~/.dsh",
+ "activity": [
+  "~/.dsh/sessions"
+ ],
+ "program_dir": "",
+ "web_search": false,
+ "chat_app": false,
+ "herdr": "",
+ "logout": [],
+ "research": [],
+ "rewrite": [],
+ "tools_setting": [],
+ "sandbox_setting": "",
+ "asks_setting": "",
  "access": {
   "how": "An API key from platform.deepseek.com, or a local LLM from the map",
   "login": "dsh web",
@@ -58,6 +72,8 @@
  "installer": "Dsh",
  "detect": false,
  "limits": false,
+ "details": true,
+ "models": null,
  "local_llm": {
   "files": [
    "~/.dsh/profiles/web/cordis.patch.yml"

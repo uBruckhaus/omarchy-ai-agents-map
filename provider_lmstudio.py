@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 
 import llm_engine
-from harnesses import Configure, Way
+from harnesses import Configure, Mcp, Way
 from providers import Provider
 
 
@@ -63,6 +63,7 @@ class Engine(llm_engine.Engine):
     gguf_layout = "publisher"           # publisher/repo/file, as LM Studio downloads them
     reorganize = True
     models_root_rank = 0                # its folder first, when the app looks for one folder of all models
+    mcp = Mcp(path="~/.lmstudio/mcp.json")      # its chat's MCP servers
     download = "file"
     removable = "file"
     context_settable = True

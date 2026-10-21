@@ -8,6 +8,8 @@ installer = "dsh"
 offered = false
 homepage = "https://www.npmjs.com/package/@deepseek-ai/dsh"
 data = ["~/.dsh"]
+home = "~/.dsh"
+activity = ["~/.dsh/sessions"]
 
 [[install]]
 kind = "installer"
@@ -34,3 +36,6 @@ login = "dsh web"
 files = [".dsh/.credentials.yaml"]
 env = ["DEEPSEEK_API_KEY"]
 local_ok = true
+
+[details]                              # its model and providers (the agent's card)
+reader = "dsh"

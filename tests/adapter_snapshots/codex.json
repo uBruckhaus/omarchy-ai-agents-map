@@ -89,6 +89,44 @@
    "window": false
   }
  ],
+ "home": "~/.codex",
+ "activity": [
+  "~/.codex/history.jsonl",
+  "~/.codex/sessions",
+  "~/.codex/state_5.sqlite"
+ ],
+ "program_dir": "",
+ "web_search": true,
+ "chat_app": false,
+ "herdr": "",
+ "logout": [
+  "codex",
+  "logout"
+ ],
+ "research": [
+  "codex",
+  "--search",
+  "exec",
+  "--sandbox",
+  "read-only",
+  "--skip-git-repo-check",
+  "--output-schema",
+  "{schema}",
+  "{prompt}"
+ ],
+ "rewrite": [
+  "codex",
+  "exec",
+  "--sandbox",
+  "read-only",
+  "--skip-git-repo-check",
+  "--output-last-message",
+  "{answer}",
+  "-"
+ ],
+ "tools_setting": [],
+ "sandbox_setting": "sandbox_mode",
+ "asks_setting": "approval_policy",
  "access": {
   "how": "A ChatGPT plan (Plus, Pro, Business), or an API key from platform.openai.com",
   "login": "codex login",
@@ -160,7 +198,8 @@
      "approval"
     ],
     "editable": true,
-    "recommended": "on-request"
+    "recommended": "on-request",
+    "warn": []
    },
    {
     "key": "sandbox_mode",
@@ -194,7 +233,8 @@
      "sandbox"
     ],
     "editable": true,
-    "recommended": "workspace-write"
+    "recommended": "workspace-write",
+    "warn": []
    },
    {
     "key": "sandbox_workspace_write.network_access",
@@ -222,7 +262,8 @@
      "network"
     ],
     "editable": true,
-    "recommended": false
+    "recommended": false,
+    "warn": []
    }
   ],
   "rules": [
@@ -245,6 +286,11 @@
  "installer": null,
  "detect": false,
  "limits": false,
+ "details": true,
+ "models": [
+  "online_models.codex_choices",
+  "online_models.codex_plan"
+ ],
  "local_llm": null,
  "skills": {
   "dirs": [

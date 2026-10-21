@@ -38,29 +38,6 @@ LOCAL_PORTS = {8080: "llama.cpp", 11434: "Ollama", 1234: "LM Studio", 8000: "vLL
                5001: "KoboldCpp"}
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
 
-# Where each agent keeps its settings (shown in the card) and its sessions.
-CONFIG_DIRS = {
-    "claude": "~/.claude", "codex": "~/.codex", "copilot": "~/.copilot", "cursor-agent": "~/.cursor",
-    "opencode": "~/.config/opencode", "pi": "~/.pi/agent", "omp": "~/.omp", "hermes": "~/.hermes",
-    "muse": "~/.config/muse", "crush": "~/.config/crush", "gemini": "~/.gemini", "grok": "~/.grok",
-    "openclaw": "~/.openclaw", "dsh": "~/.dsh", "bionic": "~/.lmstudio/apps/bionic",
-}
-ACTIVITY = {
-    "claude": ["~/.claude/history.jsonl", "~/.claude/projects"],
-    "codex": ["~/.codex/history.jsonl", "~/.codex/sessions", "~/.codex/state_5.sqlite"],
-    "copilot": ["~/.copilot/session-state"],
-    "cursor-agent": ["~/.cursor/projects"],
-    "opencode": ["~/.local/share/opencode/opencode.db"],
-    "pi": ["~/.pi/agent/sessions"],
-    "omp": ["~/.omp/agent/sessions"],
-    "hermes": ["~/.hermes/state.db", "~/.hermes/sessions"],
-    "gemini": ["~/.gemini/tmp"],
-    "crush": ["~/.local/share/crush"],
-    "dsh": ["~/.dsh/sessions"],
-    "bionic": ["~/.lmstudio/apps/bionic/conversations", "~/.lmstudio/apps/bionic/.internal/ng-sessions.sqlite"],
-}
-
-
 @dataclass
 class Provider:
     name: str
@@ -186,8 +163,9 @@ def _model_count(value) -> int:
     return 0
 
 
-def pi_like(config_dir: Path, details: Details):
+def pi_like(config_dir, details: Details):
     """pi and Oh My Pi: settings.json (default provider/model) and models.json (custom providers)."""
+    config_dir = _expand(str(config_dir))
     settings = read_json(config_dir / "settings.json")
     model, provider = _text(settings.get("defaultModel")), _text(settings.get("defaultProvider"), 40)
     details.model = f"{model} ({provider})" if model and provider else model
@@ -324,11 +302,11 @@ def bionic(details: Details):
     details.providers.append(Provider(name="LM Studio", local=True, runtime="LM Studio", active=True))
 
 
-READERS = {
-    "claude": claude, "codex": codex, "copilot": copilot, "cursor-agent": cursor, "opencode": opencode,
-    "pi": lambda d: pi_like(_expand("~/.pi/agent"), d), "omp": lambda d: pi_like(_expand("~/.omp/agent"), d),
-    "hermes": hermes, "dsh": dsh, "bionic": bionic, "openclaw": openclaw,
-}
+def activity(command: str) -> tuple:
+    """Where the agent's last use shows (its adapter's activity files and folders)."""
+    import harnesses
+    harness = harnesses.get(command)
+    return harness.activity if harness is not None else ()
 
 
 # --- usage (Omarchy's records) -------------------------------------------------
@@ -480,18 +458,17 @@ def battery_tip(limits) -> str:
 # --- all together --------------------------------------------------------------
 
 def details_for(command: str, usage_dir: Path = USAGE_DIR) -> Details:
+    import harnesses
     details = Details()
-    reader = READERS.get(command)
-    if reader is not None:
+    harness = harnesses.get(command)
+    if harness is not None and harness.details is not None:
         try:
-            reader(details)
+            harness.details(details)
         except (OSError, ValueError, TypeError, AttributeError):
             pass
     apply_usage(details, usage_record(command, usage_dir))
     if not details.limits:
         # The agent's own store (an adapter's or an extension's limits() fact): plan and limits.
-        import harnesses
-        harness = harnesses.get(command)
         if harness is not None and harness.limits is not None:
             try:
                 plan, limits = harness.limits()
@@ -499,7 +476,7 @@ def details_for(command: str, usage_dir: Path = USAGE_DIR) -> Details:
                 details.limits = [x for x in limits if isinstance(x, Limit)][:8]
             except Exception:      # a store in a format we do not know: no limits, no crash
                 pass
-    details.last_used = newest_mtime(ACTIVITY.get(command, []))
-    config = CONFIG_DIRS.get(command, "")
+    details.last_used = newest_mtime(list(activity(command)))
+    config = harness.home if harness is not None else ""
     details.config_dir = config if config and _expand(config).exists() else ""
     return details

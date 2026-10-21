@@ -91,6 +91,50 @@
    "window": false
   }
  ],
+ "home": "~/.claude",
+ "activity": [
+  "~/.claude/history.jsonl",
+  "~/.claude/projects"
+ ],
+ "program_dir": "",
+ "web_search": true,
+ "chat_app": false,
+ "herdr": "",
+ "logout": [
+  "claude",
+  "auth",
+  "logout"
+ ],
+ "research": [
+  "claude",
+  "-p",
+  "{prompt}",
+  "--tools",
+  "WebSearch",
+  "WebFetch",
+  "--allowedTools",
+  "WebSearch",
+  "WebFetch",
+  "--strict-mcp-config",
+  "--no-session-persistence",
+  "--disable-slash-commands",
+  "--output-format",
+  "text"
+ ],
+ "rewrite": [
+  "claude",
+  "-p",
+  "--tools",
+  "",
+  "--strict-mcp-config",
+  "--no-session-persistence",
+  "--disable-slash-commands",
+  "--output-format",
+  "text"
+ ],
+ "tools_setting": [],
+ "sandbox_setting": "sandbox.enabled",
+ "asks_setting": "permissions.defaultMode",
  "access": {
   "how": "A Claude Pro or Max subscription (claude.ai), or an API key from console.anthropic.com",
   "login": "claude auth login",
@@ -179,7 +223,8 @@
      "bypass"
     ],
     "editable": true,
-    "recommended": "default"
+    "recommended": "default",
+    "warn": []
    },
    {
     "key": "sandbox.enabled",
@@ -208,7 +253,8 @@
      "network"
     ],
     "editable": true,
-    "recommended": true
+    "recommended": true,
+    "warn": []
    },
    {
     "key": "permissions.disableBypassPermissionsMode",
@@ -236,7 +282,12 @@
      "bypass"
     ],
     "editable": true,
-    "recommended": "disable"
+    "recommended": "disable",
+    "warn": [
+     "Bypass mode can be switched on",
+     "Starting it with --dangerously-skip-permissions switches every check off.",
+     "Block bypass mode."
+    ]
    }
   ],
   "rules": [
@@ -269,6 +320,11 @@
  "installer": null,
  "detect": false,
  "limits": false,
+ "details": true,
+ "models": [
+  "online_models.claude_choices",
+  "online_models.claude_plan"
+ ],
  "local_llm": null,
  "skills": {
   "dirs": [

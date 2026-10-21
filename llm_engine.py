@@ -197,6 +197,9 @@ class Engine:
         """When the app opens, and after a model was added: bring its own state up to date
         (KoboldCpp: one entry per model file)."""
 
+    # Its own chat uses MCP servers (harnesses.Mcp): read and shown with the agents', never written.
+    mcp = None
+
     # --- the Models page: adding, removing and tuning its models ----------------------------------
     download = ""               # "file": GGUF files into its folder; "pull": its own download; "": not here
     removable = ""              # "file": its files to the trash; "api": its own delete; "": in its own app

@@ -33,14 +33,17 @@ STR, BOOL, INT, STRS, TABLE, TABLES = "text", "true/false", "a number", "a list 
 TABLE_OR_HOOK, HOOK = "a table or \"hook\"", "\"hook\""
 # The hooks' fixed names: the functions a hook file may give, each used where the TOML says "hook".
 HOOKS = ("sessions", "security", "local_llm_connected", "local_llm_active", "local_llm_transform",
-         "skills_listed", "skills_write", "mcp_read", "mcp_write", "mcp_native")
+         "skills_listed", "skills_write", "mcp_read", "mcp_write", "mcp_native", "details",
+         "models_choices", "models_plan")
 
 TOP = {"command": STR, "name": STR, "label": STR, "full_name": STR, "icon": STR, "icon_font": STR,
        "spec": STR, "package": STR, "package_only": BOOL, "own_install_counts": BOOL, "short_version": BOOL,
        "offered": BOOL, "short_model_flag": BOOL, "fixed_provider": STR, "self_served": BOOL, "homepage": STR,
        "data": STRS, "install": TABLES, "update": TABLE, "sessions": TABLE, "skills": TABLE, "mcp": TABLE,
        "access": TABLE, "security": TABLE, "login_status": TABLE, "installer": STR, "usage": STR,
-       "local_llm": TABLE, "ask": TABLE, "configure": TABLES}
+       "local_llm": TABLE, "ask": TABLE, "configure": TABLES, "home": STR, "activity": STRS, "details": TABLE,
+       "program_dir": STR, "web_search": BOOL, "chat_app": BOOL, "herdr": STR, "research": TABLE, "rewrite": TABLE,
+       "models": TABLE, "tools": TABLE}
 WAY = {"kind": STR, "spec": STR, "tool": STR, "argv": STRS, "sudo": BOOL, "url": STR, "note": STR,
        "update": STRS, "packages": "a list of [manager, name]"}
 UPDATE = {"self": STRS, "latest": STR}
@@ -52,6 +55,12 @@ GAMES = ("chess",)
 # hard the model thinks (ask.effort), put in before the prompt.
 THINKING = ("quick", "normal", "deep", "max")
 SESSIONS = {"reader": STR, "hook": BOOL, "note": STR, "note_args": STRS}
+DETAILS = {"reader": STR, "dir": STR, "hook": BOOL}     # its model and providers, read from its settings
+MODELS = {"reader": STR, "hook": BOOL}                  # the online models it can be switched to
+TOOLS = {"file": STR, "key": STR}                       # the tools it is given (a JSON list)
+# One prompt with no tools but the web (research: Add skills and MCP look-ups), or none at all
+# (rewrite: a skill rewritten for an MCP server's new tools); the agent itself, never a shell.
+RESEARCH, REWRITE = {"argv": STRS}, {"argv": STRS}
 SKILLS = {"dirs": STRS, "own": STR, "listed": TABLE_OR_HOOK, "settings_list": BOOL, "settings_file": STR,
           "write": HOOK}
 LISTED = {"file": STR, "format": STR, "key": STR}       # extra skill folders a settings file lists
@@ -59,13 +68,16 @@ MCP = {"path": STR, "format": STR, "key": STR, "shape": STR, "in_app": STR, "def
        "read": HOOK, "write": HOOK, "native": HOOK}
 LOCAL_LLM = {"files": STRS, "hooks": BOOL}             # the files connect.plan edits, by the local_llm_* hooks
 LOGIN_STATUS = {"argv": STRS, "no": STR, "yes": STR}     # a command whose output says signed in or not
-ACCESS = {"how": STR, "login": STR, "files": STRS, "env": STRS, "local_ok": BOOL, "logins": TABLES, "key": TABLE}
+ACCESS = {"how": STR, "login": STR, "files": STRS, "env": STRS, "local_ok": BOOL, "logins": TABLES, "key": TABLE,
+          "logout": STRS}
 LOGIN = {"label": STR, "argv": STRS, "note": STR}
 CONFIGURE = {"label": STR, "argv": STRS, "note": STR}    # its own setup command, in a terminal (Configure…)
 KEY = {"var": STR, "url": STR, "stdin": STRS, "env_file": STR}
-SECURITY = {"file": STR, "format": STR, "settings": TABLES, "rules": TABLES, "note": STR, "hook": BOOL}
+SECURITY = {"file": STR, "format": STR, "settings": TABLES, "rules": TABLES, "note": STR, "hook": BOOL,
+            "sandbox": STR, "asks": STR}     # the settings that are its sandbox / when it asks first
 SETTING = {"key": STR, "title": STR, "explain": STR, "default": "a value", "recommended": "a value",
-           "terms": STRS, "editable": BOOL, "choices": TABLES, "current_if": STR}
+           "terms": STRS, "editable": BOOL, "choices": TABLES, "current_if": STR, "warn": TABLE}
+WARN = {"title": STR, "explain": STR, "fix": STR}         # a low risk shown while a risk-1 choice is set
 CHOICE = {"value": "a value", "unset": BOOL, "label": STR, "explain": STR, "risk": INT}
 RULE = {"key": STR, "title": STR, "also": STR, "keys_where": TABLE}   # also: a second file to fall back on;
                                                                         # keys_where: the table's keys whose
@@ -82,6 +94,12 @@ INSTALLERS = {"agy": ("install_ctl", "Agy"), "dsh": ("install_ctl", "Dsh"),   # 
               "bionic": ("install_ctl", "Bionic")}
 USAGE = {"pi": ("agent_status", "pi"), "hermes": ("agent_status", "hermes"),      # usage readers the app has
          "opencode": ("agent_status", "opencode")}
+DETAIL_READERS = {name: ("agent_details", function) for name, function in (     # model + providers readers
+    ("claude", "claude"), ("codex", "codex"), ("copilot", "copilot"), ("cursor", "cursor"),
+    ("opencode", "opencode"), ("pi", "pi_like"), ("hermes", "hermes"), ("dsh", "dsh"), ("openclaw", "openclaw"),
+    ("lmstudio-app", "bionic"))}
+MODEL_READERS = {"claude": ("online_models", "claude_choices", "claude_plan"),       # online model switchers
+                 "codex": ("online_models", "codex_choices", "codex_plan")}
 FORMATS = ("json", "toml", "yaml")
 
 
@@ -144,6 +162,27 @@ def check(data: dict, name: str) -> None:
         for game in data["ask"].get("games", []):
             if game not in GAMES:
                 raise AdapterError(f"{name}: ask.games “{game}” is not one the app has ({', '.join(GAMES)})")
+    for table, placeholders in (("research", ("{prompt}", "{schema}")), ("rewrite", ("{answer}",))):
+        if table not in data:
+            continue
+        _check(data[table], RESEARCH, f"{name}: {table}", ("argv",))
+        argv = data[table]["argv"]
+        if not argv or argv[0] != data["command"] or any(
+                "{" in a and a not in placeholders for a in argv) or any(argv.count(p) > 1 for p in placeholders) \
+                or (table == "research" and "{prompt}" not in argv):
+            raise AdapterError(f"{name}: {table}.argv must start with “{data['command']}”; "
+                               f"{', '.join(placeholders)} each once at most, as an argument of its own")
+    if "details" in data:
+        _check(data["details"], DETAILS, f"{name}: details")
+        if data["details"].get("reader", "") not in ("", *DETAIL_READERS):
+            raise AdapterError(f"{name}: details.reader “{data['details']['reader']}” is not one the app has "
+                               f"({', '.join(DETAIL_READERS)})")
+    if "models" in data:
+        _check(data["models"], MODELS, f"{name}: models")
+        if data["models"].get("reader", "") not in ("", *MODEL_READERS):
+            raise AdapterError(f"{name}: models.reader “{data['models']['reader']}” is not one the app has")
+    if "tools" in data:
+        _check(data["tools"], TOOLS, f"{name}: tools", ("file", "key"))
     for i, entry in enumerate(data.get("configure", [])):
         _check(entry, CONFIGURE, f"{name}: configure[{i}]", REQUIRED["configure"])
         # The agent itself and plain words: never a shell, never another program.
@@ -186,6 +225,8 @@ def check(data: dict, name: str) -> None:
         for i, setting in enumerate(security.get("settings", [])):
             where = f"{name}: security.settings[{i}]"
             _check(setting, SETTING, where, REQUIRED["setting"])
+            if "warn" in setting:
+                _check(setting["warn"], WARN, f"{where}.warn", ("title", "explain", "fix"))
             for j, choice in enumerate(setting["choices"]):
                 _check(choice, CHOICE, f"{where}.choices[{j}]", REQUIRED["choice"])
                 if ("value" in choice) == bool(choice.get("unset")):
@@ -259,9 +300,11 @@ def _security(facts: dict):
             value = current(s["key"])
             if "current_if" in s and not isinstance(value, kinds[s["current_if"]]):
                 value = None                  # e.g. Pi's tools: only a list counts as set
+            warn = s.get("warn")
             report.settings.append(Setting(s["key"], _(s["title"]), _(s["explain"]), choices, value,
                                            s.get("default"), path, fmt, tuple(s.get("terms", ())),
-                                           s.get("editable", True), s.get("recommended")))
+                                           s.get("editable", True), s.get("recommended"),
+                                           (_(warn["title"]), _(warn["explain"]), _(warn["fix"])) if warn else ()))
         for rule in facts.get("rules", ()):
             value = current(rule["key"])
             if "keys_where" in rule:          # e.g. Codex: the projects whose trust_level is "trusted"
@@ -349,10 +392,36 @@ def harness(data: dict, name: str = "adapter", hooks=None) -> Harness:
     if llm:
         llm = LocalLlm(tuple(llm["files"]), hook("local_llm_connected"), hook("local_llm_active"),
                        hook("local_llm_transform"))
+    details = data.get("details", {})
+    if details.get("hook"):
+        details = hook("details")
+    elif details.get("reader"):
+        read = ref(*DETAIL_READERS[details["reader"]])
+        folder = details.get("dir", "")
+        details = (lambda d, read=read, folder=folder: read(folder, d)) if folder else read
+    else:
+        details = None
+    models = data.get("models", {})
+    if models.get("hook"):
+        models = (hook("models_choices"), hook("models_plan"))
+    elif models.get("reader"):
+        module, choices, plan = MODEL_READERS[models["reader"]]
+        models = (ref(module, choices), ref(module, plan))
+    else:
+        models = None
+    security = security or {}
     return Harness(
         data["command"], data["name"], sessions=sessions, icon=_icon(data.get("icon", "")),
         access=_access(data["access"]) if "access" in data else None,
         security=(hook("security") if security.get("hook") else _security(security)) if security else None,
+        sandbox_setting=security.get("sandbox", ""), asks_setting=security.get("asks", ""),
+        home=data.get("home", ""), activity=tuple(data.get("activity", ())), details=details,
+        program_dir=data.get("program_dir", ""), web_search=data.get("web_search", False),
+        chat_app=data.get("chat_app", False), herdr=data.get("herdr", ""),
+        logout=tuple(data.get("access", {}).get("logout", ())),
+        research=tuple(data["research"]["argv"]) if "research" in data else (),
+        rewrite=tuple(data["rewrite"]["argv"]) if "rewrite" in data else (), models=models,
+        tools_setting=(data["tools"]["file"], data["tools"]["key"]) if "tools" in data else (),
         usage=ref(*USAGE[data["usage"]]) if "usage" in data else None,
         local_llm=llm, skills=skills, mcp=mcp,
         login_status=(tuple(data["login_status"]["argv"]), data["login_status"]["no"], data["login_status"]["yes"])

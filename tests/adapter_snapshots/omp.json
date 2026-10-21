@@ -48,6 +48,23 @@
    "window": false
   }
  ],
+ "home": "~/.omp",
+ "activity": [
+  "~/.omp/agent/sessions"
+ ],
+ "program_dir": "",
+ "web_search": false,
+ "chat_app": false,
+ "herdr": "",
+ "logout": [],
+ "research": [],
+ "rewrite": [],
+ "tools_setting": [
+  "~/.omp/agent/settings.json",
+  "defaultTools"
+ ],
+ "sandbox_setting": "",
+ "asks_setting": "",
  "access": null,
  "security": null,
  "sessions": null,
@@ -56,6 +73,8 @@
  "installer": null,
  "detect": false,
  "limits": false,
+ "details": true,
+ "models": null,
  "local_llm": {
   "files": [
    "~/.omp/agent/models.yml",

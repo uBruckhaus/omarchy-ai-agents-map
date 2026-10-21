@@ -7,6 +7,10 @@ icon_font = "omarchy"
 homepage = "https://cursor.com/cli"
 data = ["~/.cursor", "~/.config/cursor"]
 login_status = { argv = ["cursor-agent", "status"], no = "not logged in", yes = "logged in" }
+home = "~/.cursor"
+activity = ["~/.cursor/projects"]
+web_search = true                      # searches the web itself (no MCP server needed)
+herdr = "cursor"
 
 [[install]]
 kind = "mise"
@@ -30,6 +34,8 @@ label = "Cursor account"
 argv = ["cursor-agent", "login"]
 
 [security]
+sandbox = "sandbox.mode"                  # the setting that is its sandbox
+asks = "approvalMode"     # the setting that says when it asks first
 file = "~/.config/cursor/cli-config.json"
 format = "json"
 
@@ -90,3 +96,6 @@ title = "Allowed without asking"
 [[security.rules]]
 key = "permissions.deny"
 title = "Never allowed"
+
+[details]                              # its model (the agent's card)
+reader = "cursor"

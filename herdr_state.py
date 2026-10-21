@@ -31,8 +31,6 @@ MAX_SESSIONS = 20
 TIMEOUT = 4
 # herdr's AgentStatus; "unknown": an agent herdr found whose screen it cannot read (still running).
 STATES = ("blocked", "working", "idle", "done", "unknown")
-# herdr's agent kinds that differ from the commands here.
-KINDS = {"cursor": "cursor-agent"}
 _KIND = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
 _SESSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 _PANE = re.compile(r"[A-Za-z0-9][A-Za-z0-9:_-]{0,63}")
@@ -75,6 +73,8 @@ def parse(data, session: str = "") -> list[Pane]:
     for ws in data.get("workspaces") or []:
         if isinstance(ws, dict) and isinstance(ws.get("workspace_id"), str):
             labels[ws["workspace_id"]] = _text(ws.get("label") or ws.get("name"), 80)
+    import harnesses
+    kinds = {h.herdr: h.command for h in harnesses.all_harnesses() if h.herdr}   # herdr's names that differ
     found = []
     for item in data["agents"][:MAX_AGENTS]:
         if not isinstance(item, dict):
@@ -85,7 +85,7 @@ def parse(data, session: str = "") -> list[Pane]:
             continue
         cwd = _text(item.get("foreground_cwd") or item.get("cwd"), 1024)
         pane_id = item.get("pane_id")
-        found.append(Pane(KINDS.get(kind, kind), state, cwd if cwd.startswith("/") else "",
+        found.append(Pane(kinds.get(kind, kind), state, cwd if cwd.startswith("/") else "",
                           labels.get(item.get("workspace_id"), ""), session,
                           pane_id if isinstance(pane_id, str) and _PANE.fullmatch(pane_id) else ""))
     return found

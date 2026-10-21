@@ -9,6 +9,8 @@ short_model_flag = true
 usage = "opencode"
 homepage = "https://opencode.ai"
 data = ["~/.local/share/opencode", "~/.config/opencode"]
+home = "~/.config/opencode"
+activity = ["~/.local/share/opencode/opencode.db"]
 
 [[install]]
 kind = "mise"
@@ -43,4 +45,8 @@ label = "A provider (account or key)"
 argv = ["opencode", "auth", "login"]
 
 [security]
+asks = "permission.bash"     # the setting that says when it asks first
 hook = true
+
+[details]                              # its model and providers (the agent's card)
+reader = "opencode"

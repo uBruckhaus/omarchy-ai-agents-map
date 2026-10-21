@@ -75,6 +75,23 @@
   ]
  ],
  "configure": [],
+ "home": "~/.pi/agent",
+ "activity": [
+  "~/.pi/agent/sessions"
+ ],
+ "program_dir": "",
+ "web_search": false,
+ "chat_app": false,
+ "herdr": "",
+ "logout": [],
+ "research": [],
+ "rewrite": [],
+ "tools_setting": [
+  "~/.pi/agent/settings.json",
+  "defaultTools"
+ ],
+ "sandbox_setting": "",
+ "asks_setting": "defaultTools",
  "access": {
   "how": "Sign in inside Pi (/login: Claude, ChatGPT, Copilot …), an API key, or a local LLM from the map",
   "login": "pi  →  /login",
@@ -155,7 +172,8 @@
      "grep",
      "find",
      "ls"
-    ]
+    ],
+    "warn": []
    }
   ],
   "rules": [],
@@ -170,6 +188,8 @@
  "installer": null,
  "detect": false,
  "limits": false,
+ "details": true,
+ "models": null,
  "local_llm": {
   "files": [
    "~/.pi/agent/models.json",

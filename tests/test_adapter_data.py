@@ -14,7 +14,7 @@ import agent_security  # noqa: E402
 import harnesses  # noqa: E402
 
 CALLABLES = {"sessions", "access", "security", "latest", "installer", "detect", "usage", "limits", "local_llm",
-             "skills", "mcp"}       # skills and mcp hold functions (listed, write): compared by what they do
+             "skills", "mcp", "details", "models"}       # skills and mcp hold functions (listed, write): compared by what they do
 # Settings files with values set, so the security readers have something to read.
 FIXTURES = {
     ".claude/settings.json": json.dumps({"permissions": {"defaultMode": "acceptEdits", "allow": ["Bash(git status)"],
@@ -78,8 +78,9 @@ def snapshot(harness, home: Path) -> dict:
     out["usage"] = name_of(harness.usage) if harness.usage else None
     out["latest"] = name_of(harness.latest) if harness.latest else None
     out["installer"] = type(harness.installer()).__name__ if harness.installer else None
-    for field in ("detect", "limits"):
+    for field in ("detect", "limits", "details"):
         out[field] = getattr(harness, field) is not None
+    out["models"] = [name_of(f) for f in harness.models] if harness.models else None
     llm = harness.local_llm
     if llm is None:
         out["local_llm"] = None

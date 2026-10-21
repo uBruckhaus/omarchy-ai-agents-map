@@ -6,6 +6,9 @@ full_name = "Claude Code"
 icon = "U+F06C4"                      # Nerd Font glyph (the app draws its own SVG of it)
 homepage = "https://github.com/anthropics/claude-code"
 data = ["~/.claude", "~/.claude.json"] # its settings and sessions: never removed by the app
+home = "~/.claude"
+activity = ["~/.claude/history.jsonl", "~/.claude/projects"]
+web_search = true                      # searches the web itself (no MCP server needed)
 
 [[install]]                            # ways to install it, best first
 kind = "mise"
@@ -35,6 +38,7 @@ effort = { quick = ["--effort", "low"], normal = ["--effort", "medium"], deep = 
 note = "no tools, no MCP servers, no session kept"
 
 [access]
+logout = ["claude", "auth", "logout"]     # its own sign-out, in a terminal
 how = "A Claude Pro or Max subscription (claude.ai), or an API key from console.anthropic.com"
 login = "claude auth login"
 files = [".claude/.credentials.json"]  # only whether one exists is checked, never read
@@ -49,6 +53,8 @@ label = "API billing (Anthropic Console)"
 argv = ["claude", "auth", "login", "--console"]
 
 [security]
+sandbox = "sandbox.enabled"                  # the setting that is its sandbox
+asks = "permissions.defaultMode"     # the setting that says when it asks first
 file = "~/.claude/settings.json"
 format = "json"
 
@@ -82,6 +88,7 @@ choices = [
 
 [[security.settings]]
 key = "permissions.disableBypassPermissionsMode"
+warn = { title = "Bypass mode can be switched on", explain = "Starting it with --dangerously-skip-permissions switches every check off.", fix = "Block bypass mode." }
 title = "Block bypass mode"
 explain = "Makes it impossible to start Claude Code with --dangerously-skip-permissions, even by mistake."
 recommended = "disable"
@@ -107,3 +114,17 @@ title = "Never allowed"
 [[configure]]
 label = "Check its setup"
 argv = ["claude", "doctor"]
+
+[details]                              # its model and providers (the agent's card)
+reader = "claude"
+
+[models]                               # the online models the map can switch it to
+reader = "claude"
+
+[research]                             # a web look-up (Add skills, MCP): only the two web tools, no session kept
+argv = ["claude", "-p", "{prompt}", "--tools", "WebSearch", "WebFetch", "--allowedTools", "WebSearch", "WebFetch",
+        "--strict-mcp-config", "--no-session-persistence", "--disable-slash-commands", "--output-format", "text"]
+
+[rewrite]                              # a skill rewritten for an MCP server: no tools at all, the prompt on stdin
+argv = ["claude", "-p", "--tools", "", "--strict-mcp-config", "--no-session-persistence",
+        "--disable-slash-commands", "--output-format", "text"]

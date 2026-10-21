@@ -6,6 +6,9 @@ full_name = "Gemini CLI"
 icon = "U+F0AE2"
 homepage = "https://github.com/google-gemini/gemini-cli"
 data = ["~/.gemini"]
+home = "~/.gemini"
+activity = ["~/.gemini/tmp"]
+web_search = true                      # searches the web itself (no MCP server needed)
 
 [[install]]
 kind = "mise"

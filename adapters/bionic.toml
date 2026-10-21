@@ -11,6 +11,9 @@ fixed_provider = "lmstudio"
 self_served = true
 homepage = "https://lmstudio.ai"
 data = ["~/.lmstudio/apps/bionic"]
+home = "~/.lmstudio/apps/bionic"
+activity = ["~/.lmstudio/apps/bionic/conversations", "~/.lmstudio/apps/bionic/.internal/ng-sessions.sqlite"]
+chat_app = true
 
 [[install]]
 kind = "installer"
@@ -25,3 +28,6 @@ in_app = "Settings › Connected apps"
 [access]
 how = "Nothing: it runs models on this computer"
 local_ok = true
+
+[details]                              # always LM Studio's engine and models
+reader = "lmstudio-app"

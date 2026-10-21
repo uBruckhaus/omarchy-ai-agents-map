@@ -39,6 +39,20 @@
  "games": [],
  "effort": [],
  "configure": [],
+ "home": "~/.config/opencode",
+ "activity": [
+  "~/.local/share/opencode/opencode.db"
+ ],
+ "program_dir": "",
+ "web_search": false,
+ "chat_app": false,
+ "herdr": "",
+ "logout": [],
+ "research": [],
+ "rewrite": [],
+ "tools_setting": [],
+ "sandbox_setting": "",
+ "asks_setting": "permission.bash",
  "access": {
   "how": "An account or API key for any provider, or a local LLM from the map",
   "login": "opencode auth login",
@@ -94,7 +108,8 @@
      "approval"
     ],
     "editable": true,
-    "recommended": "ask"
+    "recommended": "ask",
+    "warn": []
    },
    {
     "key": "permission.bash",
@@ -129,7 +144,8 @@
      "rules"
     ],
     "editable": true,
-    "recommended": "ask"
+    "recommended": "ask",
+    "warn": []
    },
    {
     "key": "permission.webfetch",
@@ -166,7 +182,8 @@
      "injection"
     ],
     "editable": true,
-    "recommended": "allow"
+    "recommended": "allow",
+    "warn": []
    },
    {
     "key": "permission.external_directory",
@@ -200,7 +217,8 @@
      "approval"
     ],
     "editable": true,
-    "recommended": "ask"
+    "recommended": "ask",
+    "warn": []
    }
   ],
   "rules": [],
@@ -218,6 +236,8 @@
  "installer": null,
  "detect": false,
  "limits": false,
+ "details": true,
+ "models": null,
  "local_llm": {
   "files": [
    "~/.config/opencode/opencode.json"

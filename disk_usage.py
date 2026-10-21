@@ -18,19 +18,14 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import agent_details
 import agents as agents_mod
+import harnesses
 
 HOME = Path.home()
 MAX_ENTRIES = 400_000
 DEADLINE = 60.0
 MAX_SCRIPT = 16 * 1024
 
-# More data folders than agent_details.CONFIG_DIRS names.
-AGENT_DATA = {"opencode": ["~/.local/share/opencode"], "crush": ["~/.local/share/crush"],
-              "cursor-agent": ["~/.config/cursor"], "claude": ["~/.claude.json"], "pi": ["~/.pi"]}
-# Program folders inside a data folder (measured as the program, not twice).
-AGENT_PROGRAM = {"hermes": "~/.hermes/hermes-agent"}
 SYSTEM_DIRS = {Path("/"), Path("/usr"), Path("/usr/local"), Path("/opt"), HOME, HOME / ".local"}
 
 
@@ -120,12 +115,15 @@ def agent_items(agent_list) -> list:
         if not agent.installed:
             continue
         item = Item("agent", agent.command, agent.name)
+        harness = harnesses.get(agent.command)
+        # Its program folder inside its data folder (measured as the program, not twice).
+        own_place = harness.program_dir if harness is not None else ""
         program = None
-        if agent.command in AGENT_PROGRAM and _expand(AGENT_PROGRAM[agent.command]).is_dir():
-            program = _expand(AGENT_PROGRAM[agent.command])
+        if own_place and _expand(own_place).is_dir():
+            program = _expand(own_place)
         elif agent.command in install_ctl.AGENT_INSTALLERS:
             program = install_ctl.AGENT_INSTALLERS[agent.command].installed_folder()
-        elif agent.source == "mise" or agent.command not in ("openclaw", "hermes"):
+        elif agent.source == "mise" or not (own_place or (harness is not None and harness.package_only)):
             spec = agents_mod.wrapper_spec(agent.command) or agents_mod.SPECS.get(agent.command, agent.command)
             program = agents_mod.mise_install(spec)
             if program is not None:
@@ -137,7 +135,7 @@ def agent_items(agent_list) -> list:
             program = locate(agent.command)
         if program is not None:
             item.places.append(Place("program", program))
-        data = [agent_details.CONFIG_DIRS.get(agent.command)] + AGENT_DATA.get(agent.command, [])
+        data = [harness.home, *harness.data] if harness is not None else []
         paths = [_expand(d) for d in dict.fromkeys(d for d in data if d) if _expand(d).exists()]
         for path in paths:
             if not any(other != path and path.is_relative_to(other) for other in paths):

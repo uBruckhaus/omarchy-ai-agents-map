@@ -154,17 +154,23 @@ def tools_text(tools: dict) -> str:
 
 
 def writers(installed) -> list[str]:
-    return [c for c in ("claude", "codex") if c in installed and shutil.which(c)]
+    """Installed agents that can rewrite a skill with no tools at all (their adapter's rewrite fact)."""
+    import harnesses
+    return [h.command for h in harnesses.all_harnesses()
+            if h.rewrite and h.command in installed and shutil.which(h.command)]
 
 
 def writer_command(writer: str, answer_file: Path) -> list[str]:
+    """The prompt goes on stdin; "{answer}": the file it writes its answer to."""
+    import harnesses
+    argv = harnesses.get(writer).rewrite
     binary = shutil.which(writer) or writer
-    if writer == "claude":
-        # No tools at all (no shell, files, web or MCP servers), no session kept; the prompt on stdin.
-        return [binary, "-p", "--tools", "", "--strict-mcp-config", "--no-session-persistence",
-                "--disable-slash-commands", "--output-format", "text"]
-    return [binary, "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--output-last-message",
-            str(answer_file), "-"]
+    return [binary] + [str(answer_file) if a == "{answer}" else a for a in argv[1:]]
+
+
+def answers_in_file(writer: str) -> bool:
+    import harnesses
+    return "{answer}" in harnesses.get(writer).rewrite
 
 
 def check(answer: str, name: str) -> str:
@@ -185,7 +191,7 @@ def check(answer: str, name: str) -> str:
 
 
 def _read_answer(path: Path) -> str:
-    """Codex's answer file: our own regular file, never through a link, read up to a cap."""
+    """The answer file (rewrite "{answer}"): our own regular file, never through a link, read up to a cap."""
     try:
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
     except OSError:
@@ -216,7 +222,7 @@ def rewrite(skill_file: Path, server: str, tools: dict, installed, run=_bounded)
         raise RuntimeError("the server's tools are not known")
     found = writers(installed)
     if not found:
-        raise RuntimeError("no agent that can write it (Claude Code, Codex)")
+        raise RuntimeError("no agent that can write it")
     prompt = PROMPT.format(server=server, version=tools.get("server") or server, name=name, skill=old,
                            tools=tools_text(tools)).encode("utf-8")
     WORK_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -228,7 +234,7 @@ def rewrite(skill_file: Path, server: str, tools: dict, installed, run=_bounded)
             out, ok = run(writer_command(writer, answer_file), max_bytes=MAX_SKILL * 4, timeout=TIMEOUT,
                           stdin=prompt, cwd=str(WORK_DIR))
             text = out.decode("utf-8", "replace")
-            if writer == "codex":
+            if answers_in_file(writer):
                 text = _read_answer(answer_file) or text
             if not ok:
                 raise RuntimeError(text.strip()[-200:] or "no answer")

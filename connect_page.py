@@ -6,6 +6,7 @@ from gi.repository import Adw, GLib, Gdk, Gtk
 import agent_security
 import ai_core
 import connect
+import harnesses
 import inventory
 import link_check
 import link_hints
@@ -279,8 +280,6 @@ class ConnectPage:
                 ", ".join(a.name for a in agents if a.name not in stuck), model, provider),
                 30, _("Undo"), lambda: self.undo_many(backups))
 
-    LOGOUT = {"claude": ("claude", "auth", "logout"), "codex": ("codex", "logout")}
-
     def offer_sign_out(self, agent_id: str, cloud_id: str):
         """An agent's line to an online provider dropped into empty space: after a question, the
         agent's own sign-out runs in a terminal (Claude Code, Codex); others say where to do it."""
@@ -288,8 +287,9 @@ class ConnectPage:
         provider = next((n.label for n in self.side_map.graph.nodes if n.id == cloud_id), cloud_id)
         if agent is None:
             return
-        argv = self.LOGOUT.get(agent.command)
-        if argv is None:
+        harness = harnesses.get(agent.command)
+        argv = harness.logout if harness is not None else ()
+        if not argv:
             self.show_note(_("{0} signs out from inside itself (its own logout command).").format(agent.name))
             return
 

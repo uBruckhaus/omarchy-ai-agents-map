@@ -1336,7 +1336,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
 
     def agent_names(self) -> dict:
         names = {a.command: a.name for a in self.agent_list}
-        names["lmstudio"] = "LM Studio"
+        names.update(mcp_ctl.llm_clients())
         return names
 
     def run_update(self, update):

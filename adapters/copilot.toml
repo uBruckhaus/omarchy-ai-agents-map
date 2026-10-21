@@ -6,6 +6,9 @@ full_name = "GitHub Copilot"
 icon = "U+F4B8"
 homepage = "https://github.com/github/copilot-cli"
 data = ["~/.copilot"]
+home = "~/.copilot"
+activity = ["~/.copilot/session-state"]
+web_search = true                      # searches the web itself (no MCP server needed)
 
 [[install]]
 kind = "mise"
@@ -31,6 +34,7 @@ argv = ["copilot"]
 note = "Type /login in it."
 
 [security]
+asks = "defaultPermissionMode"     # the setting that says when it asks first
 file = "~/.copilot/settings.json"
 format = "json"
 
@@ -56,3 +60,6 @@ also = "~/.copilot/config.json"        # Copilot's managed file holds the list w
 key = "allowedUrls"
 title = "Sites without asking"
 also = "~/.copilot/config.json"
+
+[details]                              # its model (the agent's card)
+reader = "copilot"

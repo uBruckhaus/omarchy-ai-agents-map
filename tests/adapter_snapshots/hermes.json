@@ -135,6 +135,21 @@
    "window": false
   }
  ],
+ "home": "~/.hermes",
+ "activity": [
+  "~/.hermes/state.db",
+  "~/.hermes/sessions"
+ ],
+ "program_dir": "~/.hermes/hermes-agent",
+ "web_search": false,
+ "chat_app": false,
+ "herdr": "",
+ "logout": [],
+ "research": [],
+ "rewrite": [],
+ "tools_setting": [],
+ "sandbox_setting": "",
+ "asks_setting": "approvals.mode",
  "access": {
   "how": "A provider key (hermes setup), or a local LLM from the map",
   "login": "hermes setup",
@@ -192,7 +207,8 @@
      "bypass"
     ],
     "editable": true,
-    "recommended": "manual"
+    "recommended": "manual",
+    "warn": []
    },
    {
     "key": "security.redact_secrets",
@@ -220,7 +236,8 @@
      "redaction"
     ],
     "editable": true,
-    "recommended": true
+    "recommended": true,
+    "warn": []
    },
    {
     "key": "terminal.backend",
@@ -248,7 +265,8 @@
      "sandbox"
     ],
     "editable": false,
-    "recommended": null
+    "recommended": null,
+    "warn": []
    }
   ],
   "rules": [],
@@ -266,6 +284,8 @@
  "installer": null,
  "detect": false,
  "limits": false,
+ "details": true,
+ "models": null,
  "local_llm": {
   "files": [
    "~/.hermes/config.yaml"

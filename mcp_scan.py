@@ -31,8 +31,9 @@ MAX_BIN_BYTES = 2 * 1024 ** 3      # usr/bin of one AppImage, unpacked to look i
 MAX_APP_BYTES = 10 * 1024 ** 3     # a whole AppImage unpacked for a server in it
 OPT = Path("/opt")
 MARKERS = (b"notifications/initialized", b"protocolVersion", b"tools/list", b"modelcontextprotocol")
-CLIENTS = {"claude", "codex", "copilot", "crush", "cursor-agent", "gemini", "grok", "hermes", "muse", "omp",
-           "openclaw", "opencode", "pi", "lms", "lmstudio", "ollama", "llama-server", "node", "bun", "deno",
+# Programs that use MCP servers or run them, never offered as one; the agents' commands and the
+# local LLMs' programs come on top (clients()).
+CLIENTS = {"lms", "node", "bun", "deno",
            "python", "python3", "uv", "uvx", "npx", "npm", "docker", "podman", "code", "cursor", "zed",
            "ai-agents-map-toggle", "chromium", "chrome", "firefox", "electron"}
 MAX_BYTES = 400 * 1024 * 1024
@@ -362,11 +363,19 @@ def cleanup_old_cache():
 
 # --- all together -------------------------------------------------------------------------------
 
+def clients() -> set:
+    import harnesses
+    import llm_engine
+    import providers
+    return CLIENTS | {h.command for h in harnesses.all_harnesses()} | {
+        name for p in providers.local() for name in (p.key, *llm_engine.of(p.key).programs)}
+
+
 def scan(configured_commands: dict | None = None, agent_commands=()) -> list[Candidate]:
     """MCP servers offered by programs on this PC. configured_commands: real
     program path -> [agents that have a server starting it]."""
     configured_commands = configured_commands or {}
-    skip = CLIENTS | set(agent_commands)
+    skip = clients() | set(agent_commands)
     seen, found = set(), []
 
     def offer(program: Path, count: int, text: str, appimage: str = "", inner: str = ""):
