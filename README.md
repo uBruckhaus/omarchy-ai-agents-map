@@ -565,8 +565,32 @@ the backup and Undo), and the agent is told the same context. A context you set 
   `manifest.json` (a plain plugin id only), an agent by its name, else the program's name. Nothing
   of what they send is read. AI Agents Map itself and LLM Monitor (status reads only) are left out.
   At most 16 names per local LLM, each forgotten 30 s after its last request; shown as plain text.
-- **ⓘ Information** opens fixed `https://plugins.omarchy.org/plugin.html?id=…` addresses in your
-  browser on a click; nothing is fetched by AI Agents Map.
+- **ⓘ Information** reads the marketplace catalog
+  (`raw.githubusercontent.com/omacom/omarchy-plugin-marketplace/main/site/catalog.json`) only when
+  the page opens, at most once an hour and only when it changed (its ETag; at most 40 MB), keeps
+  only the author's own entries in `~/.cache/ai-agents-map/plugin-catalog.json` and shows them as
+  plain text; without the network the cached or built-in list. A card opens a fixed
+  `https://plugins.omarchy.org/plugin.html?id=…` address in your browser on a click.
+- **Configure…** (right-click an agent's or local LLM's box) runs that program's own setup command
+  in a terminal tab of the window: what its adapter names (`hermes setup`, `omp setup`,
+  `ollama launch`, …), else `<program> --help`; an argv list without a shell that starts with the
+  program's own name and holds plain words only (`harnesses.configure_ok`); LM Studio opens its own
+  window. When the tab ends, the map reads the settings again and a running local LLM is offered a
+  restart.
+- **Network traffic (⇅)**: while the window is open, every 3 s `ss -tinpeHn` lists the TCP
+  connections of your own processes with their byte counters; the bytes are added to the agent whose
+  process (or a process it started: its MCP servers, its tools) owns the connection, per destination
+  (known API hosts, looked up every 10 minutes; a local LLM; the local network; others) and per
+  program. Nothing of what is sent is read; five minutes of history, in memory only; UDP is not
+  counted.
+- **Models at once**: when agents use different models of one local LLM, the number of models it
+  keeps loaded is set where AI Agents Map installed it (llama.cpp `LLAMA_ARG_MODELS_MAX` in its env
+  file, and `--models-max` removed from a service file it wrote itself; Ollama
+  `OLLAMA_MAX_LOADED_MODELS` in its env file), with a preview, a backup and Undo like every other
+  settings change; a number set in your own start script is left alone (a note says where). Before
+  an agent starts, its model's size is compared with the free GPU memory; when it does not fit, you
+  choose: start anyway, **Free GPU memory** first (other local LLMs unload their models through
+  their own API, only on a listener of your own), or cancel.
 - **LM Studio without its server**: while the LM Studio app runs but nothing of yours listens on its
   port, `lms ps --json` is read (at most every 20 s, 64 KiB, 5 s) to mark the loaded model.
 - **Healthy & Security check** reads only the security keys of the agents' settings files named in
@@ -603,7 +627,8 @@ the backup and Undo), and the agent is told the same context. A context you set 
   local LLM's own API every 2 s while the window is open (which models are loaded) and for
   **Free GPU memory** (unload); answers are capped at 1 MiB and only shown, never run;
   `registry.modelcontextprotocol.io` (its server list also automatically on start, at most every 12 h, see
-  **MCP registry**); `skills.sh`, `api.github.com` and
+  **MCP registry**); the marketplace catalog on `raw.githubusercontent.com` when **ⓘ Information** opens
+  (see there); `skills.sh`, `api.github.com` and
   `raw.githubusercontent.com` for skills; the update check (automatic when the window opens, at
   most every 6 h): the npm registry's dist-tags of `@anthropic-ai/claude-code`, the release API
   of the local LLMs and agents AI Agents Map installed, and what `mise outdated` asks; a search site you added yourself (Add a site…: https
