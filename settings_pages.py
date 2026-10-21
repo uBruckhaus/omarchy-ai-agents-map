@@ -470,8 +470,8 @@ class SettingsPages:
         modes = ("all", "agents", "off")
         self.combo_row(group, _("Map animations"),
                        _("Light runs along the lines on the map: a working agent's line to its provider and "
-                         "model, and a local LLM's line to the model another program uses now. Also off when "
-                         "the system turns animations off."),
+                         "model and to an MCP server it calls, and a local LLM's line to the model another "
+                         "program uses now. Also off when the system turns animations off."),
                        [_("Agents and other programs"), _("Only my agents"), _("Off")],
                        modes.index(ai_core.map_animations()),
                        lambda i: (self.save_setting(map_animations=modes[i]), self.side_map.set_animate(modes[i]),

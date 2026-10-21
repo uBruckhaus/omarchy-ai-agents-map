@@ -1854,7 +1854,7 @@
  "local LLM": "lokalny LLM",
  "model": "model",
  "another program": "inny program",
- "Light runs along the lines on the map: a working agent's line to its provider and model, and a local LLM's line to the model another program uses now. Also off when the system turns animations off.": "Światło biegnie po liniach mapy: od pracującego agenta do jego dostawcy i modelu oraz od lokalnego LLM do modelu, którego używa teraz inny program. Wyłączone także, gdy system wyłącza animacje.",
+ "Light runs along the lines on the map: a working agent's line to its provider and model and to an MCP server it calls, and a local LLM's line to the model another program uses now. Also off when the system turns animations off.": "Światło biegnie po liniach mapy: od pracującego agenta do jego dostawcy i modelu oraz do serwera MCP, który wywołuje, a także od lokalnego LLM do modelu, którego używa teraz inny program. Wyłączone także, gdy system wyłącza animacje.",
  "Maximize the window for your own choice.": "Zmaksymalizuj okno, aby wybrać samodzielnie.",
  "Narrow window: agents and providers while an agent runs": "Wąskie okno: agenci i dostawcy, dopóki działa agent",
  "Narrow window: providers and models; agents show while one runs": "Wąskie okno: dostawcy i modele; agenci pojawiają się, gdy któryś działa",

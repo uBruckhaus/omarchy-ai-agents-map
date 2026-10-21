@@ -158,6 +158,7 @@ class MapView(Gtk.DrawingArea):
         self.animate = "all"     # Settings › Map animations: "all" (agents and other apps), "agents", "off"
         self.flow_layer = None   # FlowLayer over the map (with_flow_layer)
         self.working = None      # agent commands working now (agent_activity); None: every running one flows
+        self.mcp_busy = set()    # (agent command, MCP server name) a working agent uses now (mcp_activity)
         self.outside = {}        # runtime id -> {model id: "in use · Video Trans"}: an app outside the map generates
         self.set_draw_func(self.on_draw)
         self.scroll_adjustment = None
@@ -1109,6 +1110,23 @@ class MapView(Gtk.DrawingArea):
             self.working = working
             self.queue_draw()          # the flow follows on this drawing
 
+    def set_mcp_busy(self, busy):
+        """{(agent command, server name)}: the agent calls that MCP server right now; light runs
+        along the line from the agent to the server, in the line's own colour."""
+        busy = set(busy)
+        if busy != self.mcp_busy:
+            self.mcp_busy = busy
+            self.queue_draw()
+
+    def mcp_paths(self, drawn) -> list:
+        """[("mcp:<agent>:<server>", [the line agent → server])] for set_mcp_busy."""
+        paths = []
+        for index, edge in enumerate(self.graph.edges):
+            if index in drawn and edge.kind == "mcp" and not edge.failed \
+                    and (edge.source.removeprefix("agent:"), edge.target.removeprefix("mcp:")) in self.mcp_busy:
+                paths.append((f"mcp:{edge.source.removeprefix('agent:')}:{edge.target.removeprefix('mcp:')}", [edge]))
+        return paths
+
     def set_outside(self, outside: dict):
         """{runtime id: {model id: label}}: a program that is not on the map (Video Trans, a script)
         is using that local LLM now: the line to the model is drawn bold in its own colour with light
@@ -1167,8 +1185,9 @@ class MapView(Gtk.DrawingArea):
             level = 1.0 if levels is None else levels.get(agent, 0.0)
             if level <= 0:
                 continue
-            # An app outside the map: its own colour; an agent: the accent.
-            accent = self.color("outside" if agent.startswith("outside:") else "accent")
+            # An app outside the map: its own colour; an MCP server in use: its line's; an agent: the accent.
+            accent = self.color("outside" if agent.startswith("outside:") else
+                                EDGE_COLORS["mcp"] if agent.startswith("mcp:") else "accent")
             light = tuple(a + (f - a) * 0.6 for a, f in zip(accent[:3], fg[:3]))   # brighter than the line under it
             offset = (sum(map(ord, agent)) % 97) / 97          # agents do not pulse in step
             count = len(edges)
@@ -1315,6 +1334,7 @@ class MapView(Gtk.DrawingArea):
         allowed = self.animations_allowed() and self.link is None
         if self.flow_layer is not None:
             outside = self.outside_paths(drawn) if allowed and self.animate == "all" else []
+            outside += self.mcp_paths(drawn) if allowed else []
             self.flow_layer.update(self.flow_paths(active_edges, drawn, running_only=False) + outside if allowed else [],
                                    self.running_agents() | {key for key, _edges in outside} if allowed else set())
 

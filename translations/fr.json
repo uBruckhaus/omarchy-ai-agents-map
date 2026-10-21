@@ -1797,7 +1797,7 @@
  "local LLM": "LLM local",
  "model": "modèle",
  "another program": "un autre programme",
- "Light runs along the lines on the map: a working agent's line to its provider and model, and a local LLM's line to the model another program uses now. Also off when the system turns animations off.": "La lumière parcourt les lignes de la carte : celle d'un agent qui travaille vers son fournisseur et son modèle, et celle d'un LLM local vers le modèle qu'un autre programme utilise. Désactivé aussi quand le système coupe les animations.",
+ "Light runs along the lines on the map: a working agent's line to its provider and model and to an MCP server it calls, and a local LLM's line to the model another program uses now. Also off when the system turns animations off.": "La lumière parcourt les lignes de la carte : celle d'un agent qui travaille vers son fournisseur et son modèle et vers un serveur MCP qu'il appelle, et celle d'un LLM local vers le modèle qu'un autre programme utilise. Désactivé aussi quand le système coupe les animations.",
  "Maximize the window for your own choice.": "Agrandis la fenêtre pour ton propre choix.",
  "Narrow window: agents and providers while an agent runs": "Fenêtre étroite : agents et fournisseurs tant qu'un agent tourne",
  "Narrow window: providers and models; agents show while one runs": "Fenêtre étroite : fournisseurs et modèles ; les agents apparaissent tant que l'un d'eux tourne",

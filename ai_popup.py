@@ -27,6 +27,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango
 import atexit
 
 import agent_activity
+import mcp_activity
 import agent_details
 import agent_security
 import disk_usage
@@ -1093,11 +1094,16 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                 outside = self.outside_now(usage, runtimes)
             except Exception:
                 outside = {}
-            GLib.idle_add(done, usage, running, working, outside, stamp)
+            try:
+                mcp_busy = self.mcp_now(pids, working)
+            except Exception:
+                mcp_busy = set()
+            GLib.idle_add(done, usage, running, working, outside, stamp, mcp_busy)
 
-        def done(usage, running, working, outside, stamp):
+        def done(usage, running, working, outside, stamp, mcp_busy):
             self.gpu_reading = False
             self.side_map.set_working(working)
+            self.side_map.set_mcp_busy(mcp_busy)
             self.side_map.set_outside({rid: {mid: _("in use · {0}").format(names) for mid, names in models.items()}
                                        for rid, models in outside.items()})
             if working != self.working_agents:
@@ -1193,6 +1199,26 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                 if use is not None and use.running:
                     generating.update(rt.active_agents)
         return self.activity.working(pids, states, generating)
+
+    def mcp_now(self, pids: dict, working) -> set:
+        """{(agent, server)}: the MCP servers the working agents call right now (mcp_activity),
+        for the light on their lines. Their entries are read again every 30 s."""
+        if self.side_map.animate == "off" or not working:
+            return set()
+        if not hasattr(self, "mcp_activity"):
+            self.mcp_activity = mcp_activity.Activity()
+            self.mcp_entries = (0.0, {})
+        read_at, entries = self.mcp_entries
+        if time.monotonic() - read_at > 30:
+            entries = {}
+            for agent, names in self.inventory.agent_mcp.items():
+                raw = mcp_ctl.raw_entries(agent) if names else {}
+                entries[agent] = {name: entry for name in names if (entry := mcp_ctl.normal(raw.get(name)))}
+            self.mcp_entries = (time.monotonic(), entries)
+        working_pids = {agent: pids[agent] for agent in working if pids.get(agent) and entries.get(agent)}
+        if not working_pids:
+            return set()
+        return self.mcp_activity.in_use(working_pids, entries, inventory.own_processes(), inventory.parent_pid)
 
     def outside_now(self, usage, runtimes) -> dict:
         """Who uses the running local LLMs (llm_clients, kept for the menu and the details page),
