@@ -318,8 +318,6 @@ class ThemeCss:
             color: {dim_hex}; }}
         button.am-small-btn.am-quiet-btn label {{ font-size: 11px; font-weight: 400; color: {dim_hex}; }}
         button.am-small-btn.am-quiet-btn image {{ color: {dim_hex}; }}
-        button.am-refresh-btn {{ color: {dim_hex}; margin-right: 0; }}
-        button.am-refresh-btn:hover {{ color: {fg_hex}; }}
         button.am-small-btn.am-quiet-btn:hover, button.am-small-btn.am-quiet-btn:hover label,
         button.am-small-btn.am-quiet-btn:hover image {{ color: {fg_hex}; }}
         .am-section-heading {{ font-size: 11px; font-weight: 700; letter-spacing: 1px; color: {dim_hex}; }}

@@ -437,6 +437,14 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             button.connect("toggled", self.on_view_button, name)
             header.append(button)
             self.view_buttons[name] = button
+        # Refresh (F5): look at the PC again, as on start (reload_setup); the map and Setup follow.
+        self.refresh_button = Gtk.Button()
+        self.refresh_button.set_child(Gtk.Image.new_from_icon_name("view-refresh-symbolic"))
+        self.refresh_button.set_tooltip_text(_("Refresh") + " (F5) — " + _("Look again at what is on this PC (F5)").replace(" (F5)", ""))
+        for css in ("flat", "am-header-btn", "am-gear-btn"):
+            self.refresh_button.add_css_class(css)
+        self.refresh_button.connect("clicked", lambda *_: self.reload_setup())
+        header.append(self.refresh_button)
         # Open problems: shown only while something needs fixing (health.check), opens their list.
         self.problem_button = Gtk.Button(label="!", valign=Gtk.Align.CENTER, visible=False)
         self.problem_button.add_css_class("flat")
@@ -532,7 +540,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         return header
 
     # The header's symbols in the user's order: hold the left mouse button on one and drag it.
-    HEADER_ITEMS = ("problem", "legend", "traffic", "smartcheck", "addons", "info", "help", "settings")
+    HEADER_ITEMS = ("refresh", "problem", "legend", "traffic", "smartcheck", "addons", "info", "help", "settings")
 
     def header_items(self) -> dict:
         found = {key: getattr(self, f"{key}_button", None) for key in self.HEADER_ITEMS}
@@ -575,7 +583,11 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         items = self.header_items()
         saved = ai_core.setting("header_order")
         order = [k for k in saved if k in items] if isinstance(saved, list) else []
-        order += [k for k in self.HEADER_ITEMS if k in items and k not in order]
+        # A symbol not in the saved order (new in this version): after the one it follows by default.
+        for number, key in enumerate(self.HEADER_ITEMS):
+            if key in items and key not in order:
+                before = [k for k in self.HEADER_ITEMS[:number] if k in order]
+                order.insert(order.index(before[-1]) + 1 if before else 0, key)
         first = min(items.values(), key=self.header_position)
         anchor = first.get_prev_sibling()
         for key in order:
@@ -778,7 +790,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
     def build_main_page(self) -> Gtk.Widget:
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         # Only while the map is in view: the pages opened in its place have a header of their own.
-        self.map_heading = self.view_heading(_("Map"), self.refresh_button())
+        self.map_heading = self.view_heading(_("Map"))
         page.append(self.map_heading)
         # Downloads and installs running in the background (or interrupted): one line each.
         self.jobs_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)

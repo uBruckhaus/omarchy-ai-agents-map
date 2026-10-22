@@ -58,6 +58,7 @@ that layer and on the change layer.** The pages above them call into these.
 | Paste into text fields | `text_guard.TextGuard` | `wl-paste`, at most 8 KiB (`ai_core.MAX_PASTE_BYTES`), no drops, no middle-click paste |
 | Agent facts | `adapter_data.check` on `adapters/*.toml` | schema of allowed keys and types, 256 KiB per file; shipped with the plugin, nothing loaded from elsewhere |
 | MCP registry answers | `mcp_registry` (`MAX_SERVERS`, `MAX_OPTIONS`, `MAX_ARGUMENTS`, `MAX_FIELDS`, `MAX_BYTES`) | budgeted before any form is built |
+| Saved MCP server list | `mcp_registry.refresh_list` (`_kept`/`_trim`, `LIST_MAX_ITEM`, `LIST_MAX_SERVERS`, `LIST_MAX_FILE`) | each entry cut to what `parse` reads (128 KiB at most, else left out); the list in memory stays within 100,000 entries and 96 MiB while it downloads (a full list ends the download); `_write_list` refuses a file over 96 MiB |
 
 ### Every place a child process is started
 

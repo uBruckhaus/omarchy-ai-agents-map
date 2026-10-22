@@ -268,6 +268,8 @@ LIST_MAX_PAGES = 1000         # 100 servers a page, per start (the registry had 
 SAVE_EVERY = 10               # pages between saves (a download cut short goes on from there)
 LIST_PAGE_TIMEOUT = 90        # some pages take the registry 50 s and more
 LIST_MAX_FILE = 96 * 1024 * 1024
+LIST_MAX_SERVERS = 100_000    # entries kept (48,000 in 2026-10)
+LIST_MAX_ITEM = 128 * 1024    # bytes of one kept entry (as JSON; the largest real one 41 KB); a bigger one is left out
 _list_lock = threading.Lock()
 _list_cache = None           # (mtime, the loaded list)
 
@@ -275,16 +277,44 @@ _list_cache = None           # (mtime, the loaded list)
 SERVER_KEYS = ("name", "title", "description", "version", "repository", "websiteUrl", "packages", "remotes")
 
 
+def _trim(value, depth: int = 0):
+    """A copy cut to what parse() can use: strings to 500 characters (it reads at most that much),
+    lists to MAX_ARGUMENTS + 1 items (one more, so a list too long is still refused), objects to
+    MAX_FIELDS keys, four levels deep."""
+    if isinstance(value, str):
+        return value[:500]
+    if isinstance(value, bool) or value is None or isinstance(value, (int, float)):
+        return value
+    if depth >= 4:
+        return None
+    if isinstance(value, list):
+        return [_trim(v, depth + 1) for v in value[:MAX_ARGUMENTS + 1]]
+    if isinstance(value, dict):
+        return {str(k)[:128]: _trim(v, depth + 1) for k, v in list(value.items())[:MAX_FIELDS]}
+    return None
+
+
 def _kept(item) -> dict | None:
-    """Only what parse() reads of a list item."""
+    """Only what parse() reads of a list item, cut to what it uses (_trim); None when nothing is
+    left to show or it is still over LIST_MAX_ITEM."""
     server = item.get("server") if isinstance(item, dict) else None
     if not isinstance(server, dict) or not isinstance(server.get("name"), str):
         return None
-    server = {k: server[k] for k in SERVER_KEYS if k in server}
+    server = {k: _trim(server[k][:MAX_OPTIONS] if k in ("packages", "remotes") and isinstance(server[k], list)
+                       else server[k]) for k in SERVER_KEYS if k in server}
+    server["name"] = server["name"][:200]
+    if "repository" in server:
+        repo = server["repository"]
+        server["repository"] = {"url": repo["url"]} if isinstance(repo, dict) and isinstance(repo.get("url"), str) else {}
     meta = item.get("_meta") if isinstance(item.get("_meta"), dict) else {}
     official = meta.get("io.modelcontextprotocol.registry/official")
-    return {"server": server, "_meta": {"io.modelcontextprotocol.registry/official": official}} \
+    kept = {"server": server, "_meta": {"io.modelcontextprotocol.registry/official": _trim(official)}} \
         if isinstance(official, dict) else {"server": server}
+    return kept if _size(kept) <= LIST_MAX_ITEM else None
+
+
+def _size(item) -> int:
+    return len(json.dumps(item, ensure_ascii=False).encode())
 
 
 def load_list(path: Path | None = None) -> dict | None:
@@ -307,11 +337,15 @@ def load_list(path: Path | None = None) -> dict | None:
 
 
 def _write_list(path: Path, data: dict):
+    """Saved only up to LIST_MAX_FILE (what load_list reads back); OSError above it."""
+    text = json.dumps(data, ensure_ascii=False).encode()
+    if len(text) > LIST_MAX_FILE:
+        raise OSError("the MCP server list is over LIST_MAX_FILE")
     path.parent.mkdir(parents=True, exist_ok=True)
     part = path.with_name(path.name + ".part")
     fd = os.open(part, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
-    with os.fdopen(fd, "w") as handle:
-        json.dump(data, handle, ensure_ascii=False)
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(text)
     os.replace(part, path)
 
 
@@ -335,9 +369,16 @@ def refresh_list(path: Path | None = None, now: float | None = None, fetch=None)
         if resume is None:
             resume = {"since": str(old.get("fetched") or ""), "cursor": "",
                       "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))}
+        # Entries saved by an older version are cut down the same way (_kept).
+        kept_before = {k["server"]["name"]: k for item in (old.get("servers") or {}).values()
+                       if (k := _kept(item)) is not None}
         data_out = {"fetched": old.get("fetched", ""), "checked": old.get("checked", 0),
-                    "servers": dict(old.get("servers") or {}), "resume": dict(resume)}
+                    "servers": kept_before, "resume": dict(resume)}
         servers, cursor = data_out["servers"], str(resume.get("cursor") or "")
+        # The list in memory stays within what is saved and read back: LIST_MAX_SERVERS entries,
+        # LIST_MAX_FILE bytes (the entries' sizes added up as they come; a full list ends the download).
+        sizes = {name: _size(item) + len(name.encode()) + 8 for name, item in servers.items()}
+        total, full = sum(sizes.values()), False
         for page in range(1, LIST_MAX_PAGES + 1):
             params = {"limit": 100, "version": "latest"}
             if resume.get("since"):
@@ -352,13 +393,21 @@ def refresh_list(path: Path | None = None, now: float | None = None, fetch=None)
                     _write_list(path, data_out)
                 return False
             data = data if isinstance(data, dict) else {}
-            for item in data.get("servers") or []:
+            items = data.get("servers") if isinstance(data.get("servers"), list) else []
+            for item in items[:MAX_SERVERS]:           # 100 a page asked for
                 kept = _kept(item)
-                if kept is not None:
-                    servers[kept["server"]["name"][:200]] = kept
+                if kept is None:
+                    continue
+                name = kept["server"]["name"]
+                size = _size(kept) + len(name.encode()) + 8          # with its key in the saved file
+                grown = total - sizes.get(name, 0) + size
+                if grown > LIST_MAX_FILE - LIST_MAX_ITEM or (name not in servers and len(servers) >= LIST_MAX_SERVERS):
+                    full = True
+                    break
+                servers[name], sizes[name], total = kept, size, grown
             meta = data.get("metadata") if isinstance(data.get("metadata"), dict) else {}
             following = meta.get("nextCursor") if isinstance(meta.get("nextCursor"), str) else ""
-            if not following or following == cursor or not data.get("servers"):
+            if full or not following or following == cursor or not items:
                 break
             cursor = following[:300]
             data_out["resume"]["cursor"] = cursor

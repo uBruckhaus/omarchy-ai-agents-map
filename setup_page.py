@@ -40,7 +40,7 @@ class SetupPage:
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         # The same heading as the map's (title, Refresh, rule). No Back here: the header's Map
         # button (and Esc) go back, as Setup does on the map.
-        self.setup_header = self.view_heading(_("Setup"), self.refresh_button())
+        self.setup_header = self.view_heading(_("Setup"))
         page.append(self.setup_header)
         self.setup_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP, margin_bottom=12)
         clamp = Adw.Clamp(maximum_size=980, child=self.setup_box, unit=Adw.LengthUnit.PX)
@@ -104,26 +104,23 @@ class SetupPage:
             GLib.idle_add(lambda: scroller.get_vadjustment().set_value(top) and False)
         return False
 
-    def refresh_button(self) -> Gtk.Widget:
-        """Refresh (F5), at the right of Setup's and the map's heading: a symbol, like the header's
-        (an option, not a must); its tooltip says what it does."""
-        refresh = Gtk.Button(icon_name="view-refresh-symbolic", valign=Gtk.Align.CENTER)
-        refresh.add_css_class("flat")
-        refresh.add_css_class("am-header-btn")
-        refresh.add_css_class("am-refresh-btn")
-        refresh.set_tooltip_text(_("Refresh") + " (F5) — " + _("Look again at what is on this PC (F5)").replace(" (F5)", ""))
-        refresh.connect("clicked", lambda *_a: self.reload_setup())
-        return refresh
-
     def reload_setup(self):
-        """Refresh (F5, on the map and on Setup): what is installed, set up and signed in looked
-        up again; the map, the hints and Setup's cards follow. Ticks not applied yet stay."""
+        """Refresh (the header's symbol, F5): what is installed, set up and signed in looked up again,
+        and the background checks of a start (new apps, add-ons, updates, the setup checks); the map,
+        the hints and Setup's cards follow. Ticks not applied yet stay."""
         self.collect()
         if self.with_addons():
             self.setup_installed = self.installed_adapters(self.adapter_addons())
         self.refresh_overview()
         self.refresh_map()
         self.refresh_setup()
+        self.sync_provider_watch()
+        self.research_new_agents()
+        self.ai_check_mcp_updates()
+        self.refresh_mcp_list()
+        self.check_new_apps()
+        self.look_for_addons()
+        self.run_health()
         self.toast(_("Looked again."), 2)
 
     def fill_setup(self):

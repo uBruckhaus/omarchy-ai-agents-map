@@ -55,7 +55,7 @@ that fold with a click on their bar:
 - A small **battery** on an online agent's card shows what is left of its limits (a session, a
   week): the tightest one counts, yellow at a quarter or less, red under a tenth; hover it for each
   limit and when it resets. On a running local LLM's card it is the GPU memory still free.
-- The refresh symbol (F5) looks again at what is installed, set up and signed in.
+- The refresh symbol (F5) in the header looks again at what is installed, set up and signed in, and runs the checks of a start again (new apps, add-ons, updates, open problems).
 
 **The map** shows only what is set up, across the whole width: MCP servers and skills ← agents →
 LLM providers → models, under the **GPU** card (GPU memory and activity; it folds).
