@@ -25,6 +25,7 @@ import ai_core
 HOME = Path.home()
 GIB = 1024 ** 3
 BUSY_PERCENT = 20          # GPU busy at least this much with a model loaded: generating
+MODEL_VRAM = 256 * 1024 ** 2   # a local LLM holding this much GPU memory has its model there
 MAX_REPLY = 1024 * 1024
 
 

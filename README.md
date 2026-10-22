@@ -601,8 +601,9 @@ the backup and Undo), and the agent is told the same context. A context you set 
   opens credential files (`auth.json`, `.credentials.json`). MCP server entries are read whole so
   they can be copied to another agent; their environment and header values are never shown.
 - **Used from outside the map** reads, every 2 s while the window is open and for 1.5 s of that
-  (100 ms apart, since a request holds its connection for a moment only), `/proc/net/tcp` and
-  `tcp6` (the connections to a running local LLM's port that are established and yours, by their
+  (100 ms apart, since a request holds its connection for a moment only), while the GPU is busy
+  (a local LLM that answers keeps it busy; with a model loaded outside the GPU's memory, or no busy
+  reading from sysfs, always), `/proc/net/tcp` and `tcp6` (the connections to a running local LLM's port that are established and yours, by their
   uid column; at most 8 MiB each), then `/proc/<pid>/fd` of your own processes to find which one
   holds such a connection, and that process's command line (and its parents' while they are your
   own helpers such as `sh`, `python3` or `curl`) to name it: a plugin by the `name` in its

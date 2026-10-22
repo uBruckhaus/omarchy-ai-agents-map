@@ -1,3 +1,4 @@
+import math
 import sys
 import unittest
 from unittest import mock
@@ -79,13 +80,20 @@ class FadeOnly:
 
     def __init__(self):
         self.paths, self.visible, self.running, self.stopped, self.levels = {}, set(), set(), {}, {}
-        self.tick, self.last = "ticking", 0
+        self.tick, self.last, self.drawn_at = "ticking", 0, 0
+        self.draws = 0
+        self.mapped = True
+
+    def get_mapped(self):
+        return self.mapped
+
+    FLOW_FPS = map_view.FlowLayer.FLOW_FPS
 
     def follow(self):
         pass
 
     def queue_draw(self):
-        pass
+        self.draws += 1
 
 
 class Clock:
@@ -104,11 +112,29 @@ class FadeTest(unittest.TestCase):
         self.addCleanup(patcher.stop)
         self.layer, self.clock = FadeOnly(), Clock()
 
-    def run_for(self, seconds: float):
-        for _ in range(int(seconds * 60)):          # 60 frames a second
-            self.now += 1 / 60
-            self.clock.us += 1_000_000 // 60
+    def run_for(self, seconds: float, hz: int = 60):
+        for _ in range(int(seconds * hz)):          # the display's frames
+            self.now += 1 / hz
+            self.clock.us += 1_000_000 // hz
             self.layer.on_tick(None, self.clock)
+
+    def test_a_fast_display_draws_at_most_flow_fps(self):
+        self.layer.update([("agent:claude", ["e1"])], {"agent:claude"})
+        self.run_for(1.0, hz=144)
+        self.assertLessEqual(self.layer.draws, map_view.FlowLayer.FLOW_FPS + 1)
+        self.assertGreaterEqual(self.layer.draws, map_view.FlowLayer.FLOW_FPS - 2)
+
+    def test_a_hidden_window_stops_ticking(self):
+        self.layer.update([("agent:claude", ["e1"])], {"agent:claude"})
+        self.run_for(0.2)
+        self.layer.mapped = False
+        self.assertEqual(self.layer.on_tick(None, self.clock), map_view.GLib.SOURCE_REMOVE)
+        self.assertIsNone(self.layer.tick)
+
+    def test_a_60_hz_display_draws_every_other_frame(self):
+        self.layer.update([("agent:claude", ["e1"])], {"agent:claude"})
+        self.run_for(1.0)
+        self.assertLessEqual(abs(self.layer.draws - map_view.FlowLayer.FLOW_FPS), 1)   # a steady beat
 
     def test_fades_in_and_out_never_switches(self):
         self.layer.update([("agent:claude", ["e1"])], {"agent:claude"})
@@ -156,7 +182,8 @@ class UsageBoxTest(unittest.TestCase):
     class View:
         set_usage = map_view.MapView.set_usage
         set_usage_box = map_view.MapView.set_usage_box
-        draw_usage_box = map_view.MapView.draw_usage_box
+        usage_glyphs = map_view.MapView.usage_glyphs
+        usage_font = map_view.MapView.usage_font
         line_color = map_view.MapView.line_color
         single_agent = lambda self: None
         UB_GAP, UB_SPACE = map_view.MapView.UB_GAP, map_view.MapView.UB_SPACE
@@ -181,14 +208,118 @@ class UsageBoxTest(unittest.TestCase):
         def curve_point(self, _edge, t):
             return (20 + 300 * t, 60 + 30 * t * t)     # a gently bending line
 
-    def test_gpu_usage_does_not_replace_the_readings(self):
+    def layout(self):
         import cairo
+        cr = cairo.Context(cairo.ImageSurface(cairo.FORMAT_ARGB32, 4, 4))
+        return map_view.PangoCairo.create_layout(cr)
+
+    def test_gpu_usage_does_not_replace_the_readings(self):
         view = self.View()
         reading = map_view.usage_box.Reading(60.0, 950, 1000, "m")
         view.set_usage_box({"agent:claude": reading})
         view.set_usage(object())                     # the GPU poll's gpu_usage.Usage
-        cr = cairo.Context(cairo.ImageSurface(cairo.FORMAT_ARGB32, 400, 120))
-        view.draw_usage_box(cr, "agent:claude", [view.edge], 1.0)
+        glyphs = view.usage_glyphs("agent:claude", [view.edge], 1.0, self.layout())
+        self.assertEqual(len(glyphs), len(view.drawn))
         # Each character in the line's colour (its tint here), the 95 % in red.
         self.assertEqual(set(view.drawn[:-3]), {"violet"})
         self.assertEqual(view.drawn[-3:], ["red"] * 3)
+
+    def test_characters_follow_the_line_left_to_right(self):
+        view = self.View()
+        view.set_usage_box({"agent:claude": map_view.usage_box.Reading(60.0, 500, 1000, "m")})
+        glyphs = view.usage_glyphs("agent:claude", [view.edge], 1.0, self.layout())
+        xs = [g[1] for g in glyphs]
+        self.assertEqual(xs, sorted(xs))
+        self.assertTrue(all(20 <= x <= 320 for x in xs))         # on the line, centred on it
+        self.assertEqual(view.usage_glyphs("agent:claude", [view.edge], 0.0, self.layout()), [])
+
+
+class FlowMarksTest(unittest.TestCase):
+    """The comets as marks: a tapering tail, then a glow and a dot at the head."""
+
+    class View:
+        flow_marks = map_view.MapView.flow_marks
+        FLOW_PERIOD, FLOW_PULSES = map_view.MapView.FLOW_PERIOD, map_view.MapView.FLOW_PULSES
+
+        def color(self, name, alpha=1.0):
+            return (0.5, 0.5, 0.5, alpha)
+
+        def curve_point(self, edge, t):
+            return (edge * 100 + 100 * t, 50.0)          # edge i runs from x=100i to x=100(i+1)
+
+    def test_each_pulse_ends_in_a_glow_and_a_dot(self):
+        marks = self.View().flow_marks([("agent:claude", [0, 1])], now=1.0)
+        kinds = [m[0] for m in marks]
+        self.assertEqual(kinds.count("glow"), kinds.count("dot"))
+        self.assertTrue(1 <= kinds.count("dot") <= map_view.MapView.FLOW_PULSES)
+        lines = [m for m in marks if m[0] == "line"]
+        self.assertTrue(lines)
+        self.assertTrue(all(1.0 <= m[5] <= 4.5 for m in lines))   # widths taper 4.5 → 1
+
+    def test_dark_agents_make_no_marks(self):
+        view = self.View()
+        self.assertEqual(view.flow_marks([("agent:claude", [0, 1])], 1.0, {"agent:claude": 0.0}), [])
+        self.assertEqual(view.flow_marks([("agent:claude", [0, 1])], 1.0, {}), [])
+
+
+class SmallImagesTest(unittest.TestCase):
+    """Each comet gets an image just large enough for it, not one as large as the map."""
+
+    def test_marks_split_into_comets_at_each_dot(self):
+        marks = [("line", 0, 0, 5, 0, 2.0, (1, 1, 1, 1)), ("glow", 5, 0, 18, (1, 1, 1), (1, 1, 1), 1.0),
+                 ("dot", 5, 0, 3.2, (1, 1, 1, 1)), ("line", 100, 0, 105, 0, 2.0, (1, 1, 1, 1)),
+                 ("glow", 105, 0, 18, (1, 1, 1), (1, 1, 1), 1.0), ("dot", 105, 0, 3.2, (1, 1, 1, 1))]
+        comets = list(map_view.comets(marks))
+        self.assertEqual([len(c) for c in comets], [3, 3])
+
+    def test_bounds_hold_the_glow_and_the_line_width(self):
+        comet = [("line", 0, 0, 40, 0, 4.0, (1, 1, 1, 1)), ("glow", 40, 0, 18, (1, 1, 1), (1, 1, 1), 1.0),
+                 ("dot", 40, 0, 3.2, (1, 1, 1, 1))]
+        self.assertEqual(map_view.comet_bounds(comet), (-3.0, -19.0, 59.0, 19.0))
+
+
+class UsageTextureTest(unittest.TestCase):
+    """The usage box is drawn once into a texture and kept while it shows the same."""
+
+    class Layer:
+        usage_texture = map_view.FlowLayer.usage_texture
+
+        def __init__(self, view):
+            self.view, self.box_textures, self.levels = view, {}, {"agent:claude": 1.0}
+
+        def get_scale_factor(self):
+            return 2
+
+        def create_pango_layout(self, _text):
+            import cairo
+            return map_view.PangoCairo.create_layout(cairo.Context(cairo.ImageSurface(cairo.FORMAT_ARGB32, 4, 4)))
+
+    def setUp(self):
+        self.view = UsageBoxTest.View()
+        self.view.colors = {}
+        self.view.zoom = 1.0
+        self.view.edge_points = lambda edge: (20, 60, 320, 90)
+        self.view.set_usage_box({"agent:claude": map_view.usage_box.Reading(60.0, 500, 1000, "m")})
+        self.layer = self.Layer(self.view)
+        self.calls = 0
+        glyphs = self.view.usage_glyphs
+
+        def counted(*args):
+            self.calls += 1
+            return glyphs(*args)
+        self.view.usage_glyphs = counted
+
+    def test_kept_while_the_same_and_drawn_again_on_change(self):
+        first = self.layer.usage_texture("agent:claude", [self.view.edge])
+        texture, bounds = first
+        self.assertEqual(texture.get_width(), math.ceil(bounds.get_width() * 2))   # sharp on a scale-2 display
+        self.assertIs(self.layer.usage_texture("agent:claude", [self.view.edge]), first)
+        self.assertEqual(self.calls, 1)
+        self.view.set_usage_box({"agent:claude": map_view.usage_box.Reading(80.0, 600, 1000, "m")})
+        self.assertIsNot(self.layer.usage_texture("agent:claude", [self.view.edge]), first)
+        self.assertEqual(self.calls, 2)
+
+    def test_no_reading_no_texture(self):
+        self.view.set_usage_box({})
+        self.assertIsNone(self.layer.usage_texture("agent:claude", [self.view.edge]))
+        self.assertEqual(self.layer.box_textures, {})

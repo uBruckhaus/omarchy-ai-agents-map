@@ -1291,8 +1291,12 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             return {}
         ports = {rt.key: gpu_usage.port_of(rt) for rt in runtimes
                  if (use := usage.runtimes.get(rt.key)) is not None and use.running}
-        # ~1.5 s of this poll's 2 s: requests and short replies fall between single samples.
-        peak = self.llm_clients.update(ports, self.agent_names(), samples=15, probe=gpu_usage.busy_now)
+        # ~1.5 s of this poll's 2 s: requests and short replies fall between single samples. Connections
+        # are only read while the GPU works, unless a local LLM has a model loaded outside the GPU's memory.
+        on_cpu = any("loaded" in usage.runtimes[key].models.values() and usage.runtimes[key].vram < gpu_usage.MODEL_VRAM
+                     for key in ports)
+        peak = self.llm_clients.update(ports, self.agent_names(), samples=15, probe=gpu_usage.busy_now,
+                                       busy=None if on_cpu else gpu_usage.BUSY_PERCENT)
         # Generating counts for llm_clients.ACTIVE seconds after it was last seen, like the clients.
         now = time.monotonic()
         if usage.generating or (usage.loaded and (peak or 0) >= gpu_usage.BUSY_PERCENT):

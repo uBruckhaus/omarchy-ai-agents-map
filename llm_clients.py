@@ -186,11 +186,14 @@ class Clients:
 
     def update(self, ports: dict, agent_names: dict | None = None, net: str = "/proc/net",
                proc: str = "/proc", now: float | None = None, samples: int = 1, interval: float = 0.1,
-               probe=None) -> float | None:
+               probe=None, busy: float | None = None) -> float | None:
         """ports: {runtime key: port} of the running local LLMs. A request holds its connection for a
         fraction of a second, so the connections are looked at `samples` times, `interval` apart
         (the processes only for connections not seen before). probe: read at every sample too (the
-        GPU's busy percent, which a short reply raises only for a moment); returns its highest value."""
+        GPU's busy percent, which a short reply raises only for a moment); returns its highest value.
+        busy: with it, a sample reads the connections only while the probe is at least that high or
+        once one was seen in this update: reading /proc/net/tcp costs ~3.5 ms of CPU (the kernel walks
+        its whole socket table) and a local LLM on the GPU that answers keeps the GPU busy."""
         names, seen, inodes = {}, {}, {}           # pid -> name; key -> {name: time}; inode -> name
         peak = None
         for sample in range(max(1, samples)):
@@ -199,6 +202,8 @@ class Clients:
             value = probe() if probe is not None else None
             if value is not None:
                 peak = value if peak is None else max(peak, value)
+            if busy is not None and value is not None and value < busy and not inodes:
+                continue                             # the GPU is idle and nobody connected: nothing served
             at = time.monotonic() if now is None else now
             by_port = client_inodes(ports.values(), net)
             new = {i for found in by_port.values() for i in found} - inodes.keys()

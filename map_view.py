@@ -48,7 +48,8 @@ from glyphs import MCP_GLYPHS, glyph
 import gi
 
 gi.require_version("PangoCairo", "1.0")
-from gi.repository import Gdk, GLib, Gtk, Pango, PangoCairo  # noqa: E402
+gi.require_version("Graphene", "1.0")
+from gi.repository import Gdk, GLib, Graphene, Gtk, Pango, PangoCairo  # noqa: E402
 
 import icons  # noqa: E402
 
@@ -172,7 +173,7 @@ class MapView(Gtk.DrawingArea):
         self.usage_items = usage_box.ITEMS   # what the box shows (Settings › Usage statistics box)
         self.usage_size = usage_box.SIZES[0]  # its text size in pt
         self.outside = {}        # runtime id -> {model id: "in use · Video Trans"}: an app outside the map generates
-        self.set_draw_func(self.on_draw)
+        self.texture = None      # ((width, height, scale), Gdk.Texture): the map's last drawing
         self.scroll_adjustment = None
         self.connect("map", lambda *_: self.follow_scrolling())
         self.set_hexpand(True)
@@ -1324,20 +1325,20 @@ class MapView(Gtk.DrawingArea):
     UB_GAP = 3                   # px between the usage statistics box and its line
     UB_SPACE = 7                 # px between its parts
 
-    def draw_usage_box(self, cr, agent: str, edges, level: float):
+    def usage_glyphs(self, agent: str, edges, level: float, layout) -> list:
         """The agent's usage statistics box: its parts written along its line to the provider,
         centred on it and just above it, in the line's colour (the context in use yellow or red
-        past the batteries' thresholds)."""
+        past the batteries' thresholds). [(character, x, y, angle in radians, width, height, rgba)]
+        for the characters to draw; `layout` (a Pango layout) only measures them."""
         reading = self.ub.get(agent)
         if reading is None or not edges or edges[0].source != agent or level <= 0:
-            return
+            return []
         parts = usage_box.parts(reading, self.usage_items)
         if not parts:
-            return
+            return []
         edge = edges[0]
         line = self.line_color(edge)
-        layout = PangoCairo.create_layout(cr)
-        layout.set_font_description(Pango.FontDescription.from_string(f"Sans Bold {self.usage_size}"))
+        layout.set_font_description(self.usage_font())
         glyphs = []                  # (character, colour, width, height), a gap between parts
         for number, (text, colour) in enumerate(parts):
             if number:
@@ -1353,7 +1354,7 @@ class MapView(Gtk.DrawingArea):
         for (ax, ay), (bx, by) in zip(samples, samples[1:]):
             lengths.append(lengths[-1] + math.hypot(bx - ax, by - ay))
         if lengths[-1] < total + 20:
-            return                   # too short a line for it
+            return []                # too short a line for it
         at = (lengths[-1] - total) / 2
 
         def place(distance):
@@ -1363,18 +1364,16 @@ class MapView(Gtk.DrawingArea):
             part = (distance - lengths[i - 1]) / max(1e-6, lengths[i] - lengths[i - 1])
             return ax + (bx - ax) * part, ay + (by - ay) * part, math.atan2(by - ay, bx - ax)
 
+        placed = []
         for char, colour, width, height in glyphs:
             if char and not char.isspace():
                 x, y, angle = place(at + width / 2)
-                layout.set_text(char, -1)
-                cr.save()
-                cr.translate(x, y)
-                cr.rotate(angle)
-                cr.set_source_rgba(*self.color(colour, level))
-                cr.move_to(-width / 2, -height - self.UB_GAP)
-                PangoCairo.show_layout(cr, layout)
-                cr.restore()
+                placed.append((char, x, y, angle, width, height, self.color(colour, level)))
             at += width
+        return placed
+
+    def usage_font(self):
+        return Pango.FontDescription.from_string(f"Sans Bold {self.usage_size}")
 
     def set_mcp_busy(self, busy):
         """{(agent command, server name)}: the agent calls that MCP server right now; light runs
@@ -1441,12 +1440,14 @@ class MapView(Gtk.DrawingArea):
     FLOW_GRACE = 5.0             # seconds an agent's lights keep running after it stopped working (pauses
                                  # between tokens, a missed check), so they do not blink
 
-    def draw_flow(self, cr, paths, now: float, levels=None):
+    def flow_marks(self, paths, now: float, levels=None) -> list:
         """Comets running from the agent through the provider to the model: a bright head in a soft
-        glow and a tail that tapers and fades along the line."""
+        glow and a tail that tapers and fades along the line. As marks for FlowLayer to draw:
+        ("line", x1, y1, x2, y2, width, rgba), ("glow", x, y, radius, light rgba, accent rgb, ends),
+        ("dot", x, y, radius, rgba)."""
         tail, steps = 0.3, 22        # tail length (in segments) and the samples it is drawn with
         fg = self.color("fg")
-        cr.set_line_cap(cairo.LINE_CAP_ROUND)
+        marks = []
         for agent, edges in paths:
             level = 1.0 if levels is None else levels.get(agent, 0.0)
             if level <= 0:
@@ -1471,26 +1472,15 @@ class MapView(Gtk.DrawingArea):
                     edge = edges[min(int(at), count - 1)]
                     points.append(self.curve_point(edge, at - min(int(at), count - 1)))
                 for i in range(len(points) - 1):             # the tail: thick and bright near the head
-                    fade = 1 - i / steps
-                    cr.set_source_rgba(*light, 0.9 * fade * fade * ends)
-                    cr.set_line_width(1.0 + 3.5 * fade)
-                    if math.hypot(points[i][0] - points[i + 1][0], points[i][1] - points[i + 1][1]) > 40:
+                    (ax, ay), (bx, by) = points[i], points[i + 1]
+                    if math.hypot(ax - bx, ay - by) > 40:
                         continue             # the jump through the provider's box: no line across it
-                    cr.move_to(*points[i])
-                    cr.line_to(*points[i + 1])
-                    cr.stroke()
+                    fade = 1 - i / steps
+                    marks.append(("line", ax, ay, bx, by, 1.0 + 3.5 * fade, (*light, 0.9 * fade * fade * ends)))
                 x, y = points[0]
-                glow = cairo.RadialGradient(x, y, 0, x, y, 18)
-                glow.add_color_stop_rgba(0, *light, 0.8 * ends)
-                glow.add_color_stop_rgba(0.35, *accent[:3], 0.35 * ends)
-                glow.add_color_stop_rgba(1, *accent[:3], 0.0)
-                cr.set_source(glow)
-                cr.arc(x, y, 18, 0, 2 * math.pi)
-                cr.fill()
-                cr.set_source_rgba(*self.color("fg", ends))
-                cr.arc(x, y, 3.2, 0, 2 * math.pi)
-                cr.fill()
-        cr.set_line_cap(cairo.LINE_CAP_BUTT)
+                marks.append(("glow", x, y, 18, light, accent[:3], ends))
+                marks.append(("dot", x, y, 3.2, self.color("fg", ends)))
+        return marks
 
     def with_flow_layer(self) -> Gtk.Widget:
         """The map with its FlowLayer on top (put this into the page, not the map alone)."""
@@ -1503,6 +1493,25 @@ class MapView(Gtk.DrawingArea):
 
     def color(self, name: str, alpha: float = 1.0):
         return rgba(self.colors.get(name, "#888888"), alpha)
+
+    def queue_draw(self):
+        self.texture = None
+        super().queue_draw()
+
+    def do_snapshot(self, snapshot):
+        """The map's drawing as a texture, drawn again only after queue_draw or a new size. As a Cairo
+        drawing GTK painted it again on every frame of the lights over it (FlowLayer), on the CPU;
+        the GPU keeps a texture."""
+        width, height, scale = self.get_width(), self.get_height(), self.get_scale_factor()
+        if width <= 0 or height <= 0:
+            return
+        if self.texture is None or self.texture[0] != (width, height, scale):
+            surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width * scale, height * scale)
+            cr = cairo.Context(surface)
+            cr.scale(scale, scale)
+            self.on_draw(self, cr, width, height)
+            self.texture = ((width, height, scale), cairo_texture(surface))
+        snapshot.append_texture(self.texture[1], Graphene.Rect().init(0, 0, width, height))
 
     def on_draw(self, _area, cr, width, height):
         if self.graph is None:
@@ -2048,14 +2057,23 @@ class Meter(Gtk.DrawingArea):
         cr.restore()
 
 
-class FlowLayer(Gtk.DrawingArea):
+class FlowLayer(Gtk.Widget):
     """The lights on running agents' paths, drawn over the map in a layer of their own: only this
     layer is drawn again each frame (the map's drawing stays as it is), and it takes no clicks.
 
-    Against flicker: drawn on every frame of the display (smooth, no stepping); positions follow
+    Against flicker: drawn on a steady beat of FLOW_FPS frames a second; positions follow
     one steady clock, so a new drawing of the map never moves or restarts them; an agent's lights
     fade in and out (FLOW_FADE) instead of switching, and keep running FLOW_GRACE seconds after
-    the agent was last seen running, so a missed process check does not blink them."""
+    the agent was last seen running, so a missed process check does not blink them.
+
+    Each comet is drawn into a small Cairo image of its own, each usage box into a texture kept
+    while it shows the same: one image as large as the map had to be painted and uploaded to the
+    GPU every frame (about 3x the time with one agent flowing). GSK strokes instead were slower
+    still with several agents: hundreds of nodes made in Python per frame. 30 drawings a second
+    look smooth enough and cost less than a third of 60 (measured on 4K at scale 2: main thread
+    17 % -> 5 %), whatever the display's own refresh rate."""
+
+    FLOW_FPS = 30
 
     def __init__(self, view: MapView):
         super().__init__()
@@ -2067,8 +2085,12 @@ class FlowLayer(Gtk.DrawingArea):
         self.running = set()         # agents running at the map's last drawing
         self.stopped = {}            # agent id -> monotonic time it was no longer seen running
         self.levels = {}             # agent id -> 0..1, how bright its lights are now
+        self.drawn_at = 0            # frame time (µs) the last drawing was due
+        self.box_textures = {}       # agent id -> (what its usage box shows, (texture, bounds) or None)
         self.set_can_target(False)
-        self.set_draw_func(self.on_draw)
+        # Hidden (the window closed to the background): no ticks at all, back when shown again.
+        self.connect("unmap", lambda *_: self.pause())
+        self.connect("map", lambda *_: self.follow())
 
     def update(self, paths, running):
         """From each drawing of the map: the agents' bold paths and which agents run."""
@@ -2093,16 +2115,25 @@ class FlowLayer(Gtk.DrawingArea):
     def follow(self):
         """Tick on every frame while anything is lit or should be; stop when all is dark."""
         now = GLib.get_monotonic_time() / 1e6
-        busy = any(self.target(a, now) > 0 for a in self.paths) or any(v > 0 for v in self.levels.values())
+        busy = self.get_mapped() and (any(self.target(a, now) > 0 for a in self.paths)
+                                      or any(v > 0 for v in self.levels.values()))
         if busy and self.tick is None:
-            self.last = 0
+            self.last = self.drawn_at = 0
             self.tick = self.add_tick_callback(self.on_tick)
         elif not busy and self.tick is not None:
             self.remove_tick_callback(self.tick)
             self.tick = None
             self.queue_draw()        # no lights left over
 
+    def pause(self):
+        if self.tick is not None:
+            self.remove_tick_callback(self.tick)
+            self.tick = None
+
     def on_tick(self, _widget, clock):
+        if not self.get_mapped():
+            self.tick = None
+            return GLib.SOURCE_REMOVE
         frame = clock.get_frame_time()
         step = min(0.1, (frame - self.last) / 1e6) if self.last else 0.0
         self.last = frame
@@ -2117,24 +2148,150 @@ class FlowLayer(Gtk.DrawingArea):
                 self.stopped.pop(agent, None)
             else:
                 self.levels[agent] = level
-        self.queue_draw()
+        period = 1e6 / self.FLOW_FPS
+        if frame >= self.drawn_at + period - 2000 or not self.paths:   # on a steady beat; 2 ms early is fine
+            self.drawn_at = max(self.drawn_at + period, frame - period)
+            self.queue_draw()
         if not self.paths:
             self.tick = None
             return GLib.SOURCE_REMOVE
         return GLib.SOURCE_CONTINUE
 
-    def on_draw(self, _area, cr, _width, _height):
+    def do_snapshot(self, snapshot):
         view = self.view
         if not self.levels or view.graph is None:
             return
-        cr.scale(view.zoom, view.zoom)
         try:
-            view.draw_flow(cr, list(self.paths.items()), GLib.get_monotonic_time() / 1e6, self.levels)
-            for agent, edges in self.paths.items():
-                if agent.startswith("agent:"):
-                    view.draw_usage_box(cr, agent, edges, self.levels.get(agent, 0.0))
+            marks = view.flow_marks(list(self.paths.items()), GLib.get_monotonic_time() / 1e6, self.levels)
+            boxes = [self.usage_texture(agent, edges) for agent, edges in self.paths.items()
+                     if agent.startswith("agent:")]
         except KeyError:
-            pass                     # a box went away since the map was drawn: the next drawing fixes it
+            return                   # a box went away since the map was drawn: the next drawing fixes it
+        for comet in comets(marks):
+            cr = small_cairo(snapshot, comet_bounds(comet), view.zoom)
+            draw_marks(cr, comet)
+        for texture, bounds in filter(None, boxes):
+            snapshot.append_texture(texture, bounds)
+
+    def usage_texture(self, agent: str, edges):
+        """(texture, bounds) of the agent's usage statistics box, or None. Its text changes about once a
+        second, so it is drawn once into a texture (which the GPU keeps) and only drawn again when what
+        it shows, where, how large or in which colour changes."""
+        view = self.view
+        level = round(self.levels.get(agent, 0.0), 2)
+        if view.ub.get(agent) is None or not edges or edges[0].source != agent or level <= 0:
+            self.box_textures.pop(agent, None)
+            return None
+        scale = self.get_scale_factor()
+        key = (view.ub[agent], view.usage_items, view.usage_size, view.edge_points(edges[0]), level, view.zoom,
+               view.line_color(edges[0]), id(view.colors), scale)
+        cached = self.box_textures.get(agent)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        glyphs = view.usage_glyphs(agent, edges, level, self.create_pango_layout(None))
+        made = usage_texture(glyphs, view.usage_font(), view.UB_GAP, view.zoom, scale) if glyphs else None
+        self.box_textures[agent] = (key, made)
+        return made
+
+
+def usage_texture(glyphs, font, gap: float, zoom: float, scale: int):
+    """MapView.usage_glyphs drawn into a texture: (Gdk.Texture, Graphene.Rect where it goes)."""
+    reach = max(max(g[4], g[5]) for g in glyphs) + gap + 2
+    x0, y0 = min(g[1] for g in glyphs) - reach, min(g[2] for g in glyphs) - reach
+    x1, y1 = max(g[1] for g in glyphs) + reach, max(g[2] for g in glyphs) + reach
+    width, height = math.ceil((x1 - x0) * zoom * scale), math.ceil((y1 - y0) * zoom * scale)
+    surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
+    cr = cairo.Context(surface)
+    cr.scale(zoom * scale, zoom * scale)
+    cr.translate(-x0, -y0)
+    draw_glyphs(cr, glyphs, font, gap)
+    return cairo_texture(surface), Graphene.Rect().init(x0 * zoom, y0 * zoom, width / scale, height / scale)
+
+
+def cairo_texture(surface) -> Gdk.Texture:
+    """A Cairo image surface (ARGB32, premultiplied) as a texture."""
+    surface.flush()
+    return Gdk.MemoryTexture.new(surface.get_width(), surface.get_height(), Gdk.MemoryFormat.B8G8R8A8_PREMULTIPLIED,
+                                 GLib.Bytes.new(bytes(surface.get_data())), surface.get_stride())
+
+
+def comets(marks):
+    """MapView.flow_marks split into comets: each ends with its head's dot."""
+    comet = []
+    for mark in marks:
+        comet.append(mark)
+        if mark[0] == "dot":
+            yield comet
+            comet = []
+    if comet:
+        yield comet
+
+
+def comet_bounds(marks) -> tuple:
+    """(x0, y0, x1, y1) around a comet's marks, line widths and glow included."""
+    xs, ys = [], []
+    for mark in marks:
+        if mark[0] == "line":
+            reach = mark[5] / 2 + 1
+            xs += [mark[1] - reach, mark[1] + reach, mark[3] - reach, mark[3] + reach]
+            ys += [mark[2] - reach, mark[2] + reach, mark[4] - reach, mark[4] + reach]
+        else:
+            reach = mark[3] + 1
+            xs += [mark[1] - reach, mark[1] + reach]
+            ys += [mark[2] - reach, mark[2] + reach]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def small_cairo(snapshot, bounds, zoom: float):
+    """A Cairo context for just this part of the layer (map coordinates, drawn at `zoom`): a small
+    image to paint and upload each frame instead of one as large as the map."""
+    x0, y0, x1, y1 = (math.floor(bounds[0] * zoom), math.floor(bounds[1] * zoom),
+                      math.ceil(bounds[2] * zoom), math.ceil(bounds[3] * zoom))
+    cr = snapshot.append_cairo(Graphene.Rect().init(x0, y0, x1 - x0, y1 - y0))
+    cr.scale(zoom, zoom)
+    return cr
+
+
+def draw_marks(cr, marks):
+    """MapView.flow_marks with Cairo."""
+    cr.set_line_cap(cairo.LINE_CAP_ROUND)
+    for mark in marks:
+        if mark[0] == "line":
+            _kind, ax, ay, bx, by, width, rgba_ = mark
+            cr.set_source_rgba(*rgba_)
+            cr.set_line_width(width)
+            cr.move_to(ax, ay)
+            cr.line_to(bx, by)
+            cr.stroke()
+        elif mark[0] == "glow":
+            _kind, x, y, radius, light, accent, ends = mark
+            glow = cairo.RadialGradient(x, y, 0, x, y, radius)
+            glow.add_color_stop_rgba(0, *light, 0.8 * ends)
+            glow.add_color_stop_rgba(0.35, *accent, 0.35 * ends)
+            glow.add_color_stop_rgba(1, *accent, 0.0)
+            cr.set_source(glow)
+            cr.arc(x, y, radius, 0, 2 * math.pi)
+            cr.fill()
+        else:
+            _kind, x, y, radius, rgba_ = mark
+            cr.set_source_rgba(*rgba_)
+            cr.arc(x, y, radius, 0, 2 * math.pi)
+            cr.fill()
+
+
+def draw_glyphs(cr, glyphs, font, gap: float):
+    """MapView.usage_glyphs with Cairo, each character turned along its line."""
+    layout = PangoCairo.create_layout(cr)
+    layout.set_font_description(font)
+    for char, x, y, angle, width, height, rgba_ in glyphs:
+        layout.set_text(char, -1)
+        cr.save()
+        cr.translate(x, y)
+        cr.rotate(angle)
+        cr.set_source_rgba(*rgba_)
+        cr.move_to(-width / 2, -height - gap)
+        PangoCairo.show_layout(cr, layout)
+        cr.restore()
 
 
 class LegendSample(Gtk.DrawingArea):

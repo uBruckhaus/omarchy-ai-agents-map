@@ -119,3 +119,48 @@ class LlmClientsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BusyGateTest(unittest.TestCase):
+    """Connections are only read while the GPU is busy, or after one was seen in this update."""
+
+    process = LlmClientsTest.process
+
+    def setUp(self):
+        LlmClientsTest.setUp(self)
+        self.reads = 0
+        original = llm_clients.client_inodes
+
+        def counted(*args, **kwargs):
+            self.reads += 1
+            return original(*args, **kwargs)
+        patcher = mock.patch.object(llm_clients, "client_inodes", counted)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.process(50, ["myapp"], sockets=["111"])
+        (self.net / "tcp").write_text(HEADER + tcp_line(51000, 8080, "01", self.uid, "111"))
+
+    def update(self, busy_values, gate=20):
+        values = iter(busy_values)
+        clients = llm_clients.Clients()
+        peak = clients.update({"llamacpp": 8080}, net=str(self.net), proc=str(self.proc), now=100.0,
+                              samples=len(busy_values), interval=0, probe=lambda: next(values), busy=gate)
+        return clients, peak
+
+    def test_idle_gpu_reads_no_connections(self):
+        clients, peak = self.update([0, 3, 5, 0])
+        self.assertEqual(self.reads, 0)
+        self.assertEqual(peak, 5)                      # the GPU's peak is still reported
+        self.assertEqual(clients.recent("llamacpp", now=100.0), [])
+
+    def test_busy_gpu_reads_and_keeps_reading_after_a_find(self):
+        clients, _peak = self.update([0, 60, 0, 0])
+        self.assertEqual(self.reads, 3)                # from the busy sample on, also once it falls quiet
+        self.assertEqual(clients.recent("llamacpp", now=100.0), [("myapp", 0.0)])
+
+    def test_without_a_gate_or_a_gpu_reading_every_sample_reads(self):
+        self.update([0, 0, 0], gate=None)
+        self.assertEqual(self.reads, 3)
+        self.reads = 0
+        self.update([None, None], gate=20)             # no sysfs busy percent (another GPU)
+        self.assertEqual(self.reads, 2)
