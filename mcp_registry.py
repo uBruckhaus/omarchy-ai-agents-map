@@ -89,13 +89,23 @@ def short_name(name: str) -> str:
 
 PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_-]{0,63})\}")
 
+# What one registry answer may bring, before anything is built from it (a server becomes an option
+# per package or remote, each a form with one field per need): servers per answer, packages and
+# remotes per server, arguments and environment variables per package, placeholders per value and
+# fields per option. An option over a budget is not offered (cut short, it would lack what it needs).
+MAX_SERVERS = 100
+MAX_OPTIONS = 6
+MAX_ARGUMENTS = 40
+MAX_PLACEHOLDERS = 10
+MAX_FIELDS = 40
+
 
 def _inner_needs(item: dict, value: str) -> list:
     """The {placeholders} in a value such as "Bearer {api_key}": one field each (the registry's
     "variables" describe them)."""
     variables = item.get("variables") if isinstance(item.get("variables"), dict) else {}
     needs = []
-    for name in dict.fromkeys(PLACEHOLDER.findall(value)):
+    for name in list(dict.fromkeys(PLACEHOLDER.findall(value)))[:MAX_PLACEHOLDERS]:
         info = variables.get(name) if isinstance(variables.get(name), dict) else {}
         needs.append(Need(name, _s(info.get("description")) or _s(item.get("description")) or name,
                           info.get("isRequired") is True or item.get("isRequired") is True,
@@ -106,7 +116,7 @@ def _inner_needs(item: dict, value: str) -> list:
 
 def _needs_env(items) -> list:
     needs = []
-    for item in items if isinstance(items, list) else []:
+    for item in items[:MAX_ARGUMENTS] if isinstance(items, list) else []:
         if isinstance(item, dict) and re.match(r"^[A-Za-z_][A-Za-z0-9_-]{0,127}$", str(item.get("name", ""))):
             value = _s(item.get("default") or item.get("value") or "", 500)
             needs.append(Need(item["name"], _s(item.get("description")), item.get("isRequired") is True,
@@ -123,7 +133,10 @@ def _flat(needs: list) -> list:
 
 
 def _arguments(items) -> tuple[list, list]:
-    """(args with placeholders, needs) from packageArguments."""
+    """(args with placeholders, needs) from packageArguments; None when there are more than
+    MAX_ARGUMENTS (the command would be cut short)."""
+    if isinstance(items, list) and len(items) > MAX_ARGUMENTS:
+        return None
     args, needs = [], []
     for number, item in enumerate(items if isinstance(items, list) else []):
         if not isinstance(item, dict):
@@ -164,7 +177,11 @@ def option_from_package(package: dict) -> Option | None:
     if not ident or ident.startswith("-") or transport != "stdio" or not re.match(r"^[@\w./:-]+$", ident):
         return None
     env_needs = _needs_env(package.get("environmentVariables"))
-    args, arg_needs = _arguments(package.get("packageArguments"))
+    arguments = _arguments(package.get("packageArguments"))
+    runtime = package.get("runtimeArguments") if isinstance(package.get("runtimeArguments"), list) else []
+    if arguments is None or len(runtime) > MAX_ARGUMENTS:
+        return None
+    args, arg_needs = arguments
     # Every variable gets its value or a {placeholder}; optional ones left empty go again (drop_unfilled).
     env = {n.name: n.value or ("{" + n.name + "}") for n in env_needs}
     if kind == "npm":
@@ -180,7 +197,7 @@ def option_from_package(package: dict) -> Option | None:
         # -e NAME=value goes in as -e NAME with the value in the environment of docker: a value on the
         # command line (a token, say) would be readable by every user of this PC in /proc/<pid>/cmdline.
         passed = []                     # -e NAME alone: docker passes that variable on
-        for item in package.get("runtimeArguments") or []:
+        for item in runtime:
             if _env_flag(item):
                 name, sep, value = str(item.get("value") or item.get("default")).partition("=")
                 if not sep:
@@ -192,9 +209,12 @@ def option_from_package(package: dict) -> Option | None:
         base = ["run", "-i", "--rm"] + [x for n in names for x in ("-e", n)] + [image]
     else:
         return None
+    fields = _flat(env_needs + arg_needs)
+    if len(fields) > MAX_FIELDS:
+        return None
     entry = {"transport": "stdio", "command": command, "args": base + args, "env": env, "url": "", "headers": {}}
     label = f"{kind} · {ident}" + (f" {version}" if version else "")
-    return Option(kind, label, entry, _flat(env_needs + arg_needs), shutil.which(command) is not None)
+    return Option(kind, label, entry, fields, shutil.which(command) is not None)
 
 
 def option_from_remote(remote: dict) -> Option | None:
@@ -205,6 +225,8 @@ def option_from_remote(remote: dict) -> Option | None:
     needs = _needs_env(remote.get("headers"))
     headers = {n.name: n.value or ("{" + n.name + "}") for n in needs}
     needs = _flat(needs)
+    if len(needs) > MAX_FIELDS:
+        return None
     entry = {"transport": "http" if kind == "streamable-http" else "sse", "command": "", "args": [], "env": {},
              "url": url, "headers": headers}
     host = urllib.parse.urlsplit(url).hostname or url
@@ -213,13 +235,16 @@ def option_from_remote(remote: dict) -> Option | None:
 
 def parse(data: dict) -> list[Server]:
     servers = []
-    for item in (data.get("servers") if isinstance(data, dict) else None) or []:
+    items = data.get("servers") if isinstance(data, dict) else None
+    for item in (items if isinstance(items, list) else [])[:MAX_SERVERS]:
         server = item.get("server") if isinstance(item, dict) else None
         if not isinstance(server, dict) or not isinstance(server.get("name"), str):
             continue
-        options = [o for o in (option_from_package(p) for p in server.get("packages") or [] if isinstance(p, dict))
-                   if o] + [o for o in (option_from_remote(r) for r in server.get("remotes") or []
-                                        if isinstance(r, dict)) if o]
+        packages = server.get("packages") if isinstance(server.get("packages"), list) else []
+        remotes = server.get("remotes") if isinstance(server.get("remotes"), list) else []
+        options = ([o for o in (option_from_package(p) for p in packages[:MAX_OPTIONS] if isinstance(p, dict)) if o]
+                   + [o for o in (option_from_remote(r) for r in remotes[:MAX_OPTIONS] if isinstance(r, dict))
+                      if o])[:MAX_OPTIONS]
         if not options:
             continue
         repo = server.get("repository") if isinstance(server.get("repository"), dict) else {}
@@ -365,12 +390,16 @@ def search_list(query: str, offset: int = 0, limit: int = PAGE, path: Path | Non
             continue
         text = " ".join(str(server.get(k) or "") for k in ("name", "title", "description")).lower()
         if all(word in text for word in words):
-            meta = (item.get("_meta") or {}).get("io.modelcontextprotocol.registry/official") or {}
+            meta = item.get("_meta") if isinstance(item.get("_meta"), dict) else {}
+            meta = meta.get("io.modelcontextprotocol.registry/official")
+            meta = meta if isinstance(meta, dict) else {}
+            if _s(meta.get("status"), 20) not in ("", "active"):
+                continue
             matched.append((query_text not in name.lower(), -_epoch(meta.get("updatedAt")), name, item))
     matched.sort(key=lambda m: m[:3])
-    servers = [s for s in parse({"servers": [m[3] for m in matched]}) if s.status in ("", "active")]
-    page = servers[offset:offset + limit]
-    return page, f"#{offset + limit}" if offset + limit < len(servers) else ""
+    # Only the page asked for is built (parse() takes at most MAX_SERVERS at a time).
+    page = parse({"servers": [m[3] for m in matched[offset:offset + limit]]})
+    return page, f"#{offset + limit}" if offset + limit < len(matched) else ""
 
 
 def _epoch(text) -> float:
