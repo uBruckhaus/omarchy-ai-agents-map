@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "ubruckhaus.ai-agents-map",
   "name": "AI Agents Map",
-  "version": "0.20.3",
+  "version": "0.20.4",
   "author": "Uwe Bruckhaus",
   "license": "MIT",
   "description": "Your AI setup on one map: coding agents with plan, limits and usage, local LLMs (llama.cpp, Ollama, LM Studio, vLLM, Jan, KoboldCpp) and their models, MCP servers and skills. Setup installs, updates and signs in everything; connect by drawing a line, with preview and Undo. A red ! lists open problems, batteries show limits and free GPU memory, local LLMs get a stop button. New: Smart Check, where Claude Code or Codex checks your setup, finds updates and shows its tokens. 8 languages.",

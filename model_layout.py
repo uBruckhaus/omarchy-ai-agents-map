@@ -69,6 +69,7 @@ class Step:
     provider: str = ""
     old: str = ""            # "relink": the link's old target; "folder": the old setting
     copy: bool = False       # "move" to another disk
+    ident: str = ""          # "move": "<st_dev>:<st_ino>" of the source when the preview was made
 
 
 @dataclass
@@ -159,6 +160,15 @@ def canonical(file: Path, base: Path, root: Path) -> Path:
     return root / LOCAL / model_dir_name(file.name) / file.name
 
 
+def _ident(path: Path) -> str:
+    """"<st_dev>:<st_ino>" of path itself (not where a link points); "" when it is gone."""
+    try:
+        st = os.stat(path, follow_symlinks=False)
+    except OSError:
+        return ""
+    return f"{st.st_dev}:{st.st_ino}"
+
+
 def _base_of(file: Path, bases: list) -> Path:
     """The deepest model folder holding the file (the root itself when none does)."""
     holding = [b for b in bases if file.is_relative_to(b)]
@@ -209,7 +219,7 @@ def plan(root: Path, providers: list, keep_old_paths: bool = True) -> Plan:
         except OSError:
             continue
         copy = device(file) != device(root)
-        result.steps.append(Step("move", str(file), str(target), size, copy=copy))
+        result.steps.append(Step("move", str(file), str(target), size, copy=copy, ident=_ident(file)))
         if copy:
             result.copy_bytes += size
         moved[file] = target
@@ -241,7 +251,8 @@ def plan(root: Path, providers: list, keep_old_paths: bool = True) -> Plan:
                 if item.is_dir() and not item.is_symlink():
                     size = _tree_size(item)
                     copy = device(item) != device(root)
-                    result.steps.append(Step("move", str(item), str(store_dir / name), size, copy=copy))
+                    result.steps.append(Step("move", str(item), str(store_dir / name), size, copy=copy,
+                                             ident=_ident(item)))
                     if copy:
                         result.copy_bytes += size
             result.steps.append(Step("folder", provider=store.key, target=str(store_dir), old=str(store.folder)))
@@ -304,7 +315,7 @@ def _step(item) -> Step | None:
     """A journal entry, only with the fields and types a Step has."""
     if not isinstance(item, dict) or set(item) - set(Step.__dataclass_fields__) or item.get("kind") not in _STEP_KINDS:
         return None
-    strings = ("kind", "source", "target", "provider", "old")
+    strings = ("kind", "source", "target", "provider", "old", "ident")
     if not all(isinstance(item.get(k, ""), str) for k in strings) or not isinstance(item.get("size", 0), int) \
             or not isinstance(item.get("copy", False), bool):
         return None
@@ -399,31 +410,65 @@ def _copy_file(src_fd: int, st, source: Path, target: Path, progress, cancelled,
     return copied
 
 
-def _identity(path: Path):
-    """(st_dev, st_ino) of path itself (not where a link points), or None."""
+def _open_parent(path: Path) -> int:
+    """fd of path's folder, walked from / one name at a time and never through a link. The plan
+    holds real paths (realpath), so a link anywhere on the way was put there after the preview."""
+    if not path.is_absolute() or path.name in ("", ".", ".."):
+        raise PermissionError(f"{path} is not a planned path")
+    fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
     try:
-        st = os.stat(path, follow_symlinks=False)
-    except OSError:
-        return None
-    return None if stat.S_ISLNK(st.st_mode) else (st.st_dev, st.st_ino)
+        for name in path.parent.parts[1:]:
+            next_fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+            os.close(fd)
+            fd = next_fd
+    except OSError as error:
+        os.close(fd)
+        raise PermissionError(f"{path.name}: a folder on its way changed after the preview") from error
+    return fd
 
 
-def _move(source: Path, target: Path, copy: bool, progress, cancelled, done_bytes: int, total: int) -> int:
+def _expected(ident: str):
+    """(st_dev, st_ino) from a Step's ident, or None."""
+    dev, _, ino = ident.partition(":")
+    return (int(dev), int(ino)) if dev.isdigit() and ino.isdigit() else None
+
+
+def _move(source: Path, target: Path, copy: bool, progress, cancelled, done_bytes: int, total: int,
+          expect=None) -> int:
+    """Move source (reached only through _open_parent's folder descriptor) to target. expect:
+    (st_dev, st_ino) it had in the preview; it must still be that file."""
     if target.exists() or target.is_symlink():
         raise FileExistsError(str(target))
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if not copy:
-        os.rename(source, target)                 # the name itself moves (a link stays a link)
-        return 0
-    before = _identity(source)
-    if before is None:
-        raise PermissionError(f"{source.name} is not this account's own file")
-    copied = _copy(source, target, progress, cancelled, done_bytes, total, expect=before)
-    if _identity(source) != before:               # swapped while it was copied: the copy goes, the name stays
-        shutil.rmtree(target) if target.is_dir() and not target.is_symlink() else target.unlink(missing_ok=True)
-        raise PermissionError(f"{source.name} changed while it was copied")
-    shutil.rmtree(source) if stat.S_ISDIR(os.stat(source, follow_symlinks=False).st_mode) else source.unlink()
-    return copied
+    parent = _open_parent(source)
+    try:
+        try:
+            st = os.stat(source.name, dir_fd=parent, follow_symlinks=False)
+        except OSError as error:
+            raise PermissionError(f"{source.name} is not this account's own file") from error
+        before = (st.st_dev, st.st_ino)
+        if stat.S_ISLNK(st.st_mode) or st.st_uid != os.getuid():
+            raise PermissionError(f"{source.name} is not this account's own file")
+        if expect is not None and before != expect:
+            raise PermissionError(f"{source.name} changed after the preview")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if not copy:
+            os.rename(source.name, target, src_dir_fd=parent)
+            return 0
+        copied = _copy(source, target, progress, cancelled, done_bytes, total, dir_fd=parent, expect=before)
+        try:
+            after = os.stat(source.name, dir_fd=parent, follow_symlinks=False)
+        except OSError:
+            after = None
+        if after is None or (after.st_dev, after.st_ino) != before:   # swapped while copied: the copy goes, the name stays
+            shutil.rmtree(target) if target.is_dir() and not target.is_symlink() else target.unlink(missing_ok=True)
+            raise PermissionError(f"{source.name} changed while it was copied")
+        if stat.S_ISDIR(after.st_mode):
+            shutil.rmtree(source.name, dir_fd=parent)
+        else:
+            os.unlink(source.name, dir_fd=parent)
+        return copied
+    finally:
+        os.close(parent)
 
 
 def _relink(link: Path, target: str):
@@ -450,7 +495,8 @@ def apply(plan_: Plan, set_folder, progress=lambda f, t: None, cancelled=lambda:
             if step.kind == "move":
                 progress(copied / total if plan_.copy_bytes else len(done) / max(1, len(plan_.steps)),
                          Path(step.source).name)
-                copied += _move(Path(step.source), Path(step.target), step.copy, progress, cancelled, copied, total)
+                copied += _move(Path(step.source), Path(step.target), step.copy, progress, cancelled, copied, total,
+                                expect=_expected(step.ident))
             elif step.kind == "relink":
                 _relink(Path(step.source), step.target)
             elif step.kind == "link":

@@ -274,5 +274,87 @@ class CopiedSourceTest(unittest.TestCase):
         self.assertFalse(source.exists())
 
 
+class SwappedFolderTest(unittest.TestCase):
+    """A folder on the way to a planned source swapped after the preview (another user who controls
+    a shared folder): the path is walked without links and the file must be the one previewed."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        base = Path(os.path.realpath(self.tmp.name))
+        self.shared, self.dest = base / "shared", base / "dest"
+        (self.shared / "pub").mkdir(parents=True)
+        self.dest.mkdir()
+        self.private = base / "private"
+        self.private.mkdir(mode=0o700)
+        (self.private / "m.gguf").write_bytes(b"private")  # this account's own model in its private folder
+        self.source = self.shared / "pub/m.gguf"
+        self.source.write_bytes(b"model")
+        self.journal = base / "journal.json"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def planned(self, copy=True):
+        step = m.Step("move", str(self.source), str(self.dest / "m/m.gguf"), 5, copy=copy,
+                      ident=m._ident(self.source))
+        return m.Plan(self.shared, [step], [], 5 if copy else 0)
+
+    def swap_folder_for_link(self):
+        (self.shared / "pub/m.gguf").unlink()
+        (self.shared / "pub").rmdir()
+        (self.shared / "pub").symlink_to(self.private)
+
+    def assert_private_untouched(self):
+        self.assertEqual((self.private / "m.gguf").read_bytes(), b"private")
+        self.assertFalse((self.dest / "m/m.gguf").exists())
+
+    def test_plan_records_the_identity(self):
+        step = m.plan(self.dest, [m.Provider("x", "X", self.shared, True, layout="flat")]).steps[0]
+        self.assertEqual(step.ident, m._ident(self.source))
+
+    def test_folder_swapped_for_a_link_copy(self):
+        plan = self.planned()
+        self.swap_folder_for_link()
+        with self.assertRaises(PermissionError):
+            m.apply(plan, lambda *_: None, journal=self.journal)
+        self.assert_private_untouched()
+
+    def test_folder_swapped_for_a_link_rename(self):
+        plan = self.planned(copy=False)
+        self.swap_folder_for_link()
+        with self.assertRaises(PermissionError):
+            m.apply(plan, lambda *_: None, journal=self.journal)
+        self.assert_private_untouched()
+
+    def test_higher_folder_swapped_for_a_link(self):
+        plan = self.planned()
+        (self.private / "pub").mkdir()
+        (self.private / "pub/m.gguf").write_bytes(b"private")
+        moved = self.shared.with_name("old-shared")
+        self.shared.rename(moved)
+        self.shared.symlink_to(self.private)
+        with self.assertRaises(PermissionError):
+            m.apply(plan, lambda *_: None, journal=self.journal)
+        self.assertEqual((self.private / "pub/m.gguf").read_bytes(), b"private")
+        self.assertFalse((self.dest / "m/m.gguf").exists())
+
+    def test_other_file_than_previewed(self):
+        plan = self.planned()
+        self.source.unlink()
+        os.link(self.private / "m.gguf", self.source)      # a real folder, but not the previewed file
+        with self.assertRaises(PermissionError):
+            m.apply(plan, lambda *_: None, journal=self.journal)
+        self.assert_private_untouched()
+
+    def test_unchanged_source_is_moved(self):
+        m.apply(self.planned(), lambda *_: None, journal=self.journal)
+        self.assertEqual((self.dest / "m/m.gguf").read_bytes(), b"model")
+        self.assertFalse(self.source.exists())
+
+    def test_journal_keeps_the_identity(self):
+        m.apply(self.planned(copy=False), lambda *_: None, journal=self.journal)
+        self.assertEqual(m.load_journal(self.journal)[0].ident, m._ident(self.dest / "m/m.gguf"))
+
+
 if __name__ == "__main__":
     unittest.main()
