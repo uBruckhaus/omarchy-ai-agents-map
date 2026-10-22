@@ -330,26 +330,56 @@ def load_journal(journal: Path = JOURNAL) -> list:
     return [] if None in found else found
 
 
-def _copy(source: Path, target: Path, progress, cancelled, done_bytes: int, total: int) -> int:
-    """Copy a file or a folder tree; returns bytes copied."""
-    if source.is_dir():
-        copied = 0
-        target.mkdir(parents=True, exist_ok=True)
-        for entry in sorted(source.iterdir()):
-            if entry.is_symlink():
-                (target / entry.name).symlink_to(os.readlink(entry))
-            else:
-                copied += _copy(entry, target / entry.name, progress, cancelled, done_bytes + copied, total)
-        return copied
+def _open_own(name, dir_fd=None):
+    """(fd, stat) of a file or folder of this account, opened once and never through a link (a
+    name inside a folder: relative to that folder's own descriptor). Everything after reads this fd,
+    so a name swapped for a link or another file after the preview is not followed."""
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+    try:
+        fd = os.open(name, flags, dir_fd=dir_fd)
+    except OSError as error:
+        raise PermissionError(f"{Path(name).name} is not this account's own file") from error
+    st = os.fstat(fd)
+    if st.st_uid != os.getuid() or not (stat.S_ISREG(st.st_mode) or stat.S_ISDIR(st.st_mode)):
+        os.close(fd)
+        raise PermissionError(f"{Path(name).name} is not this account's own file")
+    return fd, st
+
+
+def _copy(source: Path, target: Path, progress, cancelled, done_bytes: int, total: int,
+          dir_fd=None, expect=None) -> int:
+    """Copy source (a file or a folder) to target, reading only what _open_own opened. expect:
+    (st_dev, st_ino) the source must still have."""
+    fd, st = _open_own(source.name if dir_fd is not None else source, dir_fd)
+    try:
+        if expect is not None and (st.st_dev, st.st_ino) != expect:
+            raise PermissionError(f"{source.name} changed after the preview")
+        if stat.S_ISDIR(st.st_mode):
+            copied = 0
+            target.mkdir(parents=True, exist_ok=True)
+            for name in sorted(os.listdir(fd)):
+                if stat.S_ISLNK(os.stat(name, dir_fd=fd, follow_symlinks=False).st_mode):
+                    (target / name).symlink_to(os.readlink(name, dir_fd=fd))
+                else:
+                    copied += _copy(source / name, target / name, progress, cancelled, done_bytes + copied, total,
+                                    dir_fd=fd)
+            return copied
+        return _copy_file(fd, st, source, target, progress, cancelled, done_bytes, total)
+    finally:
+        os.close(fd)
+
+
+def _copy_file(src_fd: int, st, source: Path, target: Path, progress, cancelled, done_bytes: int, total: int) -> int:
     partial = target.with_name(target.name + ".part")
     if partial.is_symlink() or partial.exists():
         if partial.is_symlink() or not partial.is_file():
             raise FileExistsError(str(partial))
         partial.unlink()                          # our own left-over from a stopped copy
     copied = 0
-    fd = os.open(partial, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
-    with open(source, "rb") as src, os.fdopen(fd, "wb") as dst:
-        while chunk := src.read(CHUNK):
+    # Owner-only until it is complete; then the source's mode and times.
+    fd = os.open(partial, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    with os.fdopen(fd, "wb") as dst:
+        while chunk := os.read(src_fd, CHUNK):
             if cancelled():
                 dst.close()
                 partial.unlink(missing_ok=True)
@@ -359,12 +389,23 @@ def _copy(source: Path, target: Path, progress, cancelled, done_bytes: int, tota
             progress((done_bytes + copied) / max(1, total), source.name)
         dst.flush()
         os.fsync(dst.fileno())
-    if partial.stat().st_size != source.stat().st_size:
-        partial.unlink(missing_ok=True)
-        raise OSError(f"{source.name}: the copy is incomplete")
-    shutil.copystat(source, partial)
+        if os.fstat(dst.fileno()).st_size != st.st_size:
+            dst.close()
+            partial.unlink(missing_ok=True)
+            raise OSError(f"{source.name}: the copy is incomplete")
+        os.utime(dst.fileno(), ns=(st.st_atime_ns, st.st_mtime_ns))
+        os.fchmod(dst.fileno(), stat.S_IMODE(st.st_mode) & 0o777)
     os.replace(partial, target)
     return copied
+
+
+def _identity(path: Path):
+    """(st_dev, st_ino) of path itself (not where a link points), or None."""
+    try:
+        st = os.stat(path, follow_symlinks=False)
+    except OSError:
+        return None
+    return None if stat.S_ISLNK(st.st_mode) else (st.st_dev, st.st_ino)
 
 
 def _move(source: Path, target: Path, copy: bool, progress, cancelled, done_bytes: int, total: int) -> int:
@@ -372,10 +413,16 @@ def _move(source: Path, target: Path, copy: bool, progress, cancelled, done_byte
         raise FileExistsError(str(target))
     target.parent.mkdir(parents=True, exist_ok=True)
     if not copy:
-        os.rename(source, target)
+        os.rename(source, target)                 # the name itself moves (a link stays a link)
         return 0
-    copied = _copy(source, target, progress, cancelled, done_bytes, total)
-    shutil.rmtree(source) if source.is_dir() else source.unlink()
+    before = _identity(source)
+    if before is None:
+        raise PermissionError(f"{source.name} is not this account's own file")
+    copied = _copy(source, target, progress, cancelled, done_bytes, total, expect=before)
+    if _identity(source) != before:               # swapped while it was copied: the copy goes, the name stays
+        shutil.rmtree(target) if target.is_dir() and not target.is_symlink() else target.unlink(missing_ok=True)
+        raise PermissionError(f"{source.name} changed while it was copied")
+    shutil.rmtree(source) if stat.S_ISDIR(os.stat(source, follow_symlinks=False).st_mode) else source.unlink()
     return copied
 
 

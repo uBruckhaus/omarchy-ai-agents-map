@@ -180,5 +180,99 @@ class HostileLayoutTest(unittest.TestCase):
                 inst.set_models_folder(self.base / "Models\nX=1")
         write.assert_not_called()
 
+
+class CopiedSourceTest(unittest.TestCase):
+    """Reorganize's copy (another file system): the planned source is opened once, never through a
+    link, and must be this account's own file; a name swapped after the preview is not followed."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        base = Path(os.path.realpath(self.tmp.name))
+        self.shared, self.dest = base / "shared", base / "dest"
+        self.shared.mkdir()
+        self.dest.mkdir()
+        private = base / "private"
+        private.mkdir(mode=0o700)
+        self.secret = private / "secret.txt"
+        self.secret.write_text("private")
+        self.secret.chmod(0o644)                   # readable, but only through its 0700 folder
+        self.journal = base / "journal.json"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def move(self, source, target, progress=lambda f, t: None):
+        return m._move(source, target, True, progress, lambda: False, 0, 10)
+
+    def assert_nothing_exposed(self):
+        for path in self.dest.rglob("*"):
+            if path.is_file() and not path.is_symlink():
+                self.assertNotEqual(path.read_bytes(), b"private", path)
+
+    def test_source_swapped_for_a_link_after_the_preview(self):
+        source = self.shared / "m.gguf"
+        source.write_bytes(b"model")
+        step = m.Step("move", str(source), str(self.dest / "m/m.gguf"), copy=True, size=5)
+        plan = m.Plan(self.shared, [step], [], 5)
+        source.unlink()
+        source.symlink_to(self.secret)             # another user's swap between preview and apply
+        with self.assertRaises(PermissionError):
+            m.apply(plan, lambda *_: None, journal=self.journal)
+        self.assertFalse((self.dest / "m/m.gguf").exists())
+        self.assert_nothing_exposed()
+        self.assertTrue(source.is_symlink())       # the name is left as it is
+
+    def test_folder_swapped_for_a_link(self):
+        folder = self.shared / "blobs"
+        folder.symlink_to(self.secret.parent)
+        with self.assertRaises(PermissionError):
+            self.move(folder, self.dest / "blobs")
+        self.assert_nothing_exposed()
+
+    def test_link_inside_a_folder_stays_a_link(self):
+        folder = self.shared / "blobs"
+        folder.mkdir()
+        (folder / "a").write_bytes(b"a")
+        (folder / "b").symlink_to(self.secret)
+        self.move(folder, self.dest / "blobs")
+        self.assertTrue((self.dest / "blobs/b").is_symlink())
+        self.assertEqual((self.dest / "blobs/a").read_bytes(), b"a")
+        self.assert_nothing_exposed()
+
+    def test_swapped_while_copying(self):
+        source = self.shared / "m.gguf"
+        source.write_bytes(b"model")
+
+        def swap(_f, _t):
+            if not source.is_symlink():
+                source.unlink()
+                source.symlink_to(self.secret)
+        with self.assertRaises(PermissionError):
+            self.move(source, self.dest / "m.gguf", progress=swap)
+        self.assertFalse((self.dest / "m.gguf").exists())         # the copy of the old file goes too
+        self.assertTrue(source.is_symlink())                      # and the swapped name is not removed
+        self.assert_nothing_exposed()
+
+    def test_another_accounts_file_is_not_copied(self):
+        source = self.shared / "m.gguf"
+        source.write_bytes(b"model")
+        with mock.patch.object(m.os, "getuid", return_value=os.getuid() + 1):
+            with self.assertRaises(PermissionError):
+                self.move(source, self.dest / "m.gguf")
+        self.assertTrue(source.exists())
+
+    def test_part_file_owner_only_until_complete(self):
+        source = self.shared / "m.gguf"
+        source.write_bytes(b"model")
+        source.chmod(0o644)
+        modes = []
+        self.move(source, self.dest / "m.gguf",
+                  progress=lambda f, t: modes.append((self.dest / "m.gguf.part").stat().st_mode & 0o777))
+        self.assertEqual(set(modes), {0o600})
+        self.assertEqual((self.dest / "m.gguf").stat().st_mode & 0o777, 0o644)
+        self.assertEqual((self.dest / "m.gguf").read_bytes(), b"model")
+        self.assertFalse(source.exists())
+
+
 if __name__ == "__main__":
     unittest.main()
