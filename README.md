@@ -346,6 +346,32 @@ never `~/.ssh`, `~/.gnupg` or credential files; JSON, TOML or YAML only; a fixed
 names; nothing in it is ever run) and kept in `~/.config/omarchy/ai-agents-map/agents/`. Settings →
 **Look up new agents** switches this off; right-click the agent on the map to look it up again.
 
+### Smart Check and Daily AI checks
+
+While Claude Code or Codex is installed, the header has a **Smart Check** button (a magnifier). Its
+page shows what an installed agent did and found for this PC, in cards:
+
+- **PC setup summary**: **Check now** gives the agent a short description of the setup (agents and
+  their versions, models and providers, local LLMs, MCP servers and their versions, number of
+  skills, the GPU and memory, and the setup check's own findings; never keys, settings values,
+  environment variables or headers). It answers with a summary and findings (problems, tips, what
+  is good); each problem or tip has **Fix it with Claude Code…**, which opens the agent in a
+  terminal tab with a prompt of ours that names the finding and asks it to ask before each step.
+- **Updates found**: newer versions of your local MCP servers (apps unpacked in `~/Applications`,
+  npm or PyPI packages pinned to a version), each with **Release page** and **Do it with Claude
+  Code…** (the agent only downloads the new AppImage into `~/Applications`; AI Agents Map then
+  unpacks it and moves the agents over, with Undo). **Check now** asks at once.
+- **Token statistics**: tokens today and in 30 days, their value at API prices and whether a
+  subscription covers them (the agent's plan, e.g. Max 5x: it counts against the plan's limits, no
+  extra charge; with its API key variable set, the key is charged), per agent, per plugin and per day.
+- One card per kind of task (MCP server updates, setup analysis, looking up new agents, fixes):
+  runs, failures, results and tokens.
+
+Settings → **Daily AI checks** (off by default) lets the agent look for MCP server updates once a
+day; **Agent for AI checks** picks Claude Code or Codex for these look-ups, for looking up new
+agents and for "Do it with …". A failed install or update in a terminal tab offers **Fix it with
+…** too.
+
 ### Skills for an MCP server
 
 A skill written for an MCP server (its folder has the server's name, or its SKILL.md calls the
@@ -492,7 +518,8 @@ Settings › **Models folder** (type it or **Choose…**) is one folder for ever
 
 ### Model folders on Setup
 
-Setup shows one card per folder that holds models, with the local LLMs that read it.
+Setup shows the models as the map groups them: one card for the online models and one per local
+LLM's model folder, titled with the folder and, in brackets, who serves its models.
 - **Add folder…** adds one more folder to look in (Settings `model_folders`); nothing is moved.
 - **Change folder…** moves the folder's models to another folder after a question that lists what
   changes: files are moved (a hard link on the same disk, else a checked copy) with Undo; links in
@@ -637,6 +664,22 @@ the backup and Undo), and the agent is told the same context. A context you set 
   searches. All web requests go through `curl` with https only, at most a few https redirects
   (none for skills and the registry), size and time limits, and request headers handed over on
   stdin, never on the command line.
+- **AI look-ups** (Smart Check's Check now, Daily AI checks when switched on, looking up a new
+  agent): the agent chosen in Settings, run as its adapter's `research` command: Claude Code
+  `claude -p <prompt> --tools WebSearch WebFetch --allowedTools WebSearch WebFetch
+  --strict-mcp-config --no-session-persistence --disable-slash-commands --output-format json`
+  (no shell, no files, no MCP servers) or Codex `codex --search exec --sandbox read-only
+  --skip-git-repo-check --json --output-schema <schema> <prompt>`, in a private folder, with the
+  environment of an agent session removed, one deadline (10 min) and a size limit on its output.
+  The prompt holds only what the card says; the answer is web text and is checked field by field
+  (known names only, plain version numbers, https links, short single-line text, at most 15
+  findings) before it is shown. Nothing in an answer is ever run.
+- **AI tasks** ("Do it with …", "Fix it with …", on a click only): the agent itself started in a
+  terminal tab (`claude <prompt>` / `codex <prompt>`, the prompt one argument, written by AI
+  Agents Map), where it asks before each step as it always does and you watch.
+- **Token log**: each look-up's time, task, agent, result and token numbers (from the agent's own
+  JSON output) in `~/.local/state/omarchy-plugin-ai/runs.json` (owner-only, at most 500 runs),
+  shared with the author's other plugins that use the same `plugin_ai.py`; Smart Check shows it.
 - **Install, update, uninstall an agent** (its card on Setup, after the dialog with the commands):
   `mise --yes use -g <tool>` / `mise --yes unuse -g <tool>` and `mise --yes uninstall --all <tool>`
   in a terminal you watch (the tool from the plugin's adapters, every word checked), or the system
@@ -727,7 +770,7 @@ links not followed; nothing is deleted from here.
 The gear (Ctrl+,) opens the settings: **Language** (system or one of English, Deutsch, Français,
 Español, Italiano, Português, Nederlands, Polski), **Look** (the colours from the Omarchy theme,
 or GNOME's Adwaita with the system's light/dark and accent colour), **Map animations** (agents and other programs, only my agents, off; with a moving preview), **Terminal tabs above the map**, **Corners** (like windows, rounded or square, as
-in App Manager and Theme Manager), **Look up new agents**, **Start local LLMs with their agents**, **Too narrow for the map** (what the header's "Maximize for more room" does: move the window to a
+in App Manager and Theme Manager), **Look up new agents**, **Daily AI checks** (off by default; uses the agent's tokens), **Agent for AI checks**, **Start local LLMs with their agents**, **Too narrow for the map** (what the header's "Maximize for more room" does: move the window to a
 free workspace, maximize it where it is, or show no hint; with an animated preview), **In the app
 launcher** (the launcher entry; off removes it) and **Agents start in** (the folder for Start). Backspace or Esc goes back. Settings
 live in `~/.config/omarchy/ai-agents-map/settings.json`.

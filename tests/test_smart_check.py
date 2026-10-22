@@ -95,6 +95,9 @@ class SmartCheckTest(unittest.TestCase):
         self.assertEqual([(g.plugin, g.task, g.totals.runs, g.totals.ok, g.totals.tokens) for g in groups],
                          [("asterism", "mcp-updates", 2, 1, 110), ("wlan-monitor", "firmware", 1, 1, 5)])
         self.assertEqual(groups[0].runs[0]["when"], "2026-10-22T11:00:00")     # newest first
+        many = [{"when": "2026-10-22T10:00:00", "plugin": "p", "task": f"t{i}", "agent": "a", "ok": True}
+                for i in range(500)]
+        self.assertEqual(len(smart_check.categories(many, now=now)), smart_check.MAX_CATEGORIES)
 
 
 if __name__ == "__main__":

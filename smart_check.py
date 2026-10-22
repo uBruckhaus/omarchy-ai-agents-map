@@ -26,6 +26,8 @@ from i18n import N_
 HOME = Path.home()
 CACHE = HOME / ".cache/ai-agents-map/smart-check.json"
 MAX_SNAPSHOT = 12000
+MAX_FINDINGS = 15
+MAX_CATEGORIES = 30          # task cards on the page (the log holds at most 500 runs)
 LEVELS = ("problem", "tip", "good")
 
 PROMPT = """You are checking the AI setup of a Linux PC (Omarchy / Arch Linux). Here is what is installed
@@ -128,7 +130,7 @@ def validate(answer: dict, agent: str, now: dt.datetime | None = None) -> Analys
         seen.add(title.lower())
         findings.append(Finding(item["level"], title, _one_line(item.get("detail"), 400)))
     findings.sort(key=lambda f: LEVELS.index(f.level))
-    return Analysis((now or dt.datetime.now()).isoformat(timespec="seconds"), agent, summary, findings[:15])
+    return Analysis((now or dt.datetime.now()).isoformat(timespec="seconds"), agent, summary, findings[:MAX_FINDINGS])
 
 
 def result_text(analysis: Analysis) -> str:
@@ -148,12 +150,11 @@ def analyze(agent: str, setup: str, look_up=None, cache: Path = CACHE) -> Analys
 
 
 def last(cache: Path = CACHE) -> Analysis | None:
+    data = plugin_ai.read_json(cache, 256 * 1024)       # own file, no link, small
     try:
-        with open(cache, encoding="utf-8") as handle:
-            data = json.load(handle)
         return Analysis(str(data["when"]), str(data["agent"]), str(data["summary"]),
                         [Finding(str(f["level"]), str(f["title"]), str(f.get("detail", "")))
-                         for f in data.get("findings", []) if f.get("level") in LEVELS])
+                         for f in data.get("findings", [])[:MAX_FINDINGS] if f.get("level") in LEVELS])
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
 
@@ -196,4 +197,4 @@ def categories(all_runs: list[dict], days: int = 30, now: dt.datetime | None = N
     found = [Category(plugin, task, list(reversed(runs)),
                       plugin_ai.totals(runs, days=days, now=now)) for (plugin, task), runs in groups.items()]
     found.sort(key=lambda c: str(c.runs[0].get("when")), reverse=True)
-    return found
+    return found[:MAX_CATEGORIES]

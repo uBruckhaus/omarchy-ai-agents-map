@@ -162,12 +162,9 @@ def validate(answer: dict, servers) -> list[Found]:
 
 
 def _read(cache: Path) -> dict:
-    try:
-        with open(cache, encoding="utf-8") as handle:
-            data = json.load(handle)
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError):
-        return {}
+    import plugin_ai
+    data = plugin_ai.read_json(cache, 256 * 1024)       # own file, no link, small
+    return data if isinstance(data, dict) else {}
 
 
 def cached(cache: Path = CACHE) -> list[Found]:

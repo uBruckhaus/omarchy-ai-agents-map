@@ -26,6 +26,7 @@ import fcntl
 import json
 import os
 import shutil
+import stat
 import subprocess
 import tempfile
 import time
@@ -35,6 +36,7 @@ from pathlib import Path
 API = 1
 MAX_RUNS = 500
 MAX_ANSWER = 512 * 1024
+MAX_LOG = 2 * 1024 * 1024        # the run log (500 short runs are far below this)
 TIMEOUT = 600
 OUTPUTS = ("text", "claude-json", "codex-jsonl")
 
@@ -265,12 +267,27 @@ def record_task(plugin: str, task: str, agent: str, result: str = "started") -> 
 
 # --- the log -------------------------------------------------------------------------------------
 
-def runs(path: Path | None = None) -> list[dict]:
+def read_json(path, max_bytes: int = MAX_LOG):
+    """A JSON file of this account's own: never through a link, only a regular file, at most
+    max_bytes (larger: None). None when it is missing or not JSON."""
     try:
-        with open(path or log_file(), encoding="utf-8") as handle:
-            data = json.load(handle)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    except OSError:
+        return None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_size > max_bytes:
+            return None
+        data = os.read(fd, max_bytes + 1)
+        return None if len(data) > max_bytes else json.loads(data.decode("utf-8", "replace"))
     except (OSError, ValueError):
-        return []
+        return None
+    finally:
+        os.close(fd)
+
+
+def runs(path: Path | None = None) -> list[dict]:
+    data = read_json(path or log_file())
     found = data.get("runs") if isinstance(data, dict) else None
     return [r for r in found if isinstance(r, dict)] if isinstance(found, list) else []
 
@@ -289,7 +306,8 @@ def record(plugin: str, task: str, agent: str, usage: Usage | None, ok: bool, re
             entry["cost"] = round(usage.cost, 4)
     try:
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        with open(path.with_suffix(".lock"), "a") as lock:
+        lock = os.open(path.with_suffix(".lock"), os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+        try:
             fcntl.flock(lock, fcntl.LOCK_EX)
             kept = (runs(path) + [entry])[-MAX_RUNS:]
             fd, tmp = tempfile.mkstemp(prefix=".runs-", dir=str(path.parent))
@@ -297,6 +315,8 @@ def record(plugin: str, task: str, agent: str, usage: Usage | None, ok: bool, re
                 os.fchmod(handle.fileno(), 0o600)
                 json.dump({"api": API, "runs": kept}, handle, indent=1)
             os.replace(tmp, path)
+        finally:
+            os.close(lock)
     except OSError:
         pass
 
