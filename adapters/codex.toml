@@ -109,9 +109,13 @@ reader = "codex"
 [models]                               # the online models the map can switch it to
 reader = "codex"
 
-[research]                             # a web look-up (Add skills, MCP): read-only sandbox, the answer as JSON
-argv = ["codex", "--search", "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--output-schema", "{schema}",
-        "{prompt}"]
+[research]                             # a web look-up (Add skills, MCP, AI checks): read-only sandbox, the answer as JSON
+argv = ["codex", "--search", "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--json", "--output-schema",
+        "{schema}", "{prompt}"]
+output = "codex-jsonl"                 # events: the answer and its token use
+
+[task]                                 # Do it with Codex…: in a terminal tab, it asks before each step
+argv = ["codex", "{prompt}"]
 
 [rewrite]                              # a skill rewritten for an MCP server: read-only, the prompt on stdin
 argv = ["codex", "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--output-last-message", "{answer}", "-"]

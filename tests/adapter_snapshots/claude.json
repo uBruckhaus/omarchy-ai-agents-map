@@ -120,7 +120,12 @@
   "--no-session-persistence",
   "--disable-slash-commands",
   "--output-format",
-  "text"
+  "json"
+ ],
+ "research_output": "claude-json",
+ "task": [
+  "claude",
+  "{prompt}"
  ],
  "rewrite": [
   "claude",

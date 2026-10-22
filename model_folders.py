@@ -1,5 +1,6 @@
-"""Model folders on Setup: one card per folder that really holds GGUF model files, with the local
-LLMs that read it, plus the folders added by hand (Add folder; setting model_folders), even empty.
+"""Model folders on Setup: one card per main folder (a local LLM's model folder, or one added by
+hand: Add folder; setting model_folders, even empty), as the map groups models, holding every folder
+of GGUF model files inside it (main_folders()), with the local LLMs that read them.
 
 A local LLM reads a folder when the folder is its model folder or inside it (LM Studio:
 <publisher>/<model>/), or when its model folder holds links to files there (a llama.cpp router
@@ -118,6 +119,48 @@ def discover(runtimes, added=()) -> list[Folder]:
         entry.models = sorted({_model_name(p) for p in own if "mmproj" not in p.name.lower()}, key=str.lower)
     # A folder of links only (a router folder) is no card: its files are shown where they are.
     return sorted((f for f in folders.values() if f.files or f.added), key=lambda f: str(f.path).lower())
+
+
+@dataclass
+class MainFolder:
+    """A card on Setup: a local LLM's model folder or a folder added by hand, with every folder of
+    model files inside it (LM Studio's <publisher>/<model>/ subfolders), as the map groups them."""
+    path: Path
+    parts: list = field(default_factory=list)     # Folders inside it (itself first when it holds files)
+    readers: list = field(default_factory=list)
+    added: bool = False
+
+    @property
+    def models(self) -> list:
+        """(model name, its Folder), by name."""
+        return sorted(((m, part) for part in self.parts for m in part.models), key=lambda mp: mp[0].lower())
+
+    @property
+    def own(self) -> Folder | None:
+        """The part that is this folder itself (model files right in it), if any."""
+        return next((part for part in self.parts if part.path == self.path), None)
+
+
+def main_folders(folders, runtimes, added=()) -> list[MainFolder]:
+    """discover()'s folders grouped by the outermost main folder holding them: a GGUF local LLM's
+    model folder or a folder added by hand; a folder in none of them is its own main folder."""
+    roots = {real(rt.models_dir) for rt in runtimes
+             if reads_gguf(rt) and getattr(rt, "installed", True) and rt.models_dir}
+    roots |= {real(path) for path in added}
+
+    def main_of(path: Path) -> Path:
+        holding = [root for root in roots if path == root or path.is_relative_to(root)]
+        return min(holding, key=lambda root: len(root.parts)) if holding else path
+
+    groups: dict[Path, MainFolder] = {}
+    for folder in folders:
+        main = groups.setdefault(main_of(folder.path), MainFolder(main_of(folder.path)))
+        main.parts.append(folder)
+        main.readers += [key for key in folder.readers if key not in main.readers]
+        main.added = main.added or folder.added
+    for main in groups.values():
+        main.parts.sort(key=lambda part: (part.path != main.path, str(part.path).lower()))
+    return sorted(groups.values(), key=lambda main: str(main.path).lower())
 
 
 # --- Change folder ---------------------------------------------------------------------------------

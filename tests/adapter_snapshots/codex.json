@@ -111,8 +111,14 @@
   "--sandbox",
   "read-only",
   "--skip-git-repo-check",
+  "--json",
   "--output-schema",
   "{schema}",
+  "{prompt}"
+ ],
+ "research_output": "codex-jsonl",
+ "task": [
+  "codex",
   "{prompt}"
  ],
  "rewrite": [

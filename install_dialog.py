@@ -20,6 +20,7 @@ from pathlib import Path
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 import agents
+import ai_helper
 import disk_usage
 import harnesses
 import install_ctl
@@ -148,7 +149,9 @@ class InstallDialog:
         if not self.installs_in_window() or terminal_pane.vte() is None or not step.run:
             return False
         done = _("Done. You can close this tab (Back).")
-        script = " && ".join(shlex.join(c) for c in step.run) + f"; echo; echo {shlex.quote(done)}"
+        failed = _("It did not work. You can close this tab (Back).")
+        script = (" && ".join(shlex.join(c) for c in step.run) + f"; code=$?; echo; "
+                  f"if [ $code = 0 ]; then echo {shlex.quote(done)}; else echo {shlex.quote(failed)}; fi; exit $code")
         title = (_("Remove {0}") if remove else _("Update {0}") if update else _("Install {0}")).format(name)
 
         def updated():
@@ -158,14 +161,58 @@ class InstallDialog:
             self.refresh_overview()
             self.refresh_map()
             self.refresh_setup()
+        verb = "remove" if remove else "update" if update else "install"
+
+        def fix(code):
+            # An agent that can take a task looks at what went wrong, in a tab of its own.
+            agent = self.task_agent()
+            if agent is None:
+                return
+            prompt = (f"I tried to {verb} {name} on this Linux PC with this command, and it failed with exit "
+                      f"code {code}:\n{' && '.join(shlex.join(c) for c in step.run)}\nFind out why and fix it, "
+                      f"then {verb} {name}. Ask me before each step that changes the system.")
+            self.toast(_("{0} did not work.").format(title), 12, _("Fix it with {0}…").format(
+                ai_helper.name_of(agent)), lambda: self.do_with_agent(f"fix:{kind}:{key}", title, prompt))
         self.open_command_tab(f"install:{kind}:{key}", title, script, self.back_to_here(key),
-                              on_end=updated if update else None)
+                              on_end=updated if update else None, on_fail=fix)
         return True
 
-    def open_command_tab(self, tab: str, title: str, script: str, back, on_end=None):
-        """A bash script in a terminal tab of the window; Back (or × on its tab) runs back().
-        on_end() runs once the script has ended. A tab of the same name still running is shown
-        instead of starting another."""
+    def task_agent(self) -> str | None:
+        """The agent "Do it with …" starts: the one for AI checks when it can take a task."""
+        found = ai_helper.task_agents({a.command for a in self.agent_list if a.installed})
+        return found[0] if found else None
+
+    @staticmethod
+    def open_uri(url: str):
+        try:
+            Gio.AppInfo.launch_default_for_uri(url, None)
+        except GLib.Error:
+            pass
+
+    def do_with_agent(self, tab: str, title: str, prompt: str, on_end=None) -> bool:
+        """The agent in a terminal tab of the window with `prompt` as its first message: it asks before
+        each step itself, the user watches (without VTE: in a terminal window of its own)."""
+        import terminal_pane
+        agent = self.task_agent()
+        argv = ai_helper.task_argv(agent, prompt) if agent else None
+        if argv is None:
+            self.toast(_("No agent here can take a task (Claude Code, Codex)."), 6)
+            return False
+        name = ai_helper.name_of(agent)
+        ai_helper.record_task(tab.split(":", 1)[0], agent, title)       # Smart Check lists it
+        if terminal_pane.vte() is None:
+            import desktop
+            if not desktop.open_terminal(argv, str(Path.home())):
+                self.toast(_("No terminal found (xdg-terminal-exec)"), 6)
+                return False
+            return True
+        self.open_command_tab(f"task:{tab}", f"{name} · {title}", "", self.back_to_here(), on_end=on_end, argv=argv)
+        return True
+
+    def open_command_tab(self, tab: str, title: str, script: str, back, on_end=None, argv=None, on_fail=None):
+        """A bash script (or argv: a program) in a terminal tab of the window; Back (or × on its tab)
+        runs back(). on_end() runs once it has ended, on_fail(code) too when it failed. A tab of the
+        same name still running is shown instead of starting another."""
         import terminal_pane
         old = self.sessions.pop(tab, None)
         if old is not None:
@@ -179,9 +226,11 @@ class InstallDialog:
         def state(pane):
             if not pane.running and pane.started and on_end is not None:
                 GLib.idle_add(lambda: on_end() and False)
+            if not pane.running and pane.started and on_fail is not None and pane.exit_code:
+                GLib.idle_add(lambda code=pane.exit_code: on_fail(code) and False)
             GLib.idle_add(self.terminal_changed)
         pane = terminal_pane.TerminalPane(subject, str(Path.home()), self.theme.colors, on_back=back,
-                                          on_state=state, argv=["bash", "-c", script])
+                                          on_state=state, argv=argv or ["bash", "-c", script])
         pane.back = back                  # closing its tab (×) leads there too
         self.sessions[tab] = pane
         self.right_stack.add_named(pane, f"term:{tab}")

@@ -84,6 +84,8 @@ SCHEMA: dict[str, Setting] = {
     "models_root": Setting(None, _text, "Settings › Models folder"),
     "removed_models_folders": Setting({}, _mapping, "{local LLM: its models folder} of local LLMs uninstalled here"),
     "look_up_new_agents": Setting(True, _bool, "Settings › Look up new agents"),
+    "ai_checks": Setting(False, _bool, "Settings › Daily AI checks (an agent looks up MCP server updates; uses tokens)"),
+    "ai_checks_agent": Setting("", _text, "Settings › Agent for AI checks (its command; \"\": the first that can)"),
     "mcp_list": Setting(True, _bool, "Settings › Keep the MCP server list (mcp_registry.refresh_list on start)"),
     # Add-ons (Asterism)
     "addons_enabled": Setting([], _texts, "the add-ons switched on"),

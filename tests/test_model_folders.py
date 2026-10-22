@@ -46,6 +46,30 @@ class ModelFoldersTest(unittest.TestCase):
         self.assertEqual(sorted(found[0].readers), ["llamacpp", "lmstudio"])
         self.assertEqual(len(found[0].files), 2)
 
+    def test_main_folders_group_subfolders_as_the_map_does(self):
+        qwen = self.models / "lmstudio-community" / "qwen-GGUF"
+        qwen.mkdir(parents=True)
+        (qwen / "qwen-Q4.gguf").write_bytes(b"q")
+        (self.models / "loose-Q8.gguf").write_bytes(b"l")              # right in LM Studio's folder
+        outside = self.root / "Downloads"
+        outside.mkdir()
+        (outside / "tiny-Q2.gguf").write_bytes(b"t")
+        (self.router / "tiny-Q2.gguf").symlink_to(outside / "tiny-Q2.gguf")
+        added = self.root / "Mine" / "sub"
+        added.mkdir(parents=True)
+        (added / "own-Q4.gguf").write_bytes(b"o")
+        found = model_folders.discover(self.runtimes, [str(self.root / "Mine")])
+        mains = model_folders.main_folders(found, self.runtimes, [str(self.root / "Mine")])
+        self.assertEqual([m.path for m in mains],
+                         [p.resolve() for p in (outside, self.root / "Mine", self.models)])
+        lm = mains[2]
+        self.assertEqual([name for name, _part in lm.models], ["gemma-Q4", "loose-Q8", "qwen-Q4"])
+        self.assertEqual(lm.own.path, self.models.resolve())          # Change folder: only its own files
+        self.assertEqual(sorted(lm.readers), ["llamacpp", "lmstudio"])
+        self.assertEqual(mains[1].own.files, [])                       # its files are in a subfolder: no Change folder
+        self.assertTrue(mains[1].added)
+        self.assertEqual([name for name, _part in mains[1].models], ["own-Q4"])
+
     def test_a_file_reached_only_by_another_llms_link_is_not_read_by_lm_studio(self):
         outside = self.root / "outside"
         outside.mkdir()

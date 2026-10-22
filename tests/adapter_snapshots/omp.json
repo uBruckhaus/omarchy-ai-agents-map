@@ -59,6 +59,8 @@
  "logout": [],
  "start": [],
  "research": [],
+ "research_output": "text",
+ "task": [],
  "rewrite": [],
  "tools_setting": [
   "~/.omp/agent/settings.json",

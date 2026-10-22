@@ -949,7 +949,7 @@ class McpPages:
         options.add_css_class("am-list")
         options.add_css_class("boxed-list")
         best = None
-        rows = [self.run_option_row(option, server) for option in server.options[:6]]
+        rows = [self.run_option_row(option, server) for option in server.options[:mcp_registry.MAX_OPTIONS]]
         best = next((row for row in rows if row.option.runnable), None)
         for row in rows:
             if row is best and len(rows) > 1:
@@ -1327,7 +1327,7 @@ class McpPages:
         while (child := box.get_first_child()) is not None:
             box.remove(child)
         self.add_need_entries = {}
-        for need in needs:
+        for need in needs[:mcp_registry.MAX_FIELDS]:      # the registry offers no more (second guard)
             entry = Gtk.Entry(hexpand=True, text=need.value or "", visibility=not need.secret,
                               placeholder_text=need.hint or (_("needed") if need.required else _("optional")))
             entry.connect("changed", lambda *_: self.add_changed())

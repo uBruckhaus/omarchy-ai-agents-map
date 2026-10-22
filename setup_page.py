@@ -473,68 +473,84 @@ class SetupPage:
         box.append(flow)
 
     def fill_model_sections(self, box):
-        import llm_engine
-        runtimes = [r for r in self.inventory.runtimes if r.installed and llm_engine.of(r).models_page]
-        if not runtimes:
-            return
+        """The models as the map groups them: a card per folder (and one for the online models), titled
+        with the folder and, in brackets, who serves its models; folders added by hand that the map
+        does not show yet get a card of their own."""
         import install_ctl
+        import llm_engine
         import model_folders
-        names = {r.key: r.name for r in runtimes}
-        folders = model_folders.discover(runtimes, self.added_model_folders())
-        others = [r for r in runtimes if not model_folders.reads_gguf(r)]
-        box = self.setup_section(box, "models", _("Models"),
-                                 sum(len(f.models) for f in folders) + sum(len(r.models) for r in others))
-        self.note(box, _("Your model files, one card per folder, with the local LLMs that read it."))
+        built = getattr(self.side_map, "graph", None)
+        nodes = {n.id: n for n in built.nodes} if built is not None else {}
+        groups: dict[str, list] = {}                      # folder ("" = online) -> model nodes, in map order
+        for node in (built.column(3) if built is not None else []):
+            if node.kind in ("model", "more"):
+                groups.setdefault(node.group, []).append(node)
+        servers: dict[str, list] = {}                     # folder -> provider nodes serving its models
+        for edge in (built.edges if built is not None else []):
+            model, provider = nodes.get(edge.target), nodes.get(edge.source)
+            if edge.kind == "serves" and model is not None and provider is not None and model.group in groups:
+                if provider not in servers.setdefault(model.group, []):
+                    servers[model.group].append(provider)
+        runtimes = [r for r in self.inventory.runtimes if r.installed]
+        added = self.added_model_folders()
+        shown = {model_folders.real(g) for g in groups if g}
+        # Only folders added by hand: the local LLMs' own folders are the map's groups above.
+        extra = [m for m in model_folders.main_folders(model_folders.discover([], added), [], added)
+                 if m.path not in shown]
+        count = sum(1 for nodes_ in groups.values() for n in nodes_ if n.kind == "model") + \
+            sum(len(m.models) for m in extra)
+        if not groups and not extra:
+            return
+        box = self.setup_section(box, "models", _("Models"), count)
+        self.note(box, _("Your models as the map shows them: one card per folder, with who serves them in "
+                         "brackets."))
         add = Gtk.Button(label=_("Add folder…"), halign=Gtk.Align.START)
         add.add_css_class("am-small-btn")
         add.set_tooltip_text(_("Choose or make a folder for models; it gets a card of its own here"))
         add.connect("clicked", lambda *_a: self.add_model_folder())
         box.append(add)
-        gguf = [r for r in runtimes if model_folders.reads_gguf(r)]
-        for folder in folders:
-            readers = [names[k] for k in folder.readers if k in names]
-            count = ngettext("1 model", "{0} models", len(folder.models)).format(len(folder.models))
-            read = _("read by {0}").format(", ".join(readers)) if readers else _("no local LLM reads it")
-            path = self.tilde_path(str(folder.path))
-            card = self.group_card(box, f"setup-folder:{folder.path}", folder.path.name,
-                                   summary=" · ".join([path, count, read]), default_open=True)
-            where = Gtk.Label(label=f"{path} · {read}", xalign=0, wrap=True)
-            where.add_css_class("am-agent-detail")
-            card.append(where)
+        for folder, models in groups.items():
+            providers = servers.get(folder, [])
+            title = (self.tilde_path(folder) if folder else _("Online")) + \
+                (f" ({', '.join(p.label for p in providers)})" if providers else "")
+            real_models = [n for n in models if n.kind == "model"]
+            card = self.group_card(box, f"setup-models:{folder or 'online'}", title,
+                                   summary=ngettext("1 model", "{0} models", len(real_models)).format(len(real_models)),
+                                   default_open=True)
             flow = self.setup_flow()
-            reader = next((r for r in gguf if r.key in folder.readers), gguf[0] if gguf else None)
-            for model in folder.models:
-                node_id = f"model:runtime:{reader.key}:{model.lower()}" if reader else f"file:{folder.path}/{model}"
-                flow.append(self.item_card(node_id, glyph("model"), model, "", None, small=True))
-            # Last: a new model into this folder, and this folder somewhere else (its models go along).
-            if reader is not None:
-                flow.append(self.add_tile(_("Add model"), _("Download into this folder"), "model",
-                                          lambda r=reader, f=folder: self.open_models(r, into=f.path), small=True))
-            if folder.files:
-                flow.append(self.add_tile(_("Change folder…"), _("Its models move along"), "folder",
-                                          lambda f=folder: self.change_model_folder(f), small=True))
+            for node in models:
+                if node.kind == "more":
+                    flow.append(self.item_card(node.id, glyph("model"), node.label, "", None, dim=True, small=True))
+                else:
+                    flow.append(self.item_card(node.id, glyph("model"), node.label, "", None, small=True))
+            # Last: a new model for a local LLM of this folder, and its folder somewhere else.
+            for provider in providers:
+                rt = next((r for r in runtimes if f"runtime:{r.key}" == provider.id), None)
+                if rt is None or not llm_engine.of(rt).models_page:
+                    continue
+                if llm_engine.of(rt).own_model_folder or model_folders.reads_gguf(rt):
+                    flow.append(self.add_tile(_("Add model"), _("Download for {0}").format(rt.name), "model",
+                                              lambda r=rt: self.open_models(r), small=True))
+                inst = install_ctl.installer(rt.key)
+                if llm_engine.of(rt).own_model_folder and inst is not None and inst.installed_folder() is not None:
+                    flow.append(self.add_tile(_("Model folder…"), _("Another or a new folder for {0}").format(rt.name),
+                                              "folder", lambda r=rt: self.open_install(r, "models"), small=True))
             card.append(flow)
-        for rt in others:                      # Ollama, Jan: their own store, one card each
-            folder = self.tilde_path(rt.models_dir)
-            count = ngettext("1 model", "{0} models", len(rt.models)).format(len(rt.models))
-            card = self.group_card(box, f"setup-models:{rt.key}", rt.name,
-                                   summary=" · ".join(filter(None, [folder, count])), default_open=True)
-            if folder:
-                where = Gtk.Label(label=folder, xalign=0, wrap=True)
-                where.add_css_class("am-agent-detail")
-                card.append(where)
+        gguf = [r for r in runtimes if model_folders.reads_gguf(r)]
+        for folder in extra:                    # added by hand, not on the map (no local LLM reads it yet)
+            card = self.group_card(box, f"setup-folder:{folder.path}", self.tilde_path(str(folder.path)),
+                                   summary=ngettext("1 model", "{0} models", len(folder.models)).format(len(folder.models)),
+                                   default_open=True)
             flow = self.setup_flow()
-            for model in sorted(rt.models, key=str.lower):
-                flow.append(self.item_card(f"model:runtime:{rt.key}:{model.lower()}", glyph("model"), model, "",
-                                           None, small=True))
-            own_folder = llm_engine.of(rt).own_model_folder
-            if own_folder:
-                flow.append(self.add_tile(_("Add model"), _("Download for {0}").format(rt.name), "model",
-                                          lambda r=rt: self.open_models(r), small=True))
-            inst = install_ctl.installer(rt.key)
-            if own_folder and inst is not None and inst.installed_folder() is not None:
-                flow.append(self.add_tile(_("Model folder…"), _("Another or a new folder for {0}").format(rt.name),
-                                          "folder", lambda r=rt: self.open_install(r, "models"), small=True))
+            for model, part in folder.models:
+                flow.append(self.item_card(f"file:{part.path}/{model}", glyph("model"), model, "", None, small=True))
+            if gguf:
+                flow.append(self.add_tile(_("Add model"), _("Download into this folder"), "model",
+                                          lambda f=folder: self.open_models(gguf[0], into=f.path), small=True))
+            own = folder.own
+            if own is not None and own.files:
+                flow.append(self.add_tile(_("Change folder…"), _("Its models move along"), "folder",
+                                          lambda f=own: self.change_model_folder(f), small=True))
             card.append(flow)
 
     # --- model folders: Add folder, Change folder (model_folders) -----------------------------------

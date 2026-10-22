@@ -190,6 +190,9 @@ class Harness:
     start: tuple = ()                 # arguments ▶ starts it with (DeepSeek Harness: its profile)
     research: tuple = ()              # argv: one prompt looked up on the web, no other tools
                                       # ("{prompt}", "{schema}": a JSON schema file for the answer)
+    research_output: str = "text"     # how research answers: "text", or with its token use ("claude-json",
+                                      # "codex-jsonl"; ai_helper.parse_output)
+    task: tuple = ()                  # argv: started in a terminal tab with "{prompt}" as its first prompt
     rewrite: tuple = ()               # argv: the prompt on stdin, no tools at all; "{answer}": the file
                                       # it writes its answer to (else its output is the answer)
     models: tuple | None = None       # (choices(current, home), plan(model, home)): its online models
@@ -352,7 +355,8 @@ def _extended(harness: Harness) -> Harness:
 # Facts newer than add-on API 1: an agent add-on signed before them does not bring them, so the
 # app's own adapter for the same agent gives them until the add-on is signed again.
 NEWER_FACTS = ("home", "activity", "details", "program_dir", "web_search", "chat_app", "herdr", "logout",
-               "start", "research", "rewrite", "models", "tools_setting", "sandbox_setting", "asks_setting")
+               "start", "research", "rewrite", "task", "models", "tools_setting", "sandbox_setting",
+               "asks_setting")
 
 
 def _with_newer_facts(harness: Harness) -> Harness:
@@ -360,6 +364,10 @@ def _with_newer_facts(harness: Harness) -> Harness:
     if own is None or own is harness:
         return harness
     filled = {n: getattr(own, n) for n in NEWER_FACTS if _empty(harness, n) and not _empty(own, n)}
+    if "research" in filled or (harness.research_output == "text" and own.research_output != "text" and own.research):
+        # The format belongs to its command; an add-on's look-up that only answers in text (signed
+        # before research.output) gives way to the app's own, which also says its token use.
+        filled.update(research=own.research, research_output=own.research_output)
     return dataclasses.replace(harness, **filled) if filled else harness
 
 

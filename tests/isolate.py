@@ -18,3 +18,7 @@ def desktop_in(testcase, home: Path):
     patcher = mock.patch.object(desktop_generic, "CONFIG_DIR", home / ".config/asterism")
     patcher.start()
     testcase.addCleanup(patcher.stop)
+    # plugin_ai's shared log of AI runs (every plugin's)
+    patcher = mock.patch.dict("os.environ", {"XDG_STATE_HOME": str(home / ".local/state")})
+    patcher.start()
+    testcase.addCleanup(patcher.stop)

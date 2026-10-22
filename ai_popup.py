@@ -29,6 +29,7 @@ import atexit
 import agent_activity
 import mcp_activity
 import agent_details
+import ai_helper
 import agent_security
 import disk_usage
 import claude_sessions
@@ -50,6 +51,7 @@ from text_guard import TextGuard
 import corners
 import mcp_catalog
 import mcp_ctl
+import mcp_updates
 import mcp_library
 import mcp_registry
 import mcp_scan
@@ -106,6 +108,7 @@ from models_page import ModelsPage
 from connect_page import ConnectPage
 from configure_menu import ConfigureMenu
 from traffic_page import TrafficPage
+from smart_check_page import SmartCheckPage
 from skills_page import SkillsPage
 from mcp_pages import McpPages
 from details_pages import DetailsPages
@@ -155,7 +158,7 @@ class AppWindow(Adw.ApplicationWindow):
             GLib.idle_add(self.on_width, width)
 
 
-class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, DetailsPages, InfoPage, McpPages, SkillsPage, ConnectPage, ConfigureMenu, TrafficPage, ModelsPage,
+class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, DetailsPages, InfoPage, McpPages, SkillsPage, ConnectPage, ConfigureMenu, TrafficPage, ModelsPage, SmartCheckPage,
                 Adw.Application):
     def __init__(self):
         super().__init__(application_id=desktop.app_id())
@@ -376,6 +379,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         right.add_named(self.build_status_page(), "status")
         right.add_named(self.build_health_page(), "health")
         right.add_named(self.build_traffic_page(), "traffic")
+        right.add_named(self.build_smart_check_page(), "smartcheck")
         right.connect("notify::visible-child-name", lambda *_: self.update_header())
         self.guard_text_fields_in(window)
         stack.connect("notify::visible-child-name", lambda *_: (self.update_header(), self.on_setup_shown()))
@@ -465,6 +469,14 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.traffic_button.set_create_popup_func(lambda button: button.set_popover(self.traffic_popover()))
         header.append(self.traffic_button)
 
+        # Smart Check: what the installed online agent did and found (only while one can).
+        self.smartcheck_button = Gtk.Button(visible=False)
+        self.smartcheck_button.set_child(Gtk.Image.new_from_icon_name("system-search-symbolic"))
+        self.smartcheck_button.set_tooltip_text(_("Smart Check: your AI setup checked by an agent, its finds and tokens"))
+        for css in ("flat", "am-header-btn", "am-gear-btn"):
+            self.smartcheck_button.add_css_class(css)
+        self.smartcheck_button.connect("clicked", lambda *_: self.open_smart_check())
+        header.append(self.smartcheck_button)
         # Add-ons (Asterism only): everything the app understands, and what can be added.
         self.addons_button = None
         if hasattr(self, "open_addons"):
@@ -520,7 +532,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         return header
 
     # The header's symbols in the user's order: hold the left mouse button on one and drag it.
-    HEADER_ITEMS = ("problem", "legend", "traffic", "addons", "info", "help", "settings")
+    HEADER_ITEMS = ("problem", "legend", "traffic", "smartcheck", "addons", "info", "help", "settings")
 
     def header_items(self) -> dict:
         found = {key: getattr(self, f"{key}_button", None) for key in self.HEADER_ITEMS}
@@ -1077,6 +1089,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             return True
         self.gpu_reading = True
         runtimes = list(self.inventory.runtimes)
+        commands = self.installed_commands()
 
         def work():
             try:
@@ -1084,7 +1097,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             except Exception:
                 usage = None
             try:
-                stamp = (inventory.models_stamp(runtimes), agents.install_stamp())
+                stamp = (inventory.models_stamp(runtimes), agents.install_stamp(), agent_details.setup_stamp(commands))
             except Exception:
                 stamp = None
             pids = {}
@@ -1114,8 +1127,9 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                 self.update_terminal_tabs()
             if usage is not None and self.window.is_visible():
                 self.show_gpu(usage, runtimes)
-            # A model or an agent came or went (also outside the app: Omarchy's menu, mise, pacman), or
-            # LM Studio rewrote its model index: read them again, and check the setup for the header's "!".
+            # A model or an agent came or went (also outside the app: Omarchy's menu, mise, pacman), an
+            # agent's model or providers were changed in its own settings, or LM Studio rewrote its model
+            # index: read them again, and check the setup for the header's "!".
             known = getattr(self, "models_stamp", None)
             if stamp is not None and known is not None and stamp != known and runtimes is self.inventory.runtimes \
                     and self.window.is_visible() and self.side_map.link is None and self.page_name() == "main":
@@ -1175,7 +1189,8 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.agent_list = agents.list_agents()
         self.inventory = inventory.collect(self.agent_list)
         try:
-            self.models_stamp = (inventory.models_stamp(self.inventory.runtimes), agents.install_stamp())
+            self.models_stamp = (inventory.models_stamp(self.inventory.runtimes), agents.install_stamp(),
+                                 agent_details.setup_stamp(self.installed_commands()))
         except Exception:
             self.models_stamp = None
         self.configured_now = None     # installed_mcp() reads the settings again
@@ -1316,7 +1331,8 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             empty.append(row)
             self.empty_area.append(empty)
         self.overview_hints(*self.new_found())
-        self.update_problem_button()            # problems and hints: the header's !
+        self.update_problem_button()
+        self.update_smart_check_button()            # problems and hints: the header's !
         if getattr(self, "stack", None) is not None and self.page_name() == "setup":
             GLib.idle_add(self.refresh_setup)       # Setup's cards follow too (a removal, an update)
 
@@ -1348,6 +1364,17 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         for update in agent_updates.still_open(getattr(self, "updates", []), self.agent_list, inv.runtimes):
             self.hint_line(_("{0} {1} is available (you have {2})").format(update.name, update.available, update.current),
                            [(_("Update"), lambda u=update: self.run_update(u))])
+        # The daily AI checks (Settings): MCP servers' updates an agent found on the web.
+        agent = self.task_agent() if self.ai_mcp_updates else None
+        for update in self.ai_mcp_updates:
+            buttons = [(_("Release page"), lambda u=update: self.open_uri(u.url))]
+            if agent:
+                buttons.append((_("Do it with {0}…").format(ai_helper.name_of(agent)),
+                                lambda u=update: self.do_with_agent(f"mcp-update:{u.name}", _("Update {0}").format(u.name),
+                                                                    mcp_updates.task_prompt(u), on_end=self.check_new_apps)))
+            self.hint_line(_("MCP server {0} {1} is available (you have {2})").format(update.name, update.latest,
+                                                                                      update.current),
+                           buttons, tip=update.notes)
 
 
     def agent_names(self) -> dict:
@@ -1463,6 +1490,43 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
     def is_new_agent(command: str) -> bool:
         """An agent this plugin knows nothing about (not in skills_ctl / mcp_ctl)."""
         return command not in skills_ctl.NATIVE and command not in mcp_ctl.SUPPORTED
+
+    ai_mcp_updates = []              # the daily AI checks' finds (mcp_updates.Found)
+    ai_checking_mcp = False
+
+    def ai_check_mcp_updates(self, force: bool = False):
+        """Settings › Daily AI checks: the chosen agent looks up the local MCP servers' updates on the
+        web, at most once a day (minutes, in the background); the cached answer otherwise. force:
+        Smart Check's Check now (also while the daily checks are off)."""
+        if not ai_core.setting("ai_checks") and not force:
+            if self.ai_mcp_updates:
+                self.ai_mcp_updates = []
+                self.refresh_overview()
+            return
+        if self.ai_checking_mcp:
+            return
+        self.ai_checking_mcp = True
+        if self.page_name() == "smartcheck":
+            self.fill_smart_check()                  # its Check now shows that it is busy
+        installed = {a.command for a in self.agent_list if a.installed}
+
+        def work():
+            try:
+                found = mcp_updates.check(installed, force=force)
+            except Exception:
+                found = []
+            GLib.idle_add(done, found)
+
+        def done(found):
+            self.ai_checking_mcp = False
+            if (ai_core.setting("ai_checks") or force) and [vars(f) for f in found] != [vars(f) for f in self.ai_mcp_updates]:
+                self.ai_mcp_updates = found
+                self.refresh_overview()
+            if self.page_name() == "smartcheck":
+                self.fill_smart_check()
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
 
     def research_new_agents(self):
         """Once per new installed agent (setting "look_up_new_agents", on by default)."""
@@ -3462,7 +3526,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                 "reorganize": self.close_reorganize, "settings": self.close_settings,
                 "connect": self.close_connect, "install": self.close_install,   # an install goes on
                 "models": self.close_models, "mcp": self.close_mcp_details, "status": self.close_status,
-                "health": self.close_health, "traffic": self.close_traffic,
+                "health": self.close_health, "traffic": self.close_traffic, "smartcheck": self.close_smart_check,
                 "addmcp": self.close_add_mcp, "addskills": self.close_add_skills}
 
     def editing(self) -> bool:
@@ -3545,6 +3609,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.sync_provider_watch()
         self.start_gpu_poll()
         self.research_new_agents()
+        self.ai_check_mcp_updates()
         self.refresh_mcp_list()
         self.check_new_apps()
         self.look_for_addons()
@@ -3567,6 +3632,8 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             GLib.idle_add(lambda: self.open_runtime_status(page[8:]) and False)
         elif page == "health":
             GLib.idle_add(lambda: self.open_health() and False)
+        elif page == "smartcheck":
+            GLib.idle_add(lambda: self.open_smart_check() and False)
         elif page == "help":
             GLib.idle_add(lambda: self.open_help() and False)
         elif page.startswith("connect:"):

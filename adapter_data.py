@@ -42,7 +42,7 @@ TOP = {"command": STR, "name": STR, "label": STR, "full_name": STR, "icon": STR,
        "data": STRS, "install": TABLES, "update": TABLE, "sessions": TABLE, "skills": TABLE, "mcp": TABLE,
        "access": TABLE, "security": TABLE, "login_status": TABLE, "installer": STR, "usage": STR,
        "local_llm": TABLE, "ask": TABLE, "configure": TABLES, "home": STR, "activity": STRS, "details": TABLE,
-       "program_dir": STR, "start": STRS, "web_search": BOOL, "chat_app": BOOL, "herdr": STR, "research": TABLE, "rewrite": TABLE,
+       "program_dir": STR, "start": STRS, "web_search": BOOL, "chat_app": BOOL, "herdr": STR, "research": TABLE, "rewrite": TABLE, "task": TABLE,
        "models": TABLE, "tools": TABLE}
 WAY = {"kind": STR, "spec": STR, "tool": STR, "argv": STRS, "sudo": BOOL, "url": STR, "note": STR,
        "update": STRS, "packages": "a list of [manager, name]"}
@@ -58,9 +58,12 @@ SESSIONS = {"reader": STR, "hook": BOOL, "note": STR, "note_args": STRS}
 DETAILS = {"reader": STR, "dir": STR, "hook": BOOL}     # its model and providers, read from its settings
 MODELS = {"reader": STR, "hook": BOOL}                  # the online models it can be switched to
 TOOLS = {"file": STR, "key": STR}                       # the tools it is given (a JSON list)
-# One prompt with no tools but the web (research: Add skills and MCP look-ups), or none at all
-# (rewrite: a skill rewritten for an MCP server's new tools); the agent itself, never a shell.
-RESEARCH, REWRITE = {"argv": STRS}, {"argv": STRS}
+# One prompt with no tools but the web (research: Add skills and MCP look-ups, the daily AI checks;
+# output: how its answer and token use come back, ai_helper.OUTPUTS), or none at all (rewrite: a
+# skill rewritten for an MCP server's new tools); the agent itself, never a shell. task: the agent
+# started in a terminal tab with a first prompt ("Do it with …"), asking before each step itself.
+RESEARCH, REWRITE, TASK = {"argv": STRS, "output": STR}, {"argv": STRS}, {"argv": STRS}
+OUTPUTS = ("text", "claude-json", "codex-jsonl")
 SKILLS = {"dirs": STRS, "own": STR, "listed": TABLE_OR_HOOK, "settings_list": BOOL, "settings_file": STR,
           "write": HOOK}
 LISTED = {"file": STR, "format": STR, "key": STR}       # extra skill folders a settings file lists
@@ -162,14 +165,19 @@ def check(data: dict, name: str) -> None:
         for game in data["ask"].get("games", []):
             if game not in GAMES:
                 raise AdapterError(f"{name}: ask.games “{game}” is not one the app has ({', '.join(GAMES)})")
-    for table, placeholders in (("research", ("{prompt}", "{schema}")), ("rewrite", ("{answer}",))):
+    for table, placeholders in (("research", ("{prompt}", "{schema}")), ("rewrite", ("{answer}",)),
+                                ("task", ("{prompt}",))):
         if table not in data:
             continue
-        _check(data[table], RESEARCH, f"{name}: {table}", ("argv",))
+        _check(data[table], {"research": RESEARCH, "rewrite": REWRITE, "task": TASK}[table], f"{name}: {table}",
+               ("argv",))
+        if data[table].get("output", "text") not in OUTPUTS:
+            raise AdapterError(f"{name}: {table}.output “{data[table]['output']}” is not one the app has "
+                               f"({', '.join(OUTPUTS)})")
         argv = data[table]["argv"]
         if not argv or argv[0] != data["command"] or any(
                 "{" in a and a not in placeholders for a in argv) or any(argv.count(p) > 1 for p in placeholders) \
-                or (table == "research" and "{prompt}" not in argv):
+                or (table in ("research", "task") and "{prompt}" not in argv):
             raise AdapterError(f"{name}: {table}.argv must start with “{data['command']}”; "
                                f"{', '.join(placeholders)} each once at most, as an argument of its own")
     if "details" in data:
@@ -423,6 +431,8 @@ def harness(data: dict, name: str = "adapter", hooks=None) -> Harness:
         chat_app=data.get("chat_app", False), herdr=data.get("herdr", ""), start=tuple(data.get("start", ())),
         logout=tuple(data.get("access", {}).get("logout", ())),
         research=tuple(data["research"]["argv"]) if "research" in data else (),
+        research_output=data["research"].get("output", "text") if "research" in data else "text",
+        task=tuple(data["task"]["argv"]) if "task" in data else (),
         rewrite=tuple(data["rewrite"]["argv"]) if "rewrite" in data else (), models=models,
         tools_setting=(data["tools"]["file"], data["tools"]["key"]) if "tools" in data else (),
         usage=ref(*USAGE[data["usage"]]) if "usage" in data else None,

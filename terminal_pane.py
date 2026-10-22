@@ -104,6 +104,7 @@ class TerminalPane(Gtk.Box):
         self.pid = None
         self.running = False
         self.started = 0.0
+        self.exit_code = None
 
         header = Gtk.Box(spacing=8)
         back = Gtk.Button()
@@ -161,6 +162,7 @@ class TerminalPane(Gtk.Box):
             self.set_state(False, _("{0} was not found").format(self.agent.command))
             return
         self.terminal.reset(True, True)
+        self.exit_code = None
         self.started = time.monotonic()
         self.set_state(True, _("starting…"))
         self.terminal.spawn_async(Vte.PtyFlags.DEFAULT, self.cwd, self.argv or start_argv(self.agent.command, path), child_env(),
@@ -177,6 +179,7 @@ class TerminalPane(Gtk.Box):
     def on_exited(self, _terminal, status):
         self.pid = None
         code = os.waitstatus_to_exitcode(status) if status >= 0 else status
+        self.exit_code = code
         self.set_state(False, _("ended") + (f" ({code})" if code else ""))
 
     def stop(self):

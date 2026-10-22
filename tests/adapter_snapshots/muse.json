@@ -47,6 +47,8 @@
  "logout": [],
  "start": [],
  "research": [],
+ "research_output": "text",
+ "task": [],
  "rewrite": [],
  "tools_setting": [],
  "sandbox_setting": "",

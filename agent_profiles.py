@@ -219,8 +219,9 @@ def _bounded(argv, **kwargs):
 def research(agent, installed, run=_bounded) -> dict:
     """Look `agent` (agents.Agent) up and store the result. Returns the stored
     profile; a failure is stored too (tried again after RETRY_AFTER)."""
+    import ai_helper
     now = dt.datetime.now().isoformat(timespec="seconds")
-    found = researchers(installed)
+    found = ai_helper.in_order(installed)          # Settings › Agent for AI checks first
     if not found:
         result = {"status": "failed", "checked": now, "error": "no agent that can search the web"}
         save(agent.command, result)
@@ -229,18 +230,11 @@ def research(agent, installed, run=_bounded) -> dict:
     spec = agents_mod.SPECS.get(agent.command, "")
     prompt = PROMPT.format(name=agent.name, command=agent.command, spec=f", installed as {spec}" if spec else "",
                            version=f", version {agent.version}" if agent.version else "")
-    WORK_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
-    schema_file = WORK_DIR / "schema.json"
-    import ai_core
-    ai_core.atomic_write(schema_file, json.dumps(SCHEMA))
     errors = []
     for researcher in found:
         try:
-            out, ok = run(research_command(researcher, prompt, schema_file), max_bytes=MAX_ANSWER * 4,
-                          timeout=TIMEOUT, cwd=str(WORK_DIR))
-            text = out.decode("utf-8", "replace")
-            if not ok:
-                raise RuntimeError(text.strip()[-200:] or "no answer")
+            text = ai_helper.look_up(researcher, "agent-setup", prompt, SCHEMA, run=run,
+                                     result_of=lambda answer: validate(first_json(answer)) and agent.name)
             profile = validate(first_json(text[-MAX_ANSWER:]))
         except (OSError, subprocess.TimeoutExpired, RuntimeError, ValueError) as error:
             errors.append(f"{researcher}: {error}")

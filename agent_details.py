@@ -326,6 +326,24 @@ def battery_tip(limits) -> str:
 
 # --- all together --------------------------------------------------------------
 
+def setup_stamp(commands) -> tuple:
+    """Each agent's model and providers as its own settings name them (~4 ms for ten agents): a
+    different stamp means one was changed outside the app (its config file, its own /model)."""
+    import harnesses
+    stamp = []
+    for command in commands:
+        harness = harnesses.get(command)
+        if harness is None or harness.details is None:
+            continue
+        details = Details()
+        try:
+            harness.details(details)
+        except Exception:          # an add-on's reader: never stops the poll
+            continue
+        stamp.append((command, details.model, repr(details.providers)))
+    return tuple(stamp)
+
+
 def details_for(command: str, usage_dir: Path = USAGE_DIR) -> Details:
     import harnesses
     details = Details()

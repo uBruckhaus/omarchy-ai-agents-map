@@ -2,12 +2,15 @@
 of ai_popup.AgentsMap, split off to keep ai_popup.py small; its methods use the window's state
 through self)."""
 
+import datetime as dt
+
 from gi.repository import Adw, GLib, Gtk
 
 import agent_details
 import agent_security
 import agent_status
 import ai_core
+import ai_helper
 import claude_sessions
 import desktop
 import edition
@@ -148,6 +151,7 @@ class DetailsPages:
             self.watch_herdr(agent)
 
         self.fill_usage_card(body, usage, info)
+        self.fill_ai_checks_card(body, agent)
 
         harness = harnesses.get(agent.command)
         if sessions and harness is not None and harness.sessions is not None:
@@ -236,6 +240,36 @@ class DetailsPages:
                       "matched by model name)") if usage.source == "agents" else \
                     _("Usage from {0}'s own session records (numbers and times only)").format(usage.source)
                 self.note(group, source)
+
+    AI_TASKS = {"mcp-updates": N_("MCP server updates"), "agent-setup": N_("Looking up a new agent")}
+
+    def fill_ai_checks_card(self, body, agent):
+        """What the app had this agent do in the background (ai_helper: the daily AI checks, looking up
+        new agents) and the tokens it took: only when there is something in the last 30 days."""
+        totals = ai_helper.totals(agent.command)
+        if not totals.runs:
+            return
+        tokens = _("{0} tokens").format
+        summary = _("{0} tokens in 30 days").format(short_number(totals.tokens))
+        group = self.group_card(body, "ai-checks", _("AI checks"), "system-search-symbolic", summary)
+        last = totals.last or {}
+        try:
+            last_when = when(dt.datetime.fromisoformat(str(last.get("when"))))
+        except ValueError:
+            last_when = ""
+        task = self.AI_TASKS.get(last.get("task"))
+        last_tokens = sum(int(last.get(k) or 0) for k in ("input", "cached", "output")) if "input" in last else None
+        tiles = [(_("Today"), tokens(short_number(totals.tokens_today)), ""),
+                 (_("Last 30 days"), tokens(short_number(totals.tokens)),
+                  ngettext("1 run", "{0} runs", totals.runs).format(totals.runs)),
+                 (_("Last run"), tokens(short_number(last_tokens)) if last_tokens is not None else _("tokens not recorded"),
+                  " · ".join(filter(None, [_(task) if task else "", last_when,
+                                           "" if last.get("ok") else _("failed")])))]
+        group.append(self.stat_tiles(tiles))
+        if totals.cost:
+            self.note(group, _("In 30 days:") + " " + self.cost_line(agent.command, totals.cost))
+        self.note(group, _("Tokens of the daily AI checks and of looking up new agents (Settings). Tasks you "
+                           "give it with “Do it with …” are sessions of its own and count above."))
 
     HERDR_STATES = {"blocked": (N_("Waiting for you"), "dialog-question-symbolic"),
                     "working": (N_("Working"), "content-loading-symbolic"),

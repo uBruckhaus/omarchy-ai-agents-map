@@ -86,6 +86,8 @@
  "logout": [],
  "start": [],
  "research": [],
+ "research_output": "text",
+ "task": [],
  "rewrite": [],
  "tools_setting": [
   "~/.pi/agent/settings.json",

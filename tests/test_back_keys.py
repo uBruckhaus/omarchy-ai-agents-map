@@ -33,7 +33,8 @@ class KeysOnly:
         self.page, self.window, self.selection, self.closed = page, Window(focus), [], []
         for name in ("close_help", "close_info", "close_addons", "close_reorganize", "close_settings",
                      "close_connect", "close_install", "close_models", "close_mcp_details", "close_status",
-                     "close_health", "close_traffic", "close_add_mcp", "close_add_skills", "close_setup"):
+                     "close_health", "close_traffic", "close_smart_check", "close_add_mcp", "close_add_skills",
+                     "close_setup"):
             setattr(self, name, lambda name=name: self.closed.append(name))
 
     def page_name(self):

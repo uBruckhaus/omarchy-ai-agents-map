@@ -8,8 +8,10 @@ import terminal_pane  # noqa: E402
 
 SESSION = {"CLAUDECODE": "1", "CLAUDE_CODE_CHILD_SESSION": "1", "CLAUDE_CODE_MESSAGING_TOKEN": "secret",
            "CLAUDE_CODE_SESSION_ID": "x", "CLAUDE_PID": "4", "CLAUDE_EFFORT": "high",
-           "AI_AGENTS_MAP_NO_PROVIDERS": "1"}
-KEEP = {"HOME": "/home/u", "PATH": "/usr/bin", "CLAUDE_CONFIG_DIR": "/home/u/.claude", "ANTHROPIC_MODEL": "opus"}
+           "AI_AGENTS_MAP_NO_PROVIDERS": "1", "AI_AGENT": "claude-code_2-1-308_agent", "PI_CODING_AGENT": "true",
+           "CODEX_THREAD_ID": "t", "OPENCODE": "1"}
+KEEP = {"HOME": "/home/u", "PATH": "/usr/bin", "CLAUDE_CONFIG_DIR": "/home/u/.claude", "ANTHROPIC_MODEL": "opus",
+        "OPENCODE_CONFIG": "/home/u/oc.json"}
 
 
 class AgentSessionEnvTest(unittest.TestCase):

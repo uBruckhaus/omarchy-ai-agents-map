@@ -13,6 +13,7 @@ from gi.repository import Adw, Gio, GLib, Gtk, Pango
 import json
 
 import ai_core
+import ai_helper
 import app_entry
 import corners
 import desktop
@@ -446,6 +447,21 @@ class SettingsPages:
                         _("When a new agent is installed, Claude Code or Codex finds out on the web where it keeps "
                           "MCP servers and skills (once, a few minutes in the background)."),
                         ai_core.setting("look_up_new_agents"), lambda on: self.save_setting(look_up_new_agents=on))
+        self.switch_row(group, _("Daily AI checks"),
+                        _("Once a day, an installed agent looks on the web for new versions of your MCP servers "
+                          "and shows them as hints, with “Do it with …” to let it do the update. This uses the "
+                          "agent's tokens or plan limits; its detail page shows how many."),
+                        bool(ai_core.setting("ai_checks")),
+                        lambda on: (self.save_setting(ai_checks=on), self.ai_check_mcp_updates()))
+        helpers = ai_helper.helpers({a.command for a in self.agent_list if a.installed})
+        chosen = ai_helper.chosen({a.command for a in self.agent_list if a.installed})
+        row = self.combo_row(group, _("Agent for AI checks"),
+                             _("Does the daily AI checks, looks up new agents and takes “Do it with …” tasks. "
+                               "Its tokens are used for them."),
+                             [ai_helper.name_of(c) for c in helpers] or [_("None installed")],
+                             helpers.index(chosen) if chosen in helpers else 0,
+                             lambda i: helpers and self.save_setting(ai_checks_agent=helpers[i]))
+        row.set_sensitive(bool(helpers))
         self.switch_row(group, _("Keep the MCP server list"),
                         _("When the app starts, the MCP registry's list of servers is saved in the background "
                           "(at most every 12 hours, then only what changed), so searching it takes no time."),

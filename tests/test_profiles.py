@@ -49,7 +49,11 @@ class ProfileTest(unittest.TestCase):
     def fake_run(self, text, code=0):
         def run(argv, **_kw):
             self.argv = argv
-            return (text if not code else "boom").encode(), code == 0
+            out = text if not code else "boom"
+            if argv[0].endswith("/claude"):            # Claude answers as JSON (research.output)
+                out = json.dumps({"type": "result", "is_error": bool(code), "result": out,
+                                  "usage": {"input_tokens": 10, "output_tokens": 5}})
+            return out.encode(), code == 0
         return run
 
     def test_rules_for_web_answers(self):
