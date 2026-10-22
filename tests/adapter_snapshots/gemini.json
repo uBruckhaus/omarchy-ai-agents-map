@@ -56,7 +56,6 @@
  "sandbox_setting": "",
  "replies": [],
  "subagents": [],
- "prices": [],
  "asks_setting": "",
  "access": {
   "how": "A Google account (free tier), or an API key from aistudio.google.com",
@@ -70,6 +69,7 @@
    "GOOGLE_API_KEY"
   ],
   "local_ok": false,
+  "per_token": false,
   "logins": [
    {
     "label": "Google account",
@@ -87,7 +87,10 @@
   }
  },
  "security": null,
- "sessions": null,
+ "sessions": {
+  "collect": "agent_sessions.gemini_files",
+  "note": "Numbers from Gemini CLI's session files (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs."
+ },
  "usage": null,
  "latest": null,
  "installer": null,

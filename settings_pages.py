@@ -421,6 +421,29 @@ class SettingsPages:
                        counts.index(ai_core.setting("subagents_kept")),
                        lambda i: save(subagents_kept=counts[i]))
 
+    def cost_rows(self, side):
+        """Settings › Costs: the currency of what agents paid per token cost, and a day's limit that
+        colours their cost label (green, yellow from 75 %, red over it)."""
+        group = self.preference_group(side, _("Costs"))
+        currencies, limits = settings_schema.COST_CURRENCIES, settings_schema.COST_LIMITS
+
+        def save(**value):
+            self.save_setting(**value)
+            self.update_costs(force=True)          # the labels follow at once
+
+        self.combo_row(group, _("Currency"),
+                       _("What an agent paid per token cost is shown in. Euros use the European Central Bank's "
+                         "daily reference rate, fetched once a day from ecb.europa.eu."),
+                       [_("US dollar ($)"), _("Euro (€)")],
+                       currencies.index(ai_core.setting("cost_currency")),
+                       lambda i: save(cost_currency=currencies[i]))
+        self.combo_row(group, _("A day's limit"),
+                       _("For an agent paid per token: its cost label turns yellow from 75 % of this a day, and red "
+                         "over it. In the currency above."),
+                       [_("{0} a day (default)").format(n) if n == 100 else _("{0} a day").format(n) for n in limits],
+                       limits.index(ai_core.setting("cost_limit")),
+                       lambda i: save(cost_limit=limits[i]))
+
     def switch_row(self, group, title: str, hint: str, active: bool, on_toggle) -> Adw.SwitchRow:
         short = self.short_hint(hint)
         row = Adw.SwitchRow(title=title, subtitle=short, active=active, use_markup=False)
@@ -573,6 +596,7 @@ class SettingsPages:
         group.add(preview)
         self.usage_box_rows(side)
         self.subagents_rows(side)
+        self.cost_rows(side)
         models_group = self.preference_group(side, _("Models"))
 
         group = models_group

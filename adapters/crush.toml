@@ -13,6 +13,11 @@ activity = ["~/.local/share/crush"]
 kind = "mise"
 spec = "crush"
 
+[sessions]
+reader = "crush-db"                    # a reader the app has (each project's .crush/crush.db)
+note = "The cost {0} itself reports for each session (it keeps no token counts that add up)."
+note_args = ["Crush"]
+
 [skills]
 dirs = ["~/.config/crush/skills", "~/.config/agents/skills", "~/.agents/skills", "~/.claude/skills"]
 own = "~/.config/crush/skills"
@@ -29,6 +34,7 @@ login = "crush"
 files = [".local/share/crush/crush.json"]
 env = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"]
 local_ok = true
+per_token = true                       # API keys only (its flat-rate models report no cost)
 
 [[access.logins]]
 label = "Inside Crush (it asks for a key)"

@@ -145,7 +145,7 @@ class MapView(Gtk.DrawingArea):
         self.start_rects = {}    # agent box id -> rectangle of its start button, for clicks
         self.stop_rects = {}     # agent box id -> rectangle of its stop button (while it runs here)
         self.batteries = {}      # box id -> (left 0..1, colour, tooltip): an online agent's limits, a local LLM's GPU
-        self.costs = {}          # agent box id -> (label, tooltip): paid per token, today's cost instead of a battery
+        self.costs = {}          # agent box id -> (label, tooltip, colour): paid per token, today's cost, no battery
         self.cost_rects = {}     # agent box id -> rectangle of that label (its tooltip)
         self.battery_rects = {}  # agent box id -> rectangle of its battery, for the tooltip
         self.traffic = {}        # agent box id -> (in B/s, out B/s, moving): a running agent's ⇅
@@ -220,8 +220,8 @@ class MapView(Gtk.DrawingArea):
             self.queue_draw()
 
     def set_costs(self, costs: dict):
-        """{agent box id: (label, tooltip)}: an agent paid per token (no plan limits) shows today's cost
-        where a battery would be."""
+        """{agent box id: (label, tooltip, colour)}: an agent paid per token (no plan limits) shows today's
+        cost where a battery would be, green, yellow or red against a day's limit (Settings › Costs)."""
         if costs != self.costs:
             self.costs = dict(costs)
             self.queue_draw()
@@ -2081,8 +2081,8 @@ class MapView(Gtk.DrawingArea):
         return bw + 9
 
     def draw_cost(self, cr, layout, node_id, right, y, h, faded) -> int:
-        """Today's cost ending at `right` ("$3.40 today"), small, in the dim colour: an agent paid per
-        token has no limits for a battery. Returns the room it takes."""
+        """Today's cost ending at `right` ("$3.40 today"), small, in its colour against a day's limit (as
+        a battery's): an agent paid per token has no limits for a battery. Returns the room it takes."""
         layout.set_font_description(Pango.FontDescription.from_string("Sans 7.5"))
         layout.set_width(-1)
         layout.set_ellipsize(Pango.EllipsizeMode.NONE)
@@ -2090,7 +2090,7 @@ class MapView(Gtk.DrawingArea):
         tw, th = layout.get_pixel_size()
         tx, ty = right - tw - 5, y + (h - th) / 2
         self.cost_rects[node_id] = (tx - 2, ty - 2, tw + 4, th + 4)
-        cr.set_source_rgba(*self.color("dim", 0.4 if faded else 1.0))
+        cr.set_source_rgba(*self.color(self.costs[node_id][2], 0.4 if faded else 1.0))
         cr.move_to(tx, ty)
         PangoCairo.show_layout(cr, layout)
         return tw + 9

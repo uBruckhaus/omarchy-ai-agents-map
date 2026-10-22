@@ -57,7 +57,6 @@
  "sandbox_setting": "",
  "replies": [],
  "subagents": [],
- "prices": [],
  "asks_setting": "",
  "access": {
   "how": "An API key for a provider, or a local LLM from the map",
@@ -70,6 +69,7 @@
    "OPENAI_API_KEY"
   ],
   "local_ok": true,
+  "per_token": true,
   "logins": [
    {
     "label": "Inside Crush (it asks for a key)",
@@ -82,7 +82,10 @@
   "key": null
  },
  "security": null,
- "sessions": null,
+ "sessions": {
+  "collect": "agent_sessions.crush_db",
+  "note": "The cost Crush itself reports for each session (it keeps no token counts that add up)."
+ },
  "usage": null,
  "latest": null,
  "installer": null,

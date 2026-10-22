@@ -19,6 +19,11 @@ spec = "github:can1357/oh-my-pi"
 files = ["~/.omp/agent/models.yml", "~/.omp/agent/config.yml"]
 hooks = true
 
+[sessions]
+reader = "omp-db"                      # a reader the app has (~/.omp/agent/agent.db, client_usage)
+note = "Numbers from {0}'s session database (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs."
+note_args = ["Oh My Pi"]
+
 [skills]
 dirs = ["~/.omp/agent/skills"]
 own = "~/.omp/agent/skills"

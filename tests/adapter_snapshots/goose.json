@@ -1,0 +1,132 @@
+{
+ "command": "goose",
+ "name": "Goose",
+ "label": "Goose",
+ "full_name": "",
+ "icon": "󰇥",
+ "icon_font": "",
+ "spec": "github:aaif-goose/goose",
+ "package": "",
+ "package_only": false,
+ "own_install_counts": true,
+ "download": null,
+ "short_version": false,
+ "offered": true,
+ "login_status": null,
+ "fixed_provider": "",
+ "self_served": false,
+ "short_model_flag": false,
+ "self_update": [],
+ "install": [
+  {
+   "kind": "mise",
+   "spec": "github:aaif-goose/goose",
+   "tool": "",
+   "argv": [],
+   "sudo": false,
+   "packages": [],
+   "url": "",
+   "note": "",
+   "update": []
+  }
+ ],
+ "data": [
+  "~/.config/goose",
+  "~/.local/share/goose"
+ ],
+ "homepage": "https://github.com/aaif-goose/goose",
+ "ask": [],
+ "games": [],
+ "effort": [],
+ "configure": [
+  {
+   "label": "Configure",
+   "argv": [
+    "goose",
+    "configure"
+   ],
+   "note": "",
+   "window": false
+  }
+ ],
+ "home": "~/.config/goose",
+ "activity": [
+  "~/.local/share/goose/sessions"
+ ],
+ "program_dir": "",
+ "web_search": false,
+ "chat_app": false,
+ "herdr": "",
+ "logout": [],
+ "start": [],
+ "research": [],
+ "research_output": "text",
+ "task": [],
+ "rewrite": [],
+ "tools_setting": [],
+ "sandbox_setting": "",
+ "replies": [],
+ "subagents": [],
+ "asks_setting": "",
+ "access": {
+  "how": "An API key or sign-in for a provider (OpenRouter, Anthropic, OpenAI, Google …), or a local LLM from the map",
+  "login": "goose configure",
+  "files": [
+   ".config/goose/secrets.yaml"
+  ],
+  "env": [
+   "ANTHROPIC_API_KEY",
+   "OPENAI_API_KEY",
+   "GOOGLE_API_KEY",
+   "OPENROUTER_API_KEY"
+  ],
+  "local_ok": true,
+  "per_token": false,
+  "logins": [
+   {
+    "label": "Choose a provider (goose configure)",
+    "argv": [
+     "goose",
+     "configure"
+    ],
+    "note": ""
+   }
+  ],
+  "key": null
+ },
+ "security": null,
+ "sessions": {
+  "collect": "agent_sessions.goose_db",
+  "note": "Numbers from Goose's session database (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs."
+ },
+ "usage": null,
+ "latest": null,
+ "installer": null,
+ "detect": false,
+ "limits": false,
+ "details": true,
+ "models": null,
+ "local_llm": null,
+ "skills": {
+  "dirs": [
+   "~/.config/goose/skills",
+   "~/.agents/skills",
+   "~/.claude/skills"
+  ],
+  "own": "~/.config/goose/skills",
+  "settings_list": false,
+  "settings_file": "",
+  "listed": null,
+  "write": null
+ },
+ "mcp": {
+  "path": "~/.config/goose/config.yaml",
+  "format": "yaml",
+  "key": "extensions",
+  "shape": "goose",
+  "in_app": "",
+  "write": null,
+  "read": null,
+  "native": null
+ }
+}

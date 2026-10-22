@@ -134,6 +134,34 @@ def hermes(details: "ad.Details"):
                                                          active=name.group(1) == provider))
 
 
+GOOSE_LOCAL = {"ollama": "http://localhost:11434"}     # its default address when no <NAME>_HOST is set
+
+
+def goose(details: "ad.Details"):
+    """Goose's ~/.config/goose/config.yaml: active_provider and providers.<name>.model (older files:
+    flat GOOSE_PROVIDER, GOOSE_MODEL); a provider's address from its <NAME>_HOST key, for local ones.
+    API keys are not in this file (the keyring, or secrets.yaml): nothing else is read."""
+    text = ad._read(ad._expand("~/.config/goose/config.yaml")) or ""
+    try:
+        import yaml
+        data = yaml.safe_load(text) if text.strip() else {}
+    except Exception:
+        return
+    if not isinstance(data, dict):
+        return
+    providers = data.get("providers") if isinstance(data.get("providers"), dict) else {}
+    active = ad._text(data.get("active_provider") or data.get("GOOSE_PROVIDER"), 40)
+    entry = providers.get(active) if isinstance(providers.get(active), dict) else {}
+    model = ad._text(entry.get("model") or data.get("GOOSE_MODEL"))
+    details.model = f"{model} ({active})" if model and active else model
+    names = [n for n, v in list(providers.items())[:50] if isinstance(n, str) and isinstance(v, dict)
+             and (v.get("enabled") or v.get("configured"))] or ([active] if active else [])
+    for name in names:
+        host = data.get(f"{name.upper()}_HOST")
+        url = host if isinstance(host, str) else GOOSE_LOCAL.get(name)
+        details.providers.append(ad.provider_for_url(name, url, active=name == active))
+
+
 def dsh(details: "ad.Details"):
     """DeepSeek Harness: providers and default model from its web profile's patch."""
     import dsh_ctl

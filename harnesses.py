@@ -201,8 +201,6 @@ class Harness:
     replies: tuple = ()               # ("~/…" session folder, depth of its files, format, ((model name
                                       # prefix, context size), …)): the map's usage statistics box (usage_box)
     subagents: tuple = ()             # (format, "~/…" where it keeps them): its subagents (subagents.py)
-    prices: tuple = ()                # (as of, ((model name beginning, (input, output, cache read, cache
-                                      # write) USD per million tokens), …)): an API user's cost (agent_status)
     asks_setting: str = ""            # the security setting that says when it asks before acting
 
 
@@ -282,7 +280,7 @@ def add_run(parent: Session, kind: str, run: Session) -> None:
 # --- the registry ----------------------------------------------------------------------------------
 
 _MODULES = ("claude", "codex", "copilot", "crush", "cursor_agent", "gemini", "grok", "hermes", "muse", "omp",
-            "openclaw", "opencode", "pi", "dsh", "bionic", "agy")     # Omarchy's menu order, then the app's own
+            "openclaw", "opencode", "pi", "dsh", "bionic", "agy", "goose")   # Omarchy's menu order, then the app's own
 
 
 _HIDDEN: set = set()       # built-in agents an installed add-on brings instead (hide_built_in)
@@ -361,7 +359,7 @@ def _extended(harness: Harness) -> Harness:
 # app's own adapter for the same agent gives them until the add-on is signed again.
 NEWER_FACTS = ("home", "activity", "details", "program_dir", "web_search", "chat_app", "herdr", "logout",
                "start", "research", "rewrite", "task", "models", "tools_setting", "sandbox_setting",
-               "asks_setting", "replies", "subagents", "prices")
+               "asks_setting", "replies", "subagents", "sessions")
 
 
 def _with_newer_facts(harness: Harness) -> Harness:

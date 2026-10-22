@@ -64,7 +64,6 @@
  "sandbox_setting": "sandbox.mode",
  "replies": [],
  "subagents": [],
- "prices": [],
  "asks_setting": "approvalMode",
  "access": {
   "how": "A Cursor account (cursor.com)",
@@ -76,6 +75,7 @@
    "CURSOR_API_KEY"
   ],
   "local_ok": false,
+  "per_token": false,
   "logins": [
    {
     "label": "Cursor account",

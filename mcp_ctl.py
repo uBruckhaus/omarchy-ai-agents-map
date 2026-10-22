@@ -98,20 +98,20 @@ def normal(entry: dict | None) -> dict | None:
     if not isinstance(entry, dict):
         return None
     kind = str(entry.get("type") or entry.get("transport") or "").lower()
-    url = entry.get("httpUrl") or entry.get("url") or entry.get("serverUrl")
+    url = entry.get("httpUrl") or entry.get("url") or entry.get("serverUrl") or entry.get("uri")   # uri: Goose
     if isinstance(url, str) and url:
         transport = "sse" if kind == "sse" or (not entry.get("httpUrl") and kind == "" and url.rstrip("/").endswith("/sse")) \
             else "http"
         return {"transport": transport, "command": "", "args": [], "env": {}, "url": url,
                 "headers": _map(entry.get("headers") or entry.get("http_headers"))}
-    command = entry.get("command")
+    command = entry.get("command") or entry.get("cmd")          # cmd: Goose
     args = _strs(entry.get("args"))
     if isinstance(command, list):           # opencode: one list
         command, args = (str(command[0]) if command else ""), _strs(command[1:])
     if not isinstance(command, str) or not command:
         return None
     return {"transport": "stdio", "command": command, "args": args,
-            "env": _map(entry.get("env") or entry.get("environment")), "url": "", "headers": {}}
+            "env": _map(entry.get("env") or entry.get("environment") or entry.get("envs")), "url": "", "headers": {}}
 
 
 def _read_json(path: Path, limit: int = connect.MAX_BYTES) -> dict:
@@ -238,6 +238,14 @@ def native(agent: str, e: dict) -> dict:
         if e["headers"]:
             item["headers"] = e["headers"]
         return item
+    if shape == "goose":
+        # Goose's extensions (config.yaml): stdio or streamable_http (it has no SSE: the remote
+        # transport it reads instead); its name is put in by plan().
+        if stdio:
+            return {"type": "stdio", "enabled": True, "cmd": e["command"], "args": e["args"], "envs": e["env"],
+                    "env_keys": [], "timeout": 300}
+        return {"type": "streamable_http", "enabled": True, "uri": e["url"], "headers": e["headers"],
+                "envs": {}, "env_keys": [], "timeout": 300}
     if shape == "opencode":
         if stdio:
             item = {"type": "local", "command": [e["command"], *e["args"]], "enabled": True}
@@ -425,6 +433,8 @@ def plan(agent: str, name: str, sources=(), remove: bool = False, entry: dict | 
     path = paths_for(agent)[0]
     old_text = connect._read(path)
     item = None if remove else native(agent, cast(dict, entry))
+    if item is not None and spec is not None and spec.shape == "goose":
+        item = {"name": name, **item}        # Goose wants its name inside the entry too
     profile = agent_profiles.mcp_profile(agent) if spec is None else None
     if profile is not None:
         if profile["format"] == "json":

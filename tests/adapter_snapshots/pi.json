@@ -101,7 +101,6 @@
   []
  ],
  "subagents": [],
- "prices": [],
  "asks_setting": "defaultTools",
  "access": {
   "how": "Sign in inside Pi (/login: Claude, ChatGPT, Copilot …), an API key, or a local LLM from the map",
@@ -114,6 +113,7 @@
    "OPENAI_API_KEY"
   ],
   "local_ok": true,
+  "per_token": false,
   "logins": [
    {
     "label": "Inside Pi",
@@ -193,7 +193,10 @@
   ],
   "note": "Pi never asks before it acts, by design: the tools it has are its permissions. Run it in a container or VM, or give it read-only tools, when it works on something you do not trust."
  },
- "sessions": null,
+ "sessions": {
+  "collect": "agent_sessions.pi_files",
+  "note": "Numbers from Pi's session files (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs."
+ },
  "usage": "agent_status.pi",
  "latest": null,
  "installer": null,

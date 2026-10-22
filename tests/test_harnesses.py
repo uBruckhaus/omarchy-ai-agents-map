@@ -126,8 +126,9 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual(len(commands), len(set(commands)))
         self.assertEqual(harnesses.get("opencode").name, "OpenCode")
         self.assertIsNone(harnesses.get("nope"))
-        self.assertEqual({h.command for h in harnesses.with_sessions()}, {"claude", "hermes", "opencode"})
-        self.assertEqual(len(commands), 16)
+        self.assertEqual({h.command for h in harnesses.with_sessions()}, {"claude", "hermes", "opencode", "codex", "pi", "dsh", "omp",
+                                                                          "gemini", "openclaw", "crush", "goose"})
+        self.assertEqual(len(commands), 17)
 
     def test_notes_name_the_harness(self):
         self.assertIn("Hermes", harnesses.get("hermes").sessions.note())
@@ -150,14 +151,14 @@ class AgentTablesTest(unittest.TestCase):
         import agents
         self.assertEqual([c for c, *_r in agents.FALLBACK],
                          ["claude", "codex", "copilot", "crush", "cursor-agent", "gemini", "grok", "hermes", "muse",
-                          "omp", "openclaw", "opencode", "pi"])
+                          "omp", "openclaw", "opencode", "pi", "goose"])
         self.assertEqual([c for c, *_r in agents.EXTRA], ["dsh", "bionic", "agy"])
         self.assertEqual(agents.NAMES, {"claude": "Claude Code", "copilot": "GitHub Copilot", "gemini": "Gemini CLI",
                                         "omp": "Oh My Pi", "pi": "Pi"})
         self.assertEqual(agents.SPECS, {
             "omp": "github:can1357/oh-my-pi", "grok": "npm:@xai-official/grok",
             "muse": "http:muse[url=https://api.meta.ai/muse-launcher.sh,bin=muse]",
-            "hermes": "pipx:hermes-agent[extras=all]"})
+            "hermes": "pipx:hermes-agent[extras=all]", "goose": "github:aaif-goose/goose"})
         self.assertEqual(agents.FALLBACK[0], ("claude", "Claude", "\U000f06c4", ""))
         self.assertEqual(agents.FALLBACK[1], ("codex", "Codex", "\ue905", "omarchy"))
 
@@ -185,7 +186,7 @@ class CapabilityTablesTest(unittest.TestCase):
                          {"cursor-agent": (("cursor-agent", "status"), "not logged in", "logged in")})
         self.assertEqual(set(agent_status.access_table()), {
             "claude", "codex", "gemini", "copilot", "cursor-agent", "opencode", "hermes", "pi", "dsh", "grok",
-            "crush", "bionic"})
+            "crush", "bionic", "goose"})
         self.assertEqual(set(connect.SUPPORTED), {"hermes", "pi", "opencode", "dsh", "openclaw", "omp"})
         self.assertEqual(connect.FIXED, {"bionic": "lmstudio"})
 
@@ -195,19 +196,19 @@ class CapabilityTablesTest(unittest.TestCase):
         self.assertEqual(skills_ctl.NATIVE["codex"], ["~/.agents/skills", "~/.codex/skills"])
         self.assertEqual(skills_ctl.NATIVE["bionic"], ["~/.lmstudio/skills"])
         self.assertEqual(set(skills_ctl.SETTINGS_LIST), {"pi", "hermes"})
-        self.assertEqual(len(skills_ctl.NATIVE), 15)
+        self.assertEqual(len(skills_ctl.NATIVE), 16)
 
     def test_mcp(self):
         import mcp_ctl
         self.assertEqual(mcp_ctl.SUPPORTED, ("claude", "codex", "copilot", "crush", "cursor-agent", "gemini", "grok",
-                                             "hermes", "muse", "omp", "openclaw", "opencode", "pi", "dsh"))
+                                             "hermes", "muse", "omp", "openclaw", "opencode", "pi", "dsh", "goose"))
         self.assertEqual(mcp_ctl.IN_APP, {"bionic": "Settings › Connected apps"})
         self.assertEqual(mcp_ctl.paths_for("claude"), [])
         self.assertEqual(mcp_ctl.paths_for("codex"), [Path.home() / ".codex/config.toml"])
         self.assertEqual(mcp_ctl.paths_for("lmstudio"), [Path.home() / ".lmstudio/mcp.json"])
         shapes = {h.mcp.shape for h in harnesses.all_harnesses() if h.mcp and not h.mcp.in_app}
         self.assertEqual(shapes, {"plain", "claude", "codex", "copilot", "crush", "gemini", "muse", "omp",
-                                  "openclaw", "opencode"})
+                                  "openclaw", "opencode", "goose"})
         own = {h.command for h in harnesses.all_harnesses() if h.mcp and (h.mcp.read or h.mcp.write or h.mcp.native)}
         self.assertEqual(own, {"dsh", "muse", "openclaw"})
 

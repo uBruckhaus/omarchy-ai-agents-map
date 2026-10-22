@@ -101,11 +101,13 @@
  "sandbox_setting": "",
  "replies": [],
  "subagents": [],
- "prices": [],
  "asks_setting": "",
  "access": null,
  "security": null,
- "sessions": null,
+ "sessions": {
+  "collect": "agent_sessions.openclaw_db",
+  "note": "Numbers from OpenClaw's session database (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs."
+ },
  "usage": null,
  "latest": null,
  "installer": null,

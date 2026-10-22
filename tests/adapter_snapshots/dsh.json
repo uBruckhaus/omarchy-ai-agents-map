@@ -59,7 +59,6 @@
  "sandbox_setting": "",
  "replies": [],
  "subagents": [],
- "prices": [],
  "asks_setting": "",
  "access": {
   "how": "An API key from platform.deepseek.com, or a local LLM from the map",
@@ -71,11 +70,15 @@
    "DEEPSEEK_API_KEY"
   ],
   "local_ok": true,
+  "per_token": true,
   "logins": [],
   "key": null
  },
  "security": null,
- "sessions": null,
+ "sessions": {
+  "collect": "agent_sessions.dsh_files",
+  "note": "Numbers from DeepSeek Harness's session files (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs."
+ },
  "usage": null,
  "latest": null,
  "installer": "Dsh",

@@ -85,6 +85,8 @@ import urllib.parse
 import graph
 import gpu_usage
 import agent_status
+import netfetch
+import plugin_costs
 import terminal_pane
 import previews
 import inventory
@@ -2353,6 +2355,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         paying = [c for c, info in infos.items()
                   if f"agent:{c}" not in self.agent_batteries and agent_status.pays_per_token(c, info)]
         self.costs_at, self.costs_busy = now, True
+        currency, limit = ai_core.setting("cost_currency"), ai_core.setting("cost_limit")   # Settings › Costs
 
         def work():
             found = {}
@@ -2360,15 +2363,23 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                 usd = agent_status.cost_today(command)
                 if usd is not None:
                     found[command] = usd
-            GLib.idle_add(done, found)
+            rate = plugin_costs.usd_per_eur(fetch=netfetch.fetch) if currency == "eur" and found else None
+            GLib.idle_add(done, found, rate)
 
-        def done(found):
+        def done(found, rate):
             self.costs_busy = False
-            self.agent_costs = {f"agent:{c}": (_("{0} today").format(agent_status.cost_text(usd)),
-                                               _("Paid per token, with no plan limits: about {0} today at API prices "
-                                                 "(estimated from the tokens of its sessions active today).")
-                                               .format(agent_status.cost_text(usd)))
-                                for c, usd in found.items()}
+            self.cost_rate = rate[0] if rate else None
+            limit_text = plugin_costs.cost_text(limit * (self.cost_rate or 1) if currency == "eur" and self.cost_rate
+                                                else limit, currency, self.cost_rate)
+            self.agent_costs = {}
+            for command, usd in found.items():
+                text = plugin_costs.cost_text(usd, currency, self.cost_rate)
+                self.agent_costs[f"agent:{command}"] = (
+                    _("{0} today").format(text),
+                    _("Paid per token, with no plan limits: about {0} today at API prices "
+                      "(estimated from the tokens of its sessions active today).").format(text) + "\n"
+                    + _("A day's limit: {0} (Settings › Costs).").format(limit_text),
+                    plugin_costs.cost_colour(usd, limit, currency, self.cost_rate))
             self.side_map.set_costs(self.agent_costs)
             return False
 

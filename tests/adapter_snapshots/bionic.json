@@ -57,7 +57,6 @@
  "sandbox_setting": "",
  "replies": [],
  "subagents": [],
- "prices": [],
  "asks_setting": "",
  "access": {
   "how": "Nothing: it runs models on this computer",
@@ -65,6 +64,7 @@
   "files": [],
   "env": [],
   "local_ok": true,
+  "per_token": false,
   "logins": [],
   "key": null
  },

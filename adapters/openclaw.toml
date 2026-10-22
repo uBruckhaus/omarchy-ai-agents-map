@@ -24,6 +24,11 @@ packages = [["pacman", "openclaw"]]
 files = ["~/.openclaw/openclaw.json"]
 hooks = true
 
+[sessions]
+reader = "openclaw-db"            # a reader the app has (~/.openclaw/agents)
+note = "Numbers from {0}'s session database (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs."
+note_args = ["OpenClaw"]
+
 [skills]
 dirs = ["~/.openclaw/skills", "~/.agents/skills"]
 own = "~/.openclaw/skills"

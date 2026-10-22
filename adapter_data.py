@@ -44,7 +44,7 @@ TOP = {"command": STR, "name": STR, "label": STR, "full_name": STR, "icon": STR,
        "access": TABLE, "security": TABLE, "login_status": TABLE, "installer": STR, "usage": STR,
        "local_llm": TABLE, "ask": TABLE, "configure": TABLES, "home": STR, "activity": STRS, "details": TABLE,
        "program_dir": STR, "start": STRS, "web_search": BOOL, "chat_app": BOOL, "herdr": STR, "research": TABLE, "rewrite": TABLE, "task": TABLE,
-       "models": TABLE, "tools": TABLE, "replies": TABLE, "subagents": TABLE, "prices": TABLE}
+       "models": TABLE, "tools": TABLE, "replies": TABLE, "subagents": TABLE}
 WAY = {"kind": STR, "spec": STR, "tool": STR, "argv": STRS, "sudo": BOOL, "url": STR, "note": STR,
        "update": STRS, "packages": "a list of [manager, name]"}
 UPDATE = {"self": STRS, "latest": STR}
@@ -70,7 +70,6 @@ OUTPUTS = ("text", "claude-json", "codex-jsonl")
 REPLIES = {"folder": STR, "depth": INT, "format": STR, "contexts": TABLE}   # contexts: model name prefix -> tokens
 REPLY_FORMATS = ("claude-jsonl", "codex-jsonl", "pi-jsonl")
 SUBAGENTS = {"format": STR, "path": STR}
-PRICES = {"as_of": STR, "source": STR, "models": TABLE}   # models: name beginning -> 4 USD per million tokens
 SUBAGENT_FORMATS = ("claude-projects", "opencode-db")    # the readers subagents.py has
 SKILLS = {"dirs": STRS, "own": STR, "listed": TABLE_OR_HOOK, "settings_list": BOOL, "settings_file": STR,
           "write": HOOK}
@@ -80,7 +79,7 @@ MCP = {"path": STR, "format": STR, "key": STR, "shape": STR, "in_app": STR, "def
 LOCAL_LLM = {"files": STRS, "hooks": BOOL}             # the files connect.plan edits, by the local_llm_* hooks
 LOGIN_STATUS = {"argv": STRS, "no": STR, "yes": STR}     # a command whose output says signed in or not
 ACCESS = {"how": STR, "login": STR, "files": STRS, "env": STRS, "local_ok": BOOL, "logins": TABLES, "key": TABLE,
-          "logout": STRS}
+          "logout": STRS, "per_token": BOOL}   # per_token: every sign-in is an API key (no plans with limits)
 LOGIN = {"label": STR, "argv": STRS, "note": STR}
 CONFIGURE = {"label": STR, "argv": STRS, "note": STR}    # its own setup command, in a terminal (Configure…)
 KEY = {"var": STR, "url": STR, "stdin": STRS, "env_file": STR}
@@ -99,7 +98,11 @@ REQUIRED = {"top": ("command", "name"), "way": ("kind",), "login": ("label", "ar
             "listed": ("file", "format", "key"), "login_status": ("argv", "no", "yes"), "ask": ("argv",)}
 
 # Readers and version sources the app has; a file names them.
-READERS = {"claude-files": ("claude_sessions", "collect_by_id")}
+READERS = {"claude-files": ("claude_sessions", "collect_by_id"),
+           "codex-files": ("agent_sessions", "codex_files"), "pi-files": ("agent_sessions", "pi_files"),
+           "dsh-files": ("agent_sessions", "dsh_files"), "omp-db": ("agent_sessions", "omp_db"),
+           "goose-db": ("agent_sessions", "goose_db"), "gemini-files": ("agent_sessions", "gemini_files"),
+           "openclaw-db": ("agent_sessions", "openclaw_db"), "crush-db": ("agent_sessions", "crush_db")}
 LATEST = {"claude-channel": ("agent_updates", "claude_channel_latest")}
 INSTALLERS = {"agy": ("install_ctl", "Agy"), "dsh": ("install_ctl", "Dsh"),   # installers the app has
               "bionic": ("install_ctl", "Bionic")}
@@ -108,6 +111,7 @@ USAGE = {"pi": ("agent_status", "pi"), "hermes": ("agent_status", "hermes"),    
 DETAIL_READERS = {name: ("agent_readers", function) for name, function in (     # model + providers readers
     ("claude", "claude"), ("codex", "codex"), ("copilot", "copilot"), ("cursor", "cursor"),
     ("opencode", "opencode"), ("pi", "pi_like"), ("hermes", "hermes"), ("dsh", "dsh"), ("openclaw", "openclaw"),
+    ("goose", "goose"),
     ("lmstudio-app", "bionic"))}
 MODEL_READERS = {"claude": ("online_models", "claude_choices", "claude_plan"),       # online model switchers
                  "codex": ("online_models", "codex_choices", "codex_plan")}
@@ -209,13 +213,6 @@ def check(data: dict, name: str) -> None:
         if not all(isinstance(k, str) and len(k) <= 100 and _fits(v, INT) and 0 < v < 10 ** 9
                    for k, v in data["replies"].get("contexts", {}).items()):
             raise AdapterError(f"{name}: replies.contexts must map model name beginnings to token counts")
-    if "prices" in data:
-        _check(data["prices"], PRICES, f"{name}: prices", ("as_of", "models"))
-        if not all(isinstance(k, str) and 0 < len(k) <= 100 and isinstance(v, list) and len(v) == 4
-                   and all(isinstance(x, (int, float)) and not isinstance(x, bool) and 0 <= x < 10_000 for x in v)
-                   for k, v in data["prices"]["models"].items()) or len(data["prices"]["models"]) > 200:
-            raise AdapterError(f"{name}: prices.models must map model name beginnings to four prices "
-                               "(input, output, cache read, cache write; USD per million tokens)")
     if "subagents" in data:
         _check(data["subagents"], SUBAGENTS, f"{name}: subagents", ("format", "path"))
         if data["subagents"]["format"] not in SUBAGENT_FORMATS:
@@ -306,6 +303,7 @@ def _access(facts: dict):
         key = facts.get("key")
         return Access(_(facts["how"]), facts.get("login", ""), tuple(facts.get("files", ())),
                       tuple(facts.get("env", ())), local_ok=facts.get("local_ok", False),
+                      per_token=facts.get("per_token", False),
                       logins=tuple(Login(_(login["label"]), tuple(login["argv"]),
                                          _(login["note"]) if login.get("note") else "")
                                    for login in facts.get("logins", ())),
@@ -470,9 +468,6 @@ def harness(data: dict, name: str = "adapter", hooks=None) -> Harness:
         replies=(data["replies"]["folder"], data["replies"].get("depth", 1), data["replies"]["format"],
                  tuple(sorted(data["replies"].get("contexts", {}).items()))) if "replies" in data else (),
         subagents=(data["subagents"]["format"], data["subagents"]["path"]) if "subagents" in data else (),
-        prices=(data["prices"]["as_of"], tuple(sorted((k, tuple(float(x) for x in v))
-                                                       for k, v in data["prices"]["models"].items())))
-        if "prices" in data else (),
         usage=ref(*USAGE[data["usage"]]) if "usage" in data else None,
         local_llm=llm, skills=skills, mcp=mcp,
         login_status=(tuple(data["login_status"]["argv"]), data["login_status"]["no"], data["login_status"]["yes"])

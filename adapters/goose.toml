@@ -1,0 +1,51 @@
+# Goose (aaif-goose/goose, formerly block/goose) (docs/adapter-format.md): facts only, nothing in this
+# file runs. Its settings are ~/.config/goose/config.yaml (provider, model, extensions = MCP servers);
+# API keys are in the system keyring or ~/.config/goose/secrets.yaml (never read). Sources:
+# goose-docs.ai/docs/guides/config-files, .../getting-started/installation, .../using-skills.
+command = "goose"
+name = "Goose"
+label = "Goose"
+icon = "U+F01E5"
+spec = "github:aaif-goose/goose"
+homepage = "https://github.com/aaif-goose/goose"
+data = ["~/.config/goose", "~/.local/share/goose"]
+home = "~/.config/goose"
+activity = ["~/.local/share/goose/sessions"]
+
+[[install]]                            # its GitHub release through mise (no install script piped to a shell)
+kind = "mise"
+spec = "github:aaif-goose/goose"
+
+[sessions]
+reader = "goose-db"                    # a reader the app has (~/.local/share/goose/sessions/sessions.db)
+note = "Numbers from {0}'s session database (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs."
+note_args = ["Goose"]
+
+[skills]                               # its own folder, and the shared ones it reads itself (and .agents/skills in a project)
+dirs = ["~/.config/goose/skills", "~/.agents/skills", "~/.claude/skills"]
+own = "~/.config/goose/skills"
+
+[mcp]                                  # its extensions: stdio or streamable_http entries with their name inside
+path = "~/.config/goose/config.yaml"
+format = "yaml"
+key = "extensions"
+shape = "goose"
+
+[access]
+how = "An API key or sign-in for a provider (OpenRouter, Anthropic, OpenAI, Google …), or a local LLM from the map"
+login = "goose configure"
+files = [".config/goose/secrets.yaml"]  # only whether it is there; the keyring otherwise
+env = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY", "OPENROUTER_API_KEY"]
+local_ok = true
+
+[[access.logins]]
+label = "Choose a provider (goose configure)"
+argv = ["goose", "configure"]
+
+# Its own setup command, in a terminal tab (Configure… on the map)
+[[configure]]
+label = "Configure"
+argv = ["goose", "configure"]
+
+[details]                              # its model and providers (the agent's card)
+reader = "goose"

@@ -25,6 +25,11 @@ spec = "pi"
 files = ["~/.pi/agent/models.json", "~/.pi/agent/settings.json"]
 hooks = true
 
+[sessions]
+reader = "pi-files"               # a reader the app has (~/.pi/agent/sessions)
+note = "Numbers from {0}'s session files (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs."
+note_args = ["Pi"]
+
 [skills]
 dirs = ["~/.pi/agent/skills", "~/.agents/skills"]
 own = "~/.pi/agent/skills"

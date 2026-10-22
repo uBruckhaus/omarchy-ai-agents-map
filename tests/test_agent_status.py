@@ -299,29 +299,62 @@ class PaidPerTokenTest(unittest.TestCase):
         self.assertAlmostEqual(usage.cost, 11.0)
         self.assertIsNone(st._from_rows([(noon, "x", 1, 1, 0, 0)], today, "t").cost_today)   # no costs kept
 
-    def test_cost_text(self):
-        self.assertEqual([st.cost_text(v) for v in (0.004, 3.4, 12.345, 123.4, 2400)],
-                         ["<$0.01", "$3.40", "$12.35", "$123", "$2,400"])
+
+class CostsTest(unittest.TestCase):
+    """Today, 7 and 30 days, per model split by kind; local models apart, as no API cost."""
+
+    def test_days_models_and_local_models(self):
+        from types import SimpleNamespace
+        from unittest import mock
+        today = dt.date(2026, 10, 23)
+        at = lambda days: dt.datetime(2026, 10, 23 - days, 12).timestamp() if days < 23 else \
+            (dt.datetime(2026, 10, 23, 12) - dt.timedelta(days=days)).timestamp()
+        opus = "claude-opus-5-5"
+        sessions = {
+            "a": SimpleNamespace(first=at(0), last=at(0), tokens={opus: [1_000_000, 0, 0, 0]}),           # $4 today
+            "b": SimpleNamespace(first=at(3), last=at(3), tokens={opus: [0, 1_000_000, 0, 0]}),           # $20 3 days ago
+            "c": SimpleNamespace(first=at(20), last=at(20), tokens={opus: [0, 0, 10_000_000, 0], "qwen-local": [5, 5, 0, 0]}),
+            "d": SimpleNamespace(first=at(40), last=at(40), tokens={opus: [10 ** 9, 0, 0, 0]}),          # too old
+        }
+        harness = SimpleNamespace(sessions=SimpleNamespace(collect=lambda: sessions))
+        with mock.patch.object(st.harnesses, "get", return_value=harness):
+            spent = st.costs("claude", today)
+        self.assertAlmostEqual(spent.today, 4)
+        self.assertAlmostEqual(spent.week, 24)
+        self.assertAlmostEqual(spent.month, 26)
+        provider, counts, parts = spent.by_model[opus]
+        self.assertEqual((provider, counts), ("anthropic", [1_000_000, 1_000_000, 10_000_000, 0]))
+        self.assertEqual([round(x, 6) for x in parts], [4, 20, 2, 0])
+        self.assertEqual(spent.unpriced, {"qwen-local": 10})
+        with mock.patch.object(st.harnesses, "get", return_value=harness):
+            self.assertAlmostEqual(st.cost_today("claude", today), 4)
+
+    def test_no_prices_no_costs(self):
+        from types import SimpleNamespace
+        from unittest import mock
+        local = {"x": SimpleNamespace(first=1.8e9, last=1.8e9, tokens={"qwen-local": [5, 5, 0, 0]})}
+        harness = SimpleNamespace(sessions=SimpleNamespace(collect=lambda: local))
+        with mock.patch.object(st.harnesses, "get", return_value=harness):
+            self.assertIsNone(st.costs("hermes"))
 
 
-class PricesTest(unittest.TestCase):
-    """An API user's cost: token counts at the prices the agent's adapter names."""
+class PerTokenAccessTest(unittest.TestCase):
+    """An agent that signs in with API keys only (access.per_token) is paid per token once signed in."""
 
-    PRICES = ("2026-10-23", (("claude-opus-5", (5.0, 25.0, 0.5, 6.25)), ("claude-opus-5-5", (4.0, 20.0, 0.2, 5.0))))
-
-    def test_longest_matching_name_wins(self):
-        tokens = {"claude-opus-5-5-20261001": [1_000_000, 100_000, 10_000_000, 200_000]}
-        self.assertAlmostEqual(st.priced(tokens, self.PRICES), 4 + 2 + 2 + 1)
-        self.assertAlmostEqual(st.priced({"claude-opus-5": [1_000_000, 0, 0, 0]}, self.PRICES), 5)
-
-    def test_unknown_models_and_no_prices(self):
-        self.assertIsNone(st.priced({"gpt-9": [1000, 1000, 0, 0]}, self.PRICES))
-        self.assertIsNone(st.priced({"claude-opus-5-5": [1, 1, 1, 1]}, ()))
-        both = {"gpt-9": [10 ** 6, 0, 0, 0], "claude-opus-5-5": [10 ** 6, 0, 0, 0]}
-        self.assertAlmostEqual(st.priced(both, self.PRICES), 4)            # the known one counts
-
-    def test_claude_adapter_prices_are_checked(self):
-        import harnesses
-        prices = harnesses.get("claude").prices
-        self.assertTrue(prices and prices[0])
-        self.assertTrue(all(len(p) == 4 and all(x >= 0 for x in p) for _m, p in prices[1]))
+    def test_signed_in_with_api_keys_only(self):
+        from unittest import mock
+        import tempfile
+        from types import SimpleNamespace
+        home = tempfile.TemporaryDirectory()
+        self.addCleanup(home.cleanup)
+        access = st.Access("API key", files=(".agent/.credentials.yaml",), env=("AGENT_KEY",), per_token=True)
+        harness = SimpleNamespace(access=lambda: access)
+        info = ad.Details()
+        with mock.patch.object(st.harnesses, "get", return_value=harness), mock.patch.object(st, "HOME", Path(home.name)):
+            self.assertFalse(st.pays_per_token("agent", info, {}))                # not signed in
+            (Path(home.name) / ".agent").mkdir()
+            (Path(home.name) / ".agent/.credentials.yaml").write_text("x")
+            self.assertTrue(st.pays_per_token("agent", info, {}))                 # its file is there
+            plain = st.Access("plan or key", files=(".agent/.credentials.yaml",))
+            harness.access = lambda: plain
+            self.assertFalse(st.pays_per_token("agent", info, {}))                # could be a plan

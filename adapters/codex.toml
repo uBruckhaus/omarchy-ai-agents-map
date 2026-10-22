@@ -20,6 +20,11 @@ format = "codex-jsonl"
 kind = "mise"
 spec = "codex"
 
+[sessions]
+reader = "codex-files"            # a reader the app has (~/.codex/sessions)
+note = "Numbers from {0}'s session files (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs."
+note_args = ["Codex"]
+
 [skills]
 dirs = ["~/.agents/skills", "~/.codex/skills"]
 own = "~/.codex/skills"

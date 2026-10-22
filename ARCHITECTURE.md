@@ -61,6 +61,8 @@ that layer and on the change layer.** The pages above them call into these.
 | MCP registry answers | `mcp_registry` (`MAX_SERVERS`, `MAX_OPTIONS`, `MAX_ARGUMENTS`, `MAX_FIELDS`, `MAX_BYTES`) | budgeted before any form is built |
 | Agents' session files (usage statistics box on the map) | `usage_box.Rates` → `tail_lines` | only the folder the agent's adapter names (`[replies]`), its newest `*.jsonl` written in the last minute; opened with `O_NOFOLLOW`, must be this account's own regular file; only its last 256 KiB, lines over 64 KiB skipped; only numbers, times and model names are taken (no message text); folder scan capped at 20,000 entries every 10 s |
 | Subagents and agents using agents (map mark, Subagents page, arrows) | `subagents.claude_projects` / `opencode_db`, `subagents.agents_using_agents` | where an agent keeps them comes from its adapter (`[subagents]`); Claude Code: the project folder of each running instance's own working folder (`/proc/<pid>/cwd`, own processes only), session folders and `subagents/` checked with `lstat` (own directories, no links), each `.meta.json` opened with `O_NOFOLLOW`, own regular file, at most 16 KiB, only its type and one-line task taken (plain text, 200 characters); a transcript only for its time, and if written in the last minute its last 256 KiB (`usage_box.tail_lines`) for tool names only; at most 2,000 sessions per folder and 40 subagents; OpenCode's database opened read-only (not through a link), one parameterized query, 40 rows; the process tree: parent ids only (`/proc/<pid>/stat`), at most 12 levels |
+| Agents' token counts (API cost card, cost label) | `agent_sessions` readers (`codex-files`, `pi-files`, `dsh-files`, `gemini-files`, `openclaw-db`, `omp-db`, `goose-db`, `crush-db`), `claude_sessions`; `agent_status.costs` with `plugin_costs` | which agent's files and how come from its adapter (`[sessions] reader`); own regular files or databases only, never through a link (`lstat`, `O_NOFOLLOW`), databases opened read-only (`mode=ro`), files of the last 30 days, at most 2000 files of 64 MiB each, zstd unpacked frame by frame and refused past 64 MiB, lines over 8 MiB skipped, at most 100,000 rows; only numbers, times, model names and folders taken; a file kept by size and time is not read again |
+| The euro rate (Settings › Costs › Euro) | `plugin_costs.usd_per_eur(fetch=netfetch.fetch)` | only `https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml`, through `netfetch.fetch` (curl, https, at most 64 KiB, 10 s), at most once a day; only the US dollar rate taken by a pattern (no XML parser) and only between 0.5 and 3; kept owner-only (0600, written whole) in `~/.local/state/omarchy-plugin-ai/exchange-rate.json`; `plugin_costs` itself opens no connection |
 | Saved MCP server list | `mcp_registry.refresh_list` (`_kept`/`_trim`, `LIST_MAX_ITEM`, `LIST_MAX_SERVERS`, `LIST_MAX_FILE`) | each entry cut to what `parse` reads (128 KiB at most, else left out); the list in memory stays within 100,000 entries and 96 MiB while it downloads (a full list ends the download); `_write_list` refuses a file over 96 MiB |
 
 ### Every place a child process is started
@@ -111,13 +113,14 @@ where it asks before each step. Daily AI checks are off by default.
 
 ## Tests that cover these points
 
-`python3 -m unittest discover -s tests` (86 modules, no network, no display). Where to look:
+`python3 -m unittest discover -s tests` (87 modules, no network, no display). Where to look:
 
 - Plans, backups and Undo in a temporary home: `test_connect`, `test_mcp`, `test_mcp_update`,
   `test_skills`, `test_security` (the agents' security settings: only the one key changes)
 - Hostile answers and files: `test_registry_bounds` (registry), `test_gguf_bounds` (GGUF headers),
-  `test_mcp_updates` and `test_smart_check` (AI answers), `test_claude_sessions`, `test_usage_box` and
-  `test_subagents` (session files, subagent folders: links, sizes, other accounts, the process tree)
+  `test_mcp_updates` and `test_smart_check` (AI answers), `test_claude_sessions`, `test_usage_box`,
+  `test_subagents` and `test_agent_sessions` (session files and databases of every reader, subagent folders: links,
+  sizes, an archive too large once unpacked, other accounts, the process tree)
 - Hostile names and paths (quotes, `$()`, CR/LF, links): `test_install`, `test_hardening_map_lines`
   (model names, links and `models.ini` in shared model folders), `test_model_move`,
   `test_model_layout`, `test_desktop` (terminal quoting), `test_signin` (API keys)

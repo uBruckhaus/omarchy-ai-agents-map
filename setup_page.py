@@ -789,8 +789,11 @@ class SetupPage:
             cost = getattr(self, "agent_costs", {}).get(node_id) if node_id else None
             if cost is None:
                 return None
-            label = Gtk.Label(label=cost[0], valign=Gtk.Align.START)      # paid per token: today's cost
-            label.add_css_class("dim-label")
+            label = Gtk.Label(valign=Gtk.Align.START)                     # paid per token: today's cost
+            colour = self.side_map.colors.get(cost[2], "")
+            label.set_markup(f'<span foreground="{GLib.markup_escape_text(colour)}" size="small">'
+                             f"{GLib.markup_escape_text(cost[0])}</span>" if colour.startswith("#")
+                             else GLib.markup_escape_text(cost[0]))
             label.set_tooltip_text(cost[1])
             return label
         from ui_helpers import Battery

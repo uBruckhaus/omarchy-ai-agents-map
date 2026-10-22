@@ -56,7 +56,6 @@
  "sandbox_setting": "",
  "replies": [],
  "subagents": [],
- "prices": [],
  "asks_setting": "defaultPermissionMode",
  "access": {
   "how": "A GitHub Copilot subscription (github.com/features/copilot)",
@@ -69,6 +68,7 @@
    "GH_TOKEN"
   ],
   "local_ok": false,
+  "per_token": false,
   "logins": [
    {
     "label": "GitHub account",

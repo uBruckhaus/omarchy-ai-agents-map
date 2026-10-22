@@ -14,6 +14,11 @@ web_search = true                      # searches the web itself (no MCP server 
 kind = "mise"
 spec = "gemini"
 
+[sessions]
+reader = "gemini-files"           # a reader the app has (~/.gemini/tmp/<project>/chats)
+note = "Numbers from {0}'s session files (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs."
+note_args = ["Gemini CLI"]
+
 [skills]
 dirs = ["~/.gemini/skills", "~/.agents/skills"]
 own = "~/.gemini/skills"

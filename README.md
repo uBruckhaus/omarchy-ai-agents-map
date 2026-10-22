@@ -94,8 +94,10 @@ LLM providers → models, under the **GPU** card (GPU memory and activity; it fo
   most (10); working ones are always shown.
 - **Cost for API users** (new in 0.22.0): an agent paid per token (signed in with an API key, so it
   has no plan limits for a battery) shows on its box and card what its sessions active today cost at
-  API prices, as "$3.40 today": an estimate from its token counts and the prices its adapter names
-  (Claude Code, from Anthropic's pricing page), refreshed every minute.
+  API prices, as "$3.40 today", refreshed every minute: green, yellow from 75 % of a day's limit, red
+  over it. Settings › **Costs**: the currency (US dollar, or euro at the European Central Bank's daily
+  rate) and the day's limit (100 by default). The prices (Anthropic, OpenAI, DeepSeek, xAI, Google,
+  with the date they were taken) come with the plugin in `plugin_costs.py`; an estimate.
 - **Agents using agents** (new in 0.22.0): when an agent started another one (the other's process
   runs under its own, for example Claude Code running `pi -p …` in its shell), an arrow runs along the
   left of the agents' card from the agent that uses the other to the one it uses, with light on it.
@@ -150,9 +152,16 @@ category is a card that folds, with a one-line summary and badges:
 - **Usage and tokens**: today's and the last 7 days' tokens and sessions, the plan, a chart of tokens
   per day, rate limits with reset times (from Omarchy's own usage data, refreshed when you open the
   page) and tokens by model.
-- **Projects, last 30 days** (Claude Code, OpenCode, Hermes): per project folder the working time,
-  sessions, tokens, subagent runs, lines changed and what the tokens would cost at API prices, from
-  each agent's own session files or database; no message text is read.
+- **API cost** / **API value** (new in 0.22.0): what its tokens cost at the providers' API prices —
+  today, the last 7 and 30 days, and per model the split into input, output, cache read and cache
+  write (tokens and amount); for an agent paid per token with its share of the day's limit, for one on
+  a plan marked as covered by it. Local models cost nothing; Crush shows the cost it reports itself
+  (it keeps no token counts that add up); for an agent that keeps no token counts on the PC (Cursor
+  CLI, Antigravity, Muse) the card says the cost is not known.
+- **Projects, last 30 days** (Claude Code, Codex, Pi, Oh My Pi, OpenCode, Hermes, DeepSeek Harness,
+  Goose, Gemini CLI, OpenClaw): per project folder the working time, sessions, tokens, subagent runs,
+  lines changed and what the tokens would cost at API prices, from each agent's own session files or
+  database; no message text is read.
 - **In herdr now**: when you run agents in [herdr](https://herdr.dev), each of the agent's herdr
   panes with its state (waiting for you, working, idle, done) and folder, read again every 4 seconds
   while the page is open; a click on one switches herdr to that pane and brings its terminal window
@@ -464,6 +473,12 @@ Three agents Omarchy's menu does not offer are installed the same way (their car
   stays as written. dsh reads `~/.agents/skills` and `~/.dsh/skills` by itself. Only local LLMs
   are set up; DeepSeek's own API (a key) is set up in dsh. Its web server (`dsh web`) counts as
   the agent being open.
+- **Goose** (`goose`, Agentic AI Foundation, formerly Block; new in 0.22.0): its GitHub release through
+  mise (`github:aaif-goose/goose`), in a terminal you watch — not the `download_cli.sh` script its docs
+  pipe into a shell. Its settings are `~/.config/goose/config.yaml` (provider and model, read for its
+  card; MCP servers drawn to it go into its `extensions` as `stdio` or `streamable_http` entries, as
+  one planned change with backup and Undo); API keys stay in the system keyring or its
+  `secrets.yaml` (only whether that file is there is checked). **Configure…** runs `goose configure`.
 - **Antigravity CLI** (`agy`, Google): the release Google's own install script would take, from
   its release manifest (version, a tarball on `storage.googleapis.com` and its SHA-512); only that
   bucket and a full SHA-512 are accepted, and the tarball is checked before anything is unpacked.
@@ -668,10 +683,27 @@ the backup and Undo), and the agent is told the same context. A context you set 
   no links, at most 2 000 sessions per project folder and 40 subagents per agent. For OpenCode, the
   sessions with a parent session in its database (`~/.local/share/opencode/opencode.db`, read-only:
   title, agent type, folder and times). Finished ones are kept for Settings › Subagents' time only.
-- **Cost for API users**: whether an agent is paid per token comes from whether one of its API-key
-  variables is set (its name only, never its value) or Omarchy's usage record names no plan; the cost
-  from the token counts per model that the details page reads anyway (numbers only), at most once a
-  minute while the window is open. The prices are part of the agent's adapter file; nothing is fetched.
+- **Cost for API users** and the **API cost** card: whether an agent is paid per token comes from
+  whether one of its API-key variables is set (its name only, never its value), whether it signs in
+  with API keys only and its credential file is there (DeepSeek Harness, Crush: never opened), or
+  whether Omarchy's usage record names no plan. The cost is computed from token counts at the prices
+  in `plugin_costs.py` (shipped with the plugin), at most once a minute while the window is open and
+  when a details page opens. The token counts are read, numbers, times, model names and folders only
+  (never what was said), from each agent's own files — your own regular files or databases, never
+  through a link, opened read-only, the last 30 days, at most 2000 files of 64 MiB each (zstd files
+  also at most 64 MiB once unpacked), lines over 8 MiB skipped:
+  Claude Code `~/.claude/projects/*/*.jsonl`; Codex `~/.codex/sessions/*/*/*/rollout-*.jsonl`; Pi
+  `~/.pi/agent/sessions/*/*.jsonl`; DeepSeek Harness `~/.dsh/sessions/*/session-*/session.v4.jsonl.zstd`;
+  Oh My Pi `~/.omp/agent/agent.db` (table `client_usage`); Goose
+  `~/.local/share/goose/sessions/sessions.db` (table `sessions`, its accumulated token columns and
+  model); Gemini CLI `~/.gemini/tmp/*/chats/`; OpenClaw `~/.openclaw/agents/*/agent/openclaw-agent.sqlite`
+  (table `transcript_events`) and `~/.openclaw/agents/*/sessions/*.jsonl`; Crush the projects in
+  `~/.local/share/crush/projects.json` and each one's `crush.db` (table `sessions`: its cost and
+  times only); OpenCode and Hermes as above. **Euro**: with Settings › Costs › Currency on Euro, the
+  European Central Bank's daily reference rate (`https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml`,
+  about 1.5 KiB, at most 64 KiB read) through `curl` at most once a day; of it only the US dollar
+  rate is taken (a pattern, no XML parser) and kept owner-only in
+  `~/.local/state/omarchy-plugin-ai/exchange-rate.json`; with US dollars nothing is fetched.
 - **Agents using agents** reads the parent process ids of the running agents' processes
   (`/proc/<pid>/stat`, at most 12 levels up), nothing else.
 - **Details pages** (ⓘ on an agent or local LLM card) read usage as numbers and times only:
@@ -701,7 +733,8 @@ the backup and Undo), and the agent is told the same context. A context you set 
   local LLM's own API every 2 s while the window is open (which models are loaded) and for
   **Free GPU memory** (unload); answers are capped at 1 MiB and only shown, never run;
   `registry.modelcontextprotocol.io` (its server list also automatically on start, at most every 12 h, see
-  **MCP registry**); the marketplace catalog on `raw.githubusercontent.com` when **ⓘ Information** opens
+  **MCP registry**); with Settings › Costs › Currency on Euro, the European Central Bank's daily
+  rate file on `www.ecb.europa.eu` (at most once a day, see **Cost for API users**); the marketplace catalog on `raw.githubusercontent.com` when **ⓘ Information** opens
   (see there); `skills.sh`, `api.github.com` and
   `raw.githubusercontent.com` for skills; the update check (automatic when the window opens, at
   most every 6 h): the npm registry's dist-tags of `@anthropic-ai/claude-code`, the release API

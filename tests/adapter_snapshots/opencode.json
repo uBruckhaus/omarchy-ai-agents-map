@@ -60,7 +60,6 @@
   "opencode-db",
   "~/.local/share/opencode/opencode.db"
  ],
- "prices": [],
  "asks_setting": "permission.bash",
  "access": {
   "how": "An account or API key for any provider, or a local LLM from the map",
@@ -70,6 +69,7 @@
   ],
   "env": [],
   "local_ok": true,
+  "per_token": false,
   "logins": [
    {
     "label": "A provider (account or key)",

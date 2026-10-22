@@ -15,6 +15,11 @@ start = ["--profile", "web"]           # dsh alone only asks for a profile: the 
 [[install]]
 kind = "installer"
 
+[sessions]
+reader = "dsh-files"              # a reader the app has (~/.dsh/sessions)
+note = "Numbers from {0}'s session files (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs."
+note_args = ["DeepSeek Harness"]
+
 [skills]
 dirs = ["~/.dsh/skills", "~/.agents/skills"]
 own = "~/.dsh/skills"
@@ -37,6 +42,7 @@ login = "dsh web"
 files = [".dsh/.credentials.yaml"]
 env = ["DEEPSEEK_API_KEY"]
 local_ok = true
+per_token = true                       # DeepSeek has no plans: an API key, paid per token
 
 [details]                              # its model and providers (the agent's card)
 reader = "dsh"

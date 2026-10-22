@@ -54,7 +54,6 @@
  "sandbox_setting": "",
  "replies": [],
  "subagents": [],
- "prices": [],
  "asks_setting": "",
  "access": {
   "how": "An API key from console.x.ai",
@@ -64,6 +63,7 @@
    "XAI_API_KEY"
   ],
   "local_ok": false,
+  "per_token": false,
   "logins": [],
   "key": null
  },

@@ -19,6 +19,7 @@ from pathlib import Path
 
 import desktop
 import harnesses
+import plugin_costs
 import runtime_ctl
 from i18n import _
 
@@ -420,6 +421,7 @@ class Access:
     files: tuple = ()        # credential files (relative to ~): only whether one exists is checked
     env: tuple = ()          # API-key variables: only whether one is set is checked
     local_ok: bool = False   # works with a local LLM, without any account
+    per_token: bool = False  # every sign-in is an API key: paid per token, no plan with limits
     logins: tuple = ()       # signin.Login: the agent's own sign-ins the app can start in a terminal
     key: object = None       # signin.KeyStep: how an API key gets where the agent reads it
 
@@ -448,9 +450,10 @@ def login_state(command: str) -> bool | None:
 
 def pays_per_token(command: str, details, environ=None) -> bool:
     """Whether the agent is paid per token (an API key or API billing) rather than with a plan whose
-    limits the battery shows: no limits known, and either one of its API-key variables is set (only
-    whether it is), or the desktop's usage record for it is there and names no plan. Without a
-    record it is not known: no."""
+    limits the battery shows: no limits known, and one of its API-key variables is set (only whether
+    it is), or it signs in with API keys only (access.per_token) and is signed in (its credential file
+    is there: never opened), or the desktop's usage record for it is there and names no plan. Without
+    any of these it is not known: no."""
     if details is None or details.limits:
         return False
     harness = harnesses.get(command)
@@ -458,50 +461,76 @@ def pays_per_token(command: str, details, environ=None) -> bool:
     environ = os.environ if environ is None else environ
     if access is not None and any(environ.get(name) for name in access.env):
         return True
+    if access is not None and access.per_token and credentials_present(access, HOME, environ):
+        return True              # signed in, and it has only API keys (DeepSeek): only whether a file is there
     return bool(details.has_usage) and not details.plan
 
 
-def priced(tokens: dict, prices: tuple) -> float | None:
-    """{model: [input, output, cache read, cache write]} at the adapter's prices ((as of, ((model name
-    beginning, (four USD per million tokens)), …))), each model by its longest matching beginning;
-    None when no model has a price."""
-    table = dict(prices[1]) if len(prices) == 2 else {}
-    total, known = 0.0, False
-    for model, counts in (tokens or {}).items():
-        match = max((k for k in table if str(model).startswith(k)), key=len, default=None)
-        if match is None:
-            continue
-        numbers = (list(counts) + [0, 0, 0, 0])[:4]
-        total += sum(_int(n) * p for n, p in zip(numbers, table[match])) / 1_000_000
-        known = True
-    return total if known else None
-
-
 def cost_today(command: str, today: dt.date | None = None) -> float | None:
-    """What the agent's sessions active today cost at API prices: its token counts at the prices its
-    adapter names ([prices]; live, also while a session runs), else the costs it writes itself (Claude
-    Code: only when a session ends); from its own session files, numbers only. None when unknown."""
+    """What the agent's sessions active today cost at API prices (costs()); None when unknown."""
+    found = costs(command, today)
+    return found.today if found is not None else None
+
+
+@dataclass
+class Costs:
+    """What an agent's tokens cost at API prices (plugin_costs): sessions active today, in the last 7 and
+    30 days, and per model over the 30 days its tokens and their cost by kind (input, output, cache read,
+    cache write). Models without a price (local LLMs) are in `unpriced`."""
+    today: float = 0.0
+    week: float = 0.0
+    month: float = 0.0
+    by_model: dict = field(default_factory=dict)   # model -> (provider, [4 token counts], [4 costs in USD])
+    unpriced: dict = field(default_factory=dict)   # model -> its tokens (all four kinds together)
+    reported: float = 0.0    # of month: what the agent itself reports for sessions without token counts (Crush)
+
+
+def costs(command: str, today: dt.date | None = None, sessions=None) -> Costs | None:
+    """The agent's Costs from its own session files (numbers only; sessions: {id: Session} collected
+    already, or None to collect); None when it has no session reader or none of its models has a price."""
     harness = harnesses.get(command)
     if harness is None or harness.sessions is None:
         return None
     today = today or dt.date.today()
     try:
-        sessions = harness.sessions.collect()
-        sessions = list(sessions.values() if isinstance(sessions, dict) else sessions)
-        if harness.prices:
-            values = [priced(s.tokens, harness.prices) for s in sessions if _is_day(s.last or s.first, today)]
-            return sum(v for v in values if v is not None) if any(v is not None for v in values) else None
-        usage = from_sessions(sessions, harness.full_name or harness.name, today)
-    except Exception:          # a store in a format we do not know: no cost, no crash
+        found = harness.sessions.collect() if sessions is None else sessions
+        sessions = list(found.values() if isinstance(found, dict) else found)
+    except Exception:          # a store in a format we do not know: no costs, no crash
         return None
-    return usage.cost_today if usage is not None else None
-
-
-def cost_text(usd: float) -> str:
-    """$3.40, $123, <$0.01."""
-    if usd < 0.01:
-        return "<$0.01"
-    return f"${usd:,.0f}" if usd >= 100 else f"${usd:,.2f}"
+    result, any_price = Costs(), False
+    for session in sessions:
+        when = session.last or session.first
+        try:
+            day = dt.datetime.fromtimestamp(float(when)).date()
+        except (TypeError, ValueError, OverflowError, OSError):
+            continue
+        age = (today - day).days
+        if not 0 <= age < 30:
+            continue
+        split = plugin_costs.parts(session.tokens)
+        for model, (provider, money) in split.items():
+            counts = [_int(n) for n in (list(session.tokens[model]) + [0, 0, 0, 0])[:4]]
+            _provider, kept_counts, kept_money = result.by_model.setdefault(model, (provider, [0] * 4, [0.0] * 4))
+            for i in range(4):
+                kept_counts[i] += counts[i]
+                kept_money[i] += money[i]
+            spent = sum(money)
+            result.month += spent
+            result.week += spent if age < 7 else 0.0
+            result.today += spent if age == 0 else 0.0
+            any_price = True
+        for model, counts in (session.tokens or {}).items():
+            if model not in split and model:
+                result.unpriced[model] = result.unpriced.get(model, 0) + sum(_int(n) for n in counts)
+        own = getattr(session, "cost", 0) or 0
+        if not session.tokens and isinstance(own, (int, float)) and own > 0:
+            # No token counts, only the agent's own cost for the session (Crush): that counts.
+            result.reported += own
+            result.month += own
+            result.week += own if age < 7 else 0.0
+            result.today += own if age == 0 else 0.0
+            any_price = True
+    return result if any_price else None
 
 
 def credentials_present(access: Access, root: Path = HOME, environ=None) -> bool:

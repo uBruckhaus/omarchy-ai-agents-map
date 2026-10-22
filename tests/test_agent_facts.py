@@ -14,7 +14,7 @@ from test_llm_engine import string_constants  # noqa: E402
 
 # The libraries adapters pick from by name (readers, installers, MCP entry shapes, usage readers,
 # host names), and the registry itself: these may name agents.
-LIBRARIES = {"adapter_data.py", "agent_status.py", "install_ctl.py", "mcp_ctl.py", "traffic.py",
+LIBRARIES = {"adapter_data.py", "agent_status.py", "install_ctl.py", "mcp_ctl.py", "traffic.py", "plugin_costs.py",
              "harnesses.py", "i18n.py", "edition.py",
              "plugin_ai.py"}     # vendored for every plugin: its defaults; the app passes its adapters' facts
 
@@ -53,7 +53,7 @@ class FactsTest(unittest.TestCase):
             "cursor-agent": "approvalMode", "hermes": "approvals.mode", "opencode": "permission.bash",
             "pi": "defaultTools"})
         self.assertEqual(set(self.facts("details")), {"claude", "codex", "copilot", "cursor-agent", "opencode",
-                                                      "pi", "omp", "hermes", "dsh", "bionic", "openclaw"})
+                                                      "pi", "omp", "hermes", "dsh", "bionic", "openclaw", "goose"})
         self.assertEqual(self.facts("home")["pi"], "~/.pi/agent")
         self.assertEqual(self.facts("tools_setting"), {"pi": ("~/.pi/agent/settings.json", "defaultTools"),
                                                        "omp": ("~/.omp/agent/settings.json", "defaultTools")})

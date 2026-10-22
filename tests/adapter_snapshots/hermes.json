@@ -154,7 +154,6 @@
  "sandbox_setting": "",
  "replies": [],
  "subagents": [],
- "prices": [],
  "asks_setting": "approvals.mode",
  "access": {
   "how": "A provider key (hermes setup), or a local LLM from the map",
@@ -165,6 +164,7 @@
   ],
   "env": [],
   "local_ok": true,
+  "per_token": false,
   "logins": [
    {
     "label": "Setup wizard (account or key)",

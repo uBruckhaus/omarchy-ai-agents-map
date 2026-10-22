@@ -19,6 +19,8 @@ import harnesses
 import herdr_state
 import inventory
 import link_hints
+import netfetch
+import plugin_costs
 import providers
 import runtime_ctl
 import threading
@@ -95,6 +97,12 @@ class DetailsPages:
                 usage = agent_status.usage_for(agent.command, record, sessions)
             except Exception:
                 usage = None
+            try:
+                spent = agent_status.costs(agent.command, sessions=sessions) if sessions is not None else None
+            except Exception:
+                spent = None
+            rate = plugin_costs.usd_per_eur(fetch=netfetch.fetch) \
+                if spent is not None and ai_core.setting("cost_currency") == "eur" else None
             logged_in = agent_status.login_state(agent.command) if agent.installed else None
             checks = agent_status.agent_checks(agent, info, record, inventory, link_hints.load(), logged_in,
                                                issue=agent_status.load_issues().get(agent.command))
@@ -107,11 +115,11 @@ class DetailsPages:
                 security = agent_security.report_for(agent.command, servers) if agent.installed else None
             except Exception:
                 security = None
-            GLib.idle_add(done, info, usage, checks, sessions, panes, security)
+            GLib.idle_add(done, info, usage, checks, sessions, panes, security, (spent, rate))
 
-        def done(info, usage, checks, sessions, panes, security):
+        def done(info, usage, checks, sessions, panes, security, cost):
             if self.status_showing == ("agent", agent.command):
-                self.fill_agent_status(agent, info, usage, checks, sessions, panes, security)
+                self.fill_agent_status(agent, info, usage, checks, sessions, panes, security, cost)
                 if not refreshed and agent.installed and agent_details.usage_is_stale(agent.command):
                     threading.Thread(target=refresh, daemon=True).start()
             return False
@@ -127,7 +135,7 @@ class DetailsPages:
 
         threading.Thread(target=work, daemon=True).start()
 
-    def fill_agent_status(self, agent, info, usage, checks, sessions=None, panes=None, security=None):
+    def fill_agent_status(self, agent, info, usage, checks, sessions=None, panes=None, security=None, cost=(None, None)):
         self.clear_status(agent.name)
         body = self.status_body
         # At the top: one sentence, then what it is doing now.
@@ -151,6 +159,7 @@ class DetailsPages:
             self.watch_herdr(agent)
 
         self.fill_usage_card(body, usage, info)
+        self.fill_cost_card(body, agent, info, *cost)
         self.fill_ai_checks_card(body, agent)
 
         harness = harnesses.get(agent.command)
@@ -177,6 +186,56 @@ class DetailsPages:
         config.add_css_class("am-boxed")
         self.fill_agent(config, agent, summary=True)
         group.append(config)
+
+    def fill_cost_card(self, body, agent, info, spent, rate):
+        """What its tokens cost at API prices (agent_status.costs, plugin_costs): today, 7 and 30 days,
+        and per model the split into input, output, cache read and cache write. "API cost" for an agent
+        paid per token (against Settings › Costs' day's limit), "API value" for one on a plan."""
+        if spent is None:
+            harness = harnesses.get(agent.command)
+            if agent.installed and harness is not None and harness.sessions is None:
+                group = self.group_card(body, "cost", _("API cost"), "am-chart-symbolic", _("not known"))
+                self.note(group, _("{0} keeps no token counts on this PC that the app can read, so what it costs "
+                                   "is not shown here. Its provider's own account page has it.").format(agent.name))
+            return
+        currency, limit = ai_core.setting("cost_currency"), ai_core.setting("cost_limit")
+        usd_per_eur = rate[0] if rate else None
+
+        def money(usd: float) -> str:
+            return plugin_costs.cost_text(usd, currency, usd_per_eur)
+
+        paying = agent_status.pays_per_token(agent.command, info)
+        title = _("API cost") if paying else _("API value")
+        summary = " · ".join([_("{0} today").format(money(spent.today)),
+                              _("{0} in 7 days").format(money(spent.week))])
+        group = self.group_card(body, "cost", title, "am-chart-symbolic", summary)
+        self.details_cards["cost"] = group
+        today_note = ""
+        if paying:
+            share = plugin_costs.in_currency(spent.today, currency, usd_per_eur)[0] / limit if limit else 0
+            today_note = _("{0} % of the day's limit").format(round(share * 100))
+        elif info.plan:
+            today_note = _("covered by your {0} plan").format(info.plan)
+        group.append(self.stat_tiles([(_("Today"), money(spent.today), today_note),
+                                      (_("Last 7 days"), money(spent.week), ""),
+                                      (_("Last 30 days"), money(spent.month), "")]))
+        kinds = (_("Input"), _("Output"), _("Cache read"), _("Cache write"))
+        for model, (provider, counts, parts) in sorted(spent.by_model.items(), key=lambda m: -sum(m[1][2]))[:6]:
+            self.settings_heading(group, _("{0}, last 30 days").format(model))
+            rows = [(kind, _("{0} tokens · {1}").format(short_number(n), money(usd)), "")
+                    for kind, n, usd in zip(kinds, counts, parts) if n]
+            rows.append((_("In all"), money(sum(parts)), ""))
+            self.detail_grid(group, rows)
+        if spent.reported:
+            self.note(group, _("{0} in 30 days as the agent itself reports it (it keeps no token counts to split).")
+                      .format(money(spent.reported)))
+        if spent.unpriced:
+            local = ", ".join(f"{m} ({short_number(n)})" for m, n in sorted(spent.unpriced.items(), key=lambda x: -x[1])[:4])
+            self.note(group, _("No API cost: {0} (tokens of models without a price, such as local LLMs).").format(local))
+        dates = sorted({plugin_costs.AS_OF.get(p, "") for p, _c, _m in spent.by_model.values()} - {""})
+        self.note(group, _("An estimate: the tokens of its sessions (counted on the day of their last reply) at "
+                           "the providers' API prices as of {0}.").format(", ".join(dates))
+                  + (" " + _("Not what a plan costs: the plan covers it.") if info.plan and not paying else ""))
 
     def fill_usage_card(self, body, usage, info=None, title: str = "", summary_prefix: str = ""):
         """Usage and tokens, as far as they are known: tiles, tokens per day, limits and plan (info:

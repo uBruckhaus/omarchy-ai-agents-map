@@ -140,7 +140,6 @@
   []
  ],
  "subagents": [],
- "prices": [],
  "asks_setting": "approval_policy",
  "access": {
   "how": "A ChatGPT plan (Plus, Pro, Business), or an API key from platform.openai.com",
@@ -152,6 +151,7 @@
    "OPENAI_API_KEY"
   ],
   "local_ok": true,
+  "per_token": false,
   "logins": [
    {
     "label": "ChatGPT plan",
@@ -295,7 +295,10 @@
   ],
   "note": ""
  },
- "sessions": null,
+ "sessions": {
+  "collect": "agent_sessions.codex_files",
+  "note": "Numbers from Codex's session files (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs."
+ },
  "usage": null,
  "latest": null,
  "installer": null,
