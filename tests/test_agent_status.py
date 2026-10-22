@@ -269,3 +269,59 @@ class IssueTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PaidPerTokenTest(unittest.TestCase):
+    """An agent paid per token shows today's cost where a plan's battery would be."""
+
+    def details(self, limits=(), plan="", has_usage=False):
+        info = ad.Details()
+        info.limits, info.plan, info.has_usage = list(limits), plan, has_usage
+        return info
+
+    def test_who_pays_per_token(self):
+        limit = ad.Limit(label="5 hours", percent=0.3)
+        with_key = {"ANTHROPIC_API_KEY": "x"}
+        self.assertFalse(st.pays_per_token("claude", self.details([limit]), with_key))     # a plan's battery
+        self.assertTrue(st.pays_per_token("claude", self.details(), with_key))             # an API key
+        self.assertTrue(st.pays_per_token("claude", self.details(has_usage=True), {}))     # record, no plan
+        self.assertFalse(st.pays_per_token("claude", self.details(plan="Max 5x", has_usage=True), {}))
+        self.assertFalse(st.pays_per_token("claude", self.details(), {}))                  # nothing known
+        self.assertFalse(st.pays_per_token("claude", None, with_key))
+
+    def test_cost_of_the_sessions_active_today(self):
+        today = dt.date(2026, 10, 23)
+        noon = dt.datetime(2026, 10, 23, 12).timestamp()
+        yesterday = dt.datetime(2026, 10, 22, 12).timestamp()
+        rows = [(noon, "opus", 10, 20, 0, 1.25), (noon, "opus", 1, 2, 0, 0.75), (yesterday, "opus", 5, 5, 0, 9.0)]
+        usage = st._from_rows(rows, today, "test")
+        self.assertAlmostEqual(usage.cost_today, 2.0)
+        self.assertAlmostEqual(usage.cost, 11.0)
+        self.assertIsNone(st._from_rows([(noon, "x", 1, 1, 0, 0)], today, "t").cost_today)   # no costs kept
+
+    def test_cost_text(self):
+        self.assertEqual([st.cost_text(v) for v in (0.004, 3.4, 12.345, 123.4, 2400)],
+                         ["<$0.01", "$3.40", "$12.35", "$123", "$2,400"])
+
+
+class PricesTest(unittest.TestCase):
+    """An API user's cost: token counts at the prices the agent's adapter names."""
+
+    PRICES = ("2026-10-23", (("claude-opus-5", (5.0, 25.0, 0.5, 6.25)), ("claude-opus-5-5", (4.0, 20.0, 0.2, 5.0))))
+
+    def test_longest_matching_name_wins(self):
+        tokens = {"claude-opus-5-5-20261001": [1_000_000, 100_000, 10_000_000, 200_000]}
+        self.assertAlmostEqual(st.priced(tokens, self.PRICES), 4 + 2 + 2 + 1)
+        self.assertAlmostEqual(st.priced({"claude-opus-5": [1_000_000, 0, 0, 0]}, self.PRICES), 5)
+
+    def test_unknown_models_and_no_prices(self):
+        self.assertIsNone(st.priced({"gpt-9": [1000, 1000, 0, 0]}, self.PRICES))
+        self.assertIsNone(st.priced({"claude-opus-5-5": [1, 1, 1, 1]}, ()))
+        both = {"gpt-9": [10 ** 6, 0, 0, 0], "claude-opus-5-5": [10 ** 6, 0, 0, 0]}
+        self.assertAlmostEqual(st.priced(both, self.PRICES), 4)            # the known one counts
+
+    def test_claude_adapter_prices_are_checked(self):
+        import harnesses
+        prices = harnesses.get("claude").prices
+        self.assertTrue(prices and prices[0])
+        self.assertTrue(all(len(p) == 4 and all(x >= 0 for x in p) for _m, p in prices[1]))

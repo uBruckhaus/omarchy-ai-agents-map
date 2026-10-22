@@ -280,7 +280,7 @@ class Engine:
         """A line above its model lists (where its models come from, what happens on a download)."""
         return ""
 
-    def context_now(self, rt, folder, name: str):
+    def context_now(self, rt, folder, name: str) -> tuple | None:
         """(context now, KV cache type, model file) of an installed model; None: not known here."""
         return None
 

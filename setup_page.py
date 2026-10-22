@@ -786,7 +786,13 @@ class SetupPage:
         (the map's box has the same)."""
         level = getattr(self, "batteries", {}).get(node_id) if node_id else None
         if level is None:
-            return None
+            cost = getattr(self, "agent_costs", {}).get(node_id) if node_id else None
+            if cost is None:
+                return None
+            label = Gtk.Label(label=cost[0], valign=Gtk.Align.START)      # paid per token: today's cost
+            label.add_css_class("dim-label")
+            label.set_tooltip_text(cost[1])
+            return label
         from ui_helpers import Battery
         return Battery(self.side_map.color, *level)
 

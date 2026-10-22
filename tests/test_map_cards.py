@@ -20,6 +20,7 @@ class Cards:
     def __init__(self, built):
         self.graph, self.order, self.cards, self.group_titles = built, {}, {}, {"mcp": "MCP servers"}
         self.scroll_adjustment, self.zoom, self.saved = None, 1.0, 0
+        self.agent_links = set()
 
     def shown(self, column):
         return self.graph.column(column)
@@ -97,6 +98,21 @@ class OrderTest(unittest.TestCase):
         self.assertEqual(cw, bw + 2 * map_view.CARD_PAD)
         self.assertEqual(ch, view.card_height(2))
         self.assertLess(cy + ch, view.card_rects["skills"][1])         # skills' card below, not on top
+
+    def test_agent_arrows_get_room_when_the_agents_card_comes_first(self):
+        view = Cards(built())
+        view.layout(1200, 800)
+        with_mcp = view.card_rects["agents"][0]
+        view.agent_links = {("agent:pi", "agent:claude")}
+        view.layout(1200, 800)
+        self.assertEqual(view.card_rects["agents"][0], with_mcp)       # the arrows run in the gap
+        lone = Cards(built(mcp=()))
+        lone.graph.nodes = [n for n in lone.graph.nodes if n.column != 0]
+        lone.layout(1200, 800)
+        first = lone.card_rects["agents"][0]
+        lone.agent_links = {("agent:pi", "agent:claude")}
+        lone.layout(1200, 800)
+        self.assertGreaterEqual(lone.card_rects["agents"][0] - first, map_view.AGENT_LINK_ROOM / 2)
 
     def test_a_moved_card_stays_and_default_layout_puts_it_back(self):
         view = Cards(built())

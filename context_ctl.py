@@ -364,8 +364,8 @@ def lmstudio_model_file(entry: dict) -> Path | None:
 
 
 def _lms_fields(data: dict) -> list:
-    load = data.get("load") if isinstance(data.get("load"), dict) else {}
-    return load.get("fields") if isinstance(load.get("fields"), list) else []
+    load = v if isinstance(v := data.get("load"), dict) else {}
+    return v if isinstance(v := load.get("fields"), list) else []
 
 
 def lmstudio_settings(entry: dict, defaults: Path = LMS_DEFAULTS) -> tuple[int, str]:

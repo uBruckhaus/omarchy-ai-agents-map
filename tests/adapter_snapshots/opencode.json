@@ -56,6 +56,11 @@
  "tools_setting": [],
  "sandbox_setting": "",
  "replies": [],
+ "subagents": [
+  "opencode-db",
+  "~/.local/share/opencode/opencode.db"
+ ],
+ "prices": [],
  "asks_setting": "permission.bash",
  "access": {
   "how": "An account or API key for any provider, or a local LLM from the map",

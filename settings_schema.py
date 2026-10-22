@@ -13,6 +13,8 @@ MAP_LAYERS = ("agents", "online", "local", "models", "mcp", "skills")
 MAP_ANIMATIONS = ("all", "agents", "off")
 USAGE_BOX_ITEMS = ("rate", "context", "used")     # as usage_box.ITEMS
 USAGE_BOX_SIZES = (7, 8, 9, 10, 12)                 # text size in pt, as usage_box.SIZES (7: the default)
+SUBAGENT_MINUTES = (10, 30, 60, 120)                # how long finished subagents stay listed (30: the default)
+SUBAGENT_COUNTS = (5, 10, 20, 40)                   # how many finished ones at most (10: the default)
 LOOKS = ("omarchy", "adwaita")
 
 
@@ -72,6 +74,10 @@ SCHEMA: dict[str, Setting] = {
                                "Settings › Usage statistics box: what it shows (usage_box.ITEMS)"),
     "usage_box_size": Setting(7, lambda v: v in USAGE_BOX_SIZES and not isinstance(v, bool),
                               "Settings › Usage statistics box: its text size in pt"),
+    "subagents_minutes": Setting(30, lambda v: v in SUBAGENT_MINUTES and not isinstance(v, bool),
+                                 "Settings › Subagents: minutes a finished one stays on the subagents page"),
+    "subagents_kept": Setting(10, lambda v: v in SUBAGENT_COUNTS and not isinstance(v, bool),
+                              "Settings › Subagents: how many finished ones it keeps at most"),
     "map_zoom": Setting(1.0, _number, "the map's zoom"),
     "map_layout": Setting({}, _mapping, "the map's cards: {\"order\": {card: [box ids]}, \"cards\": {card: [x, y]}} "
                           "(drag a box inside its card, a card by its header; Default layout clears it)"),

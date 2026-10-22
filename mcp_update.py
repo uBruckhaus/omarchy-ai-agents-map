@@ -77,7 +77,7 @@ def links(candidate) -> list:
     return found
 
 
-def _new_entry(entry: dict, candidate, linked: set) -> dict | None:
+def _new_entry(entry: dict | None, candidate, linked: set) -> dict | None:
     """The entry starting the new version, or None when it is not an old one."""
     if not entry or entry["transport"] != "stdio":
         return None

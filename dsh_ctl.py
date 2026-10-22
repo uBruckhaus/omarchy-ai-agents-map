@@ -51,7 +51,10 @@ def _yaml():
     class Dumper(yaml.SafeDumper):
         pass
 
-    Loader.add_constructor("tag:yaml.org,2002:js", lambda loader, node: Js(loader.construct_scalar(node)))
+    def js(loader: yaml.SafeLoader, node: yaml.ScalarNode) -> Js:
+        return Js(loader.construct_scalar(node))
+
+    Loader.add_constructor("tag:yaml.org,2002:js", js)
     Dumper.add_representer(Js, lambda dumper, value: dumper.represent_scalar("tag:yaml.org,2002:js", str(value)))
     return yaml, Loader, Dumper
 
@@ -82,7 +85,7 @@ def split(text: str) -> tuple[str, list[str]]:
     return "".join(header), blocks
 
 
-def parse(block: str):
+def parse(block: str) -> dict:
     yaml, loader, _dumper = _yaml()
     data = yaml.load(block, Loader=loader)       # noqa: S506 (SafeLoader subclass)
     return data[0] if isinstance(data, list) and data and isinstance(data[0], dict) else {}
@@ -145,9 +148,9 @@ def connect_text(text: str, provider: str, label: str, url: str, models: list, c
         raise ValueError("bad provider id")
     header, blocks = split(text)
     index = _find(blocks, LLM_ID)
-    entry = parse(blocks[index]) if index is not None else {"id": LLM_ID, "name": LLM_NAME}
-    config = entry.get("config") if isinstance(entry.get("config"), dict) else {}
-    found = config.get("providers") if isinstance(config.get("providers"), dict) else {}
+    entry: dict = parse(blocks[index]) if index is not None else {"id": LLM_ID, "name": LLM_NAME}
+    config = v if isinstance(v := entry.get("config"), dict) else {}
+    found = v if isinstance(v := config.get("providers"), dict) else {}
     if remove:
         found.pop(provider, None)
     else:

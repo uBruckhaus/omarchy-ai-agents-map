@@ -17,6 +17,7 @@ import json
 import os
 import re
 from pathlib import Path
+from typing import cast
 
 import agent_profiles
 import connect
@@ -92,7 +93,7 @@ def _map(value) -> dict:
     return {str(k): str(v) for k, v in value.items()} if isinstance(value, dict) else {}
 
 
-def normal(entry: dict) -> dict | None:
+def normal(entry: dict | None) -> dict | None:
     """{"transport": stdio|http|sse, "command", "args", "env", "url", "headers"} or None."""
     if not isinstance(entry, dict):
         return None
@@ -217,7 +218,9 @@ def native(agent: str, e: dict) -> dict:
     stdio = e["transport"] == "stdio"
     spec = _spec(agent)
     if spec is None:
-        return from_profile(agent_profiles.mcp_profile(agent), e)
+        profile = agent_profiles.mcp_profile(agent)
+        assert profile is not None      # plan() only writes for supported() agents
+        return from_profile(profile, e)
     if spec.native is not None:
         return spec.native(e)
     shape = spec.shape
@@ -411,16 +414,17 @@ def plan(agent: str, name: str, sources=(), remove: bool = False, entry: dict | 
         if entry is None:
             raise ValueError(f"no agent has {name} set up")
         result.secrets = _secrets(entry)
+        assert _source is not None      # the agent that has it, or "library"
         result.source = _source
     spec = _spec(agent)
     if spec is not None and spec.format == "claude":
         # Never through `claude mcp add-json`: other accounts can read argv in
         # /proc/<pid>/cmdline, and keys hide in env, headers, args and the url.
-        result.changes = _claude_json_change(name, None if remove else native("claude", entry))
+        result.changes = _claude_json_change(name, None if remove else native("claude", cast(dict, entry)))
         return result
     path = paths_for(agent)[0]
     old_text = connect._read(path)
-    item = None if remove else native(agent, entry)
+    item = None if remove else native(agent, cast(dict, entry))
     profile = agent_profiles.mcp_profile(agent) if spec is None else None
     if profile is not None:
         if profile["format"] == "json":

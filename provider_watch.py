@@ -104,7 +104,7 @@ def _entry(key, entry) -> dict | None:
     if not isinstance(key, str) or not NAME_RE.fullmatch(key) or not isinstance(entry, dict):
         return None
     service = entry.get("service") if isinstance(entry.get("service"), str) else ""
-    port = entry.get("port") if isinstance(entry.get("port"), int) and 0 < entry.get("port") < 65536 else 0
+    port = p if isinstance(p := entry.get("port"), int) and 0 < p < 65536 else 0
     if service and not UNIT_RE.fullmatch(service):
         return None
     control = entry.get("control") if entry.get("control") in CONTROLS else ""
@@ -178,7 +178,7 @@ def write_config(inventory, path: Path = CONFIG) -> bool:
 
 # --- the user service (plugin side) ---------------------------------------------------------
 
-def unit_text(script: Path, config: Path = None) -> str:
+def unit_text(script: Path, config: Path | None = None) -> str:
     config = config or CONFIG
     APP = "AI Agents Map" if UNIT_NAME.startswith("ai-agents-map") else "Asterism"   # noqa: N806
     exec_start = f"/usr/bin/python3 -I {script}" + (f" --config {config}" if _UNIT_SAFE.fullmatch(str(config)) else "")

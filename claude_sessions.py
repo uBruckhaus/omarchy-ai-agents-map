@@ -281,7 +281,7 @@ def collect_by_id(root: Path = ROOT, cache: Path = CACHE) -> dict:
             break
     for path in paths[:MAX_FILES] + [path for path, _sid in runs]:
         key = str(path)
-        state = files.get(key) if isinstance(files.get(key), dict) else {}
+        state = s if isinstance(s := files.get(key), dict) else {}
         if budget > 0:
             budget -= read_file(path, state, budget)
         seen[key] = state
@@ -364,7 +364,7 @@ def busiest(sessions: list[Session], since: float = 0.0) -> tuple[int, int] | No
                 totals[int(slot)] = totals.get(int(slot), 0) + n
     if not totals:
         return None
-    slot = max(totals, key=totals.get)
+    slot = max(totals, key=lambda s: totals[s])
     return slot // 24, slot % 24
 
 

@@ -50,7 +50,7 @@ def _clean_hints(hints) -> list:
     return found[:MAX_HINTS]
 
 
-def load(path: Path = None) -> dict:
+def load(path: Path | None = None) -> dict:
     path = path or store_file()
     try:
         with open(path, "rb") as handle:
@@ -80,7 +80,7 @@ def _save(links: dict, path: Path):
     os.replace(tmp, path)
 
 
-def remember(link_key: str, kind: str, applied: bool, hints: list, target: str = "", path: Path = None):
+def remember(link_key: str, kind: str, applied: bool, hints: list, target: str = "", path: Path | None = None):
     """Keep a failed line's hints (replacing what it had)."""
     path = path or store_file()
     hints = _clean_hints(hints)
@@ -92,7 +92,7 @@ def remember(link_key: str, kind: str, applied: bool, hints: list, target: str =
     _save(dict(list(links.items())[-MAX_LINKS:]), path)
 
 
-def forget(link_key: str, path: Path = None) -> bool:
+def forget(link_key: str, path: Path | None = None) -> bool:
     """The line was removed by hand (or a new test passed). True when it had hints."""
     path = path or store_file()
     links = load(path)

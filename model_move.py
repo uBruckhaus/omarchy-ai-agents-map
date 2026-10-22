@@ -36,8 +36,8 @@ class Move:
     steps: list = field(default_factory=list)     # (source Path, target Path)
     size: int = 0
     copy: bool = False                            # to another disk: copied, then the original removed
-    root: Path = None                             # the target folder
-    back: Path = None                             # the source folder (undo)
+    root: Path | None = None                      # the target folder
+    back: Path | None = None                      # the source folder (undo)
 
 
 def _folder(path) -> Path:
@@ -165,12 +165,13 @@ def move_file(source: Path, target: Path, root: Path, copy: bool, progress=lambd
 def apply(move: Move, progress=lambda f, t: None, cancelled=lambda: False) -> list:
     """Do the move; returns the steps done (for undo), also when one fails on the way."""
     done, copied = [], 0
+    assert move.root is not None and move.back is not None     # plan() sets both
     try:
         for source, target in move.steps:
             copied += move_file(source, target, move.root, move.copy, progress, cancelled, copied, max(1, move.size))
             done.append((source, target))
     except (OSError, ValueError, model_layout.Cancelled) as error:
-        error.done = done
+        setattr(error, "done", done)
         raise
     return done
 
@@ -178,6 +179,7 @@ def apply(move: Move, progress=lambda f, t: None, cancelled=lambda: False) -> li
 def undo(move: Move, done: list, progress=lambda f, t: None) -> list:
     """Move the files back, last first; returns the problems (empty: all back)."""
     problems = []
+    assert move.back is not None                                # plan() sets it
     total = max(1, sum(t.stat().st_size for _s, t in done if t.exists()))
     for source, target in reversed(done):
         try:

@@ -55,6 +55,8 @@
  "tools_setting": [],
  "sandbox_setting": "",
  "replies": [],
+ "subagents": [],
+ "prices": [],
  "asks_setting": "defaultPermissionMode",
  "access": {
   "how": "A GitHub Copilot subscription (github.com/features/copilot)",

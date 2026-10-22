@@ -2601,5 +2601,33 @@
  "Text size": "Tamanho do texto",
  "How big its numbers are written on the line.": "Qual o tamanho dos números escritos na linha.",
  "{0} pt (default)": "{0} pt (predefinido)",
- "{0} pt": "{0} pt"
+ "{0} pt": "{0} pt",
+ "Subagents": "Subagentes",
+ "Subagents · {0}": "Subagentes · {0}",
+ "\u0004Works with 1 subagent now. Click to see what it does.": [
+  "Trabalha agora com 1 subagente. Clique para ver o que ele faz.",
+  "Trabalha agora com {0} subagentes. Clique para ver o que eles fazem."
+ ],
+ "\u0004done 1 minute ago": [
+  "concluído há 1 minuto",
+  "concluído há {0} minutos"
+ ],
+ "\u00041 working now": [
+  "1 trabalhando agora",
+  "{0} trabalhando agora"
+ ],
+ "{0} uses {1}: it started it and works with it.": "{0} usa {1}: iniciou-o e trabalha com ele.",
+ "No subagent worked for it in the last {0} minutes.": "Nenhum subagente trabalhou para ele nos últimos {0} minutos.",
+ "finished ones stay here dimmed for {0} minutes, at most {1} (Settings › Subagents)": "os que terminaram ficam aqui esmaecidos por {0} minutos, no máximo {1} (Configurações › Subagentes)",
+ "Finished ones stay": "Os que terminaram ficam",
+ "How long a subagent that finished stays on the subagents page, dimmed, after it last worked.": "Por quanto tempo um subagente que terminou fica esmaecido na página de subagentes depois do seu último trabalho.",
+ "{0} minutes (default)": "{0} minutos (padrão)",
+ "{0} minutes": "{0} minutos",
+ "At most": "No máximo",
+ "How many finished subagents it keeps, the newest first; working ones are always shown.": "Quantos subagentes terminados ela mantém, os mais recentes primeiro; os que trabalham são sempre mostrados.",
+ "{0} subagents (default)": "{0} subagentes (padrão)",
+ "{0} subagents": "{0} subagentes",
+ "Its subagents of the last {0} minutes, all finished. Click to see them.": "Os seus subagentes dos últimos {0} minutos, todos terminados. Clique para vê-los.",
+ "{0} today": "{0} hoje",
+ "Paid per token, with no plan limits: about {0} today at API prices (estimated from the tokens of its sessions active today).": "Pago por token, sem limites de plano: hoje cerca de {0} a preços de API (estimado a partir dos tokens das suas sessões ativas hoje)."
 }

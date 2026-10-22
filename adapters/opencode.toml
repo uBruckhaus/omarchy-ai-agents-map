@@ -25,6 +25,10 @@ note_args = ["OpenCode"]
 files = ["~/.config/opencode/opencode.json"]
 hooks = true
 
+[subagents]                            # its subagents (task tool): the map's subagents page
+format = "opencode-db"
+path = "~/.local/share/opencode/opencode.db"
+
 [skills]
 dirs = ["~/.config/opencode/skills", "~/.claude/skills", "~/.agents/skills"]
 own = "~/.config/opencode/skills"

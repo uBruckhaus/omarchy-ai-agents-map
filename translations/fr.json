@@ -2601,5 +2601,33 @@
  "Text size": "Taille du texte",
  "How big its numbers are written on the line.": "La taille de ses nombres écrits sur la ligne.",
  "{0} pt (default)": "{0} pt (par défaut)",
- "{0} pt": "{0} pt"
+ "{0} pt": "{0} pt",
+ "Subagents": "Sous-agents",
+ "Subagents · {0}": "Sous-agents · {0}",
+ "\u0004Works with 1 subagent now. Click to see what it does.": [
+  "Travaille en ce moment avec 1 sous-agent. Cliquez pour voir ce qu’il fait.",
+  "Travaille en ce moment avec {0} sous-agents. Cliquez pour voir ce qu’ils font."
+ ],
+ "\u0004done 1 minute ago": [
+  "terminé il y a 1 minute",
+  "terminé il y a {0} minutes"
+ ],
+ "\u00041 working now": [
+  "1 au travail",
+  "{0} au travail"
+ ],
+ "{0} uses {1}: it started it and works with it.": "{0} utilise {1} : il l’a lancé et travaille avec lui.",
+ "No subagent worked for it in the last {0} minutes.": "Aucun sous-agent n’a travaillé pour lui ces {0} dernières minutes.",
+ "finished ones stay here dimmed for {0} minutes, at most {1} (Settings › Subagents)": "ceux qui ont fini restent ici atténués {0} minutes, au plus {1} (Réglages › Sous-agents)",
+ "Finished ones stay": "Ceux qui ont fini restent",
+ "How long a subagent that finished stays on the subagents page, dimmed, after it last worked.": "Combien de temps un sous-agent qui a fini reste atténué sur la page des sous-agents après son dernier travail.",
+ "{0} minutes (default)": "{0} minutes (par défaut)",
+ "{0} minutes": "{0} minutes",
+ "At most": "Au plus",
+ "How many finished subagents it keeps, the newest first; working ones are always shown.": "Combien de sous-agents terminés elle garde, les plus récents d’abord ; ceux qui travaillent sont toujours affichés.",
+ "{0} subagents (default)": "{0} sous-agents (par défaut)",
+ "{0} subagents": "{0} sous-agents",
+ "Its subagents of the last {0} minutes, all finished. Click to see them.": "Ses sous-agents des {0} dernières minutes, tous terminés. Cliquez pour les voir.",
+ "{0} today": "{0} aujourd’hui",
+ "Paid per token, with no plan limits: about {0} today at API prices (estimated from the tokens of its sessions active today).": "Payé au token, sans limites de forfait : environ {0} aujourd’hui aux prix de l’API (estimé d’après les tokens de ses sessions actives aujourd’hui)."
 }

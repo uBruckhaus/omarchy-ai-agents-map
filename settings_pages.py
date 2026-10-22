@@ -26,6 +26,7 @@ import model_layout
 import previews
 import provider_watch
 import runtime_ctl
+import settings_schema
 import usage_box
 import web_sources
 from i18n import _, N_, ngettext
@@ -397,6 +398,29 @@ class SettingsPages:
         row.set_sensitive(ai_core.setting("usage_box"))
         rows.append(row)
 
+    def subagents_rows(self, side):
+        """Settings › Subagents: how long and how many finished ones the subagents page keeps."""
+        group = self.preference_group(side, _("Subagents"))
+        minutes, counts = settings_schema.SUBAGENT_MINUTES, settings_schema.SUBAGENT_COUNTS
+
+        def save(**value):
+            self.save_setting(**value)
+            if self.page_name() == "subagents":
+                self.refresh_subagents_page()
+
+        self.combo_row(group, _("Finished ones stay"),
+                       _("How long a subagent that finished stays on the subagents page, dimmed, after it last "
+                         "worked."),
+                       [_("{0} minutes (default)").format(n) if n == 30 else _("{0} minutes").format(n) for n in minutes],
+                       minutes.index(ai_core.setting("subagents_minutes")),
+                       lambda i: save(subagents_minutes=minutes[i]))
+        self.combo_row(group, _("At most"),
+                       _("How many finished subagents it keeps, the newest first; working ones are always shown."),
+                       [_("{0} subagents (default)").format(n) if n == 10 else _("{0} subagents").format(n)
+                        for n in counts],
+                       counts.index(ai_core.setting("subagents_kept")),
+                       lambda i: save(subagents_kept=counts[i]))
+
     def switch_row(self, group, title: str, hint: str, active: bool, on_toggle) -> Adw.SwitchRow:
         short = self.short_hint(hint)
         row = Adw.SwitchRow(title=title, subtitle=short, active=active, use_markup=False)
@@ -548,6 +572,7 @@ class SettingsPages:
         preview.append(self.animation_sketch)
         group.add(preview)
         self.usage_box_rows(side)
+        self.subagents_rows(side)
         models_group = self.preference_group(side, _("Models"))
 
         group = models_group

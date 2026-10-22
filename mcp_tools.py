@@ -84,6 +84,7 @@ class _Stdio:
             left = self.deadline - time.monotonic()
             if left <= 0:
                 raise TimeoutError("no answer")
+            assert self.proc.stdout is not None     # started with stdout=PIPE
             ready, _w, _x = select.select([self.proc.stdout], [], [], left)
             if not ready:
                 continue

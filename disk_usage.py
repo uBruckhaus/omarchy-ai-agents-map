@@ -183,7 +183,8 @@ def _walk(place: Place, seen: set, stop_at: float):
     except OSError:
         place.missing = True
         return
-    stack, count = [place.path], 0
+    stack: list[Path | str] = [place.path]
+    count = 0
     if not stat.S_ISDIR(info.st_mode):
         if (info.st_dev, info.st_ino) not in seen:
             seen.add((info.st_dev, info.st_ino))

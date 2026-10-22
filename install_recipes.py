@@ -13,7 +13,12 @@ from __future__ import annotations
 import re
 import shlex
 import shutil
+from collections.abc import Iterable
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from harnesses import Way
 
 MANAGERS = {          # install, remove (after sudo)
     "pacman": (("pacman", "-S", "--needed"), ("pacman", "-R")),
@@ -126,7 +131,7 @@ def _step(way, action: str) -> Step | None:
     return None
 
 
-def choose(ways, action: str = "install", source: str = "") -> Step | None:
+def choose(ways: Iterable[Way] | None, action: str = "install", source: str = "") -> Step | None:
     """The way to install (or, with action="uninstall", to remove) on this PC.
     source: how it is installed now ("mise", "package", "own"): removing uses the matching way."""
     ways = list(ways or ())

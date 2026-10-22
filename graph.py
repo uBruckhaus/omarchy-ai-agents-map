@@ -47,7 +47,7 @@ def model_key(name: str) -> str:
 # Categories the map can show or hide, in toolbar order, and what each needs.
 LAYERS = ("agents", "online", "local", "models", "mcp", "skills")
 LAYER_OF = {"agent": "agents", "cloud": "online", "runtime": "local", "model": "models", "more": "models",
-            "mcp": "mcp", "skills": "skills"}
+            "mcp": "mcp", "skills": "skills", "subagent": "agents"}
 REQUIRES = {"models": ("online", "local"), "mcp": ("agents",), "skills": ("agents",)}   # any one of them
 
 

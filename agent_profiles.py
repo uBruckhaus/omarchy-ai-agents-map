@@ -185,7 +185,7 @@ def researchers(installed) -> list[str]:
 
 def research_command(researcher: str, prompt: str, schema_file: Path) -> list[str]:
     import harnesses
-    argv = harnesses.get(researcher).research
+    argv: tuple[str, ...] = harnesses.get(researcher).research
     binary = shutil.which(researcher) or researcher
     fill = {"{prompt}": prompt, "{schema}": str(schema_file)}
     return [binary] + [fill.get(a, a) for a in argv[1:]]

@@ -14,7 +14,7 @@ AGENT_SPACING = 8
 SPLIT_WIDTH = 1300        # from this window width the whole map fits
 MODEL_LIST_WIDTH = 460       # the models page's list (search results, installed models)
 RIGHT_PAGES = ("connect", "install", "models", "mcp", "addmcp", "addskills", "status", "health", "terminal",
-               "traffic", "smartcheck")   # open in the map's place
+               "traffic", "smartcheck", "subagents")   # open in the map's place
 DETAIL_LABEL_WIDTH = 90   # the dim labels of a compact detail grid
 FULL_WIDTH_SHARE = 0.9    # of the monitor's width: a window this wide is really maximized
 

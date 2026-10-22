@@ -153,6 +153,8 @@
  "tools_setting": [],
  "sandbox_setting": "",
  "replies": [],
+ "subagents": [],
+ "prices": [],
  "asks_setting": "approvals.mode",
  "access": {
   "how": "A provider key (hermes setup), or a local LLM from the map",

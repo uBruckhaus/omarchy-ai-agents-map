@@ -20,7 +20,7 @@ MAX_FILE = 256 * 1024
 EMPTY_PRESET = "[*]\nload-on-startup = false\n"
 
 
-def model_yml(name: str, data: Path = None) -> Path | None:
+def model_yml(name: str, data: Path | None = None) -> Path | None:
     if not ID_RE.fullmatch(name or ""):
         return None
     data = data or inventory.jan_data_folder()
@@ -37,7 +37,7 @@ def _read(path: Path) -> str:
         return ""
 
 
-def settings(name: str, data: Path = None) -> tuple[int, str, Path | None]:
+def settings(name: str, data: Path | None = None) -> tuple[int, str, Path | None]:
     """(context, KV cache type, model file) of a Jan model: its preset
     section, else its model.yml."""
     data = data or inventory.jan_data_folder()
@@ -70,7 +70,7 @@ def yml_context_text(old: str, ctx: int) -> str:
     return old.rstrip("\n") + f"\nctx_size: {ctx}\n"
 
 
-def context_changes(name: str, ctx: int, data: Path = None) -> list:
+def context_changes(name: str, ctx: int, data: Path | None = None) -> list:
     """connect.Change for the preset and the model.yml (preview, backup, Undo)."""
     import connect
     data = data or inventory.jan_data_folder()
@@ -88,7 +88,7 @@ def context_changes(name: str, ctx: int, data: Path = None) -> list:
     return changes
 
 
-def ensure_preset(data: Path = None) -> Path:
+def ensure_preset(data: Path | None = None) -> Path:
     """The engine needs a preset to start: an empty one when Jan has not written
     its own yet (Jan replaces it once models are added in the app)."""
     data = data or inventory.jan_data_folder()

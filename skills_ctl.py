@@ -19,6 +19,7 @@ import json
 import os
 import re
 from pathlib import Path
+from typing import cast
 
 import agent_profiles
 import connect
@@ -145,7 +146,7 @@ class Reach:
 def reach(agent: str, folder: Path) -> Reach:
     folder = _real(folder)
     result = Reach()
-    own = expand(own_dir(agent)) if own_dir(agent) else None
+    own = expand(mine) if (mine := own_dir(agent)) else None
     native = [expand(d) for d in native_dirs(agent)]
     configured = [expand(d) for d in config_dirs(agent)]
     # In the settings list we write (Pi, Hermes): removable there, even when also read by itself.
@@ -199,7 +200,7 @@ def plan(agent: str, folder: str, remove: bool = False) -> connect.Plan:
     if agent in SETTINGS_LIST:
         result.changes = _settings_change(agent, str(path), remove=False)
         return result
-    own = expand(own_dir(agent))
+    own = expand(cast(str, own_dir(agent)))     # checked at the start
     for skill in skills_of(path):
         link = own / skill.name
         if not link.exists() and not link.is_symlink():

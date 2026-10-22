@@ -39,6 +39,7 @@ class Usage:
     prompts_today: int | None = None
     last: dt.datetime | None = None
     cost: float | None = None                      # USD the agent itself estimated, when it does
+    cost_today: float | None = None                # of that, the sessions active today
     source: str = ""                                # where the numbers come from, for the page
     has_tokens: bool = True                         # False: only sessions are known (Pi)
     api_value: bool = False                         # cost is the tokens at API prices (not what a plan costs)
@@ -79,7 +80,7 @@ def issue_text(kind: str) -> tuple[str, str, str]:
     }[kind]
 
 
-def load_issues(path: Path = None) -> dict:
+def load_issues(path: Path | None = None) -> dict:
     import json
     try:
         with open(path or ISSUES, "rb") as handle:
@@ -92,7 +93,7 @@ def load_issues(path: Path = None) -> dict:
             if isinstance(v, dict) and v.get("kind") in ISSUE_KINDS}
 
 
-def _save_issues(issues: dict, path: Path = None):
+def _save_issues(issues: dict, path: Path | None = None):
     import json
     path = path or ISSUES
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -103,13 +104,13 @@ def _save_issues(issues: dict, path: Path = None):
     os.replace(tmp, path)
 
 
-def remember_issue(command: str, kind: str, path: Path = None):
+def remember_issue(command: str, kind: str, path: Path | None = None):
     issues = load_issues(path)
     issues[command] = {"kind": kind, "when": dt.datetime.now().isoformat(timespec="seconds")}
     _save_issues(issues, path)
 
 
-def forget_issue(command: str, path: Path = None) -> bool:
+def forget_issue(command: str, path: Path | None = None) -> bool:
     issues = load_issues(path)
     if command not in issues:
         return False
@@ -197,6 +198,13 @@ def _from_rows(rows, today: dt.date, source: str) -> Usage:
     usage.sessions_total, usage.sessions_week = total, week
     usage.sessions_today = sum(1 for started, *_rest in rows if _is_day(started, today))
     usage.cost = cost or None
+    today_cost = 0.0
+    for started, *_rest, spent in rows:
+        try:
+            today_cost += float(spent or 0) if _is_day(started, today) else 0.0
+        except (TypeError, ValueError):
+            pass
+    usage.cost_today = today_cost if usage.cost is not None else None
     return usage
 
 
@@ -436,6 +444,64 @@ def login_state(command: str) -> bool | None:
         return None
     text = out.decode("utf-8", "replace").lower()
     return False if negative in text else True if positive in text else None
+
+
+def pays_per_token(command: str, details, environ=None) -> bool:
+    """Whether the agent is paid per token (an API key or API billing) rather than with a plan whose
+    limits the battery shows: no limits known, and either one of its API-key variables is set (only
+    whether it is), or the desktop's usage record for it is there and names no plan. Without a
+    record it is not known: no."""
+    if details is None or details.limits:
+        return False
+    harness = harnesses.get(command)
+    access = harness.access() if harness is not None and harness.access is not None else None
+    environ = os.environ if environ is None else environ
+    if access is not None and any(environ.get(name) for name in access.env):
+        return True
+    return bool(details.has_usage) and not details.plan
+
+
+def priced(tokens: dict, prices: tuple) -> float | None:
+    """{model: [input, output, cache read, cache write]} at the adapter's prices ((as of, ((model name
+    beginning, (four USD per million tokens)), …))), each model by its longest matching beginning;
+    None when no model has a price."""
+    table = dict(prices[1]) if len(prices) == 2 else {}
+    total, known = 0.0, False
+    for model, counts in (tokens or {}).items():
+        match = max((k for k in table if str(model).startswith(k)), key=len, default=None)
+        if match is None:
+            continue
+        numbers = (list(counts) + [0, 0, 0, 0])[:4]
+        total += sum(_int(n) * p for n, p in zip(numbers, table[match])) / 1_000_000
+        known = True
+    return total if known else None
+
+
+def cost_today(command: str, today: dt.date | None = None) -> float | None:
+    """What the agent's sessions active today cost at API prices: its token counts at the prices its
+    adapter names ([prices]; live, also while a session runs), else the costs it writes itself (Claude
+    Code: only when a session ends); from its own session files, numbers only. None when unknown."""
+    harness = harnesses.get(command)
+    if harness is None or harness.sessions is None:
+        return None
+    today = today or dt.date.today()
+    try:
+        sessions = harness.sessions.collect()
+        sessions = list(sessions.values() if isinstance(sessions, dict) else sessions)
+        if harness.prices:
+            values = [priced(s.tokens, harness.prices) for s in sessions if _is_day(s.last or s.first, today)]
+            return sum(v for v in values if v is not None) if any(v is not None for v in values) else None
+        usage = from_sessions(sessions, harness.full_name or harness.name, today)
+    except Exception:          # a store in a format we do not know: no cost, no crash
+        return None
+    return usage.cost_today if usage is not None else None
+
+
+def cost_text(usd: float) -> str:
+    """$3.40, $123, <$0.01."""
+    if usd < 0.01:
+        return "<$0.01"
+    return f"${usd:,.0f}" if usd >= 100 else f"${usd:,.2f}"
 
 
 def credentials_present(access: Access, root: Path = HOME, environ=None) -> bool:

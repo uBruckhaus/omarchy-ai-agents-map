@@ -59,7 +59,7 @@ def parse_search(data: dict) -> list[Skill]:
             continue
         repo, skill_id = str(item.get("source", "")), str(item.get("skillId", ""))
         if _REPO.match(repo) and _ID.match(skill_id):
-            installs = item.get("installs") if isinstance(item.get("installs"), int) else 0
+            installs = v if isinstance(v := item.get("installs"), int) else 0
             found.append(Skill(str(item.get("name") or skill_id)[:100], skill_id, repo, installs))
     return found
 
@@ -126,7 +126,7 @@ def files_of(tree: dict, skill_id: str) -> tuple[str, list]:
         parts = inner.split("/")
         if any(p in ("", ".", "..") or not _PART.match(p) for p in parts) or len(parts) > 8:
             continue
-        size = entry.get("size") if isinstance(entry.get("size"), int) else MAX_FILE + 1
+        size = v if isinstance(v := entry.get("size"), int) else MAX_FILE + 1
         if size > MAX_FILE:
             raise ValueError(f"{inner} is too large")
         total += size

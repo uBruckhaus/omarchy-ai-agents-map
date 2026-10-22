@@ -18,6 +18,7 @@ import json
 import os
 import re
 from pathlib import Path
+from typing import Callable
 
 import inventory
 
@@ -91,7 +92,7 @@ def best_context(model: Path, vram: int) -> int:
     return best or DEFAULT_CONTEXT
 
 
-def sync(models_dir: Path, build: str, vram, configs: Path = None) -> list[str]:
+def sync(models_dir: Path, build: str, vram: int | Callable[[], int], configs: Path | None = None) -> list[str]:
     """One .kcpps per model file; ours for vanished files removed. Returns the names written.
     vram: bytes, or a function giving them (asked only when a new model needs a context)."""
     configs = configs or inventory.KOBOLD_CONFIGS
@@ -120,18 +121,18 @@ def _write(path: Path, text: str):
     os.replace(tmp, path)
 
 
-def settings(name: str, configs: Path = None) -> tuple[int, Path | None]:
+def settings(name: str, configs: Path | None = None) -> tuple[int, Path | None]:
     """(context, model file) of a model id ("x.kcpps")."""
     configs = configs or inventory.KOBOLD_CONFIGS
     if "/" in name or not name.endswith(".kcpps"):
         return 0, None
     data = read(configs / name)
-    ctx = data.get("contextsize") if isinstance(data.get("contextsize"), int) else 0
+    ctx = v if isinstance(v := data.get("contextsize"), int) else 0
     model = Path(str(data.get("model_param", "")))
     return ctx, (Path(os.path.realpath(model)) if model.is_absolute() and model.exists() else None)
 
 
-def config_path(name: str, configs: Path = None) -> Path | None:
+def config_path(name: str, configs: Path | None = None) -> Path | None:
     configs = configs or inventory.KOBOLD_CONFIGS
     if "/" in name or not name.endswith(".kcpps") or not (configs / name).is_file():
         return None

@@ -433,7 +433,7 @@ JAN_ROOT = HOME / ".local/share/Jan"          # Jan's app data (settings.json, d
 JAN_PORT = 6767                               # the port `jan serve` uses; Jan's own app serves on 1337
 
 
-def jan_data_folder(root: Path = None) -> Path:
+def jan_data_folder(root: Path | None = None) -> Path:
     """Jan's data folder: settings.json's data_folder (absolute, or relative to
     the app data folder), else <app data>/data."""
     root = root or JAN_ROOT
@@ -444,7 +444,7 @@ def jan_data_folder(root: Path = None) -> Path:
     return root / "data"
 
 
-def jan_preset(root: Path = None) -> Path:
+def jan_preset(root: Path | None = None) -> Path:
     return jan_data_folder(root) / "llamacpp/router.preset.ini"
 
 

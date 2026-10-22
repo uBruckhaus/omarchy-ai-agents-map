@@ -119,7 +119,7 @@ def task_argv(command: str, prompt: str) -> list[str] | None:
 def task_agents(installed) -> list[str]:
     """Installed agents that can take a task in a tab, the chosen AI-check agent first."""
     import harnesses
-    able = [h.command for h in harnesses.all_harnesses() if h.task and h.command in installed
+    able: list[str] = [h.command for h in harnesses.all_harnesses() if h.task and h.command in installed
             and shutil.which(h.command)]
     first = chosen(installed)
     return ([first] if first in able else []) + [c for c in able if c != first]

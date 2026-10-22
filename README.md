@@ -85,6 +85,20 @@ LLM providers → models, under the **GPU** card (GPU memory and activity; it fo
   it is in use (yellow from 75 %, red over 90 %, like the batteries). Read from the agent's own
   session files, numbers only (Claude Code, Codex, Pi; the newest file of the last minute, its last
   256 KiB). Settings › **Usage statistics box**: on or off, what it shows, text size.
+- **Subagents** (new in 0.22.0): while an agent works with subagents (Claude Code's Task/Agent tool,
+  OpenCode's task tool), its box shows a small tree mark next to ⇅ (dim while it has only finished
+  ones listed). A click opens its **Subagents** page: a map of its own, laid out like the big one,
+  with the agent's card at the left and a card of its subagents at the right — each one's task, type,
+  folder and "working" or "done … minutes ago", light on the lines to the working ones, finished ones
+  dimmed. Settings › **Subagents**: how long finished ones stay (30 minutes by default) and how many at
+  most (10); working ones are always shown.
+- **Cost for API users** (new in 0.22.0): an agent paid per token (signed in with an API key, so it
+  has no plan limits for a battery) shows on its box and card what its sessions active today cost at
+  API prices, as "$3.40 today": an estimate from its token counts and the prices its adapter names
+  (Claude Code, from Anthropic's pricing page), refreshed every minute.
+- **Agents using agents** (new in 0.22.0): when an agent started another one (the other's process
+  runs under its own, for example Claude Code running `pi -p …` in its shell), an arrow runs along the
+  left of the agents' card from the agent that uses the other to the one it uses, with light on it.
 - **Used from outside the map**: when a program that is not on the map (a plugin such as Video
   Trans, a chat app, a script) generates with a local LLM, the line from that LLM to the model is
   drawn bold in a colour of its own, light runs along it, and the model box says who uses it ("in use
@@ -645,6 +659,21 @@ the backup and Undo), and the agent is told the same context. A context you set 
 - **Working now** reads, every 2 s while the window is open, the CPU time of the running agents'
   own processes (`/proc/<pid>/stat`, your own UID only) and the modification times of their session
   files (no contents).
+- **Subagents** reads, every 2 s while the window is open: for each running Claude Code instance its
+  working folder (`/proc/<pid>/cwd`, your own processes only) to find its project folder in
+  `~/.claude/projects`, and there the session folders' `subagents/`: each subagent's `.meta.json` (its
+  type and the one-line description of its task, at most 16 KiB) and the modification time of its
+  transcript; of a transcript written in the last minute, its last 256 KiB for the names of the tools
+  called only (the hand-back that ends a subagent, never what it says). Your own regular files only,
+  no links, at most 2 000 sessions per project folder and 40 subagents per agent. For OpenCode, the
+  sessions with a parent session in its database (`~/.local/share/opencode/opencode.db`, read-only:
+  title, agent type, folder and times). Finished ones are kept for Settings › Subagents' time only.
+- **Cost for API users**: whether an agent is paid per token comes from whether one of its API-key
+  variables is set (its name only, never its value) or Omarchy's usage record names no plan; the cost
+  from the token counts per model that the details page reads anyway (numbers only), at most once a
+  minute while the window is open. The prices are part of the agent's adapter file; nothing is fetched.
+- **Agents using agents** reads the parent process ids of the running agents' processes
+  (`/proc/<pid>/stat`, at most 12 levels up), nothing else.
 - **Details pages** (ⓘ on an agent or local LLM card) read usage as numbers and times only:
   Omarchy's usage records (Claude Code, Codex), the token, model, cost, folder, lines-changed,
   parent-session and time columns of Hermes's (`~/.hermes/state.db`) and OpenCode's

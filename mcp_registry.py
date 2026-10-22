@@ -24,6 +24,7 @@ import time
 import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 
 API = "https://registry.modelcontextprotocol.io/v0/servers"
 TIMEOUT = 45                # its search often takes 10 s or more
@@ -132,7 +133,7 @@ def _flat(needs: list) -> list:
     return list({n.name: n for n in out}.values())
 
 
-def _arguments(items) -> tuple[list, list]:
+def _arguments(items) -> tuple[list, list] | None:
     """(args with placeholders, needs) from packageArguments; None when there are more than
     MAX_ARGUMENTS (the command would be cut short)."""
     if isinstance(items, list) and len(items) > MAX_ARGUMENTS:
@@ -178,7 +179,7 @@ def option_from_package(package: dict) -> Option | None:
         return None
     env_needs = _needs_env(package.get("environmentVariables"))
     arguments = _arguments(package.get("packageArguments"))
-    runtime = package.get("runtimeArguments") if isinstance(package.get("runtimeArguments"), list) else []
+    runtime = v if isinstance(v := package.get("runtimeArguments"), list) else []
     if arguments is None or len(runtime) > MAX_ARGUMENTS:
         return None
     args, arg_needs = arguments
@@ -302,7 +303,7 @@ def _kept(item) -> dict | None:
         return None
     server = {k: _trim(server[k][:MAX_OPTIONS] if k in ("packages", "remotes") and isinstance(server[k], list)
                        else server[k]) for k in SERVER_KEYS if k in server}
-    server["name"] = server["name"][:200]
+    server["name"] = cast(str, server["name"])[:200]   # checked a str above, _trim() keeps it one
     if "repository" in server:
         repo = server["repository"]
         server["repository"] = {"url": repo["url"]} if isinstance(repo, dict) and isinstance(repo.get("url"), str) else {}
@@ -424,7 +425,8 @@ def refresh_list(path: Path | None = None, now: float | None = None, fetch=None)
         _list_lock.release()
 
 
-def search_list(query: str, offset: int = 0, limit: int = PAGE, path: Path | None = None, with_total: bool = False):
+def search_list(query: str, offset: int = 0, limit: int = PAGE, path: Path | None = None,
+                with_total: bool = False) -> tuple | None:
     """(servers, cursor for the next ones or "") from the saved list; None when there is none.
     Every word of the query in the name, title or description; names that hold the query first.
     with_total: (servers, cursor, how many match in all)."""

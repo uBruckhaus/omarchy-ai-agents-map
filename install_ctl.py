@@ -446,13 +446,13 @@ class Installer:
     def unpack(self, archive: Path, folder: Path):
         extract(archive, folder)
 
-    def env_text(self, models: Path, gpu: Gpu) -> str:
+    def env_text(self, models: Path | None, gpu: Gpu) -> str:
         return ""
 
-    def unit_text(self, models: Path) -> str:
+    def unit_text(self, models: Path | None) -> str:
         return ""
 
-    def configure(self, models: Path):
+    def configure(self, models: Path | None):
         """Anything besides the settings file and the service (LM Studio: its own settings)."""
 
     def models_folder(self) -> str:
@@ -487,7 +487,7 @@ class Installer:
                  and p.name not in ("downloads", "models", "current")]
         return [p.name for p in sorted(found, key=lambda p: p.stat().st_mtime)]
 
-    def install(self, folder: Path, models: Path, start_at_login: bool, start_now: bool, gpu: Gpu,
+    def install(self, folder: Path, models: Path | None, start_at_login: bool, start_now: bool, gpu: Gpu,
                 release: Release, progress, cancelled):
         if not self.can_install:
             raise RuntimeError(f"{self.name} is not installed from here; use its own installer")
@@ -644,7 +644,7 @@ class Ollama(Installer):
     def set_models_folder_value(self, models: Path):
         set_env_value(self.env_file, "OLLAMA_MODELS", str(models))
 
-    def env_text(self, models: Path, gpu: Gpu) -> str:
+    def env_text(self, models: Path | None, gpu: Gpu) -> str:
         lines = ["# Written by AI Agents Map. Change the model folder there (right-click Ollama).",
                  f"OLLAMA_HOST={self.address}", f"OLLAMA_MODELS={models}",
                  # One model at a time; the app raises it when agents use different models.
@@ -656,7 +656,7 @@ class Ollama(Installer):
             lines.append(f"CUDA_VISIBLE_DEVICES={gpu.index}")
         return "\n".join(lines) + "\n"
 
-    def unit_text(self, models: Path = None) -> str:
+    def unit_text(self, models: Path | None = None) -> str:
         return f"""[Unit]
 Description=Ollama (installed by AI Agents Map)
 After=network.target
@@ -719,7 +719,7 @@ class LlamaCpp(Installer):
     def set_models_folder_value(self, models: Path):
         set_env_value(self.env_file, "LLAMA_ARG_MODELS_DIR", str(models))
 
-    def env_text(self, models: Path, gpu: Gpu) -> str:
+    def env_text(self, models: Path | None, gpu: Gpu) -> str:
         host, _sep, port = self.address.rpartition(":")
         lines = ["# Written by AI Agents Map. Change the model folder there (right-click llama.cpp).",
                  f"LLAMA_ARG_MODELS_DIR={models}", f"LLAMA_ARG_HOST={host}", f"LLAMA_ARG_PORT={port}",
@@ -730,7 +730,7 @@ class LlamaCpp(Installer):
             lines.append(f"CUDA_VISIBLE_DEVICES={gpu.index}")
         return "\n".join(lines) + "\n"
 
-    def unit_text(self, models: Path = None) -> str:
+    def unit_text(self, models: Path | None = None) -> str:
         preset = HOME / ".config/llama.cpp/models.ini"
         return f"""[Unit]
 Description=llama.cpp model router (installed by AI Agents Map)
@@ -750,7 +750,7 @@ KillMode=control-group
 WantedBy=default.target
 """
 
-    def configure(self, models: Path):
+    def configure(self, models: Path | None):
         preset = HOME / ".config/llama.cpp/models.ini"
         if not preset.exists():
             _write(preset, "version = 1\n\n; Settings for every model; a [model name] section overrides them.\n"
@@ -786,7 +786,8 @@ class LmStudio(Installer):
         data["downloadsFolder"] = str(models)
         _write(self.settings, json.dumps(data, indent=2) + "\n", 0o644)
 
-    def configure(self, models: Path):
+    def configure(self, models: Path | None):
+        assert models is not None          # uses_models: install() passes its folder
         self.set_models_folder_value(models)
         icon = next(iter(sorted((self.installed_folder() or HOME).glob("current/squashfs-root/*.png"))), None)
         _write(self.desktop, f"""[Desktop Entry]
@@ -820,7 +821,7 @@ class Vllm(Installer):
             raise RuntimeError("no vLLM release found")
         return Release(f"v{version}", [])          # pip downloads it (several GB)
 
-    def install(self, folder: Path, models: Path, start_at_login: bool, start_now: bool, gpu: Gpu,
+    def install(self, folder: Path, models: Path | None, start_at_login: bool, start_now: bool, gpu: Gpu,
                 release: Release, progress, cancelled):
         uv = shutil.which("uv")
         if not uv:
@@ -854,7 +855,7 @@ class Vllm(Installer):
     def set_models_folder_value(self, models: Path):
         set_env_value(self.env_file, "HF_HOME", str(models))
 
-    def unit_text(self, models: Path = None) -> str:
+    def unit_text(self, models: Path | None = None) -> str:
         host, _sep, port = self.address.rpartition(":")
         return f"""[Unit]
 Description=vLLM (installed by AI Agents Map)
@@ -918,7 +919,7 @@ class KoboldCpp(Installer):
         set_env_value(self.env_file, "KOBOLDCPP_MODELS", str(models))
         self.sync(models)
 
-    def env_text(self, models: Path, gpu: Gpu) -> str:
+    def env_text(self, models: Path | None, gpu: Gpu) -> str:
         build = self.default_build(gpu)
         version = self.current_version()
         build = version.rsplit("-", 1)[-1] if version.rsplit("-", 1)[-1] in self.ASSETS else build
@@ -928,7 +929,7 @@ class KoboldCpp(Installer):
             lines.append(f"CUDA_VISIBLE_DEVICES={gpu.index}")
         return "\n".join(lines) + "\n"
 
-    def unit_text(self, models: Path = None) -> str:
+    def unit_text(self, models: Path | None = None) -> str:
         import inventory
         host, _sep, port = self.address.rpartition(":")
         build = self.build_of()
@@ -956,7 +957,8 @@ WantedBy=default.target
         check_env_value(str(models))
         kobold_ctl.sync(models, self.build_of(), lambda: detect_gpu().vram)
 
-    def configure(self, models: Path):
+    def configure(self, models: Path | None):
+        assert models is not None          # uses_models: install() passes its folder
         self.sync(models)
 
     def unconfigure(self):
@@ -1022,7 +1024,7 @@ class Jan(Installer):
         data["data_folder"] = str(models)
         _write(settings, json.dumps(data, indent=2) + "\n", 0o644)
 
-    def unit_text(self, models: Path = None) -> str:
+    def unit_text(self, models: Path | None = None) -> str:
         import inventory
         bin_dir = (self.installed_folder() or self.default_folder) / "current" / self.worker_rel
         preset = inventory.jan_preset()
@@ -1047,8 +1049,9 @@ KillMode=control-group
 WantedBy=default.target
 """
 
-    def configure(self, models: Path):
+    def configure(self, models: Path | None):
         import jan_ctl
+        assert models is not None          # uses_models: install() passes its folder
         self.set_models_folder_value(models)
         jan_ctl.ensure_preset()
         folder = self.installed_folder() or self.default_folder
@@ -1079,7 +1082,7 @@ class Bionic(Installer):
     site = "https://lmstudio.ai"
     desktop = HOME / ".local/share/applications/bionic-ai-agents-map.desktop"
 
-    def configure(self, models: Path):
+    def configure(self, models: Path | None):
         folder = self.installed_folder() or self.default_folder
         icon = next(iter(sorted(folder.glob("current/squashfs-root/*.png"))), None)
         _write(self.desktop, f"""[Desktop Entry]
@@ -1114,7 +1117,7 @@ class Dsh(Installer):
             raise RuntimeError("no release found")
         return Release(f"v{version}", [])             # npm downloads it
 
-    def install(self, folder: Path, models: Path, start_at_login: bool, start_now: bool, gpu: Gpu,
+    def install(self, folder: Path, models: Path | None, start_at_login: bool, start_now: bool, gpu: Gpu,
                 release: Release, progress, cancelled):
         npm = shutil.which("npm")
         if not npm:
@@ -1272,7 +1275,7 @@ class Declared(Installer):
             word = word.replace(key, value)
         return word
 
-    def env_text(self, models: Path, gpu: Gpu) -> str:
+    def env_text(self, models: Path | None, gpu: Gpu) -> str:
         if not self.spec.env:
             return ""
         values = self._values(models)
@@ -1280,7 +1283,7 @@ class Declared(Installer):
         lines += [f"{name}={self._fill(value, values)}" for name, value in self.spec.env]
         return "\n".join(lines) + "\n"
 
-    def unit_text(self, models: Path = None) -> str:
+    def unit_text(self, models: Path | None = None) -> str:
         import shlex
         values = self._values(models or (Path(self.models_folder()) if self.models_folder() else None))
         argv = [self._fill(word, values) for word in self.spec.service]

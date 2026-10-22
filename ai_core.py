@@ -11,6 +11,7 @@ import subprocess
 import tempfile
 import threading
 from pathlib import Path
+from typing import cast
 
 import i18n
 
@@ -188,7 +189,7 @@ def saved_look(path: Path | None = None) -> str:
     import desktop
     if desktop.NAME != "omarchy":
         return "adwaita"
-    return setting("look", path)
+    return cast(str, setting("look", path))          # settings_schema declares a str
 
 
 def look_colors() -> dict:
@@ -211,7 +212,7 @@ def saved_corners(path: Path | None = None) -> str:
 def map_animations() -> str:
     """Settings › Map animations: "all", "agents" or "off" (an earlier "Animate active lines" off
     became "off" in migrate_settings())."""
-    return setting("map_animations")
+    return cast(str, setting("map_animations"))      # settings_schema declares a str
 
 
 def map_layers(path: Path | None = None) -> list:

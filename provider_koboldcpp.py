@@ -1,5 +1,7 @@
 """KoboldCpp: a KoboldCpp server; stays up, its model is unloaded instead."""
 
+from typing import cast
+
 import llm_engine
 from harnesses import Way
 from providers import Provider
@@ -44,7 +46,7 @@ class Engine(llm_engine.Engine):
         """Model files added since: router ids (.kcpps), when the app installed it."""
         from pathlib import Path
         import install_ctl
-        kobold = install_ctl.installer("koboldcpp")
+        kobold = cast("install_ctl.KoboldCpp | None", install_ctl.installer("koboldcpp"))   # its own installer class
         if kobold is not None and kobold.installed_folder() is not None and kobold.models_folder():
             kobold.sync(Path(kobold.models_folder()))
 

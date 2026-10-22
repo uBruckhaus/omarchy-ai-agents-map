@@ -165,7 +165,7 @@ class Engine(llm_engine.Engine):
         if self.slots_fixed_by(rt) or count < 1:
             return []
         data = self._settings()
-        developer = data.get("developer") if isinstance(data.get("developer"), dict) else {}
+        developer = v if isinstance(v := data.get("developer"), dict) else {}
         if developer.get("unloadPreviousJITModelOnLoad", True) is not False and count > 1 or \
                 developer.get("unloadPreviousJITModelOnLoad", True) is False and count == 1:
             data["developer"] = {**developer, "unloadPreviousJITModelOnLoad": count == 1}

@@ -468,7 +468,7 @@ class ThemeCss:
         """
         import more_plugins                  # the Information page's cards (info_page)
         css += more_plugins.css("am", fg_hex, dim_hex, accent_hex, radius)
-        for view in (getattr(self, "map_view", None), getattr(self, "side_map", None)):
+        for view in (getattr(self, "map_view", None), getattr(self, "side_map", None), getattr(self, "sub_map", None)):
             if view is not None:
                 view.set_palette({"bg": bg_hex, "fg": fg_hex, "dim": dim_hex, "muted": muted_hex,
                                   "accent": accent_hex, "green": green_hex, "yellow": yellow_hex, "red": red_hex,

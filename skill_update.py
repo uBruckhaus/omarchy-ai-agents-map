@@ -94,7 +94,7 @@ def fingerprint(tools: dict | None) -> str:
     return hashlib.sha256(json.dumps(items).encode()).hexdigest()[:16]
 
 
-def load_state(path: Path = None) -> dict:
+def load_state(path: Path | None = None) -> dict:
     try:
         data = json.loads((path or STATE_FILE).read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -102,7 +102,7 @@ def load_state(path: Path = None) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def remember(skill_file: Path, server: str, tools: dict, path: Path = None):
+def remember(skill_file: Path, server: str, tools: dict, path: Path | None = None):
     """After an update (or "it is up to date"): the tools the skill now matches."""
     import ai_core
     state = load_state(path)
@@ -111,7 +111,7 @@ def remember(skill_file: Path, server: str, tools: dict, path: Path = None):
     ai_core.atomic_write(path or STATE_FILE, json.dumps(state, indent=1, ensure_ascii=False))
 
 
-def status(skill_file: Path, server: str, tools: dict | None, path: Path = None) -> str:
+def status(skill_file: Path, server: str, tools: dict | None, path: Path | None = None) -> str:
     """"current": matches the tools last asked; "changed": the server's tools changed since
     the skill was updated here; "unknown": never compared (or the tools were not asked yet)."""
     seen = load_state(path).get(str(skill_file))

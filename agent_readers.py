@@ -166,7 +166,7 @@ def openclaw(details: "ad.Details"):
     provider = ad._text(provider, 40)
     details.model = f"{ad._text(model)} ({provider})" if model and provider else ad._text(model)
     models = config.get("models") if isinstance(config.get("models"), dict) else {}
-    providers = models.get("providers") if isinstance(models.get("providers"), dict) else {}
+    providers = p if isinstance(p := models.get("providers"), dict) else {}
     for name, entry in list(providers.items())[:50]:
         if isinstance(entry, dict):
             details.providers.append(ad.provider_for_url(name, entry.get("baseUrl"),

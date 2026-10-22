@@ -25,6 +25,7 @@ import re
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 
 import connect
 import harnesses
@@ -56,7 +57,8 @@ class Setting:
     terms: tuple = ()         # glossary words this setting uses
     editable: bool = True
     recommended: object = None
-    warn: tuple = ()          # (title, why, what lowers it): a low risk while a risk-1 choice is set
+    # (title, why, what lowers it): a low risk while a risk-1 choice is set
+    warn: tuple[str, str, str] | tuple[()] = ()
 
     def value(self):
         return self.default if self.current is None else self.current
@@ -285,7 +287,7 @@ def risks(report: Report, mcp_servers: int = 0) -> list:
             found.append(Risk("high", _("Every shell command allowed"), _(
                 "An allow rule lets any command run without asking."), _(
                 "Allow single commands such as Bash(git status) instead.")))
-    found += [Risk("low", *s.warn, s.key, s.recommended) for s in report.settings
+    found += [Risk("low", *cast(tuple[str, str, str], s.warn), s.key, s.recommended) for s in report.settings
               if s.warn and s.choice().risk == 1]
     if mcp_servers:
         found.append(Risk("low", ngettext("1 MCP server", "{0} MCP servers", mcp_servers).format(mcp_servers), _(
@@ -336,7 +338,7 @@ def runtime_report(rt) -> Report:
 def _json_set(text: str, key: str, value) -> str:
     data = connect._json(text)
     parts = key.split(".")
-    node = data
+    node: dict = data
     for part in parts[:-1]:
         child = node.get(part)
         if isinstance(child, str) and node is data and part == "permission":

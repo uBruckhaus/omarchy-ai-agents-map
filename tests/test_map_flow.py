@@ -323,3 +323,100 @@ class UsageTextureTest(unittest.TestCase):
         self.view.set_usage_box({})
         self.assertIsNone(self.layer.usage_texture("agent:claude", [self.view.edge]))
         self.assertEqual(self.layer.box_textures, {})
+
+
+class FrameCostTest(unittest.TestCase):
+    """What keeps a frame of the lights cheap (tools/profile-map.py measures it): the map is drawn
+    once into a texture, and each light into a small image, never one as large as the map."""
+
+    def test_map_drawn_once_then_its_texture_reused(self):
+        class View:
+            do_snapshot = map_view.MapView.do_snapshot
+            texture, size, drawn = None, (800, 600), 0
+
+            def get_width(self):
+                return self.size[0]
+
+            def get_height(self):
+                return self.size[1]
+
+            def get_scale_factor(self):
+                return 2
+
+            def on_draw(self, _area, cr, width, height):
+                self.drawn += 1
+                cr.rectangle(10, 10, 50, 50)
+                cr.fill()
+
+        view = View()
+        for _ in range(3):
+            view.do_snapshot(map_view.Gtk.Snapshot())
+        self.assertEqual(view.drawn, 1)
+        self.assertEqual(view.texture[1].get_width(), 1600)          # sharp at scale 2
+        view.texture = None                                            # what queue_draw does
+        view.do_snapshot(map_view.Gtk.Snapshot())
+        view.size = (900, 600)
+        view.do_snapshot(map_view.Gtk.Snapshot())
+        self.assertEqual(view.drawn, 3)
+
+    def test_no_image_of_a_frame_is_near_the_size_of_the_map(self):
+        map_view.gi.require_version("Gsk", "4.0")
+        from gi.repository import Gsk
+        view = UsageBoxTest.View()
+        view.colors, view.zoom = {}, 1.0
+        view.edge_points = lambda edge: (20, 60, 320, 90)
+        view.FLOW_PERIOD, view.FLOW_PULSES = map_view.MapView.FLOW_PERIOD, map_view.MapView.FLOW_PULSES
+        view.flow_marks = lambda paths, now, levels: map_view.MapView.flow_marks(view, paths, now, levels)
+        view.set_usage_box({"agent:claude": map_view.usage_box.Reading(60.0, 500, 1000, "m")})
+        layer = UsageTextureTest.Layer(view)
+        layer.paths = {"agent:claude": [view.edge]}
+        snapshot = map_view.Gtk.Snapshot()
+        map_view.FlowLayer.do_snapshot(layer, snapshot)
+        sizes = []
+
+        def walk(node):
+            if node is None:
+                return
+            if isinstance(node, Gsk.ContainerNode):
+                for i in range(node.get_n_children()):
+                    walk(node.get_child(i))
+            elif hasattr(node, "get_child"):
+                walk(node.get_child())
+            else:
+                bounds = node.get_bounds()
+                sizes.append(bounds.get_width() * bounds.get_height())
+
+        walk(snapshot.to_node())
+        self.assertGreaterEqual(len(sizes), 2)                       # comets and the usage box
+        self.assertLess(max(sizes), 400 * 200)                       # the map here is 1366 x 1452
+
+
+class HelperLightsTest(unittest.TestCase):
+    """Lights on an arrow from an agent to one it uses, and on the lines to working subagents only."""
+
+    def test_arrows_and_working_subagents_get_lights(self):
+        g = graph.Graph()
+        g.add(graph.Node("agent:claude", 1, "Claude", kind="agent", status="running"))
+        g.add(graph.Node("agent:pi", 1, "Pi", kind="agent", status="running"))
+        g.add(graph.Node("sub:a", 2, "Working", kind="subagent", status="running"))
+        g.add(graph.Node("sub:b", 2, "Done", kind="subagent", dim=True))
+        g.link("agent:claude", "sub:a", "subagent")
+        g.link("agent:claude", "sub:b", "subagent")
+
+        class View:
+            helper_paths = map_view.MapView.helper_paths
+            drawn_agent_links = map_view.MapView.drawn_agent_links
+            agent_link_curve = map_view.MapView.agent_link_curve
+            bezier = staticmethod(map_view.MapView.bezier)
+            curve_point = map_view.MapView.curve_point
+
+        view = View()
+        view.graph, view.agent_links = g, {("agent:claude", "agent:pi")}
+        view.boxes = {"agent:claude": (100, 0, 200, 40), "agent:pi": (100, 50, 200, 40),
+                      "sub:a": (500, 0, 200, 40), "sub:b": (500, 50, 200, 40)}
+        paths = dict(view.helper_paths())
+        self.assertEqual(sorted(paths), ["link:agent:claude>agent:pi", "sub:sub:a"])
+        arc = paths["link:agent:claude>agent:pi"][0]
+        start, end = view.curve_point(arc, 0), view.curve_point(arc, 1)
+        self.assertEqual((round(start[0]), round(end[0])), (100, 93))     # from the user to the arrowhead
+        self.assertLess(view.curve_point(arc, 0.5)[0], 100)                # bowing out left of the card

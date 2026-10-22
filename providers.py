@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Callable, cast
 
 
 @dataclass(frozen=True)
@@ -98,7 +98,7 @@ def _forget() -> None:
 
 def _empty(provider: Provider, name: str) -> bool:
     f = next(f for f in dataclasses.fields(Provider) if f.name == name)
-    default = f.default if f.default is not dataclasses.MISSING else f.default_factory()
+    default = f.default if f.default is not dataclasses.MISSING else cast(Callable, f.default_factory)()
     return getattr(provider, name) == default
 
 

@@ -139,6 +139,8 @@
   "codex-jsonl",
   []
  ],
+ "subagents": [],
+ "prices": [],
  "asks_setting": "approval_policy",
  "access": {
   "how": "A ChatGPT plan (Plus, Pro, Business), or an API key from platform.openai.com",

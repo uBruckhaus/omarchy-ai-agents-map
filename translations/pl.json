@@ -2677,5 +2677,36 @@
  "Text size": "Rozmiar tekstu",
  "How big its numbers are written on the line.": "Jak duże są liczby zapisane na linii.",
  "{0} pt (default)": "{0} pt (domyślnie)",
- "{0} pt": "{0} pt"
+ "{0} pt": "{0} pt",
+ "Subagents": "Podagenci",
+ "Subagents · {0}": "Podagenci · {0}",
+ "\u0004Works with 1 subagent now. Click to see what it does.": [
+  "Pracuje teraz z 1 podagentem. Kliknij, aby zobaczyć, co robi.",
+  "Pracuje teraz z {0} podagentami. Kliknij, aby zobaczyć, co robią.",
+  "Pracuje teraz z {0} podagentami. Kliknij, aby zobaczyć, co robią."
+ ],
+ "\u0004done 1 minute ago": [
+  "zakończony 1 minutę temu",
+  "zakończony {0} minuty temu",
+  "zakończony {0} minut temu"
+ ],
+ "\u00041 working now": [
+  "1 pracuje teraz",
+  "{0} pracują teraz",
+  "{0} pracuje teraz"
+ ],
+ "{0} uses {1}: it started it and works with it.": "{0} używa {1}: uruchomił go i z nim pracuje.",
+ "No subagent worked for it in the last {0} minutes.": "W ciągu ostatnich {0} minut żaden podagent dla niego nie pracował.",
+ "finished ones stay here dimmed for {0} minutes, at most {1} (Settings › Subagents)": "zakończone zostają tu przygaszone przez {0} minut, najwyżej {1} (Ustawienia › Podagenci)",
+ "Finished ones stay": "Zakończone zostają",
+ "How long a subagent that finished stays on the subagents page, dimmed, after it last worked.": "Jak długo zakończony podagent zostaje przygaszony na stronie podagentów po swojej ostatniej pracy.",
+ "{0} minutes (default)": "{0} minut (domyślnie)",
+ "{0} minutes": "{0} minut",
+ "At most": "Najwyżej",
+ "How many finished subagents it keeps, the newest first; working ones are always shown.": "Ile zakończonych podagentów zachowuje, najnowsze najpierw; pracujące są zawsze pokazywane.",
+ "{0} subagents (default)": "{0} podagentów (domyślnie)",
+ "{0} subagents": "{0} podagentów",
+ "Its subagents of the last {0} minutes, all finished. Click to see them.": "Jego podagenci z ostatnich {0} minut, wszyscy zakończeni. Kliknij, aby ich zobaczyć.",
+ "{0} today": "{0} dziś",
+ "Paid per token, with no plan limits: about {0} today at API prices (estimated from the tokens of its sessions active today).": "Płatne za token, bez limitów planu: dziś około {0} w cenach API (szacunek z tokenów jego sesji aktywnych dziś)."
 }

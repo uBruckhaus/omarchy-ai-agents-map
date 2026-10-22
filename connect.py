@@ -336,7 +336,7 @@ def apply(result: Plan, backup_root: Path = BACKUP_ROOT) -> Path:
     return folder
 
 
-def prune_retired(backup_root: Path = BACKUP_ROOT, days: int = None):
+def prune_retired(backup_root: Path = BACKUP_ROOT, days: int | None = None):
     """Old app versions kept with a backup go after RETIRED_DAYS (Undo then
     puts the settings back, but not the folder)."""
     import shutil

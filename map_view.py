@@ -65,6 +65,7 @@ PAD = 12
 ZOOM_STEPS = (0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5)
 COLUMN_GAP_MIN = 56
 COLUMN_GAP_MAX = 300
+AGENT_LINK_ROOM = 48     # left of the agents' card when it is the first column: their arrows
 NODE_W_MAX = 260
 NODE_W_MIN = 120
 PIN_W = 14               # the pin's square at a box's top right
@@ -81,12 +82,13 @@ CATEGORY = {"agent": "agent", "cloud": "provider", "runtime": "provider", "model
             "mcp": "tool", "skills": "tool"}
 # The icon tile at a box's start: its glyph and the colour of the kind's lines.
 TILE_GLYPHS = {"cloud": "cloud", "runtime": "chip", "model": "model", "more": "folder", "skills": "skill",
-               "mcp": "app", "agent": "robot"}
+               "mcp": "app", "agent": "robot", "subagent": "steps"}
 TILE_TONES = {"mcp": "yellow", "skills": "green", "model": "muted", "more": "muted"}
 # "available": set up but not in use (dotted), in the alert colour of the header's ! (the legend too).
 # "loaded": a provider → model line while that model is loaded but no agent uses it (solid, light).
 EDGE_COLORS = {"uses": "accent", "available": "red", "serves": "muted", "mcp": "yellow", "skills": "green",
-               "loaded": "fg", "models": "magenta"}   # models: agents on different models of one local LLM
+               "loaded": "fg", "models": "magenta",   # models: agents on different models of one local LLM
+               "subagent": "accent"}                  # subagent: an agent → a subagent it works with
 
 
 def rgba(hex_code: str, alpha: float = 1.0):
@@ -143,11 +145,20 @@ class MapView(Gtk.DrawingArea):
         self.start_rects = {}    # agent box id -> rectangle of its start button, for clicks
         self.stop_rects = {}     # agent box id -> rectangle of its stop button (while it runs here)
         self.batteries = {}      # box id -> (left 0..1, colour, tooltip): an online agent's limits, a local LLM's GPU
+        self.costs = {}          # agent box id -> (label, tooltip): paid per token, today's cost instead of a battery
+        self.cost_rects = {}     # agent box id -> rectangle of that label (its tooltip)
         self.battery_rects = {}  # agent box id -> rectangle of its battery, for the tooltip
         self.traffic = {}        # agent box id -> (in B/s, out B/s, moving): a running agent's ⇅
         self.traffic_rects = {}  # agent box id -> rectangle of its ⇅ (click: its network page)
         self.on_traffic = None   # callback(agent box id): the ⇅ clicked
         self.traffic_tip = None  # callback(agent box id) -> tooltip of the ⇅
+        self.subagents = {}      # agent box id -> (subagents working now, listed): its subagents mark
+        self.subagent_rects = {} # agent box id -> rectangle of that mark (click: the subagents page)
+        self.on_subagents = None # callback(agent box id): the mark clicked
+        self.subagents_tip = None  # callback(agent box id) -> tooltip of the mark
+        self.agent_links = set() # (agent box id, agent box id): the first started the second and uses it
+        self.agent_link_tip = None   # callback(user box id, used box id) -> tooltip of that arrow
+        self.agent_link_points = []  # [(user, used, [(x, y)…])] of the arrows drawn (for the tooltip)
         self.start_state = None  # start_state(node id) -> "start", "show" (runs here) or "" (no button)
         self.on_start = None     # on_start(node id): start it, or show its terminal
         self.on_stop = None      # on_stop(node id): stop it (it runs here)
@@ -208,11 +219,90 @@ class MapView(Gtk.DrawingArea):
             self.batteries = dict(batteries)
             self.queue_draw()
 
+    def set_costs(self, costs: dict):
+        """{agent box id: (label, tooltip)}: an agent paid per token (no plan limits) shows today's cost
+        where a battery would be."""
+        if costs != self.costs:
+            self.costs = dict(costs)
+            self.queue_draw()
+
+    def cost_at(self, x, y):
+        return next((n for n, (bx, by, bw, bh) in self.cost_rects.items()
+                     if bx <= x <= bx + bw and by <= y <= by + bh and n in self.costs), None)
+
     def set_traffic(self, rates: dict):
         """{agent box id: (in, out, moving)} of the running agents (traffic_page.sample_traffic)."""
         if rates != self.traffic:
             self.traffic = dict(rates)
             self.queue_draw()
+
+    def set_subagents(self, counts: dict):
+        """{agent box id: (subagents working now, listed)} (subagents.py): the mark in those agents' boxes,
+        lit while one works, dim while it only has finished ones listed."""
+        counts = {k: (working, listed) for k, (working, listed) in counts.items() if working or listed}
+        if counts != self.subagents:
+            self.subagents = counts
+            self.queue_draw()
+
+    def set_agent_links(self, links):
+        """{(user agent box id, used agent box id)} (subagents.agents_using_agents): an arrow between them."""
+        links = set(links)
+        if links != self.agent_links:
+            self.agent_links = links
+            self.queue_draw()
+
+    def agent_link_at(self, x, y, reach: float = 6):
+        return next(((user, used) for user, used, points in self.agent_link_points
+                     if any(math.hypot(px - x, py - y) <= reach for px, py in points)), None)
+
+    def drawn_agent_links(self) -> list:
+        """[(user, used)] of the arrows between agents that are on the map now, in drawing order."""
+        return [(u, v) for u, v in sorted(self.agent_links) if u in self.boxes and v in self.boxes]
+
+    def agent_link_curve(self, user: str, used: str) -> tuple:
+        """(start, control 1, control 2, end) of the arc from `user` to `used` along the left of their card;
+        the end is where the arrowhead's base is. Several arcs: each a bit further out."""
+        number = self.drawn_agent_links().index((user, used))
+        ux, uy, _uw, uh = self.boxes[user]
+        vx, vy, _vw, vh = self.boxes[used]
+        start, end = (ux, uy + uh / 2 - 4), (vx - 7, vy + vh / 2 + 4)
+        out = min(26 + 10 * number + min(40.0, abs(end[1] - start[1]) * 0.12), min(start[0], end[0]) - 4)
+        return start, (start[0] - out, start[1]), (end[0] - out, end[1]), end
+
+    @staticmethod
+    def bezier(points, t: float) -> tuple:
+        start, c1, c2, end = points
+        return tuple((1 - t) ** 3 * a + 3 * (1 - t) ** 2 * t * b + 3 * (1 - t) * t ** 2 * c + t ** 3 * d
+                     for a, b, c, d in zip(start, c1, c2, end))
+
+    def draw_agent_links(self, cr):
+        """An arc along the left of the agents' card from an agent to one it started and uses, with an
+        arrowhead at the one used (its lights run in FlowLayer, as on the other active lines)."""
+        self.agent_link_points = []
+        cr.set_line_cap(cairo.LINE_CAP_ROUND)
+        for user, used in self.drawn_agent_links():
+            curve = self.agent_link_curve(user, used)
+            start, c1, c2, base = curve
+            self.agent_link_points.append((user, used, [self.bezier(curve, i / 24) for i in range(25)]))
+            end = (base[0] + 7, base[1])
+            cr.set_source_rgba(*self.color("accent", 0.95))
+            cr.set_line_width(1.8)
+            cr.move_to(*start)
+            cr.curve_to(*c1, *c2, *base)
+            cr.stroke()
+            # The arrowhead: pointing into the box of the agent used.
+            cr.move_to(*end)
+            cr.line_to(end[0] - 8, end[1] - 4.5)
+            cr.line_to(end[0] - 8, end[1] + 4.5)
+            cr.close_path()
+            cr.fill()
+            cr.arc(start[0], start[1], 2.6, 0, 2 * math.pi)          # where it starts: the user
+            cr.fill()
+        cr.set_line_cap(cairo.LINE_CAP_BUTT)
+
+    def subagents_at(self, x, y):
+        return next((n for n, (bx, by, bw, bh) in self.subagent_rects.items()
+                     if bx <= x <= bx + bw and by <= y <= by + bh and n in self.subagents), None)
 
     def traffic_at(self, x, y):
         return next((n for n, (bx, by, bw, bh) in self.traffic_rects.items()
@@ -272,6 +362,8 @@ class MapView(Gtk.DrawingArea):
             return node.kind
         if node.kind == "agent":
             return "agents"
+        if node.kind == "subagent":
+            return "subagents"
         if node.kind == "cloud":
             return "online"
         if node.kind == "runtime":
@@ -364,13 +456,16 @@ class MapView(Gtk.DrawingArea):
         # Only columns with something to show take room; they share the width.
         active = [c for c in range(4) if self.shown(c)]
         count = max(1, len(active))
+        # Arrows between agents run along the left of their card: room for them when it is the first.
+        room = AGENT_LINK_ROOM if self.agent_links and active and active[0] == 1 else 0
+        width -= room
         node_w = max(NODE_W_MIN, min(NODE_W_MAX, (width - 2 * PAD - (count - 1) * COLUMN_GAP_MIN) // count))
         gap = max(COLUMN_GAP_MIN, (width - 2 * PAD - count * node_w) // max(1, count - 1))
         gap = min(gap, COLUMN_GAP_MAX)   # few columns: keep them together, centred
         if count == 1:
             gap = 0
         used = count * node_w + (count - 1) * gap
-        left = PAD + max(0, (width - 2 * PAD - used) // 2)
+        left = room + PAD + max(0, (width - 2 * PAD - used) // 2)
         self.column_x = {}
         self.group_labels = []
         self.group_rects = {}
@@ -566,6 +661,8 @@ class MapView(Gtk.DrawingArea):
 
     def curve_point(self, edge, t: float) -> tuple[float, float]:
         """A point on the line's curve (t from 0 at the source to 1 at the target)."""
+        if edge.kind == "agent-link":
+            return self.bezier(self.agent_link_curve(edge.source, edge.target), t)
         x1, y1, x2, y2 = self.edge_points(edge)
         bend = (x2 - x1) * 0.5
         px = (1 - t) ** 3 * x1 + 3 * (1 - t) ** 2 * t * (x1 + bend) + 3 * (1 - t) * t ** 2 * (x2 - bend) + t ** 3 * x2
@@ -988,14 +1085,26 @@ class MapView(Gtk.DrawingArea):
             self.set_tooltip_text(self.start_tips[1 if self.start_state(start) == "show" else 0])
         elif battery is not None:
             self.set_tooltip_text(self.batteries[battery][2])
+        elif (paid := self.cost_at(x, y)) is not None:
+            self.set_tooltip_text(self.costs[paid][1])
         elif (moving := self.traffic_at(x, y)) is not None and self.traffic_tip is not None:
             self.set_tooltip_text(self.traffic_tip(moving))
+        elif (helped := self.subagents_at(x, y)) is not None and self.subagents_tip is not None:
+            self.set_tooltip_text(self.subagents_tip(helped))
+        elif found is None and (pair := self.agent_link_at(x, y)) is not None and self.agent_link_tip is not None:
+            self.set_tooltip_text(self.agent_link_tip(*pair))
+        elif found is not None and self.kind_of(found) == "subagent":
+            # A subagent's box: its whole task (the box cuts it short) and what it is.
+            node = next(n for n in self.graph.nodes if n.id == found)
+            self.set_tooltip_text("\n".join(p for p in (node.label, node.detail) if p))
         elif pin is None and ((edge := self.hook_at(x, y)) is not None
                               or (found is None and (edge := self.edge_at(x, y)) is not None)):
             # A hook, or a line that can be moved: what to do with it (the cursor says it can be grabbed).
             source, target = edge
             broken = any((e.source, e.target) == edge and e.failed for e in self.graph.edges)
-            if broken and len(self.edge_tips) > 6:
+            if self.kind_of(target) == "subagent":
+                self.set_tooltip_text(None)    # a line to a subagent: nothing to do with it
+            elif broken and len(self.edge_tips) > 6:
                 self.set_tooltip_text(self.edge_tips[6])
             elif self.kind_of(source) in ("runtime", "cloud"):
                 names = ", ".join(n.label for n in self.graph.nodes if n.id in self.model_users(source, target))
@@ -1137,6 +1246,10 @@ class MapView(Gtk.DrawingArea):
         moving = self.traffic_at(x, y)
         if moving is not None and self.on_traffic is not None:
             self.on_traffic(moving)
+            return
+        helped = self.subagents_at(x, y)
+        if helped is not None and self.on_subagents is not None:
+            self.on_subagents(helped)
             return
         start = self.start_at(x, y)
         if start is not None and self.on_start is not None:
@@ -1375,6 +1488,15 @@ class MapView(Gtk.DrawingArea):
     def usage_font(self):
         return Pango.FontDescription.from_string(f"Sans Bold {self.usage_size}")
 
+    def helper_paths(self) -> list:
+        """[(light id, [edge])]: the lights on an arrow from an agent to one it uses, and on the line to
+        each subagent that works now."""
+        paths = [(f"link:{u}>{v}", [graph_model.Edge(u, v, "agent-link")]) for u, v in self.drawn_agent_links()]
+        working = {n.id for n in self.graph.nodes if n.kind == "subagent" and n.status == "running"}
+        paths += [(f"sub:{e.target}", [e]) for e in self.graph.edges
+                  if e.kind == "subagent" and e.target in working and e.source in self.boxes and e.target in self.boxes]
+        return paths
+
     def set_mcp_busy(self, busy):
         """{(agent command, server name)}: the agent calls that MCP server right now; light runs
         along the line from the agent to the server, in the line's own colour."""
@@ -1534,6 +1656,7 @@ class MapView(Gtk.DrawingArea):
         agent = self.single_agent()
         own_path = self.active.get(agent, set()) if agent else set()
         markers = []                 # failed lines: a "!" on each, drawn over all lines
+        dimmed = {n.id for n in self.graph.nodes if n.dim and n.kind == "subagent"}
         drawn = set()                # edge indexes drawn this time
         for index in order:
             edge = self.graph.edges[index]
@@ -1555,6 +1678,8 @@ class MapView(Gtk.DrawingArea):
             loaded = not active and not outside and self.loaded_edge(edge)
             if (active or outside or loaded) and not picked and not (lit_edges is not None and index not in lit_edges):
                 alpha = 1.0
+            if edge.target in dimmed:
+                alpha = min(alpha, 0.25)        # a subagent that finished: its line as dim as its box
             if edge.failed:
                 # Failed (red) or with warnings (yellow), dotted, until it is removed by hand.
                 cr.set_source_rgba(*self.color("red" if edge.failed == "error" else "yellow",
@@ -1587,6 +1712,7 @@ class MapView(Gtk.DrawingArea):
         if self.flow_layer is not None:
             outside = self.outside_paths(drawn) if allowed and self.animate == "all" else []
             outside += self.mcp_paths(drawn) if allowed else []
+            outside += self.helper_paths() if allowed else []
             self.flow_layer.update(self.flow_paths(active_edges, drawn, running_only=False) + outside if allowed else [],
                                    self.running_agents() | {key for key, _edges in outside} if allowed else set())
 
@@ -1595,6 +1721,8 @@ class MapView(Gtk.DrawingArea):
         self.stop_rects = {}
         self.battery_rects = {}
         self.traffic_rects = {}
+        self.subagent_rects = {}
+        self.cost_rects = {}
         # Each card with its boxes, one card after the other: a card moved by hand lies over the others.
         z = {key: i for i, (key, *_rest) in enumerate(self.group_labels)}
         cards_drawn = set()
@@ -1640,8 +1768,12 @@ class MapView(Gtk.DrawingArea):
                 right = self.draw_runtime_stop(cr, layout, node.id, x, y, w, h, faded)
             if node.kind in ("agent", "runtime") and node.id in self.batteries:
                 right += self.draw_battery(cr, node.id, x + w - PIN_W - (24 if selected else 4) - right, y, h, faded)
+            elif node.kind == "agent" and node.id in self.costs:
+                right += self.draw_cost(cr, layout, node.id, x + w - PIN_W - (24 if selected else 4) - right, y, h, faded)
             if node.kind == "agent" and node.id in self.traffic:
                 right += self.draw_traffic(cr, node.id, x + w - PIN_W - (24 if selected else 4) - right, y, h, faded)
+            if node.kind == "agent" and node.id in self.subagents:
+                right += self.draw_subagents(cr, node.id, x + w - PIN_W - (24 if selected else 4) - right, y, h, faded)
             text_x = self.draw_tile(cr, layout, node, x, y, h, faded, alpha, use)
             if node.kind == "runtime" and use is not None and use.vram >= 64 * 1024 ** 2:
                 detail = " · ".join(filter(None, [detail, f"{use.vram / 1024 ** 3:.1f} GB GPU"]))
@@ -1686,10 +1818,12 @@ class MapView(Gtk.DrawingArea):
                 cr.move_to(text_x, y + (h - layout.get_pixel_size()[1]) / 2)
                 PangoCairo.show_layout(cr, layout)
 
+        self.draw_agent_links(cr)                 # over the agents' card: an agent using another one
         self.draw_hooks(cr)                       # over the boxes: a hook is never half hidden
         self.draw_link(cr)
 
-    CARD_KINDS = {"agents": "agent", "online": "cloud", "local": "runtime", "mcp": "mcp", "skills": "skills"}
+    CARD_KINDS = {"agents": "agent", "online": "cloud", "local": "runtime", "mcp": "mcp", "skills": "skills",
+                  "subagents": "subagent"}
 
     def draw_cards(self, cr, layout, only=None):
         """A card under each group of boxes: a light panel, and a header with the kind's icon in its
@@ -1946,6 +2080,21 @@ class MapView(Gtk.DrawingArea):
         cr.fill()
         return bw + 9
 
+    def draw_cost(self, cr, layout, node_id, right, y, h, faded) -> int:
+        """Today's cost ending at `right` ("$3.40 today"), small, in the dim colour: an agent paid per
+        token has no limits for a battery. Returns the room it takes."""
+        layout.set_font_description(Pango.FontDescription.from_string("Sans 7.5"))
+        layout.set_width(-1)
+        layout.set_ellipsize(Pango.EllipsizeMode.NONE)
+        layout.set_text(self.costs[node_id][0], -1)
+        tw, th = layout.get_pixel_size()
+        tx, ty = right - tw - 5, y + (h - th) / 2
+        self.cost_rects[node_id] = (tx - 2, ty - 2, tw + 4, th + 4)
+        cr.set_source_rgba(*self.color("dim", 0.4 if faded else 1.0))
+        cr.move_to(tx, ty)
+        PangoCairo.show_layout(cr, layout)
+        return tw + 9
+
     def draw_traffic(self, cr, node_id, right, y, h, faded) -> int:
         """⇅ ending at `right`: an arrow down (in) and one up (out), in the accent colour while the
         agent moves data, dim when it is quiet. Returns the room it takes."""
@@ -1956,6 +2105,30 @@ class MapView(Gtk.DrawingArea):
         cr.set_source_rgba(*self.color("accent" if moving else "dim", 0.4 if faded else 1.0))
         self.traffic_arrows(cr, ax, ay, aw, ah)
         return aw + 9
+
+    def draw_subagents(self, cr, node_id, right, y, h, faded) -> int:
+        """The subagents mark ending at `right`: the agent's dot branching to its helpers', in the accent
+        colour while one works, dim while it only has finished ones listed. Returns the room it takes."""
+        aw, ah = 14, 12
+        ax, ay = right - aw - 5, y + (h - ah) / 2
+        self.subagent_rects[node_id] = (ax - 3, ay - 4, aw + 6, ah + 8)
+        working = self.subagents[node_id][0]
+        cr.set_source_rgba(*self.color("accent" if working else "dim", 0.4 if faded else 1.0))
+        self.subagents_mark(cr, ax, ay, aw, ah)
+        return aw + 9
+
+    @staticmethod
+    def subagents_mark(cr, ax, ay, aw, ah):
+        """A small tree in the source colour set: one dot at the left, lines to two at the right."""
+        cr.set_line_width(1.4)
+        root, top, bottom = (ax + 2.5, ay + ah / 2), (ax + aw - 2.5, ay + 2.5), (ax + aw - 2.5, ay + ah - 2.5)
+        for end in (top, bottom):
+            cr.move_to(*root)
+            cr.curve_to(root[0] + 5, root[1], end[0] - 6, end[1], *end)
+            cr.stroke()
+        for cx, cy, r in ((*root, 2.4), (*top, 2.0), (*bottom, 2.0)):
+            cr.arc(cx, cy, r, 0, 2 * math.pi)
+            cr.fill()
 
     @staticmethod
     def traffic_arrows(cr, ax, ay, aw, ah):

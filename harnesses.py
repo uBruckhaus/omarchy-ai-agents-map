@@ -70,7 +70,7 @@ class Way:
     tool: str = ""                    # tool: npm | pipx | uv
     argv: tuple = ()                  # command: the desktop's own installer (e.g. Omarchy's), plain words
     sudo: bool = False                # command: it asks for the password (in the terminal)
-    packages: tuple = ()              # package: ((manager, name), …), e.g. (("pacman", "hermes-desktop"),)
+    packages: tuple[tuple[str, str], ...] = ()   # package: ((manager, name), …), e.g. (("pacman", "hermes-desktop"),)
     url: str = ""                     # manual: where to get it
     note: str = ""                    # manual: one line of instruction (English)
     update: tuple = ()                # command: the argv that updates what it installed (plain words)
@@ -200,6 +200,9 @@ class Harness:
     sandbox_setting: str = ""         # the security setting that is its sandbox
     replies: tuple = ()               # ("~/…" session folder, depth of its files, format, ((model name
                                       # prefix, context size), …)): the map's usage statistics box (usage_box)
+    subagents: tuple = ()             # (format, "~/…" where it keeps them): its subagents (subagents.py)
+    prices: tuple = ()                # (as of, ((model name beginning, (input, output, cache read, cache
+                                      # write) USD per million tokens), …)): an API user's cost (agent_status)
     asks_setting: str = ""            # the security setting that says when it asks before acting
 
 
@@ -358,7 +361,7 @@ def _extended(harness: Harness) -> Harness:
 # app's own adapter for the same agent gives them until the add-on is signed again.
 NEWER_FACTS = ("home", "activity", "details", "program_dir", "web_search", "chat_app", "herdr", "logout",
                "start", "research", "rewrite", "task", "models", "tools_setting", "sandbox_setting",
-               "asks_setting", "replies")
+               "asks_setting", "replies", "subagents", "prices")
 
 
 def _with_newer_facts(harness: Harness) -> Harness:

@@ -2601,5 +2601,33 @@
  "Text size": "Tekstgrootte",
  "How big its numbers are written on the line.": "Hoe groot de getallen op de lijn staan.",
  "{0} pt (default)": "{0} pt (standaard)",
- "{0} pt": "{0} pt"
+ "{0} pt": "{0} pt",
+ "Subagents": "Subagenten",
+ "Subagents · {0}": "Subagenten · {0}",
+ "\u0004Works with 1 subagent now. Click to see what it does.": [
+  "Werkt nu met 1 subagent. Klik om te zien wat die doet.",
+  "Werkt nu met {0} subagenten. Klik om te zien wat ze doen."
+ ],
+ "\u0004done 1 minute ago": [
+  "1 minuut geleden klaar",
+  "{0} minuten geleden klaar"
+ ],
+ "\u00041 working now": [
+  "1 werkt nu",
+  "{0} werken nu"
+ ],
+ "{0} uses {1}: it started it and works with it.": "{0} gebruikt {1}: heeft hem gestart en werkt ermee.",
+ "No subagent worked for it in the last {0} minutes.": "Er heeft de afgelopen {0} minuten geen subagent voor gewerkt.",
+ "finished ones stay here dimmed for {0} minutes, at most {1} (Settings › Subagents)": "klaar zijnde blijven hier {0} minuten gedimd staan, hooguit {1} (Instellingen › Subagenten)",
+ "Finished ones stay": "Klaar zijnde blijven",
+ "How long a subagent that finished stays on the subagents page, dimmed, after it last worked.": "Hoe lang een subagent die klaar is na zijn laatste werk gedimd op de subagentenpagina blijft.",
+ "{0} minutes (default)": "{0} minuten (standaard)",
+ "{0} minutes": "{0} minuten",
+ "At most": "Hooguit",
+ "How many finished subagents it keeps, the newest first; working ones are always shown.": "Hoeveel klaar zijnde subagenten ze bewaart, de nieuwste eerst; werkende worden altijd getoond.",
+ "{0} subagents (default)": "{0} subagenten (standaard)",
+ "{0} subagents": "{0} subagenten",
+ "Its subagents of the last {0} minutes, all finished. Click to see them.": "Zijn subagenten van de afgelopen {0} minuten, allemaal klaar. Klik om ze te zien.",
+ "{0} today": "{0} vandaag",
+ "Paid per token, with no plan limits: about {0} today at API prices (estimated from the tokens of its sessions active today).": "Betaald per token, zonder planlimieten: vandaag ongeveer {0} tegen API-prijzen (geschat uit de tokens van zijn sessies die vandaag actief waren)."
 }

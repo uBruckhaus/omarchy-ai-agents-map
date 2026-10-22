@@ -58,7 +58,8 @@ class Activity:
         self.last = seen
         return shares
 
-    def working(self, pids_by_agent: dict, herdr_states: dict | None = None, generating_for: set = frozenset(),
+    def working(self, pids_by_agent: dict, herdr_states: dict | None = None,
+                generating_for: set | frozenset = frozenset(),
                 proc: str = "/proc", now: float | None = None, wall: float | None = None) -> set:
         """The agents (of pids_by_agent, the running ones) that work right now.
         herdr_states: {agent: set of herdr states of its panes}; generating_for: agents whose

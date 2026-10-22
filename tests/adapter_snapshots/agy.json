@@ -51,6 +51,8 @@
  "tools_setting": [],
  "sandbox_setting": "",
  "replies": [],
+ "subagents": [],
+ "prices": [],
  "asks_setting": "",
  "access": null,
  "security": null,
