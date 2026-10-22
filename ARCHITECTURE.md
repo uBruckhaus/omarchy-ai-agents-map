@@ -1,0 +1,127 @@
+# AI Agents Map: architecture for reviewers
+
+This page is a map of the code for anyone reviewing AI Agents Map. It shows where the processes run,
+how the modules are layered and which function each risky operation goes through, so a review can
+start at those places. The README's **Privacy and capabilities** section is the full list of what
+the plugin reads, writes, starts and fetches. This page says **where in the code** that happens.
+
+Names are real module and function names of the commit this file is in. The diagrams come from the
+technical manual (UML 2, drawn from a script), so they show structure, not every detail.
+
+## In one paragraph
+
+A Python 3 / GTK 4 app (`ai_popup.py`, class `AgentsMap`) started from the bar through a bash toggle
+script. Opening the window only reads files and `/proc`. Nothing is started, installed or sent until
+the user clicks. Every change to another program's settings is a `connect.Plan`: it is shown as a diff,
+the old files are backed up, the new ones are written atomically, and Undo puts the old ones back. One
+optional user service (`provider_watch.py`) starts and stops local LLM servers together with the agents
+that use them. There is no root process and no shell: children are argv lists, and the one terminal
+command line is shlex-quoted word by word.
+
+## Processes and files
+
+![Processes and files](docs/architecture/processes.png)
+
+- **Bar → toggle.** `BarWidget.qml` only runs `ai-agents-map-toggle`. The script keeps a PID file in
+  `$XDG_RUNTIME_DIR` (or a private 0700 fallback). It signals (`SIGUSR1`) a PID only after checking
+  uid, interpreter, exact script path and kernel start time. Same checks in Python: `pidfile.py`.
+- **App.** `ai_popup.py` holds itself (`Adw.Application.hold`): closing hides the window, the next
+  click shows it. Slow work runs on worker threads and comes back with `GLib.idle_add`.
+- **Service.** `ai-agents-map-providers.service` exists only while *Settings › Start local LLMs with
+  their agents* is on (`provider_watch.ensure_service`). It reads `providers-with-agents.json`
+  through `provider_watch.read_config`, which keeps only runtime keys, unit names and ports that pass
+  `NAME_RE` / `_entry` (64 KiB cap). The service builds its `systemctl --user` commands itself and
+  never takes a command line from the file.
+
+## Layers
+
+![Layers](docs/architecture/layers.png)
+
+Pages (blue) read the model of the PC (green) and build plans in the change layer (orange). Everything
+that touches the outside world is in the platform layer at the bottom. **A review can concentrate on
+that layer and on the change layer.** The pages above them call into these.
+
+## Where each risky operation goes through
+
+| Operation | Goes through | Notes |
+| --- | --- | --- |
+| Run a program, read its output | `ai_core.read_bounded_output` | argv list, no shell, byte cap + one deadline; secrets on stdin |
+| AI look-ups (`claude -p`, `codex exec`) | `plugin_ai.run_bounded` via `plugin_ai.look_up` / `ai_helper.look_up` | own session, agent-session variables removed (`clean_env`), output capped, answer validated (`smart_check.validate`, `mcp_updates`), never run |
+| Anything from the web | `netfetch.fetch` / `fetch_json` | curl, https only (`_check`), redirects counted, headers in curl's config on stdin (`_quote`), size + time caps |
+| Downloads (LLM servers, models) | `install_ctl.download`, `install_ctl.sha256_of` | `.part` file opened without following links, published SHA-256 checked before unpacking, `MAX_DOWNLOAD` / `MAX_UNPACKED` |
+| Change another program's settings | `connect.apply`, `connect.undo` | backup + `manifest.json` (0600) first, atomic write (temp, fsync, rename), owner-only mode kept, new files 0600; Undo leaves a file alone that was changed again since |
+| Claude Code's MCP list | `mcp_ctl._claude_json_change` → `connect.apply` | `~/.claude.json` edited as one planned change, refused if Claude wrote it in the meantime; deliberately **not** `claude mcp add-json`, whose argv (keys in env, headers, URL) other accounts could read in `/proc/<pid>/cmdline` |
+| Commands in a terminal the user watches | `desktop_omarchy.run_in_terminal` / `run_steps_in_terminal` | every word shlex-quoted; `sudo` only for system-package installs, password typed in that terminal (`install_dialog`) |
+| systemd user units | `provider_watch` (`systemctl --user`), `install_ctl` (units it writes) | only units it installed or that start a local LLM; unit paths refuse `%`, quotes, `$`, backslashes, control characters |
+| Local LLM APIs on 127.0.0.1 | `netfetch.fetch(local=True)` after `loopback.require_own_listener` | only listeners owned by this user (`/proc/net/tcp` uid column) |
+| Credentials | `agent_status.credentials_present` | checks only whether a credential file **exists**; credential files are never opened |
+| Paste into text fields | `text_guard.TextGuard` | `wl-paste`, at most 8 KiB (`ai_core.MAX_PASTE_BYTES`), no drops, no middle-click paste |
+| Agent facts | `adapter_data.check` on `adapters/*.toml` | schema of allowed keys and types, 256 KiB per file; shipped with the plugin, nothing loaded from elsewhere |
+| MCP registry answers | `mcp_registry` (`MAX_SERVERS`, `MAX_OPTIONS`, `MAX_ARGUMENTS`, `MAX_FIELDS`, `MAX_BYTES`) | budgeted before any form is built |
+
+### Every place a child process is started
+
+For a complete audit, these are all the `subprocess` / `exec` calls outside `tests/`:
+
+| Where | What |
+| --- | --- |
+| `ai_core.py` `read_bounded_output` | almost every short-lived child (see the table above) |
+| `plugin_ai.py` `run_bounded` | AI look-ups, capped, own session |
+| `install_ctl.py` `download` | `curl … -- <url>` writing into an already opened `.part` file descriptor |
+| `mcp_tools.py` `_Stdio` | an MCP server's own command when the user clicks **Test** or asks for its tools; own process group, stopped afterwards |
+| `desktop_omarchy.py` `open_terminal`, `run_in_terminal`, `run_steps_in_terminal`, focus helpers | the terminal launcher (argv; the command line inside it is shlex-quoted), `hyprctl dispatch`, `omarchy-agent-usage-update <agent>` |
+| `desktop_generic.py` | the same for other desktops (used only outside Omarchy) |
+| `provider_watch.py` | `systemctl --user …`, `lms server start/stop` |
+| `settings_pages.py` | `os.execv(sys.executable, sys.argv)`: the app restarts itself after a language change |
+
+## Changes: plan, preview, backup, Undo
+
+![Plans](docs/architecture/plans.png)
+
+A `Plan` holds old and new text of each file (`Change`), commands with their undo commands, links to
+add or remove, and files to add. `merge()` combines plans for one preview. `chain()` plans steps that
+touch the same files. Nothing is written before the user confirms the preview on the connect page.
+
+![Connecting by drawing](docs/architecture/connect-sequence.png)
+
+## The provider watcher
+
+![Provider watcher](docs/architecture/provider-watch.png)
+
+`provider_watch.Watcher` reads `/proc` once a second (this user's processes only). When a connected
+agent starts, it starts that agent's local LLM. After the last such agent has closed and a grace time
+has passed, it stops the LLM again. It does not stop an LLM that another program still has a
+connection to, or one that was already running before the agent. What it started is kept in
+`~/.local/state/ai-agents-map/provider-watch.json`, so this survives restarts. A hidden LM Studio is
+signalled through a pidfd taken when it was found, so a reused PID is never hit.
+
+## AI helper and Smart Check
+
+![Smart Check](docs/architecture/smart-check.png)
+
+`smart_check.snapshot` sends names, versions, models, the GPU and the open problems. It never sends
+keys, environment variables, headers or settings values, and it is cut to `MAX_SNAPSHOT` characters.
+The answer must match `SCHEMA` (at most `MAX_FINDINGS`), is checked by `smart_check.validate` and is
+shown as plain text. "Fix it with …" starts the agent in a visible terminal tab (`plugin_ai.task_argv`),
+where it asks before each step. Daily AI checks are off by default.
+
+## Tests that cover these points
+
+`python3 -m unittest discover -s tests` (84 modules, no network, no display). Where to look:
+
+- Plans, backups and Undo in a temporary home: `test_connect`, `test_mcp`, `test_mcp_update`,
+  `test_skills`, `test_security` (the agents' security settings: only the one key changes)
+- Hostile answers and files: `test_registry_bounds` (registry), `test_gguf_bounds` (GGUF headers),
+  `test_mcp_updates` and `test_smart_check` (AI answers), `test_claude_sessions` (session files)
+- Hostile names and paths (quotes, `$()`, CR/LF, links): `test_install`, `test_hardening_map_lines`
+  (model names, links and `models.ini` in shared model folders), `test_model_move`,
+  `test_model_layout`, `test_desktop` (terminal quoting), `test_signin` (API keys)
+- `test_no_run_on_open`: only click handlers can reach code that runs an AppImage
+- `test_provider_watch`, `test_watch_service`: the watcher's config checks and stop rules
+
+## Where the code comes from
+
+The plugin and the stand-alone app Asterism share one code base. Shared modules are copied in by a
+sync tool, and a pre-commit hook refuses drift. For a review this only means that a module can mention
+another desktop (`desktop_generic.py`) or add-ons (`edition.py`). On Omarchy the code paths are
+`desktop_omarchy.py`, and the plugin loads no add-ons: its agent facts are the files in `adapters/`.

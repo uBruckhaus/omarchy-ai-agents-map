@@ -814,6 +814,8 @@ rm -rf ~/.config/omarchy/ai-agents-map ~/.local/state/ai-agents-map ~/.cache/ai-
 
 ## Files
 
+The full module map, with diagrams, is in [ARCHITECTURE.md](ARCHITECTURE.md). The main files:
+
 | Path | Purpose |
 | --- | --- |
 | `manifest.json` | Plugin metadata (bar-widget) |
@@ -838,7 +840,9 @@ rm -rf ~/.config/omarchy/ai-agents-map ~/.local/state/ai-agents-map ~/.cache/ai-
 | `agent_activity.py`, `model_names.py` | Which agents are working now; what a model's name means |
 | `assets/drawing-demo.gif` | The animation above (rendered from `previews.SetupSketch`) |
 | `claude_sessions.py`, `herdr_state.py` | Claude Code's numbers per project and subagent; herdr's live state and pane focus |
-| `harnesses.py`, `harness_claude.py`, `harness_opencode.py`, `harness_hermes.py`, `edition.py` | One adapter per agent harness (session numbers per project for now); what this edition may show (numbers only in this plugin) |
+| `harnesses.py`, `adapter_data.py`, `adapters/`, `edition.py` | The agents as data: one `adapters/<command>.toml` per agent (plus a small hook module for five of them), its loader and schema check; what this edition may show (numbers only in this plugin) |
 | `desktop.py`, `desktop_omarchy.py`, `desktop_generic.py` | Everything desktop-specific behind one interface: Omarchy/Hyprland here; the generic one is used only outside Omarchy (the same code as the stand-alone app Asterism) |
 | `ai_core.py`, `palette.py`, `corners.py`, `pidfile.py`, `i18n.py`, `I18n.js` | Shared helpers, theme colours, corners, PID file, languages |
 | `tests/` | Unit tests (`python3 -m unittest discover -s tests`) |
+| `ARCHITECTURE.md`, `docs/architecture/` | For reviewers: processes, layers, and the function each risky operation goes through |
+| `assets/user-manual*.pdf` | The user manual in 8 languages |
