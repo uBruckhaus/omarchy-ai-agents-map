@@ -115,6 +115,61 @@ class ModelMoveTest(unittest.TestCase):
             model_move.apply(move)
         self.assertEqual(list(outside.rglob("*.gguf")), [])
 
+    def swap_during_move(self, copy: bool):
+        """Replace the source by a link to a private file right after the move has checked it."""
+        source = self.gguf(self.llama / "qwen.gguf")
+        secret = Path(self.tmp.name) / "secret"
+        secret.write_bytes(b"SECRET")
+        secret.chmod(0o600)
+        move = model_move.plan("llamacpp", self.llama, "qwen", "koboldcpp", self.kobold)
+        move.copy = copy
+        make_parents = model_move._make_parents
+
+        def swap_then_make(target, root):
+            source.unlink()
+            source.symlink_to(secret)
+            make_parents(target, root)
+        model_move._make_parents = swap_then_make
+        self.addCleanup(setattr, model_move, "_make_parents", make_parents)
+        with self.assertRaises(ValueError):
+            model_move.apply(move)
+        leftovers = [p for p in self.kobold.rglob("*") if p.is_file() or p.is_symlink()]
+        self.assertEqual(leftovers, [])
+        self.assertEqual(secret.read_bytes(), b"SECRET")
+
+    def test_source_swapped_for_a_link_during_a_copy(self):
+        self.swap_during_move(copy=True)
+
+    def test_source_swapped_for_a_link_during_a_link_move(self):
+        self.swap_during_move(copy=False)
+
+    def test_copy_is_owner_only_until_complete(self):
+        source = self.gguf(self.llama / "qwen.gguf", b"GGUF" + b"\0" * 3_000_000)
+        source.chmod(0o640)
+        move = model_move.plan("llamacpp", self.llama, "qwen", "koboldcpp", self.kobold)
+        move.copy = True
+        modes = []
+
+        def progress(_fraction, _name):
+            modes.extend(p.stat().st_mode & 0o777 for p in self.kobold.glob(".*.part"))
+        old_umask = os.umask(0)                      # the most permissive umask
+        try:
+            model_move.apply(move, progress)
+        finally:
+            os.umask(old_umask)
+        self.assertTrue(modes)
+        self.assertEqual(set(modes), {0o600})
+        self.assertEqual((self.kobold / "qwen.gguf").stat().st_mode & 0o777, 0o640)
+
+    def test_a_fifo_source_does_not_block(self):
+        self.gguf(self.llama / "qwen.gguf")
+        move = model_move.plan("llamacpp", self.llama, "qwen", "koboldcpp", self.kobold)
+        (self.llama / "qwen.gguf").unlink()
+        os.mkfifo(self.llama / "qwen.gguf")
+        move.copy = True
+        with self.assertRaises(ValueError):
+            model_move.apply(move)
+
 
 if __name__ == "__main__":
     unittest.main()

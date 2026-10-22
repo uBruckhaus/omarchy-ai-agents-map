@@ -14,7 +14,6 @@ must stay inside the target folder and be this account's. Undo moves them back.
 """
 
 import os
-import shutil
 import stat
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -94,13 +93,38 @@ def _make_parents(target: Path, root: Path):
         raise ValueError(f"{folder} is not a folder of this account inside the model folder")
 
 
-def _copy_to(source: Path, target: Path, progress, cancelled, done: int, total: int) -> int:
+def _open_own(source: Path):
+    """(fd, stat) of source opened once, never through a link, and checked on that open
+    file: this account's own regular file. Everything after reads and compares this fd,
+    so swapping the name for a link or another file in between is noticed, not followed."""
+    try:
+        fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    except OSError as error:
+        raise ValueError(f"{source.name} is not this account's own file") from error
+    st = os.fstat(fd)
+    if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid():
+        os.close(fd)
+        raise ValueError(f"{source.name} is not this account's own file")
+    return fd, st
+
+
+def _same_file(path: Path, st) -> bool:
+    try:
+        now = os.stat(path, follow_symlinks=False)
+    except OSError:
+        return False
+    return stat.S_ISREG(now.st_mode) and (now.st_dev, now.st_ino) == (st.st_dev, st.st_ino)
+
+
+def _copy_to(src_fd: int, st, source: Path, target: Path, progress, cancelled, done: int, total: int) -> int:
+    """Copy the already opened source into target: into an owner-only .part file first,
+    which gets the source's mode and times only once it is complete."""
     partial = target.with_name(f".{target.name}.part")
-    fd = os.open(partial, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+    fd = os.open(partial, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
     copied = 0
     try:
-        with open(source, "rb") as src, os.fdopen(fd, "wb") as dst:
-            while chunk := src.read(model_layout.CHUNK):
+        with os.fdopen(fd, "wb") as dst:
+            while chunk := os.read(src_fd, model_layout.CHUNK):
                 if cancelled():
                     raise model_layout.Cancelled()
                 dst.write(chunk)
@@ -108,9 +132,10 @@ def _copy_to(source: Path, target: Path, progress, cancelled, done: int, total: 
                 progress((done + copied) / max(1, total), source.name)
             dst.flush()
             os.fsync(dst.fileno())
-        if os.stat(partial, follow_symlinks=False).st_size != os.stat(source).st_size:
-            raise OSError(f"{source.name}: the copy is incomplete")
-        shutil.copystat(source, partial)
+            if os.fstat(dst.fileno()).st_size != st.st_size:
+                raise OSError(f"{source.name}: the copy is incomplete")
+            os.utime(dst.fileno(), ns=(st.st_atime_ns, st.st_mtime_ns))
+            os.fchmod(dst.fileno(), stat.S_IMODE(st.st_mode) & 0o777)
         os.link(partial, target, follow_symlinks=False)       # fails if anything has that name now
     finally:
         os.unlink(partial)
@@ -120,16 +145,20 @@ def _copy_to(source: Path, target: Path, progress, cancelled, done: int, total: 
 def move_file(source: Path, target: Path, root: Path, copy: bool, progress=lambda f, t: None,
               cancelled=lambda: False, done: int = 0, total: int = 1) -> int:
     """One file to its new name, never over an existing one; returns bytes copied."""
-    st = os.stat(source, follow_symlinks=False)
-    if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid():
-        raise ValueError(f"{source.name} is not this account's own file")
-    _make_parents(target, root)
-    if copy:
-        copied = _copy_to(source, target, progress, cancelled, done, total)
-    else:
-        os.link(source, target, follow_symlinks=False)
-        copied = 0
-    os.unlink(source)
+    src_fd, st = _open_own(source)
+    try:
+        _make_parents(target, root)
+        if copy:
+            copied = _copy_to(src_fd, st, source, target, progress, cancelled, done, total)
+        else:
+            os.link(source, target, follow_symlinks=False)
+            copied = 0
+        if not _same_file(source, st) or not copy and not _same_file(target, st):
+            os.unlink(target)                                 # the name changed after the open
+            raise ValueError(f"{source.name} changed while it was moved")
+        os.unlink(source)
+    finally:
+        os.close(src_fd)
     return copied
 
 
