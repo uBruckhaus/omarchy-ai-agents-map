@@ -9,6 +9,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import agent_details  # noqa: E402
 import inventory  # noqa: E402
+import mcp_updates  # noqa: E402
 import smart_check  # noqa: E402
 
 
@@ -35,7 +36,7 @@ class SmartCheckTest(unittest.TestCase):
         pc = types.SimpleNamespace(gpu="RX 7900", vendor="amd", vram=24 * 2**30, ram=64 * 2**30, cpus=32)
         library = {"photocraft": {"command": "/x/photocraft-cli", "env": {"API_KEY": "sk-secret-123"},
                                   "headers": {"Authorization": "Bearer abc"}}}
-        found = [types.SimpleNamespace(name="photocraft", latest="0.12.0")]
+        found = [mcp_updates.Found("photocraft", "photocraft", "0.11.1", "0.12.0", "https://x.org", source="npm")]
         with mock.patch("mcp_library.load", lambda: library):
             return smart_check.snapshot([agent, gone], {"claude": info}, inv, report, pc, found)
 

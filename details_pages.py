@@ -251,7 +251,7 @@ class DetailsPages:
             return
         tokens = _("{0} tokens").format
         summary = _("{0} tokens in 30 days").format(short_number(totals.tokens))
-        group = self.group_card(body, "ai-checks", _("AI checks"), "system-search-symbolic", summary)
+        group = self.group_card(body, "ai-checks", _("AI checks"), "am-smartcheck-symbolic", summary)
         last = totals.last or {}
         try:
             last_when = when(dt.datetime.fromisoformat(str(last.get("when"))))

@@ -183,6 +183,22 @@ def still_open(found, servers) -> list[Found]:
     return [f for f in found if now.get(f.name) == f.current and newer(f.latest, f.current)]
 
 
+def on_pc(update: Found) -> bool:
+    """The newer version of an app is already here (unpacked in ~/Applications/<app>-<latest>/ or as
+    its AppImage), only the agents still start the old one: the map's Update moves them, so the
+    download is not offered again."""
+    if update.source != "app":
+        return False
+    if (APPS / f"{update.app}-{update.latest}").is_dir():
+        return True
+    try:
+        images = mcp_scan.appimages()
+    except OSError:
+        return False
+    return any(mcp_scan.app_version(mcp_scan.appimage_stem(image)) == (update.app, tuple(int(p) for p in update.latest.split(".")))
+               for image in images)
+
+
 def due(now: float | None = None, cache: Path = CACHE) -> bool:
     saved = _read(cache)
     checked = saved.get("checked")

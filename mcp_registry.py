@@ -259,7 +259,7 @@ def parse(data: dict) -> list[Server]:
     return servers
 
 
-PAGE = 20                    # results asked for at a time; "Next 20 results" asks for the next ones
+PAGE = 20                    # results shown at a time; "Next 20" / "Previous 20" page through them
 
 # The saved list: {"fetched": ISO time the last download started, "checked": epoch, "servers": {name: item}}.
 LIST_FILE = Path.home() / ".cache/ai-agents-map/mcp-registry.json"
@@ -375,9 +375,10 @@ def refresh_list(path: Path | None = None, now: float | None = None, fetch=None)
         _list_lock.release()
 
 
-def search_list(query: str, offset: int = 0, limit: int = PAGE, path: Path | None = None):
+def search_list(query: str, offset: int = 0, limit: int = PAGE, path: Path | None = None, with_total: bool = False):
     """(servers, cursor for the next ones or "") from the saved list; None when there is none.
-    Every word of the query in the name, title or description; names that hold the query first."""
+    Every word of the query in the name, title or description; names that hold the query first.
+    with_total: (servers, cursor, how many match in all)."""
     data = load_list(path)
     if data is None or not data.get("fetched"):
         return None                          # not downloaded in full once yet: the registry is asked
@@ -399,7 +400,8 @@ def search_list(query: str, offset: int = 0, limit: int = PAGE, path: Path | Non
     matched.sort(key=lambda m: m[:3])
     # Only the page asked for is built (parse() takes at most MAX_SERVERS at a time).
     page = parse({"servers": [m[3] for m in matched[offset:offset + limit]]})
-    return page, f"#{offset + limit}" if offset + limit < len(matched) else ""
+    following = f"#{offset + limit}" if offset + limit < len(matched) else ""
+    return (page, following, len(matched)) if with_total else (page, following)
 
 
 def _epoch(text) -> float:
@@ -413,9 +415,15 @@ def search(query: str, limit: int = PAGE, base: str = "", cursor: str = "") -> t
     """(servers, the cursor for the next page or ""). base: another registry with the same API
     (web_sources), else the official one; cursor: the one a previous page returned. The official
     registry is searched in the saved list when there is one ("#<offset>" cursors)."""
+    return search_page(query, limit, base, cursor)[:2]
+
+
+def search_page(query: str, limit: int = PAGE, base: str = "", cursor: str = "") -> tuple[list[Server], str, int | None]:
+    """search() and how many servers match in all: known from the saved list, None from the
+    registry itself (its API only says whether there are more)."""
     if not base and (not cursor or cursor.startswith("#")):
         offset = int(cursor[1:]) if cursor[1:].isdigit() else 0
-        found = search_list(query, offset, limit)
+        found = search_list(query, offset, limit, with_total=True)
         if found is not None:
             return found
         cursor = ""
@@ -432,7 +440,7 @@ def search(query: str, limit: int = PAGE, base: str = "", cursor: str = "") -> t
     data = data if isinstance(data, dict) else {}
     meta = data.get("metadata") if isinstance(data.get("metadata"), dict) else {}
     following = meta.get("nextCursor") if isinstance(meta.get("nextCursor"), str) else ""
-    return parse(data), following[:300] if following != cursor else ""
+    return parse(data), following[:300] if following != cursor else "", None
 
 
 def fill(entry: dict, values: dict) -> dict:

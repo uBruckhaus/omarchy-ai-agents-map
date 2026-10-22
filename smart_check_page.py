@@ -15,7 +15,6 @@ import agent_details
 import ai_core
 import ai_helper
 import health
-import mcp_updates
 import plugin_ai
 import smart_check
 from i18n import _, ngettext
@@ -36,6 +35,14 @@ class SmartCheckPage:
         page.append(self.page_scroller(self.smart_body))
         return page
 
+    @staticmethod
+    def own_risk_text() -> str:
+        """The disclaimer on Smart Check and over Settings' AI features."""
+        return _("You use the AI features at your own risk. An agent's findings, answers and changes can be wrong, "
+                 "incomplete or out of date: read what it proposes before you agree to a step, and keep backups. "
+                 "Its look-ups and tasks use your tokens or plan limits. AI Agents Map gives no warranty for what "
+                 "an agent does.")
+
     def smart_check_available(self) -> bool:
         return bool(ai_helper.helpers(set(self.installed_commands())))
 
@@ -47,6 +54,12 @@ class SmartCheckPage:
     def open_smart_check(self):
         if self.page_name() != "smartcheck":
             self.smart_return = self.view if self.page_name() in ai_core.VIEWS else "main"
+        self.fill_smart_check()
+        self.show_page("smartcheck")
+
+    def show_smart_check_again(self):
+        """Back on Smart Check after one of its actions (an update, a task's terminal), up to date;
+        its Back still leads where it led before."""
         self.fill_smart_check()
         self.show_page("smartcheck")
 
@@ -68,6 +81,7 @@ class SmartCheckPage:
         analysis = smart_check.last()
         runs = ai_helper.runs()
         self.fill_smart_hero(body, agent, analysis)
+        self.note_card(body, "warning", self.own_risk_text(), _("At your own risk"))
         self.fill_smart_analysis(body, agent, analysis, runs)
         self.fill_smart_updates(body, agent)
         self.fill_smart_tokens(body, runs)
@@ -100,7 +114,7 @@ class SmartCheckPage:
     def fill_smart_analysis(self, body, agent, analysis, runs):
         summary = (_("{0} problems · {1} tips").format(analysis.count("problem"), analysis.count("tip"))
                    if analysis is not None else _("not checked yet"))
-        group = self.group_card(body, "smart-analysis", _("PC setup summary"), "system-search-symbolic", summary,
+        group = self.group_card(body, "smart-analysis", _("PC setup summary"), "am-smartcheck-symbolic", summary,
                                 default_open=True)
         row = Gtk.Box(spacing=8)
         button = Gtk.Button(label=_("Checking…") if self.smart_analyzing else _("Check now"))
@@ -141,31 +155,37 @@ class SmartCheckPage:
         group.append(listbox)
 
     def fill_smart_updates(self, body, agent):
-        found = self.ai_mcp_updates
+        found = self.open_ai_mcp_updates()
+        # The map's own finds too (as on Setup): a newer version on this PC that an agent still does
+        # not start, e.g. one an agent's settings missed when it was moved by hand.
+        local = [c for c in self.mcp_updates() if c.name not in {u.name for u in found}]
+        count = len(found) + len(local)
         on = bool(ai_core.setting("ai_checks"))
-        summary = (ngettext("1 update", "{0} updates", len(found)).format(len(found)) if found
+        summary = (ngettext("1 update", "{0} updates", count).format(count) if count
                    else _("nothing new") if on else _("daily checks off"))
         group = self.group_card(body, "smart-updates", _("Updates found"), "software-update-available-symbolic",
-                                summary, default_open=bool(found))
-        task_agent = self.task_agent()
+                                summary, default_open=bool(count))
         listbox = self.boxed_list()
-        for update in found:
-            item = self.plain_row(_("MCP server {0} {1} is available (you have {2})").format(
-                update.name, update.latest, update.current), update.notes)
-            page = Gtk.Button(label=_("Release page"), valign=Gtk.Align.CENTER)
-            page.add_css_class("am-small-btn")
-            page.connect("clicked", lambda *_a, u=update: self.open_uri(u.url))
-            item.add_suffix(page)
-            if task_agent:
-                do = Gtk.Button(label=_("Do it with {0}…").format(ai_helper.name_of(task_agent)),
-                                valign=Gtk.Align.CENTER)
-                do.add_css_class("am-small-btn")
-                do.connect("clicked", lambda *_a, u=update: self.do_with_agent(
-                    f"mcp-update:{u.name}", _("Update {0}").format(u.name), mcp_updates.task_prompt(u),
-                    on_end=self.check_new_apps))
-                item.add_suffix(do)
+        names = self.agent_names()
+        for candidate in local:
+            users = [names.get(a, a) for a in candidate.users if a != "list"]
+            item = self.plain_row(_("MCP server {0} {1} is on this PC, the agents still start {2}").format(
+                candidate.name, candidate.version, candidate.update_from),
+                _("Still starts {0}: {1}").format(candidate.update_from, ", ".join(users)) if users else "")
+            button = Gtk.Button(label=_("Use it…"), valign=Gtk.Align.CENTER)
+            button.add_css_class("am-small-btn")
+            button.connect("clicked", lambda *_a, c=candidate: self.open_mcp_updates([c]))
+            item.add_suffix(button)
             listbox.append(item)
-        if found:
+        for update in found:
+            item = self.plain_row(self.mcp_update_text(update), update.notes)
+            for label, action in self.mcp_update_buttons(update):
+                button = Gtk.Button(label=label, valign=Gtk.Align.CENTER)
+                button.add_css_class("am-small-btn")
+                button.connect("clicked", lambda *_a, act=action: act())
+                item.add_suffix(button)
+            listbox.append(item)
+        if count:
             group.append(listbox)
         row = Gtk.Box(spacing=8)
         check = Gtk.Button(label=_("Check now"))
@@ -247,8 +267,12 @@ class SmartCheckPage:
 
     def fill_smart_category(self, body, category):
         task = smart_check.TASKS.get(category.task)
-        title = _(task) if task and category.plugin == ai_helper.plugin_id() else \
-            f"{self.plugin_title(category.plugin)} · {category.task}"
+        if task and category.plugin == ai_helper.plugin_id():
+            title = _(task)
+        elif task and category.plugin in ("ai-agents-map", "asterism"):     # the same app's other edition
+            title = f"{self.plugin_title(category.plugin)} · {_(task)}"
+        else:
+            title = f"{self.plugin_title(category.plugin)} · {category.task}"
         totals = category.totals
         failed = totals.runs - totals.ok
         summary = " · ".join(filter(None, [
@@ -290,13 +314,14 @@ class SmartCheckPage:
         self.smart_analyzing = True
         self.fill_smart_check()
         agent_list, inv, report = list(self.agent_list), self.inventory, self.health_report
-        updates = list(self.ai_mcp_updates) or None          # else the last answer kept
+        updates = self.open_ai_mcp_updates() or None          # else the last answer kept
+        waiting = list(self.mcp_updates())
 
         def work():
             try:
                 details = {a.command: agent_details.details_for(a.command) for a in agent_list if a.installed}
                 pc = health.pc_info([rt.models_dir for rt in inv.runtimes if rt.installed and rt.models_dir])
-                setup = smart_check.snapshot(agent_list, details, inv, report, pc, updates)
+                setup = smart_check.snapshot(agent_list, details, inv, report, pc, updates, waiting)
                 result = smart_check.analyze(agent, setup)
             except Exception as error:          # the agent, its sign-in, the web, an answer that did not hold up
                 result = error

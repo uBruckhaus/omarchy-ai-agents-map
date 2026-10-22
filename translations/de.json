@@ -2577,5 +2577,16 @@
  "$ {0:.2f} at API prices: covered by your {1} plan (it counts against the plan's limits, no extra charge).": "$ {0:.2f} zu API-Preisen: durch deinen {1}-Plan gedeckt (zählt gegen die Limits des Plans, keine Zusatzkosten).",
  "$ {0:.2f} at API prices: charged only when it runs on an API key, else covered by your plan.": "$ {0:.2f} zu API-Preisen: nur berechnet, wenn er mit einem API-Schlüssel läuft, sonst durch deinen Plan gedeckt.",
  "Your model files, one card per main folder (as on the map), with the local LLMs that read it.": "Deine Modelldateien, eine Karte pro Hauptordner (wie auf der Karte), mit den lokalen LLMs, die ihn lesen.",
- "Your models as the map shows them: one card per folder, with who serves them in brackets.": "Deine Modelle wie auf der Karte: eine Karte pro Ordner, in Klammern, wer sie bereitstellt."
+ "Your models as the map shows them: one card per folder, with who serves them in brackets.": "Deine Modelle wie auf der Karte: eine Karte pro Ordner, in Klammern, wer sie bereitstellt.",
+ "AI features": "KI-Funktionen",
+ "At your own risk": "Auf eigene Gefahr",
+ "MCP server {0} {1} is on this PC, the agents still start {2}": "MCP-Server {0} {1} ist auf diesem PC, die Agenten starten noch {2}",
+ "Use it…": "Verwenden…",
+ "You use the AI features at your own risk. An agent's findings, answers and changes can be wrong, incomplete or out of date: read what it proposes before you agree to a step, and keep backups. Its look-ups and tasks use your tokens or plan limits. AI Agents Map gives no warranty for what an agent does.": "Du nutzt die KI-Funktionen auf eigene Gefahr. Befunde, Antworten und Änderungen eines Agenten können falsch, unvollständig oder veraltet sein: Lies, was er vorschlägt, bevor du einem Schritt zustimmst, und halte Sicherungen bereit. Seine Abfragen und Aufgaben verbrauchen deine Tokens oder Plan-Limits. AI Agents Map übernimmt keine Gewähr für das, was ein Agent tut.",
+ "‹ Previous {0}": "‹ Vorherige {0}",
+ "Next {0} ›": "Nächste {0} ›",
+ "No server found.": "Kein Server gefunden.",
+ "Servers found: {0}": "Gefundene Server: {0}",
+ "more than {0}": "mehr als {0}",
+ "Still starts {0}: {1}": "Startet noch {0}: {1}"
 }

@@ -309,7 +309,9 @@ ticked agents at once: one preview, one Undo). No agent is ticked unless you sel
   new versions, offers every update in one preview with one backup and one Undo, and then tests
   each updated server (a note names any that does not answer).
 - **MCP registry**: a search of the official MCP registry (`registry.modelcontextprotocol.io`), 20
-  results at a time (**Next 20 results** for more). Its own search takes 10–30 s, so its list of
+  results at a time, paged in one line under the list: **‹ Previous 20** · 21 – 40 / 200 ·
+  **Next 20 ›** (the total from the saved list; "/ 40+" when the registry itself is asked, as its
+  API only says whether there are more). Its own search takes 10–30 s, so its list of
   servers is saved in the background when the app starts (Settings › Keep the MCP server list, on by
   default; at most every 12 hours, after the first time only what changed; nothing without a
   connection) in `~/.cache/ai-agents-map/mcp-registry.json` (only for you) and searched there; until
@@ -348,19 +350,29 @@ names; nothing in it is ever run) and kept in `~/.config/omarchy/ai-agents-map/a
 
 ### Smart Check and Daily AI checks
 
-While Claude Code or Codex is installed, the header has a **Smart Check** button (a magnifier). Its
-page shows what an installed agent did and found for this PC, in cards:
+While Claude Code or Codex is installed, the header has a **Smart Check** button (two sparkles). Its
+page shows what an installed agent did and found for this PC, in cards, under an **At your own
+risk** note (an agent's findings, answers and changes can be wrong, incomplete or out of date; read
+what it proposes before agreeing to a step and keep backups; it uses your tokens; no warranty for what
+an agent does). The same note heads Settings › **AI features**.
 
 - **PC setup summary**: **Check now** gives the agent a short description of the setup (agents and
   their versions, models and providers, local LLMs, MCP servers and their versions, number of
   skills, the GPU and memory, and the setup check's own findings; never keys, settings values,
   environment variables or headers). It answers with a summary and findings (problems, tips, what
   is good); each problem or tip has **Fix it with Claude Code…**, which opens the agent in a
-  terminal tab with a prompt of ours that names the finding and asks it to ask before each step.
+  terminal tab with a prompt of ours that names the finding and asks it to ask before each step
+  (and to leave moving MCP servers to a new version to AI Agents Map's Update, which changes every
+  agent's settings in its own format at once).
 - **Updates found**: newer versions of your local MCP servers (apps unpacked in `~/Applications`,
   npm or PyPI packages pinned to a version), each with **Release page** and **Do it with Claude
   Code…** (the agent only downloads the new AppImage into `~/Applications`; AI Agents Map then
-  unpacks it and moves the agents over, with Undo). **Check now** asks at once.
+  unpacks it and moves the agents over, with Undo). **Check now** asks at once. Once the new version
+  is on this PC (unpacked or as its AppImage), the line offers **Use it…** instead of a second
+  download: the map's Update preview, one backup, Undo, a test of each server. The card also lists
+  the map's own finds (as on Setup): a newer version here that an agent still does not start. A
+  server drops off once all its agents start the new version. After an action started here (an
+  update, a task's terminal tab), Back returns to Smart Check.
 - **Token statistics**: tokens today and in 30 days, their value at API prices and whether a
   subscription covers them (the agent's plan, e.g. Max 5x: it counts against the plan's limits, no
   extra charge; with its API key variable set, the key is charged), per agent, per plugin and per day.
@@ -770,7 +782,7 @@ links not followed; nothing is deleted from here.
 The gear (Ctrl+,) opens the settings: **Language** (system or one of English, Deutsch, Français,
 Español, Italiano, Português, Nederlands, Polski), **Look** (the colours from the Omarchy theme,
 or GNOME's Adwaita with the system's light/dark and accent colour), **Map animations** (agents and other programs, only my agents, off; with a moving preview), **Terminal tabs above the map**, **Corners** (like windows, rounded or square, as
-in App Manager and Theme Manager), **Look up new agents**, **Daily AI checks** (off by default; uses the agent's tokens), **Agent for AI checks**, **Start local LLMs with their agents**, **Too narrow for the map** (what the header's "Maximize for more room" does: move the window to a
+in App Manager and Theme Manager), **AI features** (its own group, headed by the at-your-own-risk note: **Look up new agents**, **Daily AI checks** (off by default; uses the agent's tokens), **Agent for AI checks**), **Start local LLMs with their agents**, **Too narrow for the map** (what the header's "Maximize for more room" does: move the window to a
 free workspace, maximize it where it is, or show no hint; with an animated preview), **In the app
 launcher** (the launcher entry; off removes it) and **Agents start in** (the folder for Start). Backspace or Esc goes back. Settings
 live in `~/.config/omarchy/ai-agents-map/settings.json`.

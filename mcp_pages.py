@@ -33,6 +33,14 @@ def agent_name(command: str) -> str:
     return harness.name if harness is not None else command
 
 
+
+def registry_range(page: int, shown: int, total, more: bool) -> str:
+    """"21 – 40 / 200"; without a total (the registry's own API): "21 – 40 / 40+" while there are more."""
+    first = page * mcp_registry.PAGE + 1 if shown else 0
+    last = page * mcp_registry.PAGE + shown
+    of = str(total) if total is not None else f"{last}+" if more else str(last)
+    return f"{first} – {last} / {of}"
+
 class McpPages:
     # --- MCP server details (the (i) on its card) ---------------------------------------------------
 
@@ -478,13 +486,20 @@ class McpPages:
         self.add_web_list.connect("row-selected",
                                   lambda _l, row: row is not None and self.show_registry_server(row.server))
         left.append(self.scrolled(self.add_web_list))
-        # More in the registry than shown: the next 20 below them, on a click.
-        self.registry_next = Gtk.Button(label=_("Next {0} results").format(mcp_registry.PAGE),
-                                        halign=Gtk.Align.START, visible=False)
-        self.registry_next.add_css_class("am-small-btn")
-        self.registry_next.connect("clicked", lambda *_a: self.search_mcp(more=True))
-        left.append(self.registry_next)
-        self.registry_cursor, self.registry_shown = "", 0
+        # One page of 20 at a time, paged in one line: ‹ Previous 20 · 21 – 40 / 200 · Next 20 ›
+        self.registry_pager = Gtk.CenterBox(visible=False)
+        self.registry_prev = Gtk.Button(label=_("‹ Previous {0}").format(mcp_registry.PAGE))
+        self.registry_next = Gtk.Button(label=_("Next {0} ›").format(mcp_registry.PAGE))
+        for button, step in ((self.registry_prev, -1), (self.registry_next, 1)):
+            button.add_css_class("am-small-btn")
+            button.connect("clicked", lambda *_a, s=step: self.search_mcp(page=self.registry_page + s))
+        self.registry_range = Gtk.Label()
+        self.registry_range.add_css_class("am-agent-detail")
+        self.registry_pager.set_start_widget(self.registry_prev)
+        self.registry_pager.set_center_widget(self.registry_range)
+        self.registry_pager.set_end_widget(self.registry_next)
+        left.append(self.registry_pager)
+        self.registry_cursors, self.registry_page = [""], 0
         two_panes("web", left)
 
         # On this PC: programs that offer an MCP server and are not set up yet.
@@ -1162,6 +1177,11 @@ class McpPages:
                 self.open_mcp_updates(updates)
             else:
                 self.add_found_status.set_label(_("Every app with an MCP server you use is up to date."))
+                if self.page_name() != "addmcp":            # started from a hint or Smart Check
+                    self.toast(_("Every app with an MCP server you use is up to date."), 6)
+            self.refresh_overview()
+            if self.page_name() == "smartcheck":
+                self.fill_smart_check()
             return False
 
         threading.Thread(target=work, daemon=True).start()
@@ -1234,48 +1254,58 @@ class McpPages:
         self.add_from = {"appimage": candidate.appimage, "inner": candidate.inner} if candidate.appimage else None
         self.fill_add_form(candidate.name, 0, " ".join(shlex.quote(c) for c in command), "", "", [], source)
 
-    def search_mcp(self, more: bool = False):
-        """The registry's first 20 servers for the query; more: the next 20 below them."""
+    def search_mcp(self, page: int = 0):
+        """The registry's servers for the query, one page of 20 at a time (page 0: a new search).
+        Each page's cursor is kept, so Previous goes back without the registry's help."""
         query = self.add_query.get_text().strip()
         if not query:
             return
-        if not more:
-            self.registry_cursor, self.registry_shown = "", 0
+        if page == 0:
+            self.registry_cursors = [""]
             if self.add_pages.pop("web", None) is not None:     # a new list: nothing picked from it yet
                 self.add_server = self.add_from = None
                 self.add_empty("web", _("Pick a server on the left to see who published it, what it needs and "
                                         "how it runs."))
                 self.update_add_test()
-        cursor = self.registry_cursor if more else ""
+            self.registry_pager.set_visible(False)
+        if not 0 <= page < len(self.registry_cursors):
+            return
+        cursor = self.registry_cursors[page]
         self.add_web_status.set_label(_("Searching… The registry often takes 10 seconds or more."))
         base = web_sources.chosen("mcp")
+        self.registry_prev.set_sensitive(False)
         self.registry_next.set_sensitive(False)
-        if not more:
-            self.registry_next.set_visible(False)
 
         def work():
             try:
-                result, following = mcp_registry.search(
+                result, following, total = mcp_registry.search_page(
                     query, base=base if base != web_sources.DEFAULTS["mcp"] else "", cursor=cursor)
                 error = ""
             except (OSError, ValueError) as failure:
-                result, following, error = [], "", str(failure)
-            GLib.idle_add(done, result, following, error)
+                result, following, total, error = [], "", None, str(failure)
+            GLib.idle_add(done, result, following, total, error)
 
-        def done(result, following, error):
+        def done(result, following, total, error):
             box = self.add_web_list
             if self.add_query.get_text().strip() != query:
                 return False                 # a newer search runs
-            if not more:
-                self.clear_box(box)
-            result = [s for s in result if s.status in ("", "active")] or result
             if error:
                 self.add_web_status.set_label(_("Search failed: {0}").format(error))
-                following = cursor if more else ""        # the button stays to try again
+                self.update_registry_pager(box.observe_children().get_n_items(), total)   # the old page stays
+                return False
+            self.clear_box(box)
+            self.registry_page = page
+            del self.registry_cursors[page + 1:]
+            if following:
+                self.registry_cursors.append(following)
+            result = [s for s in result if s.status in ("", "active")] or result
+            if total is not None:
+                self.add_web_status.set_label(ngettext("1 server found.", "{0} servers found.", total).format(total))
+            elif not result:
+                self.add_web_status.set_label(_("No server found."))
             else:
-                self.registry_shown += len(result)
-                self.add_web_status.set_label(ngettext("1 server found.", "{0} servers found.", self.registry_shown)
-                                              .format(self.registry_shown))
+                self.add_web_status.set_label(_("Servers found: {0}").format(_("more than {0}").format(
+                    page * mcp_registry.PAGE + len(result)) if following else page * mcp_registry.PAGE + len(result)))
             for server in result[:mcp_registry.PAGE]:
                 secret = any(n.required and getattr(n, "secret", False) for o in server.options for n in o.needs)
                 row = self.model_row(server.title or server.short, server.description or server.name,
@@ -1286,12 +1316,21 @@ class McpPages:
                 row.set_tooltip_text(server.name)
                 row.server = server
                 box.append(row)
-            self.registry_cursor = following
-            self.registry_next.set_visible(bool(following))
-            self.registry_next.set_sensitive(True)
+            self.update_registry_pager(len(result[:mcp_registry.PAGE]), total)
+            scroller = box.get_ancestor(Gtk.ScrolledWindow)
+            if scroller is not None:
+                scroller.get_vadjustment().set_value(0)       # a new page starts at its top
             return False
 
         threading.Thread(target=work, daemon=True).start()
+
+    def update_registry_pager(self, shown: int, total):
+        """‹ Previous 20 · 21 – 40 / 200 · Next 20 › under the list (only while there is more than one page)."""
+        page, more = self.registry_page, len(self.registry_cursors) > self.registry_page + 1
+        self.registry_prev.set_sensitive(page > 0)
+        self.registry_next.set_sensitive(more)
+        self.registry_range.set_label(registry_range(page, shown, total, more))
+        self.registry_pager.set_visible(page > 0 or more)
 
     def use_registry(self, server, option, pick=None):
         import shlex

@@ -2577,5 +2577,16 @@
  "$ {0:.2f} at API prices: covered by your {1} plan (it counts against the plan's limits, no extra charge).": "$ {0:.2f} a prezzi API: coperto dal tuo piano {1} (conta nei limiti del piano, nessun costo in più).",
  "$ {0:.2f} at API prices: charged only when it runs on an API key, else covered by your plan.": "$ {0:.2f} a prezzi API: addebitato solo se funziona con una chiave API, altrimenti coperto dal tuo piano.",
  "Your model files, one card per main folder (as on the map), with the local LLMs that read it.": "I tuoi file di modelli, una scheda per cartella principale (come sulla mappa), con gli LLM locali che la leggono.",
- "Your models as the map shows them: one card per folder, with who serves them in brackets.": "I tuoi modelli come li mostra la mappa: una scheda per cartella, tra parentesi chi li fornisce."
+ "Your models as the map shows them: one card per folder, with who serves them in brackets.": "I tuoi modelli come li mostra la mappa: una scheda per cartella, tra parentesi chi li fornisce.",
+ "AI features": "Funzioni IA",
+ "At your own risk": "A tuo rischio",
+ "MCP server {0} {1} is on this PC, the agents still start {2}": "Il server MCP {0} {1} è su questo PC, gli agenti avviano ancora {2}",
+ "Use it…": "Usalo…",
+ "You use the AI features at your own risk. An agent's findings, answers and changes can be wrong, incomplete or out of date: read what it proposes before you agree to a step, and keep backups. Its look-ups and tasks use your tokens or plan limits. AI Agents Map gives no warranty for what an agent does.": "Usi le funzioni IA a tuo rischio. Risultati, risposte e modifiche di un agente possono essere errati, incompleti o superati: leggi cosa propone prima di approvare un passo e tieni dei backup. Le sue ricerche e attività consumano i tuoi token o i limiti del piano. AI Agents Map non dà alcuna garanzia su ciò che fa un agente.",
+ "‹ Previous {0}": "‹ {0} precedenti",
+ "Next {0} ›": "{0} successivi ›",
+ "No server found.": "Nessun server trovato.",
+ "Servers found: {0}": "Server trovati: {0}",
+ "more than {0}": "più di {0}",
+ "Still starts {0}: {1}": "Avvia ancora {0}: {1}"
 }

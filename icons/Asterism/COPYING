@@ -7,6 +7,7 @@ The icons in this folder come from three sources:
   Apache-2.0) drawn into outlines by tools/make-glyph-icons.py.
 - am-omarchy-*-symbolic: glyphs of Omarchy's "omarchy" font (omarchy-settings, MIT).
 - am-chart-symbolic: drawn for this app (MIT, as the app).
+- am-smartcheck-symbolic (two sparkles, Smart Check): drawn for this app (MIT, as the app).
 
 Agents' and providers' names and logos belong to their owners; they are used here only to show
 which program a card or a box on the map stands for.

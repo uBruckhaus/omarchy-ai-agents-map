@@ -21,7 +21,8 @@ class StoredIconsTest(unittest.TestCase):
             self.assertTrue(name and icons.path_for(name), f"U+{ord(char):X} has no stored icon")
 
     def test_the_ui_icons_are_in_the_apps_theme(self):
-        for name in ("view-refresh-symbolic", "go-previous-symbolic", "am-chart-symbolic", "pan-end-symbolic"):
+        for name in ("view-refresh-symbolic", "go-previous-symbolic", "am-chart-symbolic", "am-smartcheck-symbolic",
+                     "pan-end-symbolic"):
             self.assertTrue((icons.ACTIONS / f"{name}.svg").is_file(), name)
         self.assertIn("Inherits=Adwaita", (icons.THEME_DIR / "index.theme").read_text())
 

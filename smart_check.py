@@ -68,7 +68,7 @@ class Analysis:
 
 # --- what the agent is shown -----------------------------------------------------------------
 
-def snapshot(agent_list, details: dict, inventory, report=None, pc=None, updates=None) -> str:
+def snapshot(agent_list, details: dict, inventory, report=None, pc=None, updates=None, waiting=()) -> str:
     """This PC's AI setup in a few lines: names, versions, models, counts, the setup check's
     findings, the updates the daily AI checks found. Nothing secret (no keys, env, headers, URLs' paths or settings values)."""
     lines = []
@@ -91,13 +91,20 @@ def snapshot(agent_list, details: dict, inventory, report=None, pc=None, updates
             lines.append(f"- {rt.name}: {'running' if rt.running else 'stopped'}, {len(rt.models)} models"
                          + (f", used by {', '.join(rt.agents[:6])}" if rt.agents else ""))
     import mcp_updates
-    versions = {s.name: f"{s.app} {s.version}" for s in mcp_updates.installed_servers()}
-    newer = {u.name: u.latest for u in (mcp_updates.cached() if updates is None else updates)}
+    servers = mcp_updates.installed_servers()
+    versions = {s.name: f"{s.app} {s.version}" for s in servers}
+    newer = {u.name: (f"{u.latest} is already on this PC, not used yet (the app's Update moves the agents to it)"
+                      if mcp_updates.on_pc(u) else f"{u.latest} is out")
+             for u in (mcp_updates.still_open(mcp_updates.cached(), servers) if updates is None else updates)}
     lines.append("MCP servers:")
     for server in inventory.mcp[:40]:
         lines.append(f"- {server.name}" + (f" ({versions[server.name]})" if server.name in versions else "")
-                     + (f", {newer[server.name]} is out" if server.name in newer else "")
+                     + (f", {newer[server.name]}" if server.name in newer else "")
                      + f", used by {len(server.agents)} agents")
+    for candidate in list(waiting)[:20]:       # the map's own finds: a newer version here, not started by all
+        users = [a for a in candidate.users if a != "list"]
+        lines.append(f"- {candidate.name} {candidate.version} is on this PC, but {', '.join(users) or 'a link'} still "
+                     f"start {candidate.update_from} (the app's Update moves them)")
     lines.append(f"Skills: {sum(len(s.skills) for s in inventory.skill_sets)} in {len(inventory.skill_sets)} folders")
     if report is not None:
         found = [(f.level, f.title, f.text) for area in report.areas for f in area.findings if f.level in ("warn", "hint")]
@@ -164,7 +171,11 @@ def fix_prompt(finding: Finding) -> str:
     return (f"A check of the AI setup on this Linux PC (Omarchy) found this {finding.level}:\n"
             f"\"{finding.title}\" - {finding.detail}\n"
             f"Look at this PC to see whether it is so, explain what you find, and fix it if it is. "
-            f"Ask me before each step that changes anything.")
+            f"Ask me before each step that changes anything.\n"
+            f"MCP servers that are apps in ~/Applications/<app>-<version>/: you may download a newer AppImage "
+            f"into ~/Applications, but do not change which version any agent or MCP list starts: AI Agents "
+            f"Map's Update does that for every agent at once (each keeps its settings in its own format), "
+            f"with a backup and Undo.")
 
 
 # --- what was done --------------------------------------------------------------------------------

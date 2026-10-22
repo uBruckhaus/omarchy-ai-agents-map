@@ -443,11 +443,14 @@ class SettingsPages:
             # language). Two columns are too narrow for it: the text just wraps.
             if not getattr(self, "settings_two_columns", False):
                 look.set_subtitle(look.get_subtitle().replace(" (", "\n(", 1))
-        self.switch_row(group, _("Look up new agents"),
+        # Its own group after General's rows, with the disclaimer on top.
+        ai = Adw.PreferencesGroup(title=GLib.markup_escape_text(_("AI features")),
+                                  description=GLib.markup_escape_text(self.own_risk_text()))
+        self.switch_row(ai, _("Look up new agents"),
                         _("When a new agent is installed, Claude Code or Codex finds out on the web where it keeps "
                           "MCP servers and skills (once, a few minutes in the background)."),
                         ai_core.setting("look_up_new_agents"), lambda on: self.save_setting(look_up_new_agents=on))
-        self.switch_row(group, _("Daily AI checks"),
+        self.switch_row(ai, _("Daily AI checks"),
                         _("Once a day, an installed agent looks on the web for new versions of your MCP servers "
                           "and shows them as hints, with “Do it with …” to let it do the update. This uses the "
                           "agent's tokens or plan limits; its detail page shows how many."),
@@ -455,7 +458,7 @@ class SettingsPages:
                         lambda on: (self.save_setting(ai_checks=on), self.ai_check_mcp_updates()))
         helpers = ai_helper.helpers({a.command for a in self.agent_list if a.installed})
         chosen = ai_helper.chosen({a.command for a in self.agent_list if a.installed})
-        row = self.combo_row(group, _("Agent for AI checks"),
+        row = self.combo_row(ai, _("Agent for AI checks"),
                              _("Does the daily AI checks, looks up new agents and takes “Do it with …” tasks. "
                                "Its tokens are used for them."),
                              [ai_helper.name_of(c) for c in helpers] or [_("None installed")],
@@ -480,6 +483,7 @@ class SettingsPages:
         self.folder_row(group, _("Agents start in"),
                         _("The folder an agent started here (Start on its card) works in. Enter saves it."),
                         self.agent_folder(), self.save_agent_folder)
+        box.append(ai)
         # The map's animations, with a sketch of what each choice animates (its own group: libadwaita
         # puts what is not a row after a group's list).
         group = self.preference_group(side, _("Map"))

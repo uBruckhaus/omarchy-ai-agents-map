@@ -2577,5 +2577,16 @@
  "$ {0:.2f} at API prices: covered by your {1} plan (it counts against the plan's limits, no extra charge).": "$ {0:.2f} a preços da API: coberto pelo seu plano {1} (conta para os limites do plano, sem custo extra).",
  "$ {0:.2f} at API prices: charged only when it runs on an API key, else covered by your plan.": "$ {0:.2f} a preços da API: só é cobrado se funcionar com uma chave API; caso contrário, o seu plano cobre.",
  "Your model files, one card per main folder (as on the map), with the local LLMs that read it.": "Os seus ficheiros de modelos, um cartão por pasta principal (como no mapa), com os LLM locais que a leem.",
- "Your models as the map shows them: one card per folder, with who serves them in brackets.": "Os seus modelos como o mapa os mostra: um cartão por pasta, com quem os fornece entre parênteses."
+ "Your models as the map shows them: one card per folder, with who serves them in brackets.": "Os seus modelos como o mapa os mostra: um cartão por pasta, com quem os fornece entre parênteses.",
+ "AI features": "Funções de IA",
+ "At your own risk": "Por sua conta e risco",
+ "MCP server {0} {1} is on this PC, the agents still start {2}": "O servidor MCP {0} {1} está neste PC, os agentes ainda iniciam {2}",
+ "Use it…": "Usar…",
+ "You use the AI features at your own risk. An agent's findings, answers and changes can be wrong, incomplete or out of date: read what it proposes before you agree to a step, and keep backups. Its look-ups and tasks use your tokens or plan limits. AI Agents Map gives no warranty for what an agent does.": "Você usa as funções de IA por sua conta e risco. As conclusões, respostas e alterações de um agente podem estar erradas, incompletas ou desatualizadas: leia o que ele propõe antes de aceitar um passo e mantenha backups. Suas pesquisas e tarefas usam seus tokens ou limites do plano. O AI Agents Map não oferece garantia sobre o que um agente faz.",
+ "‹ Previous {0}": "‹ {0} anteriores",
+ "Next {0} ›": "Próximos {0} ›",
+ "No server found.": "Nenhum servidor encontrado.",
+ "Servers found: {0}": "Servidores encontrados: {0}",
+ "more than {0}": "mais de {0}",
+ "Still starts {0}: {1}": "Ainda inicia {0}: {1}"
 }

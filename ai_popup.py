@@ -471,7 +471,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
 
         # Smart Check: what the installed online agent did and found (only while one can).
         self.smartcheck_button = Gtk.Button(visible=False)
-        self.smartcheck_button.set_child(Gtk.Image.new_from_icon_name("system-search-symbolic"))
+        self.smartcheck_button.set_child(Gtk.Image.new_from_icon_name("am-smartcheck-symbolic"))
         self.smartcheck_button.set_tooltip_text(_("Smart Check: your AI setup checked by an agent, its finds and tokens"))
         for css in ("flat", "am-header-btn", "am-gear-btn"):
             self.smartcheck_button.add_css_class(css)
@@ -1365,17 +1365,43 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             self.hint_line(_("{0} {1} is available (you have {2})").format(update.name, update.available, update.current),
                            [(_("Update"), lambda u=update: self.run_update(u))])
         # The daily AI checks (Settings): MCP servers' updates an agent found on the web.
-        agent = self.task_agent() if self.ai_mcp_updates else None
-        for update in self.ai_mcp_updates:
-            buttons = [(_("Release page"), lambda u=update: self.open_uri(u.url))]
-            if agent:
-                buttons.append((_("Do it with {0}…").format(ai_helper.name_of(agent)),
-                                lambda u=update: self.do_with_agent(f"mcp-update:{u.name}", _("Update {0}").format(u.name),
-                                                                    mcp_updates.task_prompt(u), on_end=self.check_new_apps)))
-            self.hint_line(_("MCP server {0} {1} is available (you have {2})").format(update.name, update.latest,
-                                                                                      update.current),
-                           buttons, tip=update.notes)
+        for update in self.open_ai_mcp_updates():
+            self.hint_line(self.mcp_update_text(update), self.mcp_update_buttons(update), tip=update.notes)
 
+
+    def open_ai_mcp_updates(self) -> list:
+        """The AI checks' updates the agents do not use yet (one moved by the map's Update is gone)."""
+        try:
+            return mcp_updates.still_open(self.ai_mcp_updates, mcp_updates.installed_servers())
+        except (OSError, ValueError):
+            return list(self.ai_mcp_updates)
+
+    @staticmethod
+    def mcp_update_text(update) -> str:
+        if mcp_updates.on_pc(update):
+            return _("MCP server {0} {1} is on this PC, the agents still start {2}").format(
+                update.name, update.latest, update.current)
+        return _("MCP server {0} {1} is available (you have {2})").format(update.name, update.latest, update.current)
+
+    def mcp_update_buttons(self, update) -> list:
+        """An AI check's update: downloaded already → the map moves the agents (no second download);
+        else its release page and "Do it with …"."""
+        if mcp_updates.on_pc(update):
+            return [(_("Use it…"), self.check_mcp_updates)]
+        buttons = [(_("Release page"), lambda: self.open_uri(update.url))]
+        agent = self.task_agent()
+        if agent:
+            buttons.append((_("Do it with {0}…").format(ai_helper.name_of(agent)),
+                            lambda: self.do_with_agent(f"mcp-update:{update.name}", _("Update {0}").format(update.name),
+                                                       mcp_updates.task_prompt(update), on_end=self.after_mcp_task)))
+        return buttons
+
+    def after_mcp_task(self):
+        """An update task's terminal ended: what it downloaded shows as "Use it…" at once."""
+        self.check_new_apps()
+        self.refresh_overview()
+        if self.page_name() == "smartcheck":
+            self.fill_smart_check()
 
     def agent_names(self) -> dict:
         names = {a.command: a.name for a in self.agent_list}
@@ -2006,6 +2032,8 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             elif page == "addmcp" and not self.scanning_mcp:
                 self.show_found_mcp()
                 self.mark_seen("mcp")
+            elif page == "smartcheck":
+                self.fill_smart_check()              # its updates include the map's own finds
             return False
 
         threading.Thread(target=work, daemon=True).start()

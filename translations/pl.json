@@ -2653,5 +2653,16 @@
  "$ {0:.2f} at API prices: covered by your {1} plan (it counts against the plan's limits, no extra charge).": "$ {0:.2f} po cenach API: pokryte przez twój plan {1} (liczy się do limitów planu, bez dodatkowych opłat).",
  "$ {0:.2f} at API prices: charged only when it runs on an API key, else covered by your plan.": "$ {0:.2f} po cenach API: naliczane tylko, gdy działa na kluczu API, w przeciwnym razie pokrywa to twój plan.",
  "Your model files, one card per main folder (as on the map), with the local LLMs that read it.": "Twoje pliki modeli, jedna karta na główny folder (jak na mapie), z lokalnymi LLM-ami, które go czytają.",
- "Your models as the map shows them: one card per folder, with who serves them in brackets.": "Twoje modele tak jak na mapie: jedna karta na folder, w nawiasie, kto je udostępnia."
+ "Your models as the map shows them: one card per folder, with who serves them in brackets.": "Twoje modele tak jak na mapie: jedna karta na folder, w nawiasie, kto je udostępnia.",
+ "AI features": "Funkcje AI",
+ "At your own risk": "Na własne ryzyko",
+ "MCP server {0} {1} is on this PC, the agents still start {2}": "Serwer MCP {0} {1} jest na tym komputerze, agenci nadal uruchamiają {2}",
+ "Use it…": "Użyj…",
+ "You use the AI features at your own risk. An agent's findings, answers and changes can be wrong, incomplete or out of date: read what it proposes before you agree to a step, and keep backups. Its look-ups and tasks use your tokens or plan limits. AI Agents Map gives no warranty for what an agent does.": "Korzystasz z funkcji AI na własne ryzyko. Ustalenia, odpowiedzi i zmiany agenta mogą być błędne, niepełne lub nieaktualne: przeczytaj, co proponuje, zanim zgodzisz się na krok, i miej kopie zapasowe. Jego wyszukiwania i zadania zużywają twoje tokeny lub limity planu. AI Agents Map nie daje żadnej gwarancji za to, co robi agent.",
+ "‹ Previous {0}": "‹ Poprzednie {0}",
+ "Next {0} ›": "Następne {0} ›",
+ "No server found.": "Nie znaleziono serwera.",
+ "Servers found: {0}": "Znalezione serwery: {0}",
+ "more than {0}": "ponad {0}",
+ "Still starts {0}: {1}": "Nadal uruchamia {0}: {1}"
 }

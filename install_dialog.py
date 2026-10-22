@@ -250,6 +250,8 @@ class InstallDialog:
                 self.refresh_addons()
             elif origin == "setup":
                 self.open_my_setup()
+            elif origin == "smartcheck":
+                self.show_smart_check_again()
             else:
                 self.show_view("main", save=False)
         return back

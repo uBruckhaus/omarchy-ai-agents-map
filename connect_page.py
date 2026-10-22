@@ -727,7 +727,8 @@ class ConnectPage:
     def open_mcp_updates(self, candidates):
         """Apps' newer versions: their users move to them (one preview, backup, Undo)."""
         names = self.agent_names()
-        self.connecting = {"updates": list(candidates), "from": self.view, "remove_only": False}
+        self.connecting = {"updates": list(candidates), "from": self.view, "remove_only": False,
+                           "page": self.page_name()}       # Smart Check's Use it…: back to it afterwards
         self.connect_title.set_label((_("Update {0}").format(candidates[0].name) if len(candidates) == 1 else
                                       _("Update {0} apps").format(len(candidates))).upper())
         self.connect_reset()
@@ -1105,5 +1106,8 @@ class ConnectPage:
             return
         if info and "skill_update" in info:
             self.open_mcp_details(info["server"])      # back to the server's page
+            return
+        if info and info.get("page") == "smartcheck":
+            self.show_smart_check_again()
             return
         self.show_view(info["from"] if info else self.view, save=False)

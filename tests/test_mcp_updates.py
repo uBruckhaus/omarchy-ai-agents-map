@@ -86,6 +86,19 @@ class McpUpdatesTest(unittest.TestCase):
         moved = [mcp_updates.Server("photocraft", "photocraft", "0.12.0", "app")]
         self.assertEqual(mcp_updates.still_open(found, moved), [])
 
+    def test_a_download_already_here_is_not_offered_again(self):
+        update = mcp_updates.Found("photocraft", "photocraft", "0.11.1", "0.12.0", "https://x.org", source="app")
+        with mock.patch.object(mcp_updates.mcp_scan, "appimages", return_value=[]):
+            self.assertFalse(mcp_updates.on_pc(update))
+            (self.apps / "photocraft-0.12.0").mkdir()            # unpacked: only the agents' move is left
+            self.assertTrue(mcp_updates.on_pc(update))
+        image = self.apps / "photocraft-0.13.0-linux-x86_64.AppImage"
+        later = mcp_updates.Found("photocraft", "photocraft", "0.11.1", "0.13.0", "https://x.org", source="app")
+        with mock.patch.object(mcp_updates.mcp_scan, "appimages", return_value=[image]):
+            self.assertTrue(mcp_updates.on_pc(later))            # downloaded, not unpacked yet
+        self.assertFalse(mcp_updates.on_pc(mcp_updates.Found("py", "mcp-server-time", "0.6.2", "0.7.0",
+                                                             "https://x.org", source="pypi")))
+
     def test_the_task_downloads_only(self):
         update = mcp_updates.Found("photocraft", "photocraft", "0.11.1", "0.12.0", "https://x.org/r", source="app")
         prompt = mcp_updates.task_prompt(update)
