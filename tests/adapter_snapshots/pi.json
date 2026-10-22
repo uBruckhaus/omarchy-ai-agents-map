@@ -94,6 +94,12 @@
   "defaultTools"
  ],
  "sandbox_setting": "",
+ "replies": [
+  "~/.pi/agent/sessions",
+  1,
+  "pi-jsonl",
+  []
+ ],
  "asks_setting": "defaultTools",
  "access": {
   "how": "Sign in inside Pi (/login: Claude, ChatGPT, Copilot …), an API key, or a local LLM from the map",

@@ -11,6 +11,11 @@ home = "~/.codex"
 activity = ["~/.codex/history.jsonl", "~/.codex/sessions", "~/.codex/state_5.sqlite"]
 web_search = true                      # searches the web itself (no MCP server needed)
 
+[replies]                              # its session files: the map's usage statistics box
+folder = "~/.codex/sessions"
+depth = 3
+format = "codex-jsonl"
+
 [[install]]
 kind = "mise"
 spec = "codex"

@@ -140,6 +140,21 @@
  ],
  "tools_setting": [],
  "sandbox_setting": "sandbox.enabled",
+ "replies": [
+  "~/.claude/projects",
+  1,
+  "claude-jsonl",
+  [
+   [
+    "",
+    200000
+   ],
+   [
+    "claude-opus-5",
+    1000000
+   ]
+  ]
+ ],
  "asks_setting": "permissions.defaultMode",
  "access": {
   "how": "A Claude Pro or Max subscription (claude.ai), or an API key from console.anthropic.com",

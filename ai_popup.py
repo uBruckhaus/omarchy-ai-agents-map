@@ -27,6 +27,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango
 import atexit
 
 import agent_activity
+import usage_box
 import mcp_activity
 import agent_details
 import ai_helper
@@ -851,6 +852,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.side_map = MapView()
         self.side_map.set_layers(ai_core.map_layers())
         self.side_map.set_animate(ai_core.map_animations())
+        self.side_map.set_usage_box({}, ai_core.setting("usage_box_items"), ai_core.setting("usage_box_size"))
         self.map_view = self.side_map      # the one map (code below still says map_view in places)
         self.side_map.on_zoom = lambda _z: self.zoom_changed()
         self.update_layer_toggles()
@@ -1126,11 +1128,16 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                 mcp_busy = self.mcp_now(pids, working)
             except Exception:
                 mcp_busy = set()
-            GLib.idle_add(done, usage, running, working, outside, stamp, mcp_busy)
+            try:
+                readings = self.usage_box_now(working, runtimes)
+            except Exception:
+                readings = {}
+            GLib.idle_add(done, usage, running, working, outside, stamp, mcp_busy, readings)
 
-        def done(usage, running, working, outside, stamp, mcp_busy):
+        def done(usage, running, working, outside, stamp, mcp_busy, readings):
             self.gpu_reading = False
             self.side_map.set_working(working)
+            self.side_map.set_usage_box({f"agent:{command}": r for command, r in readings.items()})
             self.side_map.set_mcp_busy(mcp_busy)
             self.side_map.set_outside({rid: {mid: _("in use · {0}").format(names) for mid, names in models.items()}
                                        for rid, models in outside.items()})
@@ -1229,6 +1236,30 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                 if use is not None and use.running:
                     generating.update(rt.active_agents)
         return self.activity.working(pids, states, generating)
+
+    def usage_box_now(self, working, runtimes) -> dict:
+        """{agent: usage_box.Reading} of the working agents, for the usage statistics box on their
+        flowing lines; an agent on a local LLM whose files do not say its context size gets the
+        one that LLM loads its model with."""
+        if self.side_map.animate == "off" or not working or not ai_core.setting("usage_box"):
+            return {}
+        if not hasattr(self, "usage_readings"):
+            self.usage_readings = usage_box.Rates()
+        readings = self.usage_readings.readings(working)
+        graph = self.side_map.graph
+        for command, reading in readings.items():
+            if reading.window or graph is None:
+                continue
+            model = next((e.target for e in graph.edges
+                          if e.kind == "default" and e.source == f"agent:{command}"), "")
+            if not model.startswith("model:runtime:"):
+                continue
+            key, _, name = model[len("model:runtime:"):].partition(":")
+            rt = next((r for r in runtimes if r.key == key), None)
+            real = next((m for m in (rt.models if rt else ()) if isinstance(m, str) and m.lower() == name), "")
+            if real:
+                reading.window = llm_engine.of(rt).model_context(rt, real)
+        return readings
 
     def mcp_now(self, pids: dict, working) -> set:
         """{(agent, server)}: the MCP servers the working agents call right now (mcp_activity),

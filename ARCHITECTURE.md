@@ -59,6 +59,7 @@ that layer and on the change layer.** The pages above them call into these.
 | Paste into text fields | `text_guard.TextGuard` | `wl-paste`, at most 8 KiB (`ai_core.MAX_PASTE_BYTES`), no drops, no middle-click paste |
 | Agent facts | `adapter_data.check` on `adapters/*.toml` | schema of allowed keys and types, 256 KiB per file; shipped with the plugin, nothing loaded from elsewhere |
 | MCP registry answers | `mcp_registry` (`MAX_SERVERS`, `MAX_OPTIONS`, `MAX_ARGUMENTS`, `MAX_FIELDS`, `MAX_BYTES`) | budgeted before any form is built |
+| Agents' session files (usage statistics box on the map) | `usage_box.Rates` → `tail_lines` | only the folder the agent's adapter names (`[replies]`), its newest `*.jsonl` written in the last minute; opened with `O_NOFOLLOW`, must be this account's own regular file; only its last 256 KiB, lines over 64 KiB skipped; only numbers, times and model names are taken (no message text); folder scan capped at 20,000 entries every 10 s |
 | Saved MCP server list | `mcp_registry.refresh_list` (`_kept`/`_trim`, `LIST_MAX_ITEM`, `LIST_MAX_SERVERS`, `LIST_MAX_FILE`) | each entry cut to what `parse` reads (128 KiB at most, else left out); the list in memory stays within 100,000 entries and 96 MiB while it downloads (a full list ends the download); `_write_list` refuses a file over 96 MiB |
 
 ### Every place a child process is started
@@ -109,12 +110,12 @@ where it asks before each step. Daily AI checks are off by default.
 
 ## Tests that cover these points
 
-`python3 -m unittest discover -s tests` (84 modules, no network, no display). Where to look:
+`python3 -m unittest discover -s tests` (85 modules, no network, no display). Where to look:
 
 - Plans, backups and Undo in a temporary home: `test_connect`, `test_mcp`, `test_mcp_update`,
   `test_skills`, `test_security` (the agents' security settings: only the one key changes)
 - Hostile answers and files: `test_registry_bounds` (registry), `test_gguf_bounds` (GGUF headers),
-  `test_mcp_updates` and `test_smart_check` (AI answers), `test_claude_sessions` (session files)
+  `test_mcp_updates` and `test_smart_check` (AI answers), `test_claude_sessions` and `test_usage_box` (session files)
 - Hostile names and paths (quotes, `$()`, CR/LF, links): `test_install`, `test_hardening_map_lines`
   (model names, links and `models.ini` in shared model folders), `test_model_move`,
   `test_model_layout`, `test_desktop` (terminal quoting), `test_signin` (API keys)

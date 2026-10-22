@@ -80,6 +80,11 @@ LLM providers → models, under the **GPU** card (GPU memory and activity; it fo
   session files were written in the last seconds, or its local LLM is generating), light runs along
   its line to its provider and model (Settings › **Map animations**: agents and other programs, only
   agents, or off; off when the desktop turns animations off).
+- **Usage statistics box** (new in 0.21.0): along a working agent's line to its provider, in the
+  line's colour, how fast its latest reply came (tokens per second), its context size and how much of
+  it is in use (yellow from 75 %, red over 90 %, like the batteries). Read from the agent's own
+  session files, numbers only (Claude Code, Codex, Pi; the newest file of the last minute, its last
+  256 KiB). Settings › **Usage statistics box**: on or off, what it shows, text size.
 - **Used from outside the map**: when a program that is not on the map (a plugin such as Video
   Trans, a chat app, a script) generates with a local LLM, the line from that LLM to the model is
   drawn bold in a colour of its own, light runs along it, and the model box says who uses it ("in use

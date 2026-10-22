@@ -54,6 +54,7 @@
  "rewrite": [],
  "tools_setting": [],
  "sandbox_setting": "",
+ "replies": [],
  "asks_setting": "defaultPermissionMode",
  "access": {
   "how": "A GitHub Copilot subscription (github.com/features/copilot)",

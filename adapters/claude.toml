@@ -22,6 +22,12 @@ latest = "claude-channel"              # a reader the app has: the newest versio
 reader = "claude-files"                # a reader the app has (~/.claude/projects)
 note = "Numbers from Claude Code's session files (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs."
 
+[replies]                              # its session files: the map's usage statistics box
+folder = "~/.claude/projects"
+depth = 1
+format = "claude-jsonl"
+contexts = { "claude-opus-5" = 1000000, "" = 200000 }   # context size by model name beginning
+
 [skills]
 dirs = ["~/.claude/skills"]            # read by the agent itself
 own = "~/.claude/skills"               # where the app's links go

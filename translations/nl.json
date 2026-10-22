@@ -2588,5 +2588,18 @@
  "No server found.": "Geen server gevonden.",
  "Servers found: {0}": "Gevonden servers: {0}",
  "more than {0}": "meer dan {0}",
- "Still starts {0}: {1}": "Start nog {0}: {1}"
+ "Still starts {0}: {1}": "Start nog {0}: {1}",
+ "Usage statistics box": "Gebruiksstatistiekvak",
+ "Show the usage statistics box": "Gebruiksstatistiekvak tonen",
+ "Tokens per second": "Tokens per seconde",
+ "How fast its latest reply came: output tokens over the time from its input to the end.": "Hoe snel het laatste antwoord kwam: uitvoertokens gedeeld door de tijd van de invoer tot het einde.",
+ "Context size": "Contextgrootte",
+ "How many tokens its model can keep in mind.": "Hoeveel tokens het model kan onthouden.",
+ "Context used": "Context gebruikt",
+ "The part of the context in use: green, yellow from 75 %, red over 90 %, as the batteries.": "Het gebruikte deel van de context: groen, geel vanaf 75 %, rood boven 90 %, zoals bij de batterijen.",
+ "Small numbers over a working agent's line to its provider, while light runs along it, read from the agent's own session files (numbers only).": "Kleine getallen boven de lijn van een werkende agent naar zijn aanbieder, zolang er licht langs loopt, gelezen uit de eigen sessiebestanden van de agent (alleen getallen).",
+ "Text size": "Tekstgrootte",
+ "How big its numbers are written on the line.": "Hoe groot de getallen op de lijn staan.",
+ "{0} pt (default)": "{0} pt (standaard)",
+ "{0} pt": "{0} pt"
 }

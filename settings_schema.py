@@ -11,6 +11,8 @@ from typing import Any, Callable
 
 MAP_LAYERS = ("agents", "online", "local", "models", "mcp", "skills")
 MAP_ANIMATIONS = ("all", "agents", "off")
+USAGE_BOX_ITEMS = ("rate", "context", "used")     # as usage_box.ITEMS
+USAGE_BOX_SIZES = (7, 8, 9, 10, 12)                 # text size in pt, as usage_box.SIZES (7: the default)
 LOOKS = ("omarchy", "adwaita")
 
 
@@ -65,6 +67,11 @@ SCHEMA: dict[str, Setting] = {
     # The map
     "map_layers": Setting(list(MAP_LAYERS), _texts, "the map's Show switches of the full-size window"),
     "map_animations": Setting("all", _one_of(*MAP_ANIMATIONS), "Settings › Map animations"),
+    "usage_box": Setting(True, _bool, "Settings › Usage statistics box: shown on a working agent's line"),
+    "usage_box_items": Setting(list(USAGE_BOX_ITEMS), lambda v: _texts(v) and set(v) <= set(USAGE_BOX_ITEMS),
+                               "Settings › Usage statistics box: what it shows (usage_box.ITEMS)"),
+    "usage_box_size": Setting(7, lambda v: v in USAGE_BOX_SIZES and not isinstance(v, bool),
+                              "Settings › Usage statistics box: its text size in pt"),
     "map_zoom": Setting(1.0, _number, "the map's zoom"),
     "map_layout": Setting({}, _mapping, "the map's cards: {\"order\": {card: [box ids]}, \"cards\": {card: [x, y]}} "
                           "(drag a box inside its card, a card by its header; Default layout clears it)"),

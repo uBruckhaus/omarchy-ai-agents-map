@@ -12,6 +12,11 @@ data = ["~/.pi"]
 home = "~/.pi/agent"
 activity = ["~/.pi/agent/sessions"]
 
+[replies]                              # its session files: the map's usage statistics box
+folder = "~/.pi/agent/sessions"
+depth = 1
+format = "pi-jsonl"
+
 [[install]]
 kind = "mise"
 spec = "pi"

@@ -43,7 +43,7 @@ TOP = {"command": STR, "name": STR, "label": STR, "full_name": STR, "icon": STR,
        "access": TABLE, "security": TABLE, "login_status": TABLE, "installer": STR, "usage": STR,
        "local_llm": TABLE, "ask": TABLE, "configure": TABLES, "home": STR, "activity": STRS, "details": TABLE,
        "program_dir": STR, "start": STRS, "web_search": BOOL, "chat_app": BOOL, "herdr": STR, "research": TABLE, "rewrite": TABLE, "task": TABLE,
-       "models": TABLE, "tools": TABLE}
+       "models": TABLE, "tools": TABLE, "replies": TABLE}
 WAY = {"kind": STR, "spec": STR, "tool": STR, "argv": STRS, "sudo": BOOL, "url": STR, "note": STR,
        "update": STRS, "packages": "a list of [manager, name]"}
 UPDATE = {"self": STRS, "latest": STR}
@@ -64,6 +64,10 @@ TOOLS = {"file": STR, "key": STR}                       # the tools it is given 
 # started in a terminal tab with a first prompt ("Do it with …"), asking before each step itself.
 RESEARCH, REWRITE, TASK = {"argv": STRS, "output": STR}, {"argv": STRS}, {"argv": STRS}
 OUTPUTS = ("text", "claude-json", "codex-jsonl")
+# Its session files, for how fast its latest reply came (the map's "t/s"): the folder, how many
+# folders deep the files are in it, and their format (one usage_box.FORMATS has).
+REPLIES = {"folder": STR, "depth": INT, "format": STR, "contexts": TABLE}   # contexts: model name prefix -> tokens
+REPLY_FORMATS = ("claude-jsonl", "codex-jsonl", "pi-jsonl")
 SKILLS = {"dirs": STRS, "own": STR, "listed": TABLE_OR_HOOK, "settings_list": BOOL, "settings_file": STR,
           "write": HOOK}
 LISTED = {"file": STR, "format": STR, "key": STR}       # extra skill folders a settings file lists
@@ -191,6 +195,16 @@ def check(data: dict, name: str) -> None:
             raise AdapterError(f"{name}: models.reader “{data['models']['reader']}” is not one the app has")
     if "tools" in data:
         _check(data["tools"], TOOLS, f"{name}: tools", ("file", "key"))
+    if "replies" in data:
+        _check(data["replies"], REPLIES, f"{name}: replies", ("folder", "format"))
+        if data["replies"]["format"] not in REPLY_FORMATS:
+            raise AdapterError(f"{name}: replies.format “{data['replies']['format']}” is not one the app has "
+                               f"({', '.join(REPLY_FORMATS)})")
+        if not data["replies"]["folder"].startswith("~/") or not 0 <= data["replies"].get("depth", 1) <= 4:
+            raise AdapterError(f"{name}: replies.folder must start with “~/”, replies.depth be 0 to 4")
+        if not all(isinstance(k, str) and len(k) <= 100 and _fits(v, INT) and 0 < v < 10 ** 9
+                   for k, v in data["replies"].get("contexts", {}).items()):
+            raise AdapterError(f"{name}: replies.contexts must map model name beginnings to token counts")
     for i, entry in enumerate(data.get("configure", [])):
         _check(entry, CONFIGURE, f"{name}: configure[{i}]", REQUIRED["configure"])
         # The agent itself and plain words: never a shell, never another program.
@@ -435,6 +449,8 @@ def harness(data: dict, name: str = "adapter", hooks=None) -> Harness:
         task=tuple(data["task"]["argv"]) if "task" in data else (),
         rewrite=tuple(data["rewrite"]["argv"]) if "rewrite" in data else (), models=models,
         tools_setting=(data["tools"]["file"], data["tools"]["key"]) if "tools" in data else (),
+        replies=(data["replies"]["folder"], data["replies"].get("depth", 1), data["replies"]["format"],
+                 tuple(sorted(data["replies"].get("contexts", {}).items()))) if "replies" in data else (),
         usage=ref(*USAGE[data["usage"]]) if "usage" in data else None,
         local_llm=llm, skills=skills, mcp=mcp,
         login_status=(tuple(data["login_status"]["argv"]), data["login_status"]["no"], data["login_status"]["yes"])

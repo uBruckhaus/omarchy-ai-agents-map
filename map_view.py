@@ -42,6 +42,7 @@ import math
 import cairo
 
 import graph as graph_model
+import usage_box
 from glyphs import MCP_GLYPHS, glyph
 
 import gi
@@ -167,6 +168,9 @@ class MapView(Gtk.DrawingArea):
         self.flow_layer = None   # FlowLayer over the map (with_flow_layer)
         self.working = None      # agent commands working now (agent_activity); None: every running one flows
         self.mcp_busy = set()    # (agent command, MCP server name) a working agent uses now (mcp_activity)
+        self.ub = {}             # agent id -> usage_box.Reading: the usage statistics box on its flowing line
+        self.usage_items = usage_box.ITEMS   # what the box shows (Settings › Usage statistics box)
+        self.usage_size = usage_box.SIZES[0]  # its text size in pt
         self.outside = {}        # runtime id -> {model id: "in use · Video Trans"}: an app outside the map generates
         self.set_draw_func(self.on_draw)
         self.scroll_adjustment = None
@@ -1298,6 +1302,80 @@ class MapView(Gtk.DrawingArea):
             self.working = working
             self.queue_draw()          # the flow follows on this drawing
 
+    def set_usage_box(self, readings: dict, items=None, size=None):
+        """{agent id: usage_box.Reading}, what the box shows and its text size in pt (None: as before)."""
+        if items is not None:
+            self.usage_items = tuple(i for i in usage_box.ITEMS if i in items)
+        if size is not None:
+            self.usage_size = size
+        if readings != self.ub or items is not None or size is not None:
+            self.ub = dict(readings)
+            if self.flow_layer is not None:
+                self.flow_layer.queue_draw()
+
+    def line_color(self, edge) -> str:
+        """The colour name an active line is drawn in (as in draw: a tint unless it is the one
+        picked agent's own path)."""
+        index = next((i for i, e in enumerate(self.graph.edges) if e is edge), None)
+        if index is None or index in self.active.get(self.single_agent(), set()):
+            return "accent"
+        return self.tints.get(index) or "accent"
+
+    UB_GAP = 3                   # px between the usage statistics box and its line
+    UB_SPACE = 7                 # px between its parts
+
+    def draw_usage_box(self, cr, agent: str, edges, level: float):
+        """The agent's usage statistics box: its parts written along its line to the provider,
+        centred on it and just above it, in the line's colour (the context in use yellow or red
+        past the batteries' thresholds)."""
+        reading = self.ub.get(agent)
+        if reading is None or not edges or edges[0].source != agent or level <= 0:
+            return
+        parts = usage_box.parts(reading, self.usage_items)
+        if not parts:
+            return
+        edge = edges[0]
+        line = self.line_color(edge)
+        layout = PangoCairo.create_layout(cr)
+        layout.set_font_description(Pango.FontDescription.from_string(f"Sans Bold {self.usage_size}"))
+        glyphs = []                  # (character, colour, width, height), a gap between parts
+        for number, (text, colour) in enumerate(parts):
+            if number:
+                glyphs.append(("", "", self.UB_SPACE * self.usage_size / 7, 0))
+            for char in text:
+                layout.set_text(char, -1)
+                width, height = (v / Pango.SCALE for v in layout.get_size())
+                glyphs.append((char, line if colour == "line" else colour, width, height))
+        total = sum(g[2] for g in glyphs)
+        # The curve as a list of points with their distance along it.
+        samples = [self.curve_point(edge, i / 64) for i in range(65)]
+        lengths = [0.0]
+        for (ax, ay), (bx, by) in zip(samples, samples[1:]):
+            lengths.append(lengths[-1] + math.hypot(bx - ax, by - ay))
+        if lengths[-1] < total + 20:
+            return                   # too short a line for it
+        at = (lengths[-1] - total) / 2
+
+        def place(distance):
+            i = max(1, min(len(lengths) - 1, next((k for k, d in enumerate(lengths) if d >= distance),
+                                                    len(lengths) - 1)))
+            (ax, ay), (bx, by) = samples[i - 1], samples[i]
+            part = (distance - lengths[i - 1]) / max(1e-6, lengths[i] - lengths[i - 1])
+            return ax + (bx - ax) * part, ay + (by - ay) * part, math.atan2(by - ay, bx - ax)
+
+        for char, colour, width, height in glyphs:
+            if char and not char.isspace():
+                x, y, angle = place(at + width / 2)
+                layout.set_text(char, -1)
+                cr.save()
+                cr.translate(x, y)
+                cr.rotate(angle)
+                cr.set_source_rgba(*self.color(colour, level))
+                cr.move_to(-width / 2, -height - self.UB_GAP)
+                PangoCairo.show_layout(cr, layout)
+                cr.restore()
+            at += width
+
     def set_mcp_busy(self, busy):
         """{(agent command, server name)}: the agent calls that MCP server right now; light runs
         along the line from the agent to the server, in the line's own colour."""
@@ -2052,6 +2130,9 @@ class FlowLayer(Gtk.DrawingArea):
         cr.scale(view.zoom, view.zoom)
         try:
             view.draw_flow(cr, list(self.paths.items()), GLib.get_monotonic_time() / 1e6, self.levels)
+            for agent, edges in self.paths.items():
+                if agent.startswith("agent:"):
+                    view.draw_usage_box(cr, agent, edges, self.levels.get(agent, 0.0))
         except KeyError:
             pass                     # a box went away since the map was drawn: the next drawing fixes it
 

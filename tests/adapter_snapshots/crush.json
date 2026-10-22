@@ -55,6 +55,7 @@
  "rewrite": [],
  "tools_setting": [],
  "sandbox_setting": "",
+ "replies": [],
  "asks_setting": "",
  "access": {
   "how": "An API key for a provider, or a local LLM from the map",

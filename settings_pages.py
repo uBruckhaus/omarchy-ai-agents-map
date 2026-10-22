@@ -26,6 +26,7 @@ import model_layout
 import previews
 import provider_watch
 import runtime_ctl
+import usage_box
 import web_sources
 from i18n import _, N_, ngettext
 from ui_helpers import SpaceBar, size_text
@@ -354,6 +355,48 @@ class SettingsPages:
         first = re.split(r"(?<=[.;])\s", hint, maxsplit=1)[0].rstrip(".;") + "."
         return first if len(hint) > 90 and len(first) < len(hint) else hint
 
+    def usage_box_rows(self, side):
+        """Settings › Usage statistics box: whether a working agent's line shows it, and what."""
+        group = self.preference_group(side, _("Usage statistics box"))
+        items = list(ai_core.setting("usage_box_items"))
+        rows = []
+
+        def save_items(item, on):
+            chosen = [i for i in usage_box.ITEMS if (i == item and on) or (i != item and i in items)]
+            items[:] = chosen
+            self.save_setting(usage_box_items=chosen)
+            self.side_map.set_usage_box(self.side_map.ub, chosen)
+
+        def show(on):
+            self.save_setting(usage_box=on)
+            for row in rows:
+                row.set_sensitive(on)
+            if not on:
+                self.side_map.set_usage_box({})
+
+        self.switch_row(group, _("Show the usage statistics box"),
+                        _("Small numbers over a working agent's line to its provider, while light runs along "
+                          "it, read from the agent's own session files (numbers only)."),
+                        ai_core.setting("usage_box"), show)
+        for item, title, hint in (
+                ("rate", _("Tokens per second"),
+                 _("How fast its latest reply came: output tokens over the time from its input to the end.")),
+                ("context", _("Context size"), _("How many tokens its model can keep in mind.")),
+                ("used", _("Context used"),
+                 _("The part of the context in use: green, yellow from 75 %, red over 90 %, as the batteries."))):
+            row = self.switch_row(group, title, hint, item in items, lambda on, item=item: save_items(item, on))
+            row.set_sensitive(ai_core.setting("usage_box"))
+            rows.append(row)
+        sizes = usage_box.SIZES
+        row = self.combo_row(group, _("Text size"), _("How big its numbers are written on the line."),
+                             [_("{0} pt (default)").format(n) if n == sizes[0] else _("{0} pt").format(n)
+                              for n in sizes],
+                             sizes.index(ai_core.setting("usage_box_size")),
+                             lambda i: (self.save_setting(usage_box_size=sizes[i]),
+                                        self.side_map.set_usage_box(self.side_map.ub, size=sizes[i])))
+        row.set_sensitive(ai_core.setting("usage_box"))
+        rows.append(row)
+
     def switch_row(self, group, title: str, hint: str, active: bool, on_toggle) -> Adw.SwitchRow:
         short = self.short_hint(hint)
         row = Adw.SwitchRow(title=title, subtitle=short, active=active, use_markup=False)
@@ -504,6 +547,7 @@ class SettingsPages:
                                                           _("in use · {0}").format(_("another program"))))
         preview.append(self.animation_sketch)
         group.add(preview)
+        self.usage_box_rows(side)
         models_group = self.preference_group(side, _("Models"))
 
         group = models_group

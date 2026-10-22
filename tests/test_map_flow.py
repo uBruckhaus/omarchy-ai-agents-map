@@ -148,3 +148,47 @@ class FadeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UsageBoxTest(unittest.TestCase):
+    """The usage statistics box keeps its readings apart from the GPU usage the map also gets."""
+
+    class View:
+        set_usage = map_view.MapView.set_usage
+        set_usage_box = map_view.MapView.set_usage_box
+        draw_usage_box = map_view.MapView.draw_usage_box
+        line_color = map_view.MapView.line_color
+        single_agent = lambda self: None
+        UB_GAP, UB_SPACE = map_view.MapView.UB_GAP, map_view.MapView.UB_SPACE
+        flow_layer = None
+        usage_items = map_view.usage_box.ITEMS
+        usage_size = 7
+
+        def __init__(self):
+            self.usage, self.ub = None, {}
+            self.drawn = []
+            self.edge = graph.Edge("agent:claude", "provider:x", "uses")
+            self.graph = graph.Graph(edges=[self.edge])
+            self.active, self.tints = {}, {0: "violet"}
+
+        def queue_draw(self):
+            pass
+
+        def color(self, name, alpha=1.0):
+            self.drawn.append(name)
+            return (1, 1, 1, alpha)
+
+        def curve_point(self, _edge, t):
+            return (20 + 300 * t, 60 + 30 * t * t)     # a gently bending line
+
+    def test_gpu_usage_does_not_replace_the_readings(self):
+        import cairo
+        view = self.View()
+        reading = map_view.usage_box.Reading(60.0, 950, 1000, "m")
+        view.set_usage_box({"agent:claude": reading})
+        view.set_usage(object())                     # the GPU poll's gpu_usage.Usage
+        cr = cairo.Context(cairo.ImageSurface(cairo.FORMAT_ARGB32, 400, 120))
+        view.draw_usage_box(cr, "agent:claude", [view.edge], 1.0)
+        # Each character in the line's colour (its tint here), the 95 % in red.
+        self.assertEqual(set(view.drawn[:-3]), {"violet"})
+        self.assertEqual(view.drawn[-3:], ["red"] * 3)

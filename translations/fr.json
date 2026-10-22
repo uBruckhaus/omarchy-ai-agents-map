@@ -2588,5 +2588,18 @@
  "No server found.": "Aucun serveur trouvé.",
  "Servers found: {0}": "Serveurs trouvés : {0}",
  "more than {0}": "plus de {0}",
- "Still starts {0}: {1}": "Lance encore {0} : {1}"
+ "Still starts {0}: {1}": "Lance encore {0} : {1}",
+ "Usage statistics box": "Encadré des statistiques d’utilisation",
+ "Show the usage statistics box": "Afficher l’encadré des statistiques d’utilisation",
+ "Tokens per second": "Jetons par seconde",
+ "How fast its latest reply came: output tokens over the time from its input to the end.": "La vitesse de sa dernière réponse : jetons produits divisés par le temps entre son entrée et la fin.",
+ "Context size": "Taille du contexte",
+ "How many tokens its model can keep in mind.": "Combien de jetons son modèle peut garder en tête.",
+ "Context used": "Contexte utilisé",
+ "The part of the context in use: green, yellow from 75 %, red over 90 %, as the batteries.": "La part du contexte utilisée : vert, jaune à partir de 75 %, rouge au-delà de 90 %, comme les batteries.",
+ "Small numbers over a working agent's line to its provider, while light runs along it, read from the agent's own session files (numbers only).": "De petits nombres au-dessus de la ligne d’un agent au travail vers son fournisseur, tant que la lumière la parcourt, lus dans les propres fichiers de session de l’agent (nombres uniquement).",
+ "Text size": "Taille du texte",
+ "How big its numbers are written on the line.": "La taille de ses nombres écrits sur la ligne.",
+ "{0} pt (default)": "{0} pt (par défaut)",
+ "{0} pt": "{0} pt"
 }

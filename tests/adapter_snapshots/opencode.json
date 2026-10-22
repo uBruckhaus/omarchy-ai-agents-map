@@ -55,6 +55,7 @@
  "rewrite": [],
  "tools_setting": [],
  "sandbox_setting": "",
+ "replies": [],
  "asks_setting": "permission.bash",
  "access": {
   "how": "An account or API key for any provider, or a local LLM from the map",

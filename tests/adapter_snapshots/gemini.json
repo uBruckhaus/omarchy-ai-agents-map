@@ -54,6 +54,7 @@
  "rewrite": [],
  "tools_setting": [],
  "sandbox_setting": "",
+ "replies": [],
  "asks_setting": "",
  "access": {
   "how": "A Google account (free tier), or an API key from aistudio.google.com",
