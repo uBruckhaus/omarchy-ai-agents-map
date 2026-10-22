@@ -270,3 +270,40 @@ class GooseDetailsTest(unittest.TestCase):
         older = self.run_reader("GOOSE_PROVIDER: openai\nGOOSE_MODEL: gpt-6-luna\n")
         self.assertEqual(older.model, "gpt-6-luna (openai)")
         self.assertEqual(self.run_reader(": not yaml [").model, "")
+
+
+class BoundsTest(unittest.TestCase):
+    """Nothing read grows without a limit: OpenClaw's events, the cache of files read."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        a._KEPT.clear()
+
+    def test_openclaw_large_events_left_out(self):
+        import sqlite3
+        db = self.root / "main" / "agent" / "openclaw-agent.sqlite"
+        db.parent.mkdir(parents=True)
+        event = lambda pad: json.dumps({"message": {"role": "assistant", "model": "m", "timestamp": int((NOW - 60) * 1000),
+                                                    "usage": {"input": 1}, "pad": pad}})
+        con = sqlite3.connect(db)
+        con.execute("CREATE TABLE transcript_events (session_id TEXT, seq INT, event_json TEXT, event_zstd BLOB)")
+        rows = [("s1", 1, event(""), None), ("s1", 2, event("x" * (a.MAX_EVENT + 10)), None)]
+        if zstd is not None:
+            rows.append(("s1", 3, None, zstd.compress(event(" " * (a.MAX_EVENT + 10)).encode())))   # small packed, large unpacked
+        con.executemany("INSERT INTO transcript_events VALUES (?, ?, ?, ?)", rows)
+        con.commit()
+        con.close()
+        self.assertEqual(a.openclaw_db(self.root, NOW)["openclaw:s1"].tokens["m"][0], 1)   # only the small one
+
+    def test_cache_forgets_files_that_are_gone(self):
+        path = self.root / "--p--" / "s.jsonl"
+        path.parent.mkdir()
+        path.write_text(lines({"type": "message", "timestamp": "2026-10-22T10:00:00Z", "message": {
+            "role": "assistant", "model": "m", "usage": {"input": 1}}}))
+        a.collect("pi-files", self.root, NOW)
+        self.assertIn(("pi-files", str(path)), a._KEPT)
+        path.unlink()
+        a.collect("pi-files", self.root, NOW)
+        self.assertNotIn(("pi-files", str(path)), a._KEPT)

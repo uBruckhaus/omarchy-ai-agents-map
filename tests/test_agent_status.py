@@ -313,7 +313,8 @@ class CostsTest(unittest.TestCase):
         sessions = {
             "a": SimpleNamespace(first=at(0), last=at(0), tokens={opus: [1_000_000, 0, 0, 0]}),           # $4 today
             "b": SimpleNamespace(first=at(3), last=at(3), tokens={opus: [0, 1_000_000, 0, 0]}),           # $20 3 days ago
-            "c": SimpleNamespace(first=at(20), last=at(20), tokens={opus: [0, 0, 10_000_000, 0], "qwen-local": [5, 5, 0, 0]}),
+            "c": SimpleNamespace(first=at(20), last=at(20), tokens={opus: [0, 0, 10_000_000, 0], "qwen-local": [5, 5, 0, 0],
+                                                                 "unknown": [0, 0, 0, 0]}),             # empty: not listed
             "d": SimpleNamespace(first=at(40), last=at(40), tokens={opus: [10 ** 9, 0, 0, 0]}),          # too old
         }
         harness = SimpleNamespace(sessions=SimpleNamespace(collect=lambda: sessions))

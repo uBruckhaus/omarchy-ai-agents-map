@@ -95,8 +95,9 @@ def _read(path: Path, info) -> bytes:
         return handle.read(MAX_BYTES + 1)[:MAX_BYTES]
 
 
-def _unzstd(data: bytes) -> bytes:
-    """zstd unpacked, at most MAX_BYTES (more: nothing, not a cut half)."""
+def _unzstd(data: bytes, limit: int = 0) -> bytes:
+    """zstd unpacked, at most `limit` bytes (MAX_BYTES by default; more: nothing, not a cut half)."""
+    limit = limit or MAX_BYTES
     try:
         from compression import zstd
     except ImportError:         # before Python 3.14: no zstd reader
@@ -106,9 +107,9 @@ def _unzstd(data: bytes) -> bytes:
     try:
         while rest:                 # one frame after another: dsh appends a frame per write
             unpacker = zstd.ZstdDecompressor()
-            part = unpacker.decompress(rest, max_length=MAX_BYTES + 1 - total)
+            part = unpacker.decompress(rest, max_length=limit + 1 - total)
             total += len(part)
-            if total > MAX_BYTES or not unpacker.eof:
+            if total > limit or not unpacker.eof:
                 return b""          # too large once unpacked, or a frame cut short
             out.append(part)
             rest = unpacker.unused_data
@@ -221,7 +222,11 @@ def collect(form: str, root: Path | None = None, now: float | None = None) -> di
     default_root, pattern, parse = READERS[form]
     now = time.time() if now is None else now
     found = {}
-    for _mtime, path, info in _files(root or default_root, pattern, now):
+    listed = _files(root or default_root, pattern, now)
+    current = {(form, str(path)) for _mtime, path, _info in listed}
+    for key in [k for k in _KEPT if k[0] == form and k not in current]:
+        del _KEPT[key]              # a file gone (or too old now): forgotten, so the cache cannot grow
+    for _mtime, path, info in listed:
         key, mark = (form, str(path)), (info.st_size, info.st_mtime_ns)
         kept = _KEPT.get(key)
         if kept is not None and kept[0] == mark:
@@ -297,12 +302,21 @@ def _sqlite_rows(db: Path, query: str, params=()) -> list:
         con.close()
 
 
+GOOSE_COLUMNS = ("id", "working_dir", "created_at", "updated_at", "model_config_json", "accumulated_input_tokens",
+                 "accumulated_output_tokens", "accumulated_cache_read_tokens", "accumulated_cache_write_tokens")
+
+
 def goose_db(db: Path | None = None, now: float | None = None) -> dict:
     """{"goose:<id>": Session} of Goose's sessions updated in the last DAYS days."""
     now = time.time() if now is None else now
     found = {}
-    for row in _sqlite_rows(db or HOME / ".local/share/goose/sessions/sessions.db",
-                            "SELECT * FROM sessions ORDER BY updated_at DESC LIMIT ?", (MAX_ROWS,)):
+    db = db or HOME / ".local/share/goose/sessions/sessions.db"
+    have = {row.get("name") for row in _sqlite_rows(db, "SELECT name FROM pragma_table_info('sessions')")}
+    columns = [c for c in GOOSE_COLUMNS if c in have]        # older schemas lack the cache columns
+    if "updated_at" not in columns:
+        return {}
+    for row in _sqlite_rows(db, f"SELECT {', '.join(columns)} FROM sessions ORDER BY updated_at DESC LIMIT ?",
+                            (MAX_ROWS,)):
         when = _epoch(row.get("updated_at"))
         if when is None or now - when > DAYS * 86400:
             continue
@@ -363,6 +377,10 @@ def _openclaw_jsonl(data: bytes) -> Session | None:
     return session if session.replies else None
 
 
+MAX_EVENT = 1024 * 1024     # bytes of one OpenClaw transcript event, packed or unpacked
+MAX_EVENTS = 20_000         # events read per database
+
+
 def openclaw_db(root: Path | None = None, now: float | None = None) -> dict:
     """{"openclaw:<session>": Session}: each agent's openclaw-agent.sqlite (transcript_events) and its
     older sessions/*.jsonl, the last DAYS days."""
@@ -371,10 +389,13 @@ def openclaw_db(root: Path | None = None, now: float | None = None) -> dict:
     found = {}
     for _mtime, db, _info in _files(root, "*/agent/openclaw-agent.sqlite", now):
         since = (now - DAYS * 86400)
-        for row in _sqlite_rows(db, "SELECT * FROM transcript_events ORDER BY rowid DESC LIMIT ?", (MAX_ROWS,)):
+        rows = _sqlite_rows(db, "SELECT session_id, event_json, event_zstd FROM transcript_events"
+                                " WHERE length(event_json) <= ? OR length(event_zstd) <= ?"
+                                " ORDER BY rowid DESC LIMIT ?", (MAX_EVENT, MAX_EVENT, MAX_EVENTS))
+        for row in rows:
             raw = row.get("event_json")
             if not raw and isinstance(row.get("event_zstd"), bytes):
-                raw = _unzstd(row["event_zstd"])
+                raw = _unzstd(row["event_zstd"], MAX_EVENT)          # one event: at most MAX_EVENT unpacked
             try:
                 entry = json.loads(raw) if raw else None
             except (ValueError, TypeError):

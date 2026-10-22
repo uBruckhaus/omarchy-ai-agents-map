@@ -520,8 +520,9 @@ def costs(command: str, today: dt.date | None = None, sessions=None) -> Costs | 
             result.today += spent if age == 0 else 0.0
             any_price = True
         for model, counts in (session.tokens or {}).items():
-            if model not in split and model:
-                result.unpriced[model] = result.unpriced.get(model, 0) + sum(_int(n) for n in counts)
+            total = sum(_int(n) for n in counts)
+            if model not in split and model and total > 0:      # no empty entries ("unknown (0)")
+                result.unpriced[model] = result.unpriced.get(model, 0) + total
         own = getattr(session, "cost", 0) or 0
         if not session.tokens and isinstance(own, (int, float)) and own > 0:
             # No token counts, only the agent's own cost for the session (Crush): that counts.
