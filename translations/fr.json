@@ -19,7 +19,7 @@
  "(the best for this graphics card)": "(le meilleur pour cette carte graphique)",
  "Default layout": "Disposition par défaut",
  "Put the cards back in their columns and the boxes in the map's own order": "Remettre les cartes dans leurs colonnes et les cases dans l'ordre de la carte",
- "Drag to move this card. Drag a box inside its card to change the order": "Faites glisser pour déplacer cette carte. Faites glisser une case dans sa carte pour changer l'ordre",
+ "Click to fold or open this card. Drag to move it. Drag a box inside its card to change the order": "Cliquez pour replier ou déplier cette carte. Faites-la glisser pour la déplacer. Faites glisser une case dans sa carte pour changer l'ordre",
  "\u0004+ 1 folder with unused models": [
   "+ 1 dossier avec des modèles inutilisés",
   "+ {0} dossiers avec des modèles inutilisés"
@@ -2725,5 +2725,7 @@
   "1 serveur",
   "{0} serveurs"
  ],
- "Not checked with Hugging Face (only the first sizes of a model are), so {0} is not offered it. Download it with llama.cpp or LM Studio, or get the file and add it under On this PC.": "Non vérifié auprès de Hugging Face (seules les premières tailles d’un modèle le sont), il n’est donc pas proposé à {0}. Téléchargez-le avec llama.cpp ou LM Studio, ou récupérez le fichier et ajoutez-le sous Sur ce PC."
+ "Not checked with Hugging Face (only the first sizes of a model are), so {0} is not offered it. Download it with llama.cpp or LM Studio, or get the file and add it under On this PC.": "Non vérifié auprès de Hugging Face (seules les premières tailles d’un modèle le sont), il n’est donc pas proposé à {0}. Téléchargez-le avec llama.cpp ou LM Studio, ou récupérez le fichier et ajoutez-le sous Sur ce PC.",
+ "Layout pinned: card places, box order and folded cards stay after Refresh and a restart. Click to unpin": "Disposition épinglée : les places des cartes, l'ordre des cases et les cartes repliées restent après Actualiser et un redémarrage. Cliquez pour désépingler",
+ "Pin this layout: keep card places, box order and folded cards after Refresh and a restart (unpinned, the map starts in its default layout)": "Épingler cette disposition : garder les places des cartes, l'ordre des cases et les cartes repliées après Actualiser et un redémarrage (non épinglée, la carte démarre avec sa disposition par défaut)"
 }

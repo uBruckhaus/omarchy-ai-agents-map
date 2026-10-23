@@ -19,7 +19,7 @@
  "(the best for this graphics card)": "(il migliore per questa scheda grafica)",
  "Default layout": "Disposizione predefinita",
  "Put the cards back in their columns and the boxes in the map's own order": "Riporta le schede nelle loro colonne e i riquadri nell'ordine della mappa",
- "Drag to move this card. Drag a box inside its card to change the order": "Trascina per spostare questa scheda. Trascina un riquadro all'interno della sua scheda per cambiare l'ordine",
+ "Click to fold or open this card. Drag to move it. Drag a box inside its card to change the order": "Fai clic per comprimere o espandere questa scheda. Trascinala per spostarla. Trascina un riquadro all'interno della sua scheda per cambiare l'ordine",
  "\u0004+ 1 folder with unused models": [
   "+ 1 cartella con modelli inutilizzati",
   "+ {0} cartelle con modelli inutilizzati"
@@ -2725,5 +2725,7 @@
   "1 server",
   "{0} server"
  ],
- "Not checked with Hugging Face (only the first sizes of a model are), so {0} is not offered it. Download it with llama.cpp or LM Studio, or get the file and add it under On this PC.": "Non verificato con Hugging Face (solo le prime dimensioni di un modello lo sono), quindi non viene proposto a {0}. Scaricalo con llama.cpp o LM Studio, oppure prendi il file e aggiungilo in Su questo PC."
+ "Not checked with Hugging Face (only the first sizes of a model are), so {0} is not offered it. Download it with llama.cpp or LM Studio, or get the file and add it under On this PC.": "Non verificato con Hugging Face (solo le prime dimensioni di un modello lo sono), quindi non viene proposto a {0}. Scaricalo con llama.cpp o LM Studio, oppure prendi il file e aggiungilo in Su questo PC.",
+ "Layout pinned: card places, box order and folded cards stay after Refresh and a restart. Click to unpin": "Layout fissato: posizioni delle schede, ordine dei riquadri e schede compresse restano dopo Aggiorna e un riavvio. Fai clic per sbloccare",
+ "Pin this layout: keep card places, box order and folded cards after Refresh and a restart (unpinned, the map starts in its default layout)": "Fissa questo layout: mantieni posizioni delle schede, ordine dei riquadri e schede compresse dopo Aggiorna e un riavvio (non fissato, la mappa parte con il layout predefinito)"
 }

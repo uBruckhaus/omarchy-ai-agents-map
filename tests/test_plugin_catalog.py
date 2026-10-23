@@ -62,6 +62,10 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(cards[1], ("ubruckhaus.new-thing", "New Thing", pc.NEW_GLYPH, "Does a new thing for you."))
         self.assertEqual(len(pc.cards([])), len(pc.more_plugins.PLUGINS))          # nothing read yet
 
+    def test_deeply_nested_cache_is_no_cache(self):
+        self.cache.write_text('{"plugins": ' + "[" * 100000 + "]" * 100000 + "}")
+        self.assertEqual(pc.load(self.cache), {})
+
     def test_redirect_headers(self):
         raw = b"HTTP/1.1 301 Moved\r\nlocation: x\r\n\r\n" + answer(200, b"{}")
         self.assertEqual(pc.split_response(raw), (200, {"etag": '"abc"', "content-type": "text/plain"}, b"{}"))

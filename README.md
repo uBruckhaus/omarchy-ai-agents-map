@@ -121,6 +121,18 @@ LLM providers → models, under the **GPU** card (GPU memory and activity; it fo
   the Hugging Face models they were found as, each opening its page and download options.
 - **Notify when red** (new in 0.23.0, Settings › Costs, on by default): a desktop notification once
   when an agent's limit or cost turns red, with its reset time.
+- **Frames that follow the light** (new in 0.24.0): every box has the same thin grey frame. Hover a
+  box, or click (or pin) one, and it and every box joined to it get a frame in the accent colour,
+  as wide as a selected box's (a click's frames stay while the pointer is not over another box).
+  An agent's symbols (traffic, console, battery or cost, stop, ▶) sit
+  at the right edge of its box.
+- **Folding cards** (new in 0.24.0): click a card's header (▾ at its right) to fold the card to its
+  header (▸) and again to open it. The lines of a folded card's boxes end at its header (the arrows
+  between agents hide while the agents' card is folded). Opening a card moves the cards you put
+  around it out of its way.
+- **Layout pin** (new in 0.24.0): the pin right of the zoom keeps the map's layout (where you put
+  the cards, the order of the boxes, which cards are folded) after Refresh (F5) and a restart.
+  Unpinned, as it starts, the map comes back in its default layout on every refresh and start.
 - **Used from outside the map**: when a program that is not on the map (a plugin such as Video
   Trans, a chat app, a script) generates with a local LLM, the line from that LLM to the model is
   drawn bold in a colour of its own, light runs along it, and the model box says who uses it ("in use

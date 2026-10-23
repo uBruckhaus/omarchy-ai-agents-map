@@ -19,7 +19,7 @@
  "(the best for this graphics card)": "(der beste für diese Grafikkarte)",
  "Default layout": "Standardanordnung",
  "Put the cards back in their columns and the boxes in the map's own order": "Die Karten zurück in ihre Spalten und die Felder in die Reihenfolge der Karte bringen",
- "Drag to move this card. Drag a box inside its card to change the order": "Ziehen, um diese Karte zu verschieben. Ein Feld innerhalb seiner Karte ziehen, um die Reihenfolge zu ändern",
+ "Click to fold or open this card. Drag to move it. Drag a box inside its card to change the order": "Klicken, um diese Karte ein- oder auszuklappen. Ziehen, um sie zu verschieben. Ein Feld innerhalb seiner Karte ziehen, um die Reihenfolge zu ändern",
  "\u0004+ 1 folder with unused models": [
   "+ 1 Ordner mit ungenutzten Modellen",
   "+ {0} Ordner mit ungenutzten Modellen"
@@ -2725,5 +2725,7 @@
   "1 Server",
   "{0} Server"
  ],
- "Not checked with Hugging Face (only the first sizes of a model are), so {0} is not offered it. Download it with llama.cpp or LM Studio, or get the file and add it under On this PC.": "Nicht bei Hugging Face geprüft (nur die ersten Größen eines Modells werden geprüft), deshalb wird sie {0} nicht angeboten. Lade sie mit llama.cpp oder LM Studio, oder hol die Datei und füge sie unter Auf diesem PC hinzu."
+ "Not checked with Hugging Face (only the first sizes of a model are), so {0} is not offered it. Download it with llama.cpp or LM Studio, or get the file and add it under On this PC.": "Nicht bei Hugging Face geprüft (nur die ersten Größen eines Modells werden geprüft), deshalb wird sie {0} nicht angeboten. Lade sie mit llama.cpp oder LM Studio, oder hol die Datei und füge sie unter Auf diesem PC hinzu.",
+ "Layout pinned: card places, box order and folded cards stay after Refresh and a restart. Click to unpin": "Layout angeheftet: Kartenplätze, Reihenfolge der Felder und eingeklappte Karten bleiben nach Aktualisieren und einem Neustart. Klicken zum Lösen",
+ "Pin this layout: keep card places, box order and folded cards after Refresh and a restart (unpinned, the map starts in its default layout)": "Dieses Layout anheften: Kartenplätze, Reihenfolge der Felder und eingeklappte Karten nach Aktualisieren und einem Neustart behalten (nicht angeheftet startet die Karte im Standardlayout)"
 }

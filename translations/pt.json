@@ -19,7 +19,7 @@
  "(the best for this graphics card)": "(o melhor para esta placa de vídeo)",
  "Default layout": "Layout padrão",
  "Put the cards back in their columns and the boxes in the map's own order": "Devolver os cartões às suas colunas e as caixas à ordem do próprio mapa",
- "Drag to move this card. Drag a box inside its card to change the order": "Arraste para mover este cartão. Arraste uma caixa dentro do seu cartão para mudar a ordem",
+ "Click to fold or open this card. Drag to move it. Drag a box inside its card to change the order": "Clique para recolher ou expandir este cartão. Arraste para movê-lo. Arraste uma caixa dentro do seu cartão para mudar a ordem",
  "\u0004+ 1 folder with unused models": [
   "+ 1 pasta com modelos não usados",
   "+ {0} pastas com modelos não usados"
@@ -2725,5 +2725,7 @@
   "1 servidor",
   "{0} servidores"
  ],
- "Not checked with Hugging Face (only the first sizes of a model are), so {0} is not offered it. Download it with llama.cpp or LM Studio, or get the file and add it under On this PC.": "Não verificado no Hugging Face (só os primeiros tamanhos de um modelo o são), por isso não é oferecido ao {0}. Transfira-o com o llama.cpp ou o LM Studio, ou obtenha o ficheiro e adicione-o em Neste PC."
+ "Not checked with Hugging Face (only the first sizes of a model are), so {0} is not offered it. Download it with llama.cpp or LM Studio, or get the file and add it under On this PC.": "Não verificado no Hugging Face (só os primeiros tamanhos de um modelo o são), por isso não é oferecido ao {0}. Transfira-o com o llama.cpp ou o LM Studio, ou obtenha o ficheiro e adicione-o em Neste PC.",
+ "Layout pinned: card places, box order and folded cards stay after Refresh and a restart. Click to unpin": "Disposição fixada: os lugares dos cartões, a ordem das caixas e os cartões recolhidos ficam após Atualizar e um reinício. Clique para soltar",
+ "Pin this layout: keep card places, box order and folded cards after Refresh and a restart (unpinned, the map starts in its default layout)": "Fixar esta disposição: manter os lugares dos cartões, a ordem das caixas e os cartões recolhidos após Atualizar e um reinício (sem fixar, o mapa começa na disposição predefinida)"
 }

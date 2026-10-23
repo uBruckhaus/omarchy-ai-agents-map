@@ -92,8 +92,11 @@ SCHEMA: dict[str, Setting] = {
                         "Settings › Costs: red from this % (the same two kinds)"),
     "warn_notify": Setting(True, _bool, "Settings › Costs: a desktop notification when an agent turns red"),
     "map_zoom": Setting(1.0, _number, "the map's zoom"),
-    "map_layout": Setting({}, _mapping, "the map's cards: {\"order\": {card: [box ids]}, \"cards\": {card: [x, y]}} "
-                          "(drag a box inside its card, a card by its header; Default layout clears it)"),
+    "map_layout": Setting({}, _mapping, "the map's cards: {\"order\": {card: [box ids]}, \"cards\": {card: [x, y]}, "
+                          "\"collapsed\": [card]} (drag a box inside its card, a card by its header, click a header to "
+                          "fold it; Default layout clears it)"),
+    "map_layout_pinned": Setting(False, _bool, "the pin right of the map's zoom: keep map_layout after Refresh and a "
+                                 "restart (unpinned, the default: the map's default layout)"),
     # Pages
     "setup_done": Setting(False, _bool, "Asterism's welcome page was finished once"),
     "first_connection_done": Setting(False, _bool, "the card above the map that shows the first connection: done or closed"),

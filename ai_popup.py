@@ -102,7 +102,7 @@ import model_layout
 import jobs
 import health
 import web_sources
-from map_view import ORDER_KEEP, LegendSample, MapView, Meter
+from map_view import ORDER_KEEP, PIN, PIN_OUTLINE, LegendSample, MapView, Meter
 from gi.repository import PangoCairo  # noqa: E402  (map_view asked for its version)
 from palette import ThemePalette, outside_color
 from settings_pages import SettingsPages
@@ -863,6 +863,13 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             if step == 0:
                 self.zoom_label = button
         bar.append(zoom)
+        # Right of the zoom: the pin that keeps the map's layout (card places, box order, folded
+        # cards) after Refresh and a restart; unpinned, both start from the default layout.
+        self.layout_pin = Gtk.Button(valign=Gtk.Align.CENTER)
+        for css in ("flat", "am-small-btn", "am-quiet-btn"):
+            self.layout_pin.add_css_class(css)
+        self.layout_pin.connect("clicked", lambda *_: self.toggle_layout_pin())
+        bar.append(self.layout_pin)
         side.append(bar)
         side.append(self.build_first_card())
         self.side_map = MapView()
@@ -921,8 +928,9 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.side_map.set_zoom(ai_core.setting("map_zoom")
                                if isinstance(ai_core.setting("map_zoom"), (int, float)) else 1.0)
         self.load_map_layout()
+        self.show_layout_pin()
         self.side_map.on_layout = self.save_map_layout
-        self.side_map.card_tip = _("Drag to move this card. Drag a box inside its card to change the order")
+        self.side_map.card_tip = _("Click to fold or open this card. Drag to move it. Drag a box inside its card to change the order")
         self.zoom_label.set_label(f"{round(self.side_map.zoom * 100)} %")
         # The right of the Overview: the map, or a page opened from a card or from the map.
         right = Gtk.Stack(hexpand=True)
@@ -2261,11 +2269,40 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.zoom_label.set_label(f"{round(self.side_map.zoom * 100)} %")
         self.save_setting(map_zoom=self.side_map.zoom)
 
+    def layout_pinned(self) -> bool:
+        """Whether the map keeps its layout after Refresh and a restart (the pin right of the zoom);
+        unpinned by default."""
+        return ai_core.setting("map_layout_pinned") is True
+
+    def show_layout_pin(self):
+        pinned = self.layout_pinned()
+        from ui_helpers import glyph_widget
+        self.layout_pin.set_child(glyph_widget(PIN if pinned else PIN_OUTLINE, "", 14))
+        self.layout_pin.set_tooltip_text(
+            _("Layout pinned: card places, box order and folded cards stay after Refresh and a restart. "
+              "Click to unpin") if pinned else
+            _("Pin this layout: keep card places, box order and folded cards after Refresh and a restart "
+              "(unpinned, the map starts in its default layout)"))
+
+    def toggle_layout_pin(self):
+        pinned = not self.layout_pinned()
+        self.save_setting(map_layout_pinned=pinned)
+        if pinned:
+            self.save_map_layout()                 # what is on the map now is the layout kept
+        self.show_layout_pin()
+
+    def reset_map_layout_unless_pinned(self):
+        """Refresh: unpinned, the map goes back to its default layout (pinned, it stays as it is)."""
+        if not self.layout_pinned():
+            self.side_map.default_layout()
+            self.side_map.relayout()
+
     def load_map_layout(self):
-        """The order of the boxes in each card and the cards moved by hand (Settings: map_layout)."""
-        saved = ai_core.setting("map_layout")
+        """The order of the boxes in each card, the cards moved by hand and the folded ones (Settings:
+        map_layout), when the layout is pinned; unpinned, the map starts in its default layout."""
+        saved = ai_core.setting("map_layout") if self.layout_pinned() else None
         saved = saved if isinstance(saved, dict) else {}
-        order, cards = saved.get("order"), saved.get("cards")
+        order, cards, collapsed = saved.get("order"), saved.get("cards"), saved.get("collapsed")
         self.side_map.order = {str(k): [str(i) for i in v][:ORDER_KEEP]
                                for k, v in (order.items() if isinstance(order, dict) else ())
                                if isinstance(v, list) and all(isinstance(i, str) for i in v)}
@@ -2273,10 +2310,14 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                                for k, v in (cards.items() if isinstance(cards, dict) else ())
                                if isinstance(v, list) and len(v) == 2
                                and all(isinstance(n, (int, float)) and 0 <= n < 100000 for n in v)}
+        # Folded cards (open by default): group keys, a bounded list of short strings.
+        self.side_map.collapsed = {k for k in (collapsed if isinstance(collapsed, list) else [])[:100]
+                                   if isinstance(k, str) and 0 < len(k) <= 500}
 
     def save_map_layout(self):
         self.save_setting(map_layout={"order": self.side_map.order,
-                                      "cards": {k: [round(v[0]), round(v[1])] for k, v in self.side_map.cards.items()}})
+                                      "cards": {k: [round(v[0]), round(v[1])] for k, v in self.side_map.cards.items()},
+                                      "collapsed": sorted(self.side_map.collapsed)})
 
     def build_layer_toggles(self) -> Gtk.Widget:
         """One toggle per category: shorten the map to what you are setting up."""

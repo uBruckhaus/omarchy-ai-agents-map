@@ -77,12 +77,18 @@ class InfoPage:
         self.info_refreshing = True
 
         def work():
-            plugins = plugin_catalog.refresh()
-            GLib.idle_add(done, plugins, plugin_catalog.load().get("checked"))
+            plugins, checked = None, None
+            try:
+                plugins = plugin_catalog.refresh()
+                checked = plugin_catalog.load().get("checked")
+            finally:
+                # Always back on the main loop, so a failure never leaves the page refreshing.
+                GLib.idle_add(done, plugins, checked)
 
         def done(plugins, checked):
             self.info_refreshing = False
-            self.fill_info_cards(plugins, checked)
+            if plugins is not None:
+                self.fill_info_cards(plugins, checked)
             return False
         threading.Thread(target=work, daemon=True).start()
 

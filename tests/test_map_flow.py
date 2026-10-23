@@ -433,6 +433,7 @@ class HelperLightsTest(unittest.TestCase):
         class View:
             helper_paths = map_view.MapView.helper_paths
             drawn_agent_links = map_view.MapView.drawn_agent_links
+            folded = set()
             agent_link_curve = map_view.MapView.agent_link_curve
             bezier = staticmethod(map_view.MapView.bezier)
             curve_point = map_view.MapView.curve_point
@@ -454,6 +455,7 @@ class HelperLightsTest(unittest.TestCase):
             called_agents = map_view.MapView.called_agents
             collab_edges = map_view.MapView.collab_edges
             drawn_agent_links = map_view.MapView.drawn_agent_links
+            folded = set()
 
         view = View()
         view.graph = sample()

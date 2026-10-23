@@ -56,7 +56,7 @@ def load(path: Path = CACHE) -> dict:
     try:
         import ai_core
         data = json.loads(ai_core.read_head(path, 1_000_000, follow=False))
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):      # deeply nested JSON too
         return {}
     return data if isinstance(data, dict) and isinstance(data.get("plugins"), list) else {}
 

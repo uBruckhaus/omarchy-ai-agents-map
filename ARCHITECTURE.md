@@ -113,7 +113,7 @@ where it asks before each step. Daily AI checks are off by default.
 
 ## Tests that cover these points
 
-`python3 -m unittest discover -s tests` (87 modules, no network, no display). Where to look:
+`python3 -m unittest discover -s tests` (92 modules, no network, no display). Where to look:
 
 - Plans, backups and Undo in a temporary home: `test_connect`, `test_mcp`, `test_mcp_update`,
   `test_skills`, `test_security` (the agents' security settings: only the one key changes)

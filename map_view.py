@@ -77,11 +77,13 @@ STOP = "\U000F04DB"                              # Nerd Font stop: beside the co
 ANIMATION_MODES = ("all", "agents", "off")    # Settings › Map animations
 START_W = 18             # the start button's square, left of where the pin and the tick go
 # An agent box's symbols sit in a strip of their own at its right (no background, no frame), each
-# in a fixed slot, so they line up from box to box and never cover the name. From the right: the
-# pin and the tick (CHECK_ROOM), start/stop, the stop for instances outside this window, the
-# battery or today's cost, the console, subagents, traffic. The strip is as wide as all of them
-# together, also while some are not shown; the box (and its column) grows to fit the name.
-CHECK_ROOM = 24          # left of the pin: the tick of a selected box
+# in a fixed slot, so they line up from box to box and never cover the name. From the right, just
+# inside the pin's corner (STRIP_RIGHT): start/stop, the stop for instances outside this window,
+# the battery or today's cost, the console, subagents, traffic. The strip is as wide as all of them
+# together, also while some are not shown; the box (and its column) grows to fit the name. A
+# selected agent's tick goes left of the strip (CHECK_ROOM, taken from the name only then).
+CHECK_ROOM = 24          # the tick of a selected box (left of the pin, or of an agent's strip)
+STRIP_RIGHT = PIN_W + 4  # from an agent box's right edge to its strip: the pin's corner only
 BUTTON_SLOT = START_W + 4
 MARK_SLOT = 23           # the subagents mark and the traffic arrows (14 px and their margins)
 BATTERY_SLOT = 29        # the battery (20 px, its nub and margins); a cost label may need more
@@ -126,8 +128,10 @@ class MapView(Gtk.DrawingArea):
         self.order = {}          # group key -> box ids in the user's order (saved; new boxes go last)
         self.cards = {}          # group key -> [x, y] where the user put its card (map units; saved)
         self.card_rects = {}     # group key -> (x, y, w, h) of its card as drawn
+        self.collapsed = set()   # group keys whose card shows only its header (saved; open by default)
+        self.folded = set()      # box ids in a collapsed card: their lines end at its header, not drawn
         self.on_layout = None    # callback() after the order or a card's place changed (the window saves it)
-        self.card_tip = "Drag to move this card. Drag a box inside its card to change the order"
+        self.card_tip = "Click to fold or open this card. Drag to move it. Drag a box inside its card to change the order"
         self.active = {}         # agent id -> edge indexes of its active path (provider in use, its model)
         self.selected = []       # node ids picked by clicking, in click order
         self.on_selection = None # callback(list of selected nodes)
@@ -278,7 +282,8 @@ class MapView(Gtk.DrawingArea):
 
     def drawn_agent_links(self) -> list:
         """[(user, used)] of the arrows between agents that are on the map now, in drawing order."""
-        return [(u, v) for u, v in sorted(self.agent_links) if u in self.boxes and v in self.boxes]
+        return [(u, v) for u, v in sorted(self.agent_links) if u in self.boxes and v in self.boxes
+                and u not in self.folded and v not in self.folded]
 
     def called_agents(self) -> set:
         """The agents another one on the map uses now (the arrow's end): their lines in the collaboration colour."""
@@ -432,8 +437,8 @@ class MapView(Gtk.DrawingArea):
         return changed
 
     def default_layout(self):
-        """Back to the map's own layout: cards in their columns, boxes in the map's order."""
-        self.order, self.cards = {}, {}
+        """Back to the map's own layout: cards in their columns and open, boxes in the map's order."""
+        self.order, self.cards, self.collapsed = {}, {}, set()
         self.keep_order()
         self.layout_changed()
 
@@ -456,12 +461,94 @@ class MapView(Gtk.DrawingArea):
 
     @staticmethod
     def card_height(rows: int) -> int:
+        """A card's height for `rows` boxes; 0 rows: a collapsed card, its header only."""
+        if rows <= 0:
+            return CARD_HEAD
         return GROUP_LABEL_H + rows * NODE_H + max(0, rows - 1) * NODE_GAP + CARD_PAD
+
+    def card_rows(self, nodes) -> int:
+        """The boxes a card shows: none while it is collapsed."""
+        return 0 if self.group_key(nodes[0]) in self.collapsed else len(nodes)
+
+    def toggle_card(self, key: str):
+        """Fold a card to its header, or open it again (saved with the map's layout). An opened card
+        never lands on another one: the cards it would cover move down (make_room)."""
+        if key in self.collapsed:
+            self.collapsed.discard(key)
+            self.make_room(key)
+        else:
+            self.collapsed.add(key)
+        self.relayout()
+        self.layout_changed()
+
+    def make_room(self, key: str):
+        """After the card `key` opens, no card lies on another one that did not before. A card placed by
+        hand that the opened card now covers moves above it when there is free room there (a column's
+        card can grow upwards, as the column stays centred), else down to the first place below it that
+        is free of every card. Cards in their columns stay (they are where their column puts them): an
+        opened card placed by hand that now covers one of them moves down past it itself."""
+        earlier = dict(self.card_rects)         # every card before opening (pairs already on each other stay)
+        before = earlier.get(key)
+        size = getattr(self, "layout_size", None)
+        if size is not None:
+            self.layout(*size)                  # the opened card where it really is now (columns centre)
+        if key not in self.card_rects or before is None:
+            return
+        rects = dict(self.card_rects)
+
+        def meets(r1, r2) -> bool:
+            return r1[0] < r2[0] + r2[2] and r2[0] < r1[0] + r1[2] and r1[1] < r2[1] + r2[3] and r2[1] < r1[1] + r1[3]
+
+        def free_below(card, y, among) -> tuple:
+            """`card` at y or lower: the first place that meets none of the cards `among` (each step
+            jumps past every card it meets, so this ends after at most one step per card)."""
+            x, _y, w, h = rects[card]
+            place = (x, y, w, h)
+            for _step in range(len(rects) + 1):
+                hit = [rects[o] for o in among if o != card and meets(place, rects[o])]
+                if not hit:
+                    break
+                place = (x, max(r[1] + r[3] for r in hit) + GROUP_GAP, w, h)
+            return place
+
+        def put(card, place):
+            rects[card] = place
+            self.cards[card] = [round(place[0]), round(place[1])]
+
+        in_columns = [k for k in rects if k not in self.cards]
+        if key in self.cards and any(meets(rects[key], rects[c]) and not meets(before, rects[c]) for c in in_columns):
+            put(key, free_below(key, rects[key][1], in_columns))
+        ax, ay, aw, ah = rects[key]
+        for other in sorted(self.cards, key=lambda k: rects.get(k, (0, 0, 0, 0))[1]):
+            if other == key or other not in rects or not meets(rects[other], rects[key]) \
+                    or meets(rects[other], before):
+                continue
+            bx, by, bw, bh = rects[other]
+            up = (bx, ay - GROUP_GAP - bh, bw, bh)
+            if by < ay and up[1] >= 0 and not any(meets(up, rects[k]) for k in rects if k != other):
+                put(other, up)
+            else:
+                put(other, free_below(other, ay + ah + GROUP_GAP, rects))
+        # The column re-centred too: any card placed by hand that now meets a card it did not meet
+        # before (one of its column's cards moved onto it, say) moves down to the next free place.
+        def new_overlap(card) -> bool:
+            return any(other != card and meets(rects[card], rects[other])
+                       and not (card in earlier and other in earlier and meets(earlier[card], earlier[other]))
+                       for other in rects)
+
+        for _round in range(len(rects) + 1):
+            moved = False
+            for card in sorted(self.cards, key=lambda k: rects.get(k, (0, 0, 0, 0))[1]):
+                if card != key and card in rects and new_overlap(card):
+                    put(card, free_below(card, rects[card][1], rects))
+                    moved = True
+            if not moved:
+                break
 
     def column_height(self, column: int) -> int:
         """The height of a column's cards that stay in it (a card moved by hand is out of it)."""
         groups = [g for g in self.groups(column) if self.group_key(g[0]) not in self.cards]
-        return sum(self.card_height(len(g)) for g in groups) + max(0, len(groups) - 1) * GROUP_GAP
+        return sum(self.card_height(self.card_rows(g)) for g in groups) + max(0, len(groups) - 1) * GROUP_GAP
 
     def needed_height(self) -> int:
         if self.graph is None:
@@ -471,7 +558,7 @@ class MapView(Gtk.DrawingArea):
             for nodes in self.groups(column):
                 key = self.group_key(nodes[0])
                 if key in self.cards:      # a card moved down by hand: the map is as tall as needed
-                    height = max(height, self.cards[key][1] + self.card_height(len(nodes)) + PAD)
+                    height = max(height, self.cards[key][1] + self.card_height(self.card_rows(nodes)) + PAD)
         return int(height)
 
     # --- layout -----------------------------------------------------------------------
@@ -480,7 +567,7 @@ class MapView(Gtk.DrawingArea):
         """Where an agent box's symbols end, counted from the box's right edge, and the strip's
         width ("strip"): the same for every agent box."""
         meter = max([BATTERY_SLOT] + [self.text_width(label, "Sans 7.5") + 9 for label, *_rest in self.costs.values()])
-        slots, offset = {}, PIN_W + CHECK_ROOM
+        slots, offset = {}, STRIP_RIGHT
         for name, room in (("start", BUTTON_SLOT), ("halt", BUTTON_SLOT), ("meter", meter),
                            ("console", BUTTON_SLOT), ("subagents", MARK_SLOT), ("traffic", MARK_SLOT)):
             slots[name] = offset
@@ -512,6 +599,7 @@ class MapView(Gtk.DrawingArea):
         return TILE_ROOM + min(text, TEXT_W_MAX) + TEXT_GAP + self.agent_slots()["strip"]
 
     def layout(self, width: int, height: int):
+        self.layout_size = (width, height)      # kept: make_room lays the map out again at this size
         self.boxes = {}
         if self.graph is None:
             return 0, 0
@@ -543,6 +631,7 @@ class MapView(Gtk.DrawingArea):
         self.group_labels = []
         self.group_rects = {}
         self.card_rects = {}
+        self.folded = set()
         x = left
         for column in active:
             y = self.column_top(self.column_height(column), height, hub=column == 1)
@@ -551,7 +640,7 @@ class MapView(Gtk.DrawingArea):
             self.column_x[column] = x
             for nodes in self.groups(column):
                 key = self.group_key(nodes[0])
-                card_h = self.card_height(len(nodes))
+                card_h = self.card_height(self.card_rows(nodes))
                 if key in self.cards:
                     # Put somewhere by hand: there, kept inside the map's width.
                     cx, cy = self.cards[key]
@@ -566,6 +655,11 @@ class MapView(Gtk.DrawingArea):
                                           sum(1 for n in nodes if n.kind != "more"), nodes[0].kind))
                 by = cy + GROUP_LABEL_H
                 for node in nodes:
+                    if key in self.collapsed:
+                        # Folded: every box sits on the header, so its lines still reach the card.
+                        self.boxes[node.id] = (cx + CARD_PAD, cy, column_w, CARD_HEAD)
+                        self.folded.add(node.id)
+                        continue
                     self.boxes[node.id] = (cx + CARD_PAD, by, column_w, NODE_H)
                     by += NODE_H + NODE_GAP
                 if column == 3 and nodes[0].group:
@@ -828,13 +922,16 @@ class MapView(Gtk.DrawingArea):
         edge = next((e for e in self.graph.edges if (e.source, e.target) == self.selected_edge), None) \
             if self.graph and self.selected_edge else None
         return edge is not None and edge.source in self.boxes and edge.target in self.boxes \
+            and edge.source not in self.folded and edge.target not in self.folded \
             and self.edge_distance(edge, x, y) <= reach
 
     def hooked_edges(self) -> list:
-        """The lines that show a hook: the clicked one, and every movable line of a selected box."""
+        """The lines that show a hook: the clicked one, and every movable line of a selected box. None
+        on a folded card: its boxes share the header, so a hook there could not say which line it is."""
         if not self.graph:
             return []
         return [e for e in self.graph.edges if e.source in self.boxes and e.target in self.boxes
+                and e.source not in self.folded and e.target not in self.folded
                 and ((e.source, e.target) == self.selected_edge
                      or (self.movable_edge(e) and (e.source in self.selected or e.target in self.selected)))]
 
@@ -1083,7 +1180,7 @@ class MapView(Gtk.DrawingArea):
             self.draw_move(cr, link)
             return
         for node in self.graph.nodes:
-            if node.id in self.boxes and self.link_target_ok(link["from"], node.id):
+            if node.id in self.boxes and node.id not in self.folded and self.link_target_ok(link["from"], node.id):
                 x, y, w, h = self.boxes[node.id]
                 self.rounded(cr, x - 2, y - 2, w + 4, h + 4, self.radius + 2)
                 cr.set_source_rgba(*self.color("accent", 0.9 if node.id == link["target"] else 0.35))
@@ -1326,6 +1423,8 @@ class MapView(Gtk.DrawingArea):
 
     def node_at(self, x, y):
         for node_id, (bx, by, bw, bh) in self.boxes.items():
+            if node_id in self.folded:
+                continue
             if bx <= x <= bx + bw and by <= y <= by + bh:
                 return node_id
         return None
@@ -1335,7 +1434,9 @@ class MapView(Gtk.DrawingArea):
         A click on a box's pin pins or unpins it."""
         x, y = x / self.zoom, y / self.zoom
         if self.node_at(x, y) is None and self.card_header_at(x, y) is not None:
-            return                               # a card's header only moves the card
+            # A click on a card's header folds or opens it (a drag moves it: the drag claims it).
+            self.toggle_card(self.card_header_at(x, y))
+            return
         pin = self.pin_at(x, y)
         if pin is not None:
             self.toggle_pin(pin)
@@ -1762,7 +1863,7 @@ class MapView(Gtk.DrawingArea):
 
 
         # Edges first, under the boxes; the active paths last, on top.
-        active_edges, active_models = self.active_now(lit_edges)
+        active_edges, _active_models = self.active_now(lit_edges)
         order = [i for i in range(len(self.graph.edges)) if i not in active_edges] + sorted(active_edges)
         agent = self.single_agent()
         own_path = self.active.get(agent, set()) if agent else set()
@@ -1848,6 +1949,8 @@ class MapView(Gtk.DrawingArea):
             if key not in cards_drawn:
                 cards_drawn.add(key)
                 self.draw_cards(cr, layout, key)
+            if node.id in self.folded:
+                continue                       # its card is collapsed: only the header shows
             x, y, w, h = self.boxes[node.id]
             faded = lit_nodes is not None and node.id not in lit_nodes
             alpha = 0.25 if faded else (0.55 if node.dim or node.status == "missing" else 1.0)
@@ -1862,15 +1965,22 @@ class MapView(Gtk.DrawingArea):
             if selected:
                 cr.set_source_rgba(*self.color("accent", 0.20))
                 cr.fill_preserve()
-            # A model an app outside the map generates with now: framed in that light's colour.
+            # A model an app outside the map generates with now: its dot and label in that light's colour.
             outside = node.kind == "model" and bool(self.outside_label(node.id))
-            border = "accent" if node.id == self.hover or node.id in self.defaults or node.kind == "agent" \
-                or selected else "outside" if outside else "fg"
+            # Every box, models included, has a light grey frame. The box under the pointer, or else the
+            # clicked (or pinned) ones, and every box connected to it are framed in the accent, as wide
+            # as a selected box: the same boxes the map lights (highlighted).
+            joined = lit_nodes is not None and node.id in lit_nodes
+            framed = node.id == self.hover or selected or joined
+            border = "accent" if framed else "fg"
             cr.set_source_rgba(*self.color(border, (0.16 if border == "fg" else 0.9) * (0.3 if faded else 1)))
-            cr.set_line_width(2.2 if selected else 2 if node.id in active_models or outside else 1)
+            cr.set_line_width(2.2 if framed else 1)
             cr.stroke()
             if selected:
-                self.draw_check(cr, layout, x + w - PIN_W - 22, y + (h - 16) / 2)
+                # An agent's tick left of its symbols (they reach the pin's corner); others' by the pin.
+                check_x = x + w - self.agent_slots()["strip"] - CHECK_ROOM + 2 if node.kind == "agent" \
+                    else x + w - PIN_W - 22
+                self.draw_check(cr, layout, check_x, y + (h - 16) / 2)
             self.draw_pin(cr, layout, node.id, x, y, w, faded)
 
             use = self.runtime_use(node)
@@ -1892,7 +2002,9 @@ class MapView(Gtk.DrawingArea):
                     self.draw_subagents(cr, node.id, end - slots["subagents"], y, h, faded)
                 if node.id in self.traffic:
                     self.draw_traffic(cr, node.id, end - slots["traffic"], y, h, faded)
-                right = slots["strip"] + TEXT_GAP - PIN_W - (24 if node.id in self.selected else 4)
+                # The name ends before the strip (and before the tick while the box is selected).
+                right = slots["strip"] + TEXT_GAP + (CHECK_ROOM if selected else 0) \
+                    - PIN_W - (24 if selected else 4)
             elif node.kind == "runtime" and self.on_stop is not None and use is not None and use.running \
                     and use.vram >= STOP_VRAM:
                 right = self.draw_runtime_stop(cr, layout, node.id, x, y, w, h, faded)
@@ -1969,15 +2081,22 @@ class MapView(Gtk.DrawingArea):
                 cr.stroke()
             else:
                 cr.fill()
-            # The header band: a little stronger, with a line under it.
-            self.rounded_top(cr, x, y, w, CARD_HEAD, self.radius + 2)
+            # The header band: a little stronger, with a line under it (a collapsed card is only this).
+            folded = key in self.collapsed
+            if folded:
+                self.rounded(cr, x, y, w, CARD_HEAD, self.radius + 2)
+            else:
+                self.rounded_top(cr, x, y, w, CARD_HEAD, self.radius + 2)
             cr.set_source_rgba(*self.color("fg", 0.05))
             cr.fill()
-            cr.set_source_rgba(*self.color("fg", 0.10))
-            cr.set_line_width(1)
-            cr.move_to(x + 1, y + CARD_HEAD + 0.5)
-            cr.line_to(x + w - 1, y + CARD_HEAD + 0.5)
-            cr.stroke()
+            if not folded:
+                cr.set_source_rgba(*self.color("fg", 0.10))
+                cr.set_line_width(1)
+                cr.move_to(x + 1, y + CARD_HEAD + 0.5)
+                cr.line_to(x + w - 1, y + CARD_HEAD + 0.5)
+                cr.stroke()
+            # The chevron at the right end: ▾ open, ▸ folded (a click on the header switches).
+            self.draw_chevron(cr, x + w - 12, y + CARD_HEAD / 2, folded)
             node_kind = self.CARD_KINDS.get(key, "model")
             glyph_text = glyph(TILE_GLYPHS.get(node_kind, "model"))
             tone = TILE_TONES.get(node_kind, "accent")
@@ -1991,12 +2110,12 @@ class MapView(Gtk.DrawingArea):
                 cr.move_to(gx, y + (CARD_HEAD - layout.get_pixel_size()[1]) / 2)
                 PangoCairo.show_layout(cr, layout)
             gx += size + 7
-            # The number of boxes, right; the grip left of it.
+            # The number of boxes left of the chevron; the grip left of it.
             layout.set_width(-1)
             layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 8"))
             layout.set_text(str(count), -1)
             cw, ch = layout.get_pixel_size()
-            bx = x + w - 10 - cw - 8
+            bx = x + w - 24 - cw - 8
             self.rounded(cr, bx, y + (CARD_HEAD - ch - 2) / 2, cw + 8, ch + 2, (ch + 2) / 2)
             cr.set_source_rgba(*self.color("fg", 0.10))
             cr.fill()
@@ -2029,6 +2148,20 @@ class MapView(Gtk.DrawingArea):
                 PangoCairo.show_layout(cr, layout)
             layout.set_ellipsize(Pango.EllipsizeMode.END)
         layout.set_width(-1)
+
+    def draw_chevron(self, cr, cx, cy, folded):
+        """A small filled triangle at (cx, cy): pointing down while the card is open, right when folded."""
+        cr.set_source_rgba(*self.color("dim", 0.9))
+        if folded:
+            cr.move_to(cx - 2, cy - 4)
+            cr.line_to(cx + 3, cy)
+            cr.line_to(cx - 2, cy + 4)
+        else:
+            cr.move_to(cx - 4, cy - 2)
+            cr.line_to(cx + 4, cy - 2)
+            cr.line_to(cx, cy + 3)
+        cr.close_path()
+        cr.fill()
 
     def card_header_at(self, x, y):
         """The group key whose card header is at (x, y), the top-most card first."""

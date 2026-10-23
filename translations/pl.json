@@ -19,7 +19,7 @@
  "(the best for this graphics card)": "(najlepszy dla tej karty graficznej)",
  "Default layout": "Układ domyślny",
  "Put the cards back in their columns and the boxes in the map's own order": "Przywróć karty do ich kolumn, a pola do kolejności mapy",
- "Drag to move this card. Drag a box inside its card to change the order": "Przeciągnij, aby przenieść tę kartę. Przeciągnij pole wewnątrz jego karty, aby zmienić kolejność",
+ "Click to fold or open this card. Drag to move it. Drag a box inside its card to change the order": "Kliknij, aby zwinąć lub rozwinąć tę kartę. Przeciągnij, aby ją przenieść. Przeciągnij pole wewnątrz jego karty, aby zmienić kolejność",
  "\u0004+ 1 folder with unused models": [
   "+ 1 folder z nieużywanymi modelami",
   "+ {0} foldery z nieużywanymi modelami",
@@ -2805,5 +2805,7 @@
   "{0} serwery",
   "{0} serwerów"
  ],
- "Not checked with Hugging Face (only the first sizes of a model are), so {0} is not offered it. Download it with llama.cpp or LM Studio, or get the file and add it under On this PC.": "Niesprawdzone w Hugging Face (sprawdzane są tylko pierwsze rozmiary modelu), więc nie jest oferowane dla {0}. Pobierz je przez llama.cpp lub LM Studio albo pobierz plik i dodaj go w Na tym komputerze."
+ "Not checked with Hugging Face (only the first sizes of a model are), so {0} is not offered it. Download it with llama.cpp or LM Studio, or get the file and add it under On this PC.": "Niesprawdzone w Hugging Face (sprawdzane są tylko pierwsze rozmiary modelu), więc nie jest oferowane dla {0}. Pobierz je przez llama.cpp lub LM Studio albo pobierz plik i dodaj go w Na tym komputerze.",
+ "Layout pinned: card places, box order and folded cards stay after Refresh and a restart. Click to unpin": "Układ przypięty: miejsca kart, kolejność pól i zwinięte karty zostają po Odświeżeniu i ponownym uruchomieniu. Kliknij, aby odpiąć",
+ "Pin this layout: keep card places, box order and folded cards after Refresh and a restart (unpinned, the map starts in its default layout)": "Przypnij ten układ: zachowaj miejsca kart, kolejność pól i zwinięte karty po Odświeżeniu i ponownym uruchomieniu (bez przypięcia mapa startuje w domyślnym układzie)"
 }

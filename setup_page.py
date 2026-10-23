@@ -112,6 +112,7 @@ class SetupPage:
         if self.with_addons():
             self.setup_installed = self.installed_adapters(self.adapter_addons())
         self.refresh_overview()
+        self.reset_map_layout_unless_pinned()
         self.refresh_map()
         self.refresh_setup()
         self.sync_provider_watch()

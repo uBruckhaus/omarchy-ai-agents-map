@@ -30,7 +30,7 @@ def fake_map():
                                  ("agent:pi", "model:runtime:llamacpp:gemma", "default"),
                                  ("agent:dsh", "model:runtime:llamacpp:qwen", "default")):
         g.link(source, target, kind)
-    view = types.SimpleNamespace(graph=g, link=None, outside={}, usage=None)
+    view = types.SimpleNamespace(graph=g, link=None, outside={}, usage=None, folded=set())
     for name in ("kind_of", "model_users", "movable_edge", "link_target_ok", "model_busy", "loaded_edge"):
         setattr(view, name, types.MethodType(getattr(map_view.MapView, name), view))
     view.model_state = lambda node, use=None: None
