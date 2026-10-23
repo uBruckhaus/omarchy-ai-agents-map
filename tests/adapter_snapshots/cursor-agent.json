@@ -64,6 +64,7 @@
  "sandbox_setting": "sandbox.mode",
  "replies": [],
  "subagents": [],
+ "session_files": "",
  "asks_setting": "approvalMode",
  "access": {
   "how": "A Cursor account (cursor.com)",

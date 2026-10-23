@@ -1,11 +1,12 @@
 """AI Agents Map: the MCP server details and Add MCP server pages (a mixin of ai_popup.AgentsMap,
 split off to keep ai_popup.py small; its methods use the window's state through self)."""
 
-from gi.repository import Adw, GLib, Gtk, Pango
+from gi.repository import Adw, Gdk, GLib, Gtk, Pango
 
 import ai_core
 import connect
 import harnesses
+import mcp_advice
 import mcp_catalog
 import mcp_ctl
 import mcp_library
@@ -20,6 +21,7 @@ import skill_update
 import skills_ctl
 import subprocess
 import threading
+import time
 import urllib.parse
 import web_sources
 from i18n import _, N_, ngettext
@@ -474,6 +476,10 @@ class McpPages:
         self.add_query = Gtk.SearchEntry(hexpand=True, placeholder_text=_("Search servers, e.g. postgres, notion"))
         self.add_query.connect("activate", lambda *_: self.search_mcp())
         left.append(self.add_query)
+        # Ask an agent which server fits (shown while Smart Check has an agent: fill_mcp_ask).
+        self.mcp_ask_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        left.append(self.mcp_ask_box)
+        self.mcp_ask_text, self.mcp_ask_state = "", {}
         self.add_web_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1,
                                         label=_("Type what a server should work with, e.g. postgres, notion, slack, "
                                                 "home assistant. Anyone can publish to the registry: each server's "
@@ -815,6 +821,7 @@ class McpPages:
                 self.add_checks[agent.command] = check
         self.fill_picks()
         self.fill_installed_mcp()
+        self.fill_mcp_ask()
         for key in ("installed", "picks", "web", "local"):
             if self.add_setup.get_parent() is not self.add_details[key][1]:
                 if not self.add_details[key][1].get_first_child():
@@ -1307,15 +1314,7 @@ class McpPages:
                 self.add_web_status.set_label(_("Servers found: {0}").format(_("more than {0}").format(
                     page * mcp_registry.PAGE + len(result)) if following else page * mcp_registry.PAGE + len(result)))
             for server in result[:mcp_registry.PAGE]:
-                secret = any(n.required and getattr(n, "secret", False) for o in server.options for n in o.needs)
-                row = self.model_row(server.title or server.short, server.description or server.name,
-                                     right=self.age_text(self.iso_time(server.updated)),
-                                     chips=self.run_chips([o.kind for o in server.options], secret),
-                                     icon=RUN_GLYPHS.get(server.options[0].kind, "package")
-                                     if server.options else "package")
-                row.set_tooltip_text(server.name)
-                row.server = server
-                box.append(row)
+                box.append(self.registry_row(server))
             self.update_registry_pager(len(result[:mcp_registry.PAGE]), total)
             scroller = box.get_ancestor(Gtk.ScrolledWindow)
             if scroller is not None:
@@ -1323,6 +1322,157 @@ class McpPages:
             return False
 
         threading.Thread(target=work, daemon=True).start()
+
+    def registry_row(self, server, subtitle: str | None = None, tip: str = "") -> Gtk.ListBoxRow:
+        """One server of the registry list (a search's, or an agent's suggestions'): a click opens its page."""
+        secret = any(n.required and getattr(n, "secret", False) for o in server.options for n in o.needs)
+        row = self.model_row(server.title or server.short,
+                             subtitle if subtitle is not None else server.description or server.name,
+                             right=self.age_text(self.iso_time(server.updated)),
+                             chips=self.run_chips([o.kind for o in server.options], secret),
+                             icon=RUN_GLYPHS.get(server.options[0].kind, "package") if server.options else "package")
+        row.set_tooltip_text(tip or server.name)
+        row.server = server
+        return row
+
+    # --- ask an agent which server fits ----------------------------------------------------------------
+
+    def fill_mcp_ask(self):
+        """A folding card under the registry search: the user asks the agent for AI checks which
+        server fits, in their own words; it picks from the downloaded registry list (mcp_advice) and
+        its picks fill the list below, like a search's results."""
+        import ai_helper
+        box = self.mcp_ask_box
+        self.clear_box(box)
+        installed = set(self.installed_commands())
+        helpers = ai_helper.helpers(installed)
+        box.set_visible(bool(helpers))
+        if not helpers:
+            return
+        agent = ai_helper.chosen(installed)
+        name = ai_helper.name_of(agent)
+        state = self.mcp_ask_state
+        group = self.group_card(box, "mcp-ask", _("Ask an agent"), "am-smartcheck-symbolic",
+                                _("Not sure which server? Ask {0}").format(name))
+        line = self.ai_agent_picker(helpers, agent, self.fill_mcp_ask) if len(helpers) > 1 else Gtk.Box(spacing=8)
+        line.add_css_class("am-line")
+        line.append(Gtk.Box(hexpand=True))
+        line.append(self.count_picker("mcp_advice_count", mcp_advice.SERVER_COUNTS, mcp_advice.MAX_SERVERS,
+                                      _("How many servers the agent suggests at most"),
+                                      lambda: state.get("advice") is not None and self.show_mcp_suggestions()))
+        group.append(line)
+        view = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR, accepts_tab=False, top_margin=4, bottom_margin=4,
+                            left_margin=6, right_margin=6)
+        view.add_css_class("am-prompt")
+        buffer = view.get_buffer()
+        buffer.set_text(self.mcp_ask_text)
+        hint = Gtk.Label(label=_("e.g. read and write my Notion pages, or query a Postgres database"),
+                         xalign=0, yalign=0, wrap=True, max_width_chars=1, can_target=False,
+                         margin_start=8, margin_top=5, margin_end=8)
+        hint.add_css_class("am-agent-detail")
+        hint.set_visible(not self.mcp_ask_text)
+        overlay = Gtk.Overlay(child=view)
+        overlay.add_overlay(hint)
+        frame = Gtk.ScrolledWindow(child=overlay, min_content_height=56, max_content_height=96,
+                                   propagate_natural_height=True)
+        frame.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        frame.add_css_class("am-prompt-frame")
+        group.append(frame)
+        self.guard_text_field(view)
+        row = Gtk.Box(spacing=8)
+        ask = Gtk.Button(label=_("Asking…") if state.get("asking") else _("Ask"), valign=Gtk.Align.START)
+        ask.add_css_class("am-small-btn")
+        ask.add_css_class("am-primary")
+        note = Gtk.Label(label=_("{0} picks servers for your request from the registry list on this PC (no web "
+                                 "search; it sees your request and the servers' public texts). Uses its tokens; "
+                                 "a minute or two.").format(name),
+                         xalign=0, wrap=True, max_width_chars=1, hexpand=True)
+        note.add_css_class("am-agent-detail")
+        row.append(note)
+        row.append(ask)
+        group.append(row)
+        if state.get("asking"):
+            group.append(self.ask_progress(state, name, {
+                "": _("{0} is choosing search words · {1}"),
+                "picking": _("{0} is picking from the servers found · {1}")}, lambda: True))
+        elif state.get("advice") is not None and state["advice"].summary:
+            summary = Gtk.Label(label=state["advice"].summary, xalign=0, wrap=True, max_width_chars=1)
+            summary.add_css_class("am-agent-detail")
+            group.append(summary)
+
+        def changed(*_args):
+            self.mcp_ask_text = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), False)
+            hint.set_visible(not self.mcp_ask_text)
+            ask.set_sensitive(not state.get("asking") and bool(mcp_advice.model_advice.clean_question(self.mcp_ask_text)))
+
+        buffer.connect("changed", changed)
+        changed()
+        ask.connect("clicked", lambda *_: self.ask_mcp_advice(agent))
+
+        def on_key(_controller, key, _code, mods):
+            if key in (Gdk.KEY_Return, Gdk.KEY_KP_Enter) and mods & Gdk.ModifierType.CONTROL_MASK:
+                if ask.get_sensitive():
+                    self.ask_mcp_advice(agent)
+                return True             # Ctrl+Enter asks; Enter alone is a new line
+            return False
+
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", on_key)
+        view.add_controller(keys)
+
+    def ask_mcp_advice(self, agent: str):
+        import ai_helper
+        state = self.mcp_ask_state
+        question = mcp_advice.model_advice.clean_question(self.mcp_ask_text)
+        if state.get("asking") or not question:
+            return
+        state.update(asking=True, asked_at=time.monotonic(), phase="")
+        self.fill_mcp_ask()
+        most = ai_core.setting("mcp_advice_count")
+
+        def work():
+            try:
+                result = mcp_advice.ask(agent, question, most, phase=lambda p: state.__setitem__("phase", p))
+            except Exception as error:          # the agent, its sign-in, an answer that did not hold up
+                result = error
+            GLib.idle_add(done, result)
+
+        def done(result):
+            state.update(asking=False, phase="")
+            if isinstance(result, Exception):
+                self.show_error(_("{0} could not answer: {1}").format(ai_helper.name_of(agent), str(result)[:2000]))
+            else:
+                state["advice"] = result
+            self.fill_mcp_ask()
+            if not isinstance(result, Exception):
+                self.show_mcp_suggestions()
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def show_mcp_suggestions(self):
+        """The agent's picks in the registry list, why each fits below its name, as many as
+        Suggestions says; a search typed afterwards replaces them."""
+        import ai_helper
+        advice = self.mcp_ask_state.get("advice")
+        if advice is None:
+            return
+        if self.add_pages.pop("web", None) is not None:          # a new list: nothing picked from it yet
+            self.add_server = self.add_from = None
+            self.add_empty("web", _("Pick a server on the left to see who published it, what it needs and "
+                                    "how it runs."))
+            self.update_add_test()
+        box = self.add_web_list
+        self.clear_box(box)
+        shown = advice.servers[:ai_core.setting("mcp_advice_count")]
+        for server, why in shown:
+            box.append(self.registry_row(server, why or None, f"{server.name}: {why}" if why else ""))
+        self.registry_pager.set_visible(False)
+        self.add_web_status.set_label(
+            _("Suggested by {0}: {1}").format(ai_helper.name_of(advice.agent),
+                                              ngettext("1 server", "{0} servers", len(shown)).format(len(shown)))
+            if shown else _("{0} found no fitting server in the registry list (searched for: {1}).").format(
+                ai_helper.name_of(advice.agent), ", ".join(advice.terms)))
 
     def update_registry_pager(self, shown: int, total):
         """‹ Previous 20 · 21 – 40 / 200 · Next 20 › under the list (only while there is more than one page)."""

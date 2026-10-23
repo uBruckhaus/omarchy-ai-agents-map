@@ -242,6 +242,11 @@ def focus_process(pids: list[int]) -> bool:
     return False
 
 
+def windows() -> dict:
+    """{process id: title} of Hyprland's windows (a terminal's title names what runs in it)."""
+    return {c["pid"]: str(c.get("title") or "")[:200] for c in _clients() if isinstance(c.get("pid"), int)}
+
+
 def is_maximized(app_id: str) -> bool | None:
     """Whether Hyprland shows our window maximized or full screen (None: unknown)."""
     own = own_window(_clients(), app_id)

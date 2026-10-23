@@ -172,6 +172,19 @@ class FadeTest(unittest.TestCase):
         self.assertNotIn("agent:claude", self.layer.levels)
 
 
+
+class CollabColourTest(unittest.TestCase):
+    """Lines between agents working together have their own colour: from the theme, none of the others."""
+
+    def test_its_own_colour(self):
+        import palette
+        colors = dict(palette.DEFAULT_COLORS)
+        collab = palette.collab_color(colors)
+        self.assertRegex(collab, r"^#[0-9a-f]{6}$")
+        taken = {colors[k] for k in ("accent", "red", "yellow", "green", "magenta", "cyan", "orange", "foreground")}
+        self.assertNotIn(collab, taken)
+        self.assertNotEqual(palette.collab_color({**colors, "red": "#ff0000"}), collab)   # follows the theme
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -241,8 +254,13 @@ class FlowMarksTest(unittest.TestCase):
         flow_marks = map_view.MapView.flow_marks
         FLOW_PERIOD, FLOW_PULSES = map_view.MapView.FLOW_PERIOD, map_view.MapView.FLOW_PULSES
 
+        called = set()
+
+        def called_agents(self):
+            return self.called
+
         def color(self, name, alpha=1.0):
-            return (0.5, 0.5, 0.5, alpha)
+            return {"collab": (0.9, 0.1, 0.1), "accent": (0.1, 0.1, 0.9)}.get(name, (0.5, 0.5, 0.5)) + (alpha,)
 
         def curve_point(self, edge, t):
             return (edge * 100 + 100 * t, 50.0)          # edge i runs from x=100i to x=100(i+1)
@@ -255,6 +273,14 @@ class FlowMarksTest(unittest.TestCase):
         lines = [m for m in marks if m[0] == "line"]
         self.assertTrue(lines)
         self.assertTrue(all(1.0 <= m[5] <= 4.5 for m in lines))   # widths taper 4.5 → 1
+
+    def test_a_called_agent_flows_in_the_collaboration_colour(self):
+        view = self.View()
+        glow = lambda marks: next(m for m in marks if m[0] == "glow")[5]          # its accent colour
+        self.assertEqual(glow(view.flow_marks([("agent:pi", [0, 1])], now=1.0)), (0.1, 0.1, 0.9))
+        view.called = {"agent:pi"}
+        self.assertEqual(glow(view.flow_marks([("agent:pi", [0, 1])], now=1.0)), (0.9, 0.1, 0.1))
+        self.assertEqual(glow(view.flow_marks([("agent:claude", [0, 1])], now=1.0)), (0.1, 0.1, 0.9))   # the caller
 
     def test_dark_agents_make_no_marks(self):
         view = self.View()
@@ -366,6 +392,7 @@ class FrameCostTest(unittest.TestCase):
         view.colors, view.zoom = {}, 1.0
         view.edge_points = lambda edge: (20, 60, 320, 90)
         view.FLOW_PERIOD, view.FLOW_PULSES = map_view.MapView.FLOW_PERIOD, map_view.MapView.FLOW_PULSES
+        view.called_agents = set
         view.flow_marks = lambda paths, now, levels: map_view.MapView.flow_marks(view, paths, now, levels)
         view.set_usage_box({"agent:claude": map_view.usage_box.Reading(60.0, 500, 1000, "m")})
         layer = UsageTextureTest.Layer(view)
@@ -420,3 +447,22 @@ class HelperLightsTest(unittest.TestCase):
         start, end = view.curve_point(arc, 0), view.curve_point(arc, 1)
         self.assertEqual((round(start[0]), round(end[0])), (100, 93))     # from the user to the arrowhead
         self.assertLess(view.curve_point(arc, 0.5)[0], 100)                # bowing out left of the card
+
+    def test_the_called_agents_path_in_the_collaboration_colour(self):
+        """Claude uses Pi: Pi's lines to llama.cpp and on to its model, not Claude's own."""
+        class View:
+            called_agents = map_view.MapView.called_agents
+            collab_edges = map_view.MapView.collab_edges
+            drawn_agent_links = map_view.MapView.drawn_agent_links
+
+        view = View()
+        view.graph = sample()
+        view.active = map_view.MapView.active_paths(view.graph)
+        view.boxes = {"agent:claude": (0, 0, 1, 1), "agent:pi": (0, 2, 1, 1)}
+        view.agent_links = set()
+        self.assertEqual(view.collab_edges(), set())
+        view.agent_links = {("agent:claude", "agent:pi")}
+        self.assertEqual({(view.graph.edges[i].source, view.graph.edges[i].target) for i in view.collab_edges()},
+                         {("agent:pi", "runtime:llamacpp"), ("runtime:llamacpp", "model:runtime:llamacpp:qwen")})
+        del view.boxes["agent:pi"]                       # not on the map: no arrow, no colour
+        self.assertEqual(view.collab_edges(), set())

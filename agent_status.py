@@ -61,6 +61,29 @@ class Check:
     detail: str = ""
     step: str = ""          # what to do next, when it is not ok
     command: str = ""       # a command line for that step, shown with a copy button
+    sign_in: str = ""       # an agent whose own sign-in a button starts here (the details page)
+
+
+# What the desktop's usage records say about a sign-in (Omarchy's collectors, every agent that has
+# one): "Waiting for auth" when there are no credentials or the service turns them down (an expired
+# token, a changed plan), "Sign-in expired" when the agent cannot renew it itself, "Limits paused"
+# when it renews it the next time it runs (no new sign-in needed).
+WAITING_FOR_AUTH = "Waiting for auth"
+SIGN_IN_EXPIRED = "Sign-in expired"
+LIMITS_PAUSED = "Limits paused"
+TURNED_DOWN = (WAITING_FOR_AUTH, SIGN_IN_EXPIRED)
+
+
+def sign_in_expired(record: dict, access=None, root: Path | None = None, environ=None) -> bool:
+    """The agent has a sign-in, but its service does not take it any more: the record says it
+    expired, or waits for auth although it is marked ready or the agent's credential file is there
+    (only whether it is)."""
+    status = str(record.get("usageStatusText") or "") if record else ""
+    if status == SIGN_IN_EXPIRED:
+        return True
+    if status != WAITING_FOR_AUTH:
+        return False
+    return bool(record.get("ready")) or (access is not None and credentials_present(access, root or HOME, environ))
 
 
 # --- problems the last Start ran into (kept until a start works) ------------------------------
@@ -97,12 +120,8 @@ def load_issues(path: Path | None = None) -> dict:
 def _save_issues(issues: dict, path: Path | None = None):
     import json
     path = path or ISSUES
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    tmp = path.with_name(f".{path.name}.new")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        json.dump(issues, handle, indent=2)
-    os.replace(tmp, path)
+    import ai_core
+    ai_core.atomic_write(path, json.dumps(issues, indent=2))
 
 
 def remember_issue(command: str, kind: str, path: Path | None = None):
@@ -454,8 +473,8 @@ def pays_per_token(command: str, details, environ=None) -> bool:
     it is), or it signs in with API keys only (access.per_token) and is signed in (its credential file
     is there: never opened), or the desktop's usage record for it is there and names no plan. Without
     any of these it is not known: no."""
-    if details is None or details.limits:
-        return False
+    if details is None or details.limits or details.usage_note in TURNED_DOWN:
+        return False             # limits known, or a plan's sign-in that ran out: not paid per token
     harness = harnesses.get(command)
     access = harness.access() if harness is not None and harness.access is not None else None
     environ = os.environ if environ is None else environ
@@ -569,11 +588,19 @@ def agent_checks(agent, info, record: dict, inventory, hints: dict, logged_in: b
     access = access_table().get(agent.command)
     if uses_local:
         checks.append(Check("ok", _("No account needed"), _("It uses a local LLM on this computer.")))
+    elif sign_in_expired(record, access, root, environ):
+        login = access.login if access is not None else ""
+        checks.append(Check("missing", _("Sign-in expired"),
+                            _("{0} is signed in, but its service no longer accepts the sign-in (it ran out, or "
+                              "the plan was changed), so its plan and limits cannot be shown.").format(agent.name),
+                            _("Sign in again, then refresh this page:") if login else _("Sign in again, then refresh "
+                                                                                         "this page."),
+                            login, sign_in=agent.command))
     elif record and record.get("ready") and record.get("tierLabel"):
         checks.append(Check("ok", _("Signed in"), _("Plan: {0}").format(str(record["tierLabel"])[:40])))
     elif record and record.get("authHelpText") and not record.get("ready"):
         checks.append(Check("missing", _("Not signed in"), str(record.get("usageStatusText") or "")[:200],
-                            str(record["authHelpText"])[:300]))
+                            str(record["authHelpText"])[:300], sign_in=agent.command))
     elif access is not None and access.local_ok and not access.files and not access.env and not access.login:
         checks.append(Check("ok", _("No account needed"), access.how))
     elif access is not None:
@@ -583,10 +610,12 @@ def agent_checks(agent, info, record: dict, inventory, hints: dict, logged_in: b
         elif access.local_ok and local_names:
             checks.append(Check("info", _("No account set up"),
                                 _("It can use the local LLMs it is connected to."),
-                                access.how + (" · " + _("Sign in: {0}").format(access.login) if access.login else "")))
+                                access.how + (" · " + _("Sign in: {0}").format(access.login) if access.login else ""),
+                                sign_in=agent.command))
         else:
             checks.append(Check("missing", _("Not signed in"), access.how,
-                                _("Sign in: {0}").format(access.login) if access.login else access.how))
+                                _("Sign in: {0}").format(access.login) if access.login else access.how,
+                                sign_in=agent.command))
     elif not model and not info.providers and agent.command not in graph.CLOUD:
         # No service of its own (OpenClaw routes to the providers in its settings), and none set up:
         # it cannot answer anything yet.
@@ -597,6 +626,10 @@ def agent_checks(agent, info, record: dict, inventory, hints: dict, logged_in: b
     else:
         checks.append(Check("info", _("Sign-in unknown"),
                             _("AI Agents Map does not know how this agent signs in.")))
+    if record and str(record.get("usageStatusText") or "") == LIMITS_PAUSED and not uses_local:
+        checks.append(Check("info", _("Limits paused"),
+                            _("{0} renews its sign-in itself the next time it runs; then its limits come back. "
+                              "Signing in again is not needed.").format(agent.name)))
 
     if model:
         checks.append(Check("ok", _("Model"), model + (f" · {provider}" if provider else "")))

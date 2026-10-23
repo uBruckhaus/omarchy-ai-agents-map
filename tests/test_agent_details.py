@@ -87,6 +87,19 @@ class DetailsTest(unittest.TestCase):
         self.assertEqual(d.limits[0].percent, 1.0)
         self.assertIsNotNone(d.usage_updated.tzinfo)
 
+    def test_usage_stamps_follow_the_records(self):
+        """The map's poll reads a record again when its time changes; other files are left out."""
+        folder = self.home / "usage"
+        folder.mkdir()
+        (folder / "codex.json").write_text("{}")
+        (folder / "notes.txt").write_text("x")
+        (folder / "Bad Name.json").write_text("{}")
+        first = ad.usage_stamps(folder)
+        self.assertEqual(list(first), ["codex"])
+        os.utime(folder / "codex.json", ns=(1, first["codex"] + 10 ** 9))
+        self.assertNotEqual(ad.usage_stamps(folder)["codex"], first["codex"])
+        self.assertEqual(ad.usage_stamps(self.home / "missing"), {})
+
     def test_usage_record_name_checked(self):
         self.assertEqual(ad.usage_record("../etc/passwd", self.home), {})
 
@@ -95,6 +108,33 @@ class DetailsTest(unittest.TestCase):
         os.utime(f, (1_800_000_000, 1_800_000_000))
         self.assertEqual(ad.newest_mtime(["~/.pi/agent/sessions"]).timestamp(), 1_800_000_000)
         self.assertIsNone(ad.newest_mtime(["~/missing"]))
+
+    def test_last_used_date_tree(self):
+        """Codex: sessions/YYYY/MM/DD/rollout-….jsonl, four levels down: today's file is seen."""
+        old = self.write(".codex/sessions/2026/09/30/rollout-a.jsonl", "x")
+        new = self.write(".codex/sessions/2026/10/23/rollout-b.jsonl", "x")
+        os.utime(old, (1_700_000_000, 1_700_000_000))
+        os.utime(new, (1_800_000_000, 1_800_000_000))
+        for folder in (".codex/sessions/2026/10/23", ".codex/sessions/2026/10", ".codex/sessions/2026/09/30",
+                       ".codex/sessions/2026/09", ".codex/sessions/2026", ".codex/sessions"):
+            os.utime(self.home / folder, (1_600_000_000, 1_600_000_000))
+        self.assertEqual(ad.newest_mtime(["~/.codex/sessions"]).timestamp(), 1_800_000_000)
+
+    def test_codex_model_from_its_last_session(self):
+        """No model in config.toml: the one its newest session ran, Codex's own default."""
+        import agent_readers
+        self.write(".codex/config.toml", "[tui]\n")
+        old = self.write(".codex/sessions/2026/10/22/rollout-a.jsonl",
+                         '{"type":"turn_context","payload":{"cwd":"/x","model":"gpt-5"}}\n')
+        os.utime(old, (1_700_000_000, 1_700_000_000))
+        self.write(".codex/sessions/2026/10/23/rollout-b.jsonl",
+                   '{"type":"session_meta","payload":{"model":"no"}}\n'
+                   '{"type":"turn_context","payload":{"cwd":"/x","model":"gpt-6"}}\n'
+                   '{"type":"turn_context","payload":{"cwd":"/x","model":"gpt-6.1-sol"}}\n')
+        self.assertEqual(agent_readers.codex_session_model(), "gpt-6.1-sol")
+        self.assertEqual(ad.details_for("codex", usage_dir=self.home).model, "gpt-6.1-sol")
+        self.write(".codex/config.toml", 'model = "o9"\n')
+        self.assertEqual(ad.details_for("codex", usage_dir=self.home).model, "o9")      # set: as it is
 
     def test_oversized_file_ignored(self):
         self.write(".copilot/config.json", '{"model": "x"}' + " " * (ad.MAX_FILE_BYTES + 1))

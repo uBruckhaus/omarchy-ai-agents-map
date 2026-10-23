@@ -28,6 +28,7 @@ The interface (each implementation provides all of it):
     focus_window(app_id) -> bool  bring the app's window to the front (switching workspaces)
     focus_process(pids) -> bool   bring the window of one of these programs (or of a parent: its terminal)
                                   to the front; False when the desktop cannot
+    windows() -> dict             {process id: title} of the windows on screen ({} when the desktop cannot tell)
     is_maximized(app_id) -> bool|None
     maximize(app_id) -> bool      maximize where it is
     launch_app(argv) -> bool                      an app window of its own (LM Studio)

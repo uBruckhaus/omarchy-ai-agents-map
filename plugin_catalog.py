@@ -54,7 +54,8 @@ def parse(data) -> list:
 
 def load(path: Path = CACHE) -> dict:
     try:
-        data = json.loads(path.read_text(encoding="utf-8")[:1_000_000])
+        import ai_core
+        data = json.loads(ai_core.read_head(path, 1_000_000, follow=False))
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) and isinstance(data.get("plugins"), list) else {}

@@ -131,8 +131,8 @@ reader = "claude"
 [models]                               # the online models the map can switch it to
 reader = "claude"
 
-[research]                             # a web look-up (Add skills, MCP, AI checks): only the two web tools, no session kept
-argv = ["claude", "-p", "{prompt}", "--tools", "WebSearch", "WebFetch", "--allowedTools", "WebSearch", "WebFetch",
+[research]                             # a web look-up (Add skills, MCP, AI checks): only the two web tools, no session kept, the prompt on stdin
+argv = ["claude", "-p", "--tools", "WebSearch", "WebFetch", "--allowedTools", "WebSearch", "WebFetch",
         "--strict-mcp-config", "--no-session-persistence", "--disable-slash-commands", "--output-format", "json"]
 output = "claude-json"                 # the answer and its token use
 

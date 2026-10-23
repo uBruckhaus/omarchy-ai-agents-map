@@ -61,7 +61,7 @@ i18n.SETTINGS_FILE = settings_file()
 def load_settings(path: Path | None = None) -> dict:
     path = path or settings_file()
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)   # a FIFO in its place: not waited on
     except OSError:
         return {}
     try:
@@ -74,20 +74,63 @@ def load_settings(path: Path | None = None) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def atomic_write(path: Path, text: str) -> None:
-    """tmp + fsync + replace, always 0600."""
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+def atomic_write(path: Path, text: str | bytes, mode: int = 0o600, dir_mode: int = 0o700) -> None:
+    """A unique temporary file next to it (mkstemp: created new, never through a link left there),
+    its mode set before anything is written, fsync, then replace. 0600 unless mode says otherwise."""
+    path.parent.mkdir(parents=True, exist_ok=True, mode=dir_mode)
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}-", dir=str(path.parent))
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            os.fchmod(handle.fileno(), 0o600)
-            handle.write(text)
+        data = text if isinstance(text, bytes) else text.encode("utf-8")
+        with os.fdopen(fd, "wb") as handle:
+            os.fchmod(handle.fileno(), mode)
+            handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(tmp, path)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
+
+
+NOT_PLAIN = str.maketrans({c: None for c in "<>&" + "".join(map(chr, [*range(32), *range(0x7f, 0xa0)]))})
+
+
+def plain_text(text, most: int = 200) -> str:
+    """Text for a desktop notification: notification daemons read title and body as markup
+    (<img src=…> would load a remote image, &amp; turn into &), so markup characters and control
+    characters go, white space is folded and the length capped."""
+    text = " ".join(str(text or "").replace("\n", " ").split()).translate(NOT_PLAIN)
+    return text if len(text) <= most else text[:most - 1].rstrip() + "…"
+
+
+def read_head(path, limit: int, follow: bool = True) -> bytes:
+    """At most `limit` bytes from the start of a regular file, never more read into memory (what
+    `path.read_bytes()[:limit]` meant). Opened without blocking (a FIFO left in its place cannot hang
+    the reader) and checked on the opened file itself; anything else raises OSError."""
+    flags = os.O_RDONLY | os.O_NONBLOCK | (0 if follow else os.O_NOFOLLOW)
+    fd = os.open(path, flags)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError(f"{path} is not a regular file")
+        chunks, left = [], limit
+        while left > 0:
+            chunk = os.read(fd, min(left, 1 << 20))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            left -= len(chunk)
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
+
+
+def read_whole(path, limit: int, follow: bool = True) -> bytes:
+    """A whole regular file of at most `limit` bytes, for reading in order to rewrite it: a larger
+    one raises OSError instead of handing back its start (a prefix written back would lose the rest)."""
+    data = read_head(path, limit + 1, follow)
+    if len(data) > limit:
+        raise OSError(f"{path} is larger than {limit} bytes")
+    return data
 
 
 def setting(key: str, path: Path | None = None):
@@ -127,6 +170,50 @@ def last_view(path: Path | None = None) -> str:
 
 
 # --- Hyprland -----------------------------------------------------------------
+
+def folder_bytes(folder, most: int = 0) -> int:
+    """Bytes of the files below folder (lstat, links not followed); stops counting past `most`."""
+    total = 0
+    for root, _dirs, files in os.walk(folder):
+        for name in files:
+            try:
+                total += os.lstat(os.path.join(root, name)).st_size
+            except OSError:
+                pass
+            if most and total > most:
+                return total
+    return total
+
+
+def run_with_disk_budget(argv: list[str], cwd: str, budget: int, timeout: float, every: float = 0.5) -> bool:
+    """Run argv (no shell, output discarded) in cwd while what it writes there stays within `budget`
+    bytes: measured every `every` seconds, and its whole process group ended at once when it goes over
+    (or after `timeout`). For a program that unpacks itself (an AppImage's --appimage-extract), whose
+    size cannot be known before. True when it ended by itself within the budget, with exit status 0."""
+    import signal
+    import time
+    process = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, start_new_session=True)
+    deadline = time.monotonic() + timeout
+    try:
+        while True:
+            try:
+                code = process.wait(timeout=every)
+                return code == 0 and folder_bytes(cwd, budget) <= budget
+            except subprocess.TimeoutExpired:
+                pass
+            if time.monotonic() > deadline or folder_bytes(cwd, budget) > budget:
+                return False
+    finally:
+        # Always the whole group, also after the program itself has ended: a child it left behind
+        # must not go on writing unwatched.
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        if process.poll() is None:
+            process.wait()
+
 
 def read_bounded_output(argv: list[str], max_bytes: int = 64 * 1024, timeout: float = 5.0,
                         stdin: bytes | None = None, cwd: str | None = None, env: dict | None = None,

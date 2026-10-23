@@ -2,15 +2,17 @@
 ai_popup.AgentsMap, split off to keep ai_popup.py small; its methods use the window's state
 through self)."""
 
-from gi.repository import Adw, GLib, Gtk, Pango
+from gi.repository import Adw, Gdk, GLib, Gtk, Pango
 
 import ai_core
+import ai_helper
 import connect
 import context_ctl
 import datetime as dt
 import install_ctl
 import inventory
 import llm_engine
+import model_advice
 import model_move
 import model_names
 import models_ctl
@@ -33,6 +35,17 @@ class ModelsPage:
     MODEL_TABS = (("installed", N_("Installed")), ("web", N_("Get from Hugging Face")), ("local", N_("On this PC")))
     FIT_TEXT = {"fits": N_("Fits your graphics card"), "partly": N_("Partly in system memory: works, slower"),
                 "too_large": N_("Likely too large")}
+    # Why Ollama cannot pull a file (models_ctl.ollama_pull_problem); {0}: the local LLM's name.
+    PULL_TEXT = {"split": N_("{0} cannot download split files from Hugging Face. Download it with llama.cpp or "
+                             "LM Studio, or get the file and add it under On this PC."),
+                 "folder": N_("{0} cannot download a file from a sub-folder of the repository. Download it with "
+                              "llama.cpp or LM Studio, or get the file and add it under On this PC."),
+                 "tag": N_("{0} downloads by size name only, and this one is not unique here. Download it with "
+                           "llama.cpp or LM Studio, or get the file and add it under On this PC."),
+                 "unchecked": N_("Not checked with Hugging Face (only the first sizes of a model are), so {0} is "
+                                 "not offered it. Download it with llama.cpp or LM Studio, or get the file and add "
+                                 "it under On this PC.")}
+    PULL_CHECKS = 30             # sizes of one model asked of Hugging Face's registry for Ollama
 
     def build_models_page(self) -> Gtk.Widget:
         """A local LLM's models, laid out like LM Studio's model search: a list on the left, the
@@ -120,9 +133,17 @@ class ModelsPage:
                                              placeholder_text=_("Search GGUF models, e.g. qwen3 coder"))
         self.models_search.connect("activate", lambda *_: self.search_models())
         left.append(self.models_search)
+        # Ask an agent which model fits (shown while Smart Check has an agent: fill_model_ask).
+        self.models_ask_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        left.append(self.models_ask_box)
+        self.models_ask_text = ""      # the question; the request and its answer belong to the page (models_state)
         self.models_results_heading = Gtk.Label(xalign=0)
         self.models_results_heading.add_css_class("am-group-heading")
         left.append(self.models_results_heading)
+        # What the search is doing or found, right where its results are (Searching…, Nothing found.).
+        self.models_note = Gtk.Label(xalign=0, wrap=True, max_width_chars=1, visible=False)
+        self.models_note.add_css_class("am-agent-detail")
+        left.append(self.models_note)
         self.models_repos = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
         self.models_repos.add_css_class("am-list")
         pick_cards(self.models_repos)
@@ -173,22 +194,31 @@ class ModelsPage:
         local_box.append(add_row)
         self.models_stack.add_named(local_box, "local")
 
-        # Below every tab: progress, what happened, Back / Stop download.
+        # Below every tab, only while a download runs: its progress, what it does, Stop download.
+        # (Back is in the header; what a search or an action did shows at its place or as a note.)
+        self.models_footer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, visible=False)
         self.models_bar = Gtk.ProgressBar()
         self.models_bar.add_css_class("am-progress")
-        page.append(self.models_bar)
+        self.models_footer.append(self.models_bar)
         bottom = Gtk.Box(spacing=8)
         self.models_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1, hexpand=True)
         self.models_status.add_css_class("am-agent-detail")
         bottom.append(self.models_status)
-        self.models_cancel = Gtk.Button(label=_("Cancel"))
+        self.models_cancel = Gtk.Button(label=_("Stop download"))
         self.models_cancel.add_css_class("am-action-btn")
+        self.models_cancel.add_css_class("am-danger")
         self.models_cancel.set_valign(Gtk.Align.START)
         self.models_cancel.connect("clicked", lambda *_: self.cancel_model_download())
         bottom.append(self.models_cancel)
-        page.append(bottom)
+        self.models_footer.append(bottom)
+        page.append(self.models_footer)
         self.models_state = None
         return page
+
+    def set_models_note(self, text: str):
+        """The line under the result list's heading: shown only while it says something."""
+        self.models_note.set_label(text)
+        self.models_note.set_visible(bool(text))
 
     def show_models_tab(self, key: str, save: bool = False):
         self.models_stack.set_visible_child_name(key)
@@ -210,11 +240,12 @@ class ModelsPage:
             self.models_local.remove(row)
         self.models_local_status.set_label("")
         self.models_title.set_label(_("Models of {0}").format(rt.name).upper())
-        self.models_folder_label.set_label(_("Model folder: {0}").format(inventory.tilde(into or rt.models_dir))
-                                           if into or rt.models_dir else "")
         engine = llm_engine.of(rt)
+        folder = _("Model folder: {0}").format(inventory.tilde(into or rt.models_dir)) if into or rt.models_dir else ""
+        self.models_folder_label.set_label(" · ".join(x for x in (folder, engine.models_page_note(rt)) if x))
         self.models_pull_row.set_visible(engine.download == "pull")
-        self.models_status.set_label(engine.models_page_note(rt))
+        self.set_models_note("")
+        self.models_status.set_label("")
         self.models_bar.set_fraction(0)
         for listbox in (self.models_repos, self.models_files):
             while (row := listbox.get_first_child()) is not None:
@@ -223,6 +254,7 @@ class ModelsPage:
         self.models_web_detail.append(self.models_empty(_("Pick a model on the left to see what it is, how big "
                                                           "it is and which size fits your computer.")))
         self.fill_model_list(rt)
+        self.fill_model_ask()
         stored = ai_core.setting("add_where")
         start = stored.get("models") if isinstance(stored, dict) else None
         start = start if start in self.models_tab_buttons else ("installed" if rt.models else "web")
@@ -563,7 +595,7 @@ class ModelsPage:
 
     def remove_model(self, rt, name: str, plan):
         state = self.models_state
-        self.models_status.set_label(_("Removing {0}…").format(name))
+        self.show_note(_("Removing {0}…").format(name))
 
         def work():
             try:
@@ -578,7 +610,7 @@ class ModelsPage:
 
         def done(error):
             if error:
-                self.models_status.set_label(_("Not removed: {0}").format(error))
+                self.show_error(_("Not removed: {0}").format(error))
                 return False
             self.collect()
             self.refresh_overview()
@@ -587,7 +619,7 @@ class ModelsPage:
                 fresh = next((r for r in self.inventory.runtimes if r.key == rt.key), rt)
                 state["rt"] = fresh
                 self.fill_model_list(fresh)
-                self.models_status.set_label(_("Removed: {0}").format(name) +
+                self.show_note(_("Removed: {0}").format(name) +
                                              ("" if plan is None else " " + _("(in the trash)")))
             return False
 
@@ -608,7 +640,7 @@ class ModelsPage:
 
     def set_model_context(self, rt, name: str, ctx: int):
         state = self.models_state
-        self.models_status.set_label(_("{0}: context → {1}…").format(name, ctx))
+        self.show_note(_("{0}: context → {1}…").format(name, ctx))
 
         def work():
             try:
@@ -631,14 +663,17 @@ class ModelsPage:
             if backup is not None:
                 self.show_undo(_("{0}: context set to {1}").format(name, ctx), backup)
             if error:
-                self.models_status.set_label(_("Not changed: {0}").format(error))
+                self.show_error(_("Not changed: {0}").format(error))
                 return False
             effect = llm_engine.of(rt).context_effect
             note = _(" Restart {0} for it to take effect.").format(rt.name) \
                 if effect == "restart" and rt.running else \
                 _(" It takes effect the next time {0} loads the model.").format(rt.name) \
                 if effect == "next-load" else ""
-            self.models_status.set_label(_("{0}: context set to {1}").format(name, ctx) + "." + note)
+            if note.strip():
+                self.show_notice(_("{0}: context set to {1}").format(name, ctx) + "." + note)
+            elif backup is None:
+                self.show_note(_("{0}: context set to {1}").format(name, ctx) + ".")
             self.fill_model_list(state["rt"])
             return False
 
@@ -669,6 +704,224 @@ class ModelsPage:
         found = [j for j in self.jobs.active(f"runtime:{state['rt'].key}") if j.kind in ("model", "pull")]
         return found[-1] if found else None
 
+    # --- ask an agent which model fits --------------------------------------------------------
+
+    def fill_model_ask(self):
+        """A folding card under the search: the user asks the agent for AI checks (Smart Check's)
+        which model fits, in their own words; its suggestions fill the search box on a click."""
+        box = self.models_ask_box
+        self.clear_box(box)
+        installed = set(self.installed_commands())
+        helpers = ai_helper.helpers(installed)
+        box.set_visible(bool(helpers))
+        if not helpers:
+            return
+        agent = ai_helper.chosen(installed)
+        name = ai_helper.name_of(agent)
+        group = self.group_card(box, "models-ask", _("Ask an agent"), "am-smartcheck-symbolic",
+                                _("Not sure which model? Ask {0}").format(name))
+        # One line: the agent (when there is a choice) at the left, how many suggestions at the right.
+        line = self.ai_agent_picker(helpers, agent, self.fill_model_ask) if len(helpers) > 1 else Gtk.Box(spacing=8)
+        line.add_css_class("am-line")
+        line.append(Gtk.Box(hexpand=True))
+        line.append(self.model_count_picker())
+        group.append(line)
+        view = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR, accepts_tab=False, top_margin=4, bottom_margin=4,
+                            left_margin=6, right_margin=6)
+        view.add_css_class("am-prompt")
+        buffer = view.get_buffer()
+        buffer.set_text(self.models_ask_text)
+        hint = Gtk.Label(label=_("e.g. a coding model with a long context that fits my graphics card"),
+                         xalign=0, yalign=0, wrap=True, max_width_chars=1, can_target=False,
+                         margin_start=8, margin_top=5, margin_end=8)
+        hint.add_css_class("am-agent-detail")
+        hint.set_visible(not self.models_ask_text)
+        overlay = Gtk.Overlay(child=view)
+        overlay.add_overlay(hint)
+        frame = Gtk.ScrolledWindow(child=overlay, min_content_height=56, max_content_height=96,
+                                   propagate_natural_height=True)
+        frame.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        frame.add_css_class("am-prompt-frame")
+        group.append(frame)
+        self.guard_text_field(view)
+        row = Gtk.Box(spacing=8)
+        state = self.models_state or {}
+        ask = Gtk.Button(label=_("Asking…") if state.get("asking") else _("Ask"), valign=Gtk.Align.START)
+        ask.add_css_class("am-small-btn")
+        ask.add_css_class("am-primary")
+        note = Gtk.Label(label=_("{0} looks on the web for models that fit your question and this PC "
+                                 "(graphics card, memory, models you have). Uses its tokens; a minute or two.")
+                         .format(name), xalign=0, wrap=True, max_width_chars=1, hexpand=True)
+        note.add_css_class("am-agent-detail")
+        row.append(note)
+        row.append(ask)
+        group.append(row)
+        if state.get("asking"):
+            group.append(self.model_ask_progress(state, name))
+
+        def changed(*_args):
+            self.models_ask_text = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), False)
+            hint.set_visible(not self.models_ask_text)
+            ask.set_sensitive(not state.get("asking") and bool(model_advice.clean_question(self.models_ask_text)))
+
+        buffer.connect("changed", changed)
+        changed()
+        ask.connect("clicked", lambda *_: self.ask_model_advice(agent))
+        def on_key(_controller, key, _code, mods):
+            if key in (Gdk.KEY_Return, Gdk.KEY_KP_Enter) and mods & Gdk.ModifierType.CONTROL_MASK:
+                if ask.get_sensitive():
+                    self.ask_model_advice(agent)
+                return True             # Ctrl+Enter asks; Enter alone is a new line
+            return False
+
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", on_key)
+        view.add_controller(keys)
+        advice = state.get("advice")
+        if advice is None:
+            return
+        summary = Gtk.Label(label=advice.summary, xalign=0, wrap=True, max_width_chars=1)
+        summary.add_css_class("am-agent-detail")
+        group.append(summary)
+
+    def count_picker(self, key: str, counts, default: int, tip: str, changed) -> Gtk.Widget:
+        """How many suggestions an agent gives (setting `key`): a compact "Suggestions" dropdown;
+        changed() runs after a new number was kept."""
+        box = Gtk.Box(spacing=8)
+        label = Gtk.Label(label=_("Suggestions"), xalign=1)
+        label.add_css_class("am-agent-detail")
+        box.append(label)
+        counts = list(counts)
+        drop = Gtk.DropDown.new_from_strings([str(n) for n in counts])
+        current = ai_core.setting(key)
+        drop.set_selected(counts.index(current) if current in counts else counts.index(default))
+        drop.set_tooltip_text(tip)
+
+        def picked(*_args):
+            count = counts[drop.get_selected()]
+            if count != ai_core.setting(key):
+                self.save_setting(**{key: count})
+                GLib.idle_add(lambda: changed() and False)
+
+        drop.connect("notify::selected", picked)
+        box.append(drop)
+        return box
+
+    def model_count_picker(self) -> Gtk.Widget:
+        """How many models the agent suggests (10 by default)."""
+        def changed():
+            state = self.models_state
+            if state is not None and state.get("query") == self.SUGGESTED:
+                self.show_model_suggestions(state)              # as many as chosen
+        return self.count_picker("model_advice_count", model_advice.MODEL_COUNTS, model_advice.MAX_MODELS,
+                                 _("How many models the agent suggests at most"), changed)
+
+    def ai_agent_picker(self, helpers, agent, refill) -> Gtk.Widget:
+        """Which agent does the AI work (Settings › Agent for AI checks): on Smart Check and here."""
+        row = Gtk.Box(spacing=8)
+        row.add_css_class("am-line")         # compact dropdown, as "Search on" above
+        label = Gtk.Label(label=_("Agent"), xalign=0)
+        label.add_css_class("am-agent-detail")
+        row.append(label)
+        drop = Gtk.DropDown.new_from_strings([ai_helper.name_of(c) for c in helpers])
+        drop.set_selected(helpers.index(agent) if agent in helpers else 0)
+
+        def picked(*_args):
+            command = helpers[drop.get_selected()]
+            if command != ai_helper.chosen(set(self.installed_commands())):
+                self.save_setting(ai_checks_agent=command)
+                GLib.idle_add(lambda: refill() and False)   # not while the dropdown is still busy
+
+        drop.connect("notify::selected", picked)
+        row.append(drop)
+        return row
+
+    def search_suggested_model(self, term: str):
+        self.models_search.set_text(term)
+        self.search_models()
+
+    def ask_progress(self, state: dict, name: str, texts: dict, current) -> Gtk.Box:
+        """While an agent works: a spinner and texts[state["phase"]] (else texts[""]), formatted with the
+        agent's name and the time taken so far ("0:42"), counted up every second until it is done
+        (state["asking"] false) or current() says this card is no longer the one shown."""
+        row = Gtk.Box(spacing=8, margin_top=4)
+        row.append(Adw.Spinner(width_request=16, height_request=16))
+        label = Gtk.Label(xalign=0, hexpand=True, wrap=True, max_width_chars=1)
+        label.add_css_class("am-agent-detail")
+        row.append(label)
+
+        def show():
+            seconds = int(time.monotonic() - state.get("asked_at", time.monotonic()))
+            text = texts.get(state.get("phase", ""), texts[""])
+            label.set_label(text.format(name, f"{seconds // 60}:{seconds % 60:02d}"))
+
+        def tick():
+            if not state.get("asking") or not current() or label.get_root() is None:
+                return False                     # done, another page, or this card drawn anew
+            show()
+            return True
+
+        show()
+        GLib.timeout_add_seconds(1, tick)
+        return row
+
+    def model_ask_progress(self, state: dict, name: str) -> Gtk.Box:
+        """While the agent looks: "<agent> is looking on the web for models · 0:42", then
+        "…: finding its suggestions on Hugging Face"."""
+        return self.ask_progress(state, name, {"": _("{0} is looking on the web for models · {1}"),
+                                               "finding": _("{0}: finding its suggestions on Hugging Face · {1}")},
+                                 lambda: self.models_state is state)
+
+    def ask_model_advice(self, agent: str):
+        state = self.models_state
+        question = model_advice.clean_question(self.models_ask_text)
+        if state is None or state.get("asking") or not question:
+            return
+        state["asking"] = True          # this page's runtime only: another one's page asks on its own
+        state["asked_at"] = time.monotonic()
+        self.fill_model_ask()
+        rt = state["rt"]
+        installed = [str(m) for m in rt.models or ()]
+        most = ai_core.setting("model_advice_count")
+
+        base = state.get("base") or web_sources.chosen("models")
+
+        def work():
+            found, missing = [], []
+            try:
+                gpu = install_ctl.detect_gpu()
+                result = model_advice.ask(agent, question, rt.name, gpu.name or gpu.vendor, state["vram"],
+                                          state["ram"], installed, most=most)
+                state["phase"] = "finding"       # the progress row says so
+                for item in result.models:      # each as the repo a search for it finds first
+                    try:
+                        hits = models_ctl.search(item.search, limit=3, base=base)
+                    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+                        hits = []
+                    repo = next((h for h in hits if h.id not in {r.id for r, _item in found}), None)
+                    if repo is not None:
+                        found.append((repo, item))
+                    else:
+                        missing.append(item.name)
+            except Exception as error:          # the agent, its sign-in, the web, an answer that did not hold up
+                result = error
+            GLib.idle_add(done, result, found, missing)
+
+        def done(result, found, missing):
+            state["asking"], state["phase"] = False, ""
+            if isinstance(result, Exception):
+                self.show_error(_("{0} could not answer: {1}").format(ai_helper.name_of(agent), str(result)[:2000]))
+            else:
+                # kept with its own page, shown when that page is the one open
+                state["advice"], state["advice_found"], state["advice_missing"] = result, found, missing
+            if self.models_state is state:
+                self.fill_model_ask()
+                if not isinstance(result, Exception):
+                    self.show_model_suggestions(state)
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
+
     def search_models(self):
         """Search (or, with nothing typed, the trending GGUF models) on the chosen site."""
         state = self.models_state
@@ -677,7 +930,7 @@ class ModelsPage:
         query = self.models_search.get_text().strip()
         state["searched"] = True
         state["query"] = query
-        self.models_status.set_label(_("Searching…"))
+        self.set_models_note(_("Searching…"))
         state["base"] = base = web_sources.chosen("models")
 
         def work():
@@ -694,18 +947,68 @@ class ModelsPage:
                 self.models_repos.remove(row)
             self.models_results_heading.set_label((_("Results") if query else _("Trending now")).upper())
             for repo in repos:
-                line = " · ".join(x for x in (repo.author, self.params_text(repo.params),
-                                              "↓ " + short_number(repo.downloads), "♥ " + short_number(repo.likes))
-                                  if x)
-                row = self.model_row(repo.name, line, self.repo_chips(repo), self.age_text(repo.updated),
-                                     icon="model")
-                row.repo = repo.id
-                self.models_repos.append(row)
-            self.models_status.set_label(error or ("" if repos else _("Nothing found.")))
+                self.models_repos.append(self.repo_row(repo))
+            self.set_models_note(error or ("" if repos else _("Nothing found.")))
             self.update_model_buttons()
             return False
 
         threading.Thread(target=work, daemon=True).start()
+
+    def repo_row(self, repo, subtitle: str | None = None, tip: str = "") -> Gtk.ListBoxRow:
+        """One model of the result list (a search's, or an agent's suggestions'): a click opens its page."""
+        line = subtitle if subtitle is not None else " · ".join(
+            x for x in (repo.author, self.params_text(repo.params), "↓ " + short_number(repo.downloads),
+                        "♥ " + short_number(repo.likes)) if x)
+        row = self.model_row(repo.name, line, self.repo_chips(repo), self.age_text(repo.updated), icon="model")
+        row.repo = repo.id
+        if tip:
+            row.set_tooltip_text(tip)
+        return row
+
+    SUGGESTED = "\0suggested"            # state["query"] while the list shows an agent's suggestions
+
+    def show_model_suggestions(self, state: dict):
+        """The agent's suggestions in the result list, as the Hugging Face repos they were found as:
+        its size note and why it fits below the name, as many as Suggestions says."""
+        if self.models_state is not state:
+            return
+        state["query"] = self.SUGGESTED          # a search still on its way does not replace them
+        advice = state.get("advice")
+        while (row := self.models_repos.get_first_child()) is not None:
+            self.models_repos.remove(row)
+        self.models_results_heading.set_label(
+            _("Suggested by {0}").format(ai_helper.name_of(advice.agent) if advice else "").upper())
+        for repo, item in state.get("advice_found", [])[:ai_core.setting("model_advice_count")]:
+            why = " · ".join(x for x in (item.size, item.why) if x)
+            self.models_repos.append(self.repo_row(repo, why or None, f"{item.name}: {item.why}" if item.why else ""))
+        missing = state.get("advice_missing", [])
+        self.set_models_note(_("Not found on Hugging Face: {0}").format(", ".join(missing)) if missing else
+                             "" if state.get("advice_found") else _("Nothing found."))
+        self.update_model_buttons()
+
+    def pull_problems(self, rt, repo: str, entries, base: str) -> dict:
+        """{file name: why its local LLM cannot download it} for a local LLM that pulls by tag (Ollama;
+        {} for the others): the file list's own reasons first, then Hugging Face's registry asked for
+        each of the rest, a few at a time, as Ollama would ask (on the page's thread, not the window's)."""
+        if llm_engine.of(rt).download != "pull" or not entries:
+            return {}
+        from concurrent.futures import ThreadPoolExecutor
+        problems = {e.name: models_ctl.ollama_pull_problem(e, entries) for e in entries}
+        eligible = [e for e in entries if not problems[e.name]]
+        ask = eligible[:self.PULL_CHECKS]
+        for entry in eligible[self.PULL_CHECKS:]:          # not asked: never offered unchecked
+            problems[entry.name] = "unchecked"
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            for entry, reason in zip(ask, pool.map(lambda e: models_ctl.ollama_tag_problem(repo, e.quant, base), ask)):
+                if reason:
+                    problems[entry.name] = "registry:" + reason
+        return {name: why for name, why in problems.items() if why}
+
+    def pull_problem_text(self, problem: str, runtime: str) -> str:
+        kind, _sep, reason = problem.partition(":")
+        if kind == "registry":
+            return _("{0} cannot download this one from Hugging Face: {1}").format(runtime, reason)
+        return _(self.PULL_TEXT[kind]).format(runtime)
 
     def show_model_files(self, repo: str):
         """The model's page: numbers, facts, capabilities, what the name means, the download
@@ -736,9 +1039,10 @@ class ModelsPage:
             except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as problem:
                 errors.append(str(problem))
             card = models_ctl.readme(repo, base=base) if info is not None else ""
-            GLib.idle_add(done, info, entries or [], card, "; ".join(errors))
+            problems = self.pull_problems(state["rt"], repo, entries or [], base)
+            GLib.idle_add(done, info, entries or [], card, "; ".join(errors), problems)
 
-        def done(info, entries, card, error):
+        def done(info, entries, card, error, problems):
             if self.models_state is not state or state["repo"] != repo:
                 return False
             box.remove(loading)
@@ -780,12 +1084,20 @@ class ModelsPage:
                     based.add_css_class("am-agent-detail")
                     card_box.append(based)
                 box.append(card_box)
-            # Download options: every size, how it fits, the best one chosen.
+            # Download options: every size, how it fits, the best one chosen. Ollama pulls by tag only:
+            # a file it cannot pull is shown, with why, but neither recommended nor downloadable.
             self.detail_heading(box, _("Download options"))
+            if problems:
+                models_ctl.recommend(entries, lambda e: not problems.get(e.name))
             pick = None
             for entry in entries:
                 fit = models_ctl.fit(entry.size, state["vram"], state["ram"])
                 row = self.option_row(entry, fit)
+                row.pull_problem = problems.get(entry.name, "")
+                if row.pull_problem:
+                    row.set_opacity(0.55)
+                    row.set_tooltip_text(self.pull_problem_text(row.pull_problem, state["rt"].name))
+                    fit = "too_large"            # never the one picked for you below
                 self.models_files.append(row)
                 if entry.recommended or (pick is None and fit != "too_large"):
                     pick = row if entry.recommended or pick is None else pick
@@ -813,7 +1125,8 @@ class ModelsPage:
                                  wrap_mode=Pango.WrapMode.WORD_CHAR)
                 text.add_css_class("am-readme")
                 box.append(text)
-            self.models_status.set_label(error)
+            if error:
+                self.show_error(error)
             self.update_model_buttons()
             return False
 
@@ -830,18 +1143,20 @@ class ModelsPage:
             self.models_get.set_label(_("Download {0}").format(size_text(entry.size)))
             quant = next((_(t).format(p, *v) for p, t, v in model_names.parts(entry.name)
                           if t in [q for _p, q in model_names.QUANTS]), "")
-            self.models_fit_label.set_label(" ".join(x for x in (_(self.FIT_TEXT[file_row.fit]) + ".", quant) if x))
+            problem = getattr(file_row, "pull_problem", "")
+            self.models_fit_label.set_label(self.pull_problem_text(problem, state["rt"].name) if problem else
+                                            " ".join(x for x in (_(self.FIT_TEXT[file_row.fit]) + ".", quant) if x))
         else:
             self.models_get.set_label(_("Download"))
             self.models_fit_label.set_label("")
-        self.models_get.set_sensitive(not busy and file_row is not None and rt_ok)
+        self.models_get.set_sensitive(not busy and file_row is not None and rt_ok
+                                      and not getattr(file_row, "pull_problem", ""))
         self.models_add.set_sensitive(not busy and self.models_local.get_selected_row() is not None and rt_ok)
         where = self.where_models()
         if where == "local" and state is not None and self.models_local.get_first_child() is None \
                 and not state.get("scanned") and not state.get("scanning"):
             GLib.idle_add(lambda: self.scan_local_models() and False)
-        self.models_cancel.set_label(_("Stop download") if busy else _("Back"))
-        (self.models_cancel.add_css_class if busy else self.models_cancel.remove_css_class)("am-danger")
+        self.models_footer.set_visible(job is not None)
 
     def start_model_download(self, pull: bool):
         state = self.models_state
@@ -865,10 +1180,10 @@ class ModelsPage:
                 try:
                     name = engine.pull_name(rt, state["repo"], entry, state.get("base") or models_ctl.HF)
                 except ValueError as problem:
-                    self.models_status.set_label(str(problem))
+                    self.show_error(str(problem))
                     return
         if not pulls and not rt.models_dir:
-            self.models_status.set_label(_("{0} has no model folder yet.").format(rt.name))
+            self.show_notice(_("{0} has no model folder yet.").format(rt.name))
             return
         spec = {"kind": "pull" if pulls else "model", "runtime": rt.key, "name": name,
                 "repo": state["repo"] or "", "base": state.get("base") or models_ctl.HF,
@@ -972,16 +1287,11 @@ class ModelsPage:
             if here:
                 fresh = next((r for r in self.inventory.runtimes if r.key == key), state["rt"])
                 state["rt"] = fresh
-                self.models_bar.set_fraction(1.0)
-                self.models_status.set_label(_("Downloaded: {0}").format(label))
                 self.fill_model_list(fresh)
         elif job.state == "failed":
-            if here:
-                self.models_status.set_label(_("Not downloaded: {0}").format(job.error))
-            else:
-                self.show_note(_("Not downloaded: {0}").format(job.error))
+            self.show_error(_("Not downloaded: {0}").format(job.error))
         elif here:
-            self.models_status.set_label(_("Not downloaded: {0}").format(_("stopped")))
+            self.show_note(_("Not downloaded: {0}").format(_("stopped")))
         if state is not None:
             self.update_model_buttons()
         self.render_jobs()
@@ -1056,11 +1366,11 @@ class ModelsPage:
         rt, item = state["rt"], row.local
         engine = llm_engine.of(rt)
         if engine.download == "file" and not rt.models_dir:
-            self.models_status.set_label(_("{0} has no model folder yet.").format(rt.name))
+            self.show_notice(_("{0} has no model folder yet.").format(rt.name))
             return
         state["busy"] = True
         self.update_model_buttons()
-        self.models_status.set_label(_("Adding {0}…").format(item.path.name))
+        self.show_note(_("Adding {0}…").format(item.path.name))
 
         def work():
             try:
@@ -1074,9 +1384,9 @@ class ModelsPage:
             state["busy"] = False
             self.update_model_buttons()
             if error:
-                self.models_status.set_label(_("Not added: {0}").format(error))
+                self.show_error(_("Not added: {0}").format(error))
                 return False
-            self.models_status.set_label(_("Added: {0}").format(item.path.name))
+            self.show_note(_("Added: {0}").format(item.path.name))
             self.collect()
             fresh = next((r for r in self.inventory.runtimes if r.key == rt.key), rt)
             state["rt"] = fresh

@@ -109,7 +109,6 @@
  "research": [
   "claude",
   "-p",
-  "{prompt}",
   "--tools",
   "WebSearch",
   "WebFetch",
@@ -159,6 +158,7 @@
   "claude-projects",
   "~/.claude/projects"
  ],
+ "session_files": "claude-files",
  "asks_setting": "permissions.defaultMode",
  "access": {
   "how": "A Claude Pro or Max subscription (claude.ai), or an API key from console.anthropic.com",

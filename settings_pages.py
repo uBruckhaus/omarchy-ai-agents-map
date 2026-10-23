@@ -422,8 +422,9 @@ class SettingsPages:
                        lambda i: save(subagents_kept=counts[i]))
 
     def cost_rows(self, side):
-        """Settings › Costs: the currency of what agents paid per token cost, and a day's limit that
-        colours their cost label (green, yellow from 75 %, red over it)."""
+        """Settings › Costs: the currency of what agents paid per token cost, a day's limit, and the
+        levels (yellow, red) for their cost label and for a subscription's battery; a notification
+        when an agent turns red."""
         group = self.preference_group(side, _("Costs"))
         currencies, limits = settings_schema.COST_CURRENCIES, settings_schema.COST_LIMITS
 
@@ -438,11 +439,45 @@ class SettingsPages:
                        currencies.index(ai_core.setting("cost_currency")),
                        lambda i: save(cost_currency=currencies[i]))
         self.combo_row(group, _("A day's limit"),
-                       _("For an agent paid per token: its cost label turns yellow from 75 % of this a day, and red "
-                         "over it. In the currency above."),
+                       _("For an agent paid per token: its cost label turns yellow and red at the levels below. "
+                         "In the currency above."),
                        [_("{0} a day (default)").format(n) if n == 100 else _("{0} a day").format(n) for n in limits],
                        limits.index(ai_core.setting("cost_limit")),
                        lambda i: save(cost_limit=limits[i]))
+        yellows, reds = settings_schema.WARN_YELLOW, settings_schema.WARN_RED
+
+        def used(n, default):
+            return _("{0} % used (default)").format(n) if n == default else _("{0} % used").format(n)
+
+        def save_levels(**value):
+            # Red stays above yellow: the other one moves along (its row too).
+            yellow = value.get("warn_yellow", ai_core.setting("warn_yellow"))
+            red = value.get("warn_red", ai_core.setting("warn_red"))
+            if red <= yellow:
+                if "warn_yellow" in value:
+                    red = next(n for n in reds if n > yellow)
+                    red_row.set_selected(reds.index(red))
+                else:
+                    yellow = max(n for n in yellows if n < red)
+                    yellow_row.set_selected(yellows.index(yellow))
+            save(warn_yellow=yellow, warn_red=red)
+            self.refresh_map()                     # the batteries follow at once
+
+        yellow_row = self.combo_row(
+            group, _("Yellow from"),
+            _("An agent paid per token turns yellow from this share of a day's limit; an agent on a subscription "
+              "from this share of its plan's limit used (its battery)."),
+            [used(n, 75) for n in yellows], yellows.index(ai_core.setting("warn_yellow")),
+            lambda i: save_levels(warn_yellow=yellows[i]))
+        red_row = self.combo_row(
+            group, _("Red from"),
+            _("Red from this share, for both kinds. Always above yellow."),
+            [used(n, 90) for n in reds], reds.index(ai_core.setting("warn_red")),
+            lambda i: save_levels(warn_red=reds[i]))
+        self.switch_row(group, _("Notify when red"),
+                        _("A desktop notification when an agent turns red: once for each limit until it resets, "
+                          "and once a day for a cost."),
+                        ai_core.setting("warn_notify"), lambda on: self.save_setting(warn_notify=on))
 
     def switch_row(self, group, title: str, hint: str, active: bool, on_toggle) -> Adw.SwitchRow:
         short = self.short_hint(hint)

@@ -121,7 +121,7 @@ reader = "codex"
 
 [research]                             # a web look-up (Add skills, MCP, AI checks): read-only sandbox, the answer as JSON
 argv = ["codex", "--search", "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--json", "--output-schema",
-        "{schema}", "{prompt}"]
+        "{schema}", "-"]                 # "-": the prompt on stdin, never in the process list
 output = "codex-jsonl"                 # events: the answer and its token use
 
 [task]                                 # Do it with Codex…: in a terminal tab, it asks before each step

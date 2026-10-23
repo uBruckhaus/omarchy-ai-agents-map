@@ -63,8 +63,10 @@ class FactsTest(unittest.TestCase):
         import skill_update
         argv = agent_profiles.research_command("codex", "PROMPT", Path("/s.json"))
         self.assertEqual(argv[1:], ["--search", "exec", "--sandbox", "read-only", "--skip-git-repo-check",
-                                    "--json", "--output-schema", "/s.json", "PROMPT"])
-        self.assertEqual(agent_profiles.research_command("claude", "PROMPT", Path("/s.json"))[1:3], ["-p", "PROMPT"])
+                                    "--json", "--output-schema", "/s.json", "-"])
+        for agent in ("codex", "claude"):                 # the question on stdin, never in the process list
+            self.assertNotIn("PROMPT", agent_profiles.research_command(agent, "PROMPT", Path("/s.json")))
+            self.assertEqual(agent_profiles.research_input(agent, "PROMPT"), b"PROMPT")
         self.assertEqual(skill_update.writer_command("codex", Path("/a.md"))[-2:], ["/a.md", "-"])
         self.assertTrue(skill_update.answers_in_file("codex"))
         self.assertFalse(skill_update.answers_in_file("claude"))
@@ -88,6 +90,12 @@ class FactsTest(unittest.TestCase):
         filled = harnesses._with_newer_facts(old)
         self.assertEqual((filled.research, filled.research_output), (claude.research, "claude-json"))
         self.assertEqual(filled.task, ("claude", "{prompt}"))
+
+    def test_an_add_on_look_up_with_the_prompt_in_argv_gives_way(self):
+        import dataclasses
+        codex = next(h for h in harnesses.built_in_adapters() if h.command == "codex")
+        old = dataclasses.replace(codex, research=tuple("{prompt}" if a == "-" else a for a in codex.research))
+        self.assertEqual(harnesses._with_newer_facts(old).research, codex.research)
 
 
 if __name__ == "__main__":

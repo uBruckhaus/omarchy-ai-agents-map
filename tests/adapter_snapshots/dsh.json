@@ -59,6 +59,7 @@
  "sandbox_setting": "",
  "replies": [],
  "subagents": [],
+ "session_files": "dsh-files",
  "asks_setting": "",
  "access": {
   "how": "An API key from platform.deepseek.com, or a local LLM from the map",

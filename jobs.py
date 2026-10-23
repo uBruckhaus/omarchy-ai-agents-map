@@ -148,7 +148,7 @@ class Jobs:
                     job.state = "stopped"
                     break
                 if not retryable(error) or job.attempt >= len(RETRY_DELAYS):
-                    job.state, job.error = "failed", str(error)[:300] or type(error).__name__
+                    job.state, job.error = "failed", str(error)[:2000] or type(error).__name__
                     break
                 delay = RETRY_DELAYS[job.attempt]
                 job.attempt += 1

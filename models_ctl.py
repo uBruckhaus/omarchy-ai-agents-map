@@ -16,16 +16,19 @@ import time
 import os
 import re
 import urllib.parse
-import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
 import install_ctl
 import llm_engine
+import loopback
 
 HF = "https://huggingface.co"
 REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}/[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
-OLLAMA_NAME_RE = re.compile(r"^(?:hf\.co/)?[a-z0-9][a-z0-9._/-]{0,127}(?::[A-Za-z0-9._-]{1,64})?$")
+# An Ollama library name (qwen3:8b, lower case), or a Hugging Face repo as Ollama pulls it, whose user
+# and repo names keep their capitals (hf.co/unsloth/Qwen3-8B-GGUF:Q4_K_M); a tag after ":" either way.
+OLLAMA_NAME_RE = re.compile(r"^(?:hf\.co/[A-Za-z0-9][A-Za-z0-9._-]{0,95}/[A-Za-z0-9][A-Za-z0-9._-]{0,95}"
+                            r"|(?!hf\.co/)[a-z0-9][a-z0-9._/-]{0,127})(?::[A-Za-z0-9._-]{1,64})?$")
 FILE_RE = re.compile(r"^[A-Za-z0-9._/-]{1,255}\.gguf$")
 SPLIT_RE = re.compile(r"^(.*)-(\d{5})-of-(\d{5})\.gguf$")
 QUANT_RE = re.compile(r"(IQ\d_[A-Z0-9_]+|Q\d_[A-Z0-9_]+|Q\d_\d|BF16|F16|F32|MXFP4|NVFP4)", re.IGNORECASE)
@@ -201,6 +204,60 @@ def plain_readme(text: str, limit: int = 12_000) -> str:
     return text[:limit] + ("…" if len(text) > limit else "")
 
 
+def ollama_pull_problem(entry: GgufFile, entries) -> str:
+    """Why Ollama cannot pull this file of a repo, "" when it can. Ollama pulls a Hugging Face GGUF
+    only by its quantisation tag (hf.co/<repo>:<quant>), so the file must be one whole file at the
+    top of the repo, and the only one there with that tag: a split file, one in a sub-folder, or a
+    tag that names several files cannot be pulled (Hugging Face refuses, or Ollama takes another)."""
+    if len(entry.paths) != 1:
+        return "split"
+    if "/" in entry.paths[0]:
+        return "folder"
+    if not entry.quant:
+        return "tag"
+    same = [e for e in entries if e.quant.upper() == entry.quant.upper()]
+    return "tag" if len(same) > 1 else ""
+
+
+MANIFEST_TYPE = "application/vnd.docker.distribution.manifest.v2+json"
+
+
+def ollama_tag_problem(repo: str, quant: str, base: str = HF) -> str:
+    """Asks Hugging Face's registry what Ollama would get for hf.co/<repo>:<quant> (the same manifest
+    request Ollama sends first): "" when it can pull it, else Hugging Face's reason (it refuses some
+    repos whose files look pullable, e.g. one with mostly split files). Nothing is downloaded."""
+    import netfetch
+    if not REPO_RE.fullmatch(repo) or not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", quant or ""):
+        return "not a model name"
+    try:
+        raw = netfetch.fetch(f"{base}/v2/{repo}/manifests/{quant}", max_bytes=256 * 1024, timeout=15,
+                             headers={"Accept": MANIFEST_TYPE}, include=True, errors=True)
+    except netfetch.FetchError as error:
+        return str(error)
+    blocks = raw.split(b"\r\n\r\n")
+    statuses = [b.split(b"\r\n", 1)[0].split() for b in blocks if b.startswith(b"HTTP/")]   # "HTTP/2 200"
+    status = statuses[-1][1] if statuses and len(statuses[-1]) > 1 else b""          # the last answer's
+    if status == b"200":
+        return ""
+    body = blocks[-1] if blocks else b""
+    try:
+        reason = json.loads(body.decode("utf-8", "replace")).get("error", "")
+    except (ValueError, AttributeError):
+        reason = ""
+    return " ".join(str(reason or f"Hugging Face answered {status.decode('ascii', 'replace') or 'nothing'}").split())[:600]
+
+
+def recommend(entries, usable=lambda entry: True):
+    """Mark the best of these for the card recommended (Q4_K_M if it fits, else the largest that fits),
+    among the ones `usable` says can be downloaded."""
+    for entry in entries:
+        entry.recommended = False
+    fitting = [f for f in entries if f.fits and usable(f)]
+    best = next((f for f in fitting if f.quant == "Q4_K_M"), fitting[-1] if fitting else None)
+    if best is not None:
+        best.recommended = True
+
+
 def files(repo: str, vram: int = 0, base: str = HF) -> list[GgufFile]:
     """The GGUF files of a repository, split files as one entry; the best one
     for the card marked recommended (Q4_K_M if it fits, else the largest that fits)."""
@@ -228,10 +285,7 @@ def files(repo: str, vram: int = 0, base: str = HF) -> list[GgufFile]:
         quant = QUANT_RE.search(entry.name)
         entry.quant = quant.group(1).upper() if quant else ""
         entry.fits = bool(vram) and entry.size < vram * 0.8
-    fitting = [f for f in found if f.fits]
-    best = next((f for f in fitting if f.quant == "Q4_K_M"), fitting[-1] if fitting else None)
-    if best is not None:
-        best.recommended = True
+    recommend(found)
     return found
 
 
@@ -605,25 +659,13 @@ def ollama_pull(name: str, address: str, progress, cancelled):
     host, _sep, port = address.rpartition(":")
     port = int(port or 11434)
     require_own_listener(port)
-    request = urllib.request.Request(f"http://127.0.0.1:{port}/api/pull",
-                                     data=json.dumps({"model": name, "stream": True}).encode(),
-                                     headers={"Content-Type": "application/json"}, method="POST")
-    with urllib.request.urlopen(request, timeout=60) as response:
-        # Our own Ollama (require_own_listener): still one line at most 64 KiB, at most 200000 lines,
-        # and one overall deadline (a large model can take hours, not forever).
-        deadline = time.monotonic() + PULL_DEADLINE
-        for _count in range(200000):
-            if time.monotonic() > deadline:
-                raise RuntimeError("the download took too long")
-            raw = response.readline(65537)
-            if not raw:
-                break
-            if cancelled():
-                raise install_ctl.Cancelled()
-            if len(raw) > 65536:
-                while raw and not raw.endswith(b"\n"):
-                    raw = response.readline(65537)
-                continue
+    # Our own Ollama (stream_lines checks the listener): one line at most 64 KiB, at most 200000
+    # lines, one overall deadline (a large model can take hours, not forever) over every read,
+    # the headers within 30 s, and Cancel heard within a second.
+    lines = loopback.stream_lines(port, "/api/pull", json.dumps({"model": name, "stream": True}).encode(),
+                                  deadline=time.monotonic() + PULL_DEADLINE, cancelled=cancelled)
+    try:
+        for raw in lines:
             try:
                 line = json.loads(raw)
             except ValueError:
@@ -631,10 +673,16 @@ def ollama_pull(name: str, address: str, progress, cancelled):
             if not isinstance(line, dict):
                 continue
             if line.get("error"):
-                raise RuntimeError(str(line["error"])[:300])
+                raise RuntimeError(str(line["error"])[:2000])
             total, completed = line.get("total"), line.get("completed")
             fraction = completed / total if isinstance(total, int) and total > 0 and isinstance(completed, int) else None
             progress(fraction if fraction is not None else 0.0, str(line.get("status", ""))[:120])
             if line.get("status") == "success":
                 return
+    except loopback.StreamCancelled:
+        raise install_ctl.Cancelled() from None
+    except TimeoutError as error:
+        raise RuntimeError(f"the download took too long ({error})") from None
+    finally:
+        lines.close()
     raise install_ctl.DownloadError("the download stopped before it was finished")

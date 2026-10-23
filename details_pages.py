@@ -118,6 +118,9 @@ class DetailsPages:
             GLib.idle_add(done, info, usage, checks, sessions, panes, security, (spent, rate))
 
         def done(info, usage, checks, sessions, panes, security, cost):
+            if agent.installed:
+                # The map's battery from the same limits the page shows (fresh after a refresh too).
+                self.set_agent_battery(agent.command, info.limits)
             if self.status_showing == ("agent", agent.command):
                 self.fill_agent_status(agent, info, usage, checks, sessions, panes, security, cost)
                 if not refreshed and agent.installed and agent_details.usage_is_stale(agent.command):
@@ -642,6 +645,12 @@ class DetailsPages:
             listbox.append(row)
             if check.command and check.state != "ok":
                 listbox.append(self.command_row(check.command))
+            if check.sign_in and check.state != "ok" and self.sign_in_access(check.sign_in) is not None:
+                # The agent's own sign-in, started here in a terminal (as Setup's Sign in…).
+                again = Gtk.Button(label=_("Sign in again…"), valign=Gtk.Align.CENTER)
+                again.add_css_class("suggested-action")
+                again.connect("clicked", lambda _b, c=check.sign_in: self.offer_sign_in(c))
+                row.add_suffix(again)
         return listbox
 
     # --- Healthy & Security check (agent and local LLM pages) ------------------------------------

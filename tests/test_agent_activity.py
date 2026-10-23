@@ -32,6 +32,29 @@ class ActivityTest(unittest.TestCase):
             self.assertAlmostEqual(activity.cpu({"claude": [10]}, str(self.proc), now=2.0)["claude"], 0.25)
             self.assertEqual(activity.cpu({"claude": [99]}, str(self.proc), now=4.0), {"claude": 0.0})   # gone
 
+    def test_in_turn_from_the_open_session_file(self):
+        """Codex: task_started … task_complete in the rollout file it keeps open."""
+        self.stat(20, 0)
+        (self.proc / "20" / "fd").mkdir()
+        rollout = self.proc / "rollout.jsonl"
+        os.symlink(rollout, self.proc / "20" / "fd" / "7")
+        os.symlink(self.proc / "other.sqlite", self.proc / "20" / "fd" / "8")
+        rollout.write_text('{"type":"event_msg","payload":{"type":"task_started"}}\n'
+                           '{"type":"response_item","payload":{"type":"reasoning"}}\n')
+        now = rollout.stat().st_mtime
+        self.assertTrue(agent_activity.in_turn(20, str(self.proc), wall=now + 60))       # thinking, quiet for a minute
+        self.assertFalse(agent_activity.in_turn(20, str(self.proc), wall=now + agent_activity.TURN_STALE + 1))
+        with rollout.open("a") as handle:
+            handle.write('{"type":"event_msg","payload":{"type":"task_complete"}}\n')
+        self.assertFalse(agent_activity.in_turn(20, str(self.proc), wall=now))            # at its prompt
+        self.assertFalse(agent_activity.in_turn(99, str(self.proc), wall=now))            # gone
+        activity = agent_activity.Activity()
+        with rollout.open("a") as handle:
+            handle.write('{"type":"event_msg","payload":{"type":"task_started"}}\n')
+        with mock.patch.object(agent_activity.agent_details, "newest_mtime", return_value=None):
+            self.assertEqual(activity.working({"codex": [20]}, {}, set(), str(self.proc), now=0.0,
+                                              wall=rollout.stat().st_mtime + 20), {"codex"})
+
     def test_working_from_any_signal(self):
         activity = agent_activity.Activity()
         idle = {"claude": [], "pi": [], "codex": [], "hermes": []}

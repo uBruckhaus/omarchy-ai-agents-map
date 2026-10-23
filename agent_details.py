@@ -17,12 +17,15 @@ import datetime as dt
 import json
 import os
 import re
+import stat
 import subprocess
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 from urllib.parse import urlparse
 
+import ai_core
 import desktop
 from i18n import _
 
@@ -30,6 +33,7 @@ HOME = Path.home()
 USAGE_DIR = desktop.usage_dir() or HOME / ".local/state/ai-agents-map/no-usage"   # the desktop's usage records
 MAX_FILE_BYTES = 512 * 1024
 MAX_SCAN = 3000              # directory entries looked at for "last used"
+DATE_DEPTH = 2               # levels below those followed into the last-named subfolder (YYYY/MM/DD trees)
 USAGE_MAX_AGE = 10 * 60      # seconds before an expanded card asks Omarchy for fresh usage
 USAGE_TIMEOUT = 90
 
@@ -73,11 +77,13 @@ class Details:
 
 def _read(path: Path) -> str | None:
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)   # a FIFO in its place cannot hang it
     except OSError:
         return None
     try:
         with os.fdopen(fd, "rb") as handle:
+            if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+                return None
             data = handle.read(MAX_FILE_BYTES + 1)
     except OSError:
         return None
@@ -193,6 +199,24 @@ def _count(value) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
 
 
+def usage_stamps(usage_dir: Path = USAGE_DIR) -> dict:
+    """{agent: the time its usage record was last written} (only file times: cheap enough for the
+    map's 2-second poll, which reads a record again when its time changes)."""
+    stamps = {}
+    try:
+        entries = list(os.scandir(usage_dir))[:200]
+    except OSError:
+        return stamps
+    for entry in entries:
+        name = entry.name
+        if name.endswith(".json") and re.fullmatch(r"[a-z0-9-]{1,64}", name[:-5]):
+            try:
+                stamps[name[:-5]] = entry.stat(follow_symlinks=False).st_mtime_ns
+            except OSError:
+                continue
+    return stamps
+
+
 def usage_record(command: str, usage_dir: Path = USAGE_DIR) -> dict:
     if not re.fullmatch(r"[a-z0-9-]{1,64}", command):
         return {}
@@ -247,7 +271,9 @@ def refresh_usage(command: str) -> bool:
 
 def newest_mtime(paths: list[str]) -> dt.datetime | None:
     """Newest modification time of these files, or of the entries (two levels
-    deep) of these folders, looking at no more than MAX_SCAN entries."""
+    deep) of these folders, looking at no more than MAX_SCAN entries. Below that
+    only the last-named subfolder is followed (DATE_DEPTH more levels): a tree by
+    date such as Codex's sessions/2026/10/23/rollout-….jsonl is read down to today's files."""
     newest, seen = 0.0, 0
     for raw in paths:
         path = _expand(raw)
@@ -276,27 +302,94 @@ def newest_mtime(paths: list[str]) -> dt.datetime | None:
                             stack.append((Path(entry.path), depth + 1))
             except OSError:
                 continue
+        folder = path                         # the tree by date: on along its last-named subfolders
+        for level in range(1 + DATE_DEPTH):
+            last = _last_dirs(folder)
+            if not last:
+                break
+            folder = Path(last[0])
+            if level == 0:
+                continue                      # its entries were read above
+            try:
+                with os.scandir(folder) as entries:
+                    for _i, entry in zip(range(MAX_SCAN), entries):
+                        try:
+                            newest = max(newest, entry.stat(follow_symlinks=False).st_mtime)
+                        except OSError:
+                            continue
+            except OSError:
+                break
     return dt.datetime.fromtimestamp(newest) if newest else None
+
+
+def _last_dirs(folder: Path, limit: int = 400) -> list[str]:
+    """[the last-named subfolder of folder] (by name: 2026 > 2025, 23 > 09), [] when it has none."""
+    try:
+        with os.scandir(folder) as entries:
+            names = [e.path for _i, e in zip(range(limit), entries) if e.is_dir(follow_symlinks=False)]
+    except OSError:
+        return []
+    return sorted(names)[-1:]
 
 
 # --- the battery: what is left of an online agent's limits ----------------------------------------
 
-BATTERY_LOW = 0.25           # this much left or less: yellow
-BATTERY_EMPTY = 0.10         # less than this left: red
+BATTERY_LOW = 0.25           # this much left or less: yellow (the default; Settings › Costs)
+BATTERY_EMPTY = 0.10         # this much left or less: red (the default; Settings › Costs)
 
 
-def battery(limits) -> tuple | None:
+def warn_levels() -> tuple[float, float]:
+    """(yellow, red) as shares used, from Settings › Costs: for an online agent's limits and for an
+    agent paid per token against a day's limit alike. Red is always above yellow."""
+    yellow, red = cast(int, ai_core.setting("warn_yellow")) / 100, cast(int, ai_core.setting("warn_red")) / 100
+    return (yellow, red) if red > yellow else (1 - BATTERY_LOW, 1 - BATTERY_EMPTY)
+
+
+def current_limits(limits, now: dt.datetime | None = None) -> list:
+    """The limits whose numbers still count: one whose reset time has passed is left out (its
+    percentage is from before the reset, so it would show too little left)."""
+    now = now or dt.datetime.now(dt.timezone.utc)
+    return [limit for limit in limits or ()
+            if limit.resets_at is None or (limit.resets_at if limit.resets_at.tzinfo else limit.resets_at.astimezone()) > now]
+
+
+def next_reset(limits, now: dt.datetime | None = None) -> dt.datetime | None:
+    """The soonest reset still to come among these limits (then the battery is due again even
+    though the usage record stays the same), None without one."""
+    now = now or dt.datetime.now(dt.timezone.utc)
+    times = [limit.resets_at if limit.resets_at.tzinfo else limit.resets_at.astimezone()
+             for limit in limits or () if limit.resets_at is not None]
+    return min((t for t in times if t > now), default=None)
+
+
+def renewed_records(known: dict | None, records: dict, commands) -> set:
+    """The agents (of commands) whose usage record was written again, came, or went since the
+    last poll; nothing on the first poll (known None: everything is read then anyway)."""
+    if known is None:
+        return set()
+    return {c for c in set(known) | set(records) if c in commands and known.get(c) != records.get(c)}
+
+
+def battery(limits, now: dt.datetime | None = None, levels: tuple | None = None) -> tuple | None:
     """(left 0..1, "green" | "yellow" | "red") of the tightest limit (a 5-hour session, a week…);
-    None without limits. Limit.percent is the share used."""
-    lefts = [1.0 - max(0.0, min(1.0, limit.percent)) for limit in limits or ()]
+    None without limits. Limit.percent is the share used; limits past their reset don't count.
+    levels: (yellow, red) shares used, else the defaults (75 %, 90 %)."""
+    lefts = [1.0 - max(0.0, min(1.0, limit.percent)) for limit in current_limits(limits, now)]
     if not lefts:
         return None
-    return _charge(min(lefts))
+    return _charge(min(lefts), levels)
 
 
-def _charge(left: float) -> tuple:
-    left = round(left, 4)                 # 1 - 0.90 is 0.0999…: exactly a tenth left must stay yellow
-    return left, "red" if left < BATTERY_EMPTY else "yellow" if left <= BATTERY_LOW else "green"
+def red_limits(limits, now: dt.datetime | None = None, levels: tuple | None = None) -> list:
+    """The limits still counting that are used up to the red level (for the notification)."""
+    red = (levels or (1 - BATTERY_LOW, 1 - BATTERY_EMPTY))[1]
+    return [limit for limit in current_limits(limits, now) if round(limit.percent, 4) >= red]
+
+
+def _charge(left: float, levels: tuple | None = None) -> tuple:
+    yellow, red = levels or (1 - BATTERY_LOW, 1 - BATTERY_EMPTY)
+    left = round(left, 4)                 # 1 - 0.90 is 0.0999…: exactly a tenth left is red
+    return left, "red" if left <= round(1 - red, 4) else "yellow" if left <= round(1 - yellow, 4) else "green"
 
 
 def gpu_battery(free: int, total: int, own: int = 0) -> tuple | None:
@@ -311,10 +404,10 @@ def gpu_battery(free: int, total: int, own: int = 0) -> tuple | None:
     return (*_charge(max(0.0, min(1.0, free / total))), tip)
 
 
-def battery_tip(limits) -> str:
-    """One line per limit: "Weekly (7-day): 55 % left, resets Thu 16:00"."""
+def battery_tip(limits, now: dt.datetime | None = None) -> str:
+    """One line per limit still counting: "Weekly (7-day): 55 % left, resets Thu 16:00"."""
     lines = []
-    for limit in limits or ():
+    for limit in current_limits(limits, now):
         left = round(100 * (1.0 - max(0.0, min(1.0, limit.percent))))
         line = _("{0}: {1} % left").format(limit.label or _("Limit"), left)
         if limit.resets_at is not None:

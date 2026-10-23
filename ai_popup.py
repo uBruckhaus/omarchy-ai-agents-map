@@ -13,6 +13,7 @@ import colorsys
 import re
 import os
 import datetime as dt
+import json
 import signal
 import sys
 import threading
@@ -88,6 +89,7 @@ import agent_status
 import netfetch
 import plugin_costs
 import terminal_pane
+import agent_terminals
 import previews
 import inventory
 import provider_watch
@@ -144,6 +146,12 @@ def cleanup_pid():
         pidfile.remove_if_own()
     except OSError:
         pass
+
+
+def same_objects(polled, current) -> bool:
+    """The poll's copy of a list still holds the very objects of the current one (the inventory was
+    not read again meanwhile). A copy is never `is` the list itself."""
+    return len(polled) == len(current) and all(a is b for a, b in zip(polled, current))
 
 
 class AppWindow(Adw.ApplicationWindow):
@@ -716,6 +724,9 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                 ("line:loaded", _("The provider has this model loaded in GPU memory; no agent uses it now")),
                 ("line:mcp", _("MCP server connected to the agent")),
                 ("line:skills", _("The agent's skills")),
+                ("line:collab", _("Agents working together: one started one or more others and hands them work "
+                                  "(e.g. Claude Code asking Codex and Pi); the agents it uses and their lines to "
+                                  "provider and model take this colour; light flows while they work")),
                 ("line:error", _("Does not work: click the line for hints")),
                 ("line:warning", _("Works with warnings: click the line for hints")),
             ]),
@@ -894,6 +905,11 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.side_map.on_context = lambda node_id, rect, v=self.side_map: self.show_context(v, node_id, rect)
         self.side_map.start_state = self.map_start_state
         self.side_map.on_start = self.map_start
+        self.side_map.on_console = self.map_console
+        self.side_map.outside_count = lambda node_id: (len(getattr(self, "agent_outside", {}).get(node_id.partition(":")[2]) or ())
+                                                       if node_id.startswith("agent:") else 0)
+        self.side_map.on_halt = self.map_halt
+        self.side_map.halt_tip = _("Stop one of its instances outside this window (terminal windows, background)…")
         self.side_map.on_stop = lambda node_id: (self.ask_stop_runtime(node_id.partition(":")[2])
                                                  if node_id.startswith("runtime:") else
                                                  self.stop_agent(node_id.partition(":")[2]))
@@ -1125,6 +1141,8 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                 stamp = None
             pids = {}
             running = self.running_now(pids)
+            self.agent_pids = pids
+            self.agent_outside = self.outside_instances(pids)   # instances outside this window: the map's console
             try:
                 working = self.working_now(pids, usage, runtimes)
             except Exception:
@@ -1150,10 +1168,32 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                 using = subagents.agents_using_agents(pids)
             except Exception:
                 using = set()
-            GLib.idle_add(done, usage, running, working, outside, stamp, mcp_busy, readings, helpers, using)
+            # An agent's usage record written again (the desktop's updater, a sign-in, a changed plan):
+            # its plan, limits and battery read again (only the agents whose record changed).
+            try:
+                records = agent_details.usage_stamps()
+                known_records = getattr(self, "usage_stamps", None)
+                renewed = {c: agent_details.details_for(c)          # also a record that went: its battery goes
+                           for c in agent_details.renewed_records(known_records, records, commands)}
+            except Exception:
+                records, renewed = None, {}
+            GLib.idle_add(done, usage, running, working, outside, stamp, mcp_busy, readings, helpers, using,
+                          records, renewed)
 
-        def done(usage, running, working, outside, stamp, mcp_busy, readings, helpers, using):
+        def done(usage, running, working, outside, stamp, mcp_busy, readings, helpers, using, records=None,
+                 renewed=None):
             self.gpu_reading = False
+            if records is not None:
+                self.usage_stamps = records
+            if renewed:
+                infos = getattr(self, "agent_infos", None)
+                for command, info in renewed.items():
+                    if isinstance(infos, dict):
+                        infos[command] = info
+                    self.set_agent_battery(command, info.limits, show=False)
+                self.show_batteries()
+                self.update_costs(force=True)
+            self.batteries_past_reset()
             self.update_costs()
             self.set_subagent_lists(helpers)
             self.side_map.set_agent_links({(f"agent:{user}", f"agent:{used}") for user, used in using})
@@ -1171,7 +1211,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             # agent's model or providers were changed in its own settings, or LM Studio rewrote its model
             # index: read them again, and check the setup for the header's "!".
             known = getattr(self, "models_stamp", None)
-            if stamp is not None and known is not None and stamp != known and runtimes is self.inventory.runtimes \
+            if stamp is not None and known is not None and stamp != known and same_objects(runtimes, self.inventory.runtimes) \
                     and self.window.is_visible() and self.side_map.link is None and self.page_name() == "main":
                 self.collect()
                 self.refresh_overview()
@@ -1218,7 +1258,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         changed = any(rt.running != usage.runtimes[rt.key].running
                       or (rt.running and rt.server_off == usage.runtimes[rt.key].serving)
                       for rt in runtimes if rt.key in usage.runtimes)
-        if changed and runtimes is self.inventory.runtimes and self.side_map.link is None \
+        if changed and same_objects(runtimes, self.inventory.runtimes) and self.side_map.link is None \
                 and self.page_name() == "main":
             self.collect()
             self.refresh_overview()
@@ -1234,7 +1274,9 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         except Exception:
             self.models_stamp = None
         self.configured_now = None     # installed_mcp() reads the settings again
-        self.running = self.running_now()
+        self.agent_pids = {}
+        self.running = self.running_now(self.agent_pids)
+        self.agent_outside = self.outside_instances(self.agent_pids)
         try:
             changed = provider_watch.write_config(self.inventory)
         except OSError:
@@ -2337,6 +2379,68 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.side_filter.set_tooltip_text(self.side_filter.get_label())
         self.map_show_all.set_visible(bool(nodes))
 
+    def batteries_past_reset(self):
+        """A limit's reset time passed (its record not written since): that agent's battery again,
+        without the limit from before the reset."""
+        now = dt.datetime.now(dt.timezone.utc)
+        due = [c for c, (when, _limits) in getattr(self, "battery_resets", {}).items() if when <= now]
+        for command in due:
+            self.set_agent_battery(command, self.battery_resets[command][1], show=False)
+        if due:
+            self.show_batteries()
+
+    def set_agent_battery(self, command: str, limits, show: bool = True):
+        """One online agent's battery from its limits (also after its details page read new ones)."""
+        if not hasattr(self, "agent_batteries"):
+            self.agent_batteries = {}
+        if not hasattr(self, "battery_resets"):
+            self.battery_resets = {}
+        batteries = self.agent_batteries
+        when = agent_details.next_reset(limits)
+        if when is not None:
+            self.battery_resets[command] = (when, limits)
+        else:
+            self.battery_resets.pop(command, None)
+        levels = agent_details.warn_levels()
+        level = agent_details.battery(limits, levels=levels)
+        if level is not None:
+            batteries[f"agent:{command}"] = (*level, agent_details.battery_tip(limits))
+        else:
+            batteries.pop(f"agent:{command}", None)
+        for limit in agent_details.red_limits(limits, levels=levels):
+            stamp = limit.resets_at.isoformat() if limit.resets_at is not None else dt.date.today().isoformat()
+            body = _("{0}: {1} % used").format(limit.label or _("Limit"), round(limit.percent * 100))
+            if limit.resets_at is not None:
+                moment = limit.resets_at.astimezone() if limit.resets_at.tzinfo else limit.resets_at
+                body += ", " + _("resets {0}").format(moment.strftime("%a %H:%M"))
+            self.warn_red(f"limit:{command}:{limit.label}:{stamp}", command, body)
+        if show:
+            self.show_batteries()
+
+    RED_FILE = Path.home() / ".local/state/ai-agents-map/red-notified.json"
+
+    def warn_red(self, key: str, command: str, body: str):
+        """A desktop notification when an agent turns red (Settings › Costs): once per limit and reset,
+        or per day for a cost; what was shown is kept, so a restart doesn't show it again."""
+        if not ai_core.setting("warn_notify"):
+            return
+        shown = agent_details.read_json(self.RED_FILE) if self.RED_FILE.exists() else {}
+        if not isinstance(shown, dict) or key in shown:
+            return
+        today = dt.date.today()
+        shown = {k: v for k, v in shown.items() if isinstance(v, str) and v >= (today - dt.timedelta(days=8)).isoformat()}
+        shown[key] = today.isoformat()
+        try:
+            self.RED_FILE.parent.mkdir(parents=True, exist_ok=True)
+            ai_core.atomic_write(self.RED_FILE, json.dumps(shown, indent=1) + "\n")
+        except OSError:
+            return                        # not kept: rather no notification than one at every look
+        agent = next((a for a in self.agent_list if a.command == command), None)
+        # Title and body as plain text (ai_core.plain_text): a limit's label comes from the agent's usage record.
+        note = Gio.Notification.new(ai_core.plain_text(_("{0} is in the red").format(agent.name if agent else command), 80))
+        note.set_body(ai_core.plain_text(body, 300))
+        self.send_notification(f"red-{command}", note)
+
     def show_batteries(self):
         """Online agents' limits and running local LLMs' free GPU memory, on the map and Setup's cards."""
         self.batteries = {**getattr(self, "agent_batteries", {}), **getattr(self, "gpu_batteries", {})}
@@ -2356,6 +2460,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                   if f"agent:{c}" not in self.agent_batteries and agent_status.pays_per_token(c, info)]
         self.costs_at, self.costs_busy = now, True
         currency, limit = ai_core.setting("cost_currency"), ai_core.setting("cost_limit")   # Settings › Costs
+        yellow, red = agent_details.warn_levels()
 
         def work():
             found = {}
@@ -2379,7 +2484,12 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                     _("Paid per token, with no plan limits: about {0} today at API prices "
                       "(estimated from the tokens of its sessions active today).").format(text) + "\n"
                     + _("A day's limit: {0} (Settings › Costs).").format(limit_text),
-                    plugin_costs.cost_colour(usd, limit, currency, self.cost_rate))
+                    plugin_costs.cost_colour(usd, limit, currency, self.cost_rate, yellow, red))
+                if self.agent_costs[f"agent:{command}"][2] == "red":
+                    self.warn_red(f"cost:{command}:{dt.date.today().isoformat()}", command,
+                                  _("About {0} today, {1} % of the day's limit ({2}).").format(
+                                      text, round(100 * plugin_costs.in_currency(usd, currency, self.cost_rate)[0] / limit),
+                                      limit_text))
             self.side_map.set_costs(self.agent_costs)
             return False
 
@@ -2390,9 +2500,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         # Online agents' limits (a session, a week…): a battery on the map's box and on Setup's card.
         self.agent_batteries = {}
         for command, info in details.items():
-            level = agent_details.battery(info.limits)
-            if level is not None:
-                self.agent_batteries[f"agent:{command}"] = (*level, agent_details.battery_tip(info.limits))
+            self.set_agent_battery(command, info.limits, show=False)
         self.show_batteries()
         self.agent_infos = details
         self.update_costs(force=True)
@@ -3444,7 +3552,8 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         return note
 
     def map_start_state(self, node_id: str) -> str:
-        """An agent box's start button: "show" while it runs here, "start" when it can be started,
+        """An agent box's start button: "show" while it runs here, "outside" while exactly one
+        instance runs elsewhere (a terminal window of its own), "start" when it can be started,
         else "" (no button)."""
         kind, _sep, ident = node_id.partition(":")
         if kind != "agent":
@@ -3453,17 +3562,174 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         if agent is None or not agent.installed or not terminal_pane.program(agent.command):
             return ""
         pane = self.sessions.get(agent.command)
-        return "show" if pane is not None and pane.running else "start"
+        if pane is not None and pane.running:
+            return "show"
+        return "outside" if getattr(self, "agent_outside", {}).get(agent.command) else "start"
+
+    def outside_instances(self, pids: dict) -> dict:
+        """{agent: [process ids]} of the instances not running in a terminal here (/proc only)."""
+        embedded = {c: p.pid for c, p in list(getattr(self, "sessions", {}).items()) if p.running and p.pid}
+        found = {}
+        for command, ids in pids.items():
+            here = embedded.get(command)
+            outside = [pid for pid in ids if not here or (pid != here and here not in agent_terminals.ancestors(pid))]
+            if outside:
+                found[command] = outside
+        return found
+
+    def show_terminals(self, command: str, rect=None):
+        """The console on an agent's box: its terminal here, its terminal windows, its background
+        instances (watched in a new terminal). One of them: shown at once; several: a menu."""
+        agent = next((a for a in self.agent_list if a.command == command), None)
+        if agent is None:
+            return
+        pane = self.sessions.get(command)
+        embedded = pane.pid if pane is not None and pane.running else None
+        outside = list(getattr(self, "agent_outside", {}).get(command) or ())
+        every = [pid for ids in getattr(self, "agent_pids", {}).values() for pid in ids]
+
+        def work():
+            try:
+                windows = desktop.windows()
+            except Exception:
+                windows = {}
+            GLib.idle_add(done, agent_terminals.instances(outside, windows, embedded, every))
+
+        def done(found):
+            choices = ([("here", None)] if embedded else []) + [(i.kind, i) for i in found]
+            if not choices:
+                self.toast(_("Its terminal window was not found."), 4)
+            elif len(choices) == 1:
+                self.open_terminal_choice(agent, *choices[0])
+            else:
+                area = rect or self.side_map.to_pixels(self.side_map.boxes[f"agent:{command}"])
+                popover = self.context_popover(self.side_map, area)
+                items = []
+                for kind, instance in choices:
+                    label, tip = self.terminal_choice_text(kind, instance)
+                    items.append(self.menu_item(label, popover, lambda k=kind, i=instance:
+                                                self.open_terminal_choice(agent, k, i), tip))
+                self.show_menu(popover, _("Terminals of {0}").format(agent.name), [items])
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
+
+    @staticmethod
+    def terminal_choice_text(kind: str, instance) -> tuple[str, str]:
+        """(label, tip) of one entry in the console's menu."""
+        if kind == "here":
+            return _("Here, in this window"), _("The terminal in AI Agents Map's own window")
+        where = inventory.tilde(instance.cwd) if instance.cwd else ""
+        tip = _("Started {0} in {1}").format(agent_terminals.when(instance.started), where) if where else ""
+        if kind == "window":
+            title = " ".join(instance.title.split())[:48] or where
+            return _("Terminal window · {0}").format(title), tip
+        return _("In the background · {0} · watch it in a new terminal").format(where or str(instance.pid)), tip
+
+    def open_terminal_choice(self, agent, kind: str, instance):
+        if kind == "here":
+            self.show_terminal(agent.command)
+            return
+
+        def work():
+            try:
+                if kind == "window":
+                    shown = desktop.focus_process([instance.pid])
+                else:                 # a background instance: what it writes, followed in a new terminal
+                    harness = harnesses.get(agent.command)
+                    form = harness.session_files if harness is not None and harness.session_files else "-"
+                    shown = desktop.run_in_terminal([sys.executable, str(Path(__file__).resolve().parent / "session_follow.py"),
+                                                     form, str(instance.pid), agent.name])
+            except Exception:
+                shown = False
+            GLib.idle_add(done, shown)
+
+        def done(shown):
+            if not shown:
+                self.toast(_("Its terminal window was not found.") if kind == "window"
+                           else _("No terminal could be opened."), 4)
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
 
     def map_start(self, node_id: str):
-        """The start button on an agent's box: start it here, or show its terminal while it runs."""
+        """The start button on an agent's box: start it here (its stop and console are their own buttons)."""
         state = self.map_start_state(node_id)
         ident = node_id.partition(":")[2]
-        if state == "show":
-            self.show_terminal(ident)
-        elif state == "start":
+        if state in ("start", "outside"):        # outside: another one here (its console is beside it)
             agent = next(a for a in self.agent_list if a.command == ident)
             self.start_agent(agent, None, "here")
+
+    def map_console(self, node_id: str, rect=None):
+        """The console on a running agent's box (rect: where it is, for the menu)."""
+        if self.map_start_state(node_id) in ("show", "outside"):
+            self.show_terminals(node_id.partition(":")[2], rect)
+
+    def map_halt(self, node_id: str, rect=None):
+        """The stop button left of an agent's start button: a menu of its instances outside this
+        window (terminal windows, background: e.g. a `pi -p` another program started, which closing
+        a terminal does not end); the one picked is stopped. The menu is the confirmation."""
+        command = node_id.partition(":")[2]
+        agent = next((a for a in self.agent_list if a.command == command), None)
+        outside = list(getattr(self, "agent_outside", {}).get(command) or ())
+        if agent is None or not outside:
+            return
+        every = [pid for ids in getattr(self, "agent_pids", {}).values() for pid in ids]
+
+        def work():
+            try:
+                windows = desktop.windows()
+            except Exception:
+                windows = {}
+            GLib.idle_add(done, agent_terminals.instances(outside, windows, None, every))
+
+        def done(found):
+            if not found:
+                self.toast(_("It does not run outside this window any more."), 4)
+                return False
+            area = rect or self.side_map.to_pixels(self.side_map.boxes[node_id])
+            popover = self.context_popover(self.side_map, area)
+            items = []
+            for instance in found:
+                label, tip = self.stop_choice_text(instance)
+                items.append(self.menu_item(label, popover, lambda i=instance: self.halt_instance(agent, i), tip))
+            self.show_menu(popover, _("Stop which {0}?").format(agent.name), [items])
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
+
+    @staticmethod
+    def stop_choice_text(instance) -> tuple[str, str]:
+        """(label, tip) of one entry in the stop button's menu."""
+        where = inventory.tilde(instance.cwd) if instance.cwd else ""
+        tip = _("Started {0} in {1}").format(agent_terminals.when(instance.started), where) if where else ""
+        if instance.kind == "window":
+            title = " ".join(instance.title.split())[:48] or where
+            return _("Terminal window · {0}").format(title), tip
+        return _("In the background · {0}").format(where or str(instance.pid)), tip
+
+    def halt_instance(self, agent, instance):
+        """End that one instance (agent_terminals.stop), then show it gone."""
+        def work():
+            try:
+                gone = agent_terminals.stop(instance.pid, instance.started)
+            except Exception:
+                gone = False
+            GLib.idle_add(done, gone)
+
+        def done(gone):
+            if gone:
+                left = [p for p in getattr(self, "agent_outside", {}).get(agent.command) or () if p != instance.pid]
+                if left:
+                    self.agent_outside[agent.command] = left
+                else:
+                    self.agent_outside.pop(agent.command, None)
+                self.side_map.queue_draw()
+            self.toast(_("{0} stopped").format(agent.name) if gone
+                       else _("{0} could not be stopped").format(agent.name), 4)
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
 
     def card_actions(self, node_id: str, popover) -> tuple[list, list]:
         """The buttons of a box's card, as menu entries: (start entries, Details entries).
@@ -3477,6 +3743,13 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                 return starts, details
             if terminal_pane.program(agent.command):
                 pane = self.sessions.get(agent.command)
+                if getattr(self, "agent_outside", {}).get(ident):
+                    starts.append(self.menu_item(_("Terminals…"), popover, lambda: self.show_terminals(ident),
+                                                 _("Its terminal windows, and what runs in the background "
+                                                   "(watched in a new terminal)")))
+                    starts.append(self.menu_item(_("Stop…"), popover, lambda: self.map_halt(node_id),
+                                                 _("Stop one of its instances outside this window (terminal "
+                                                   "windows, background)…")))
                 if pane is not None and pane.running:
                     starts.append(self.menu_item(_("Show terminal"), popover, lambda: self.show_terminal(ident),
                                                  _("Show the terminal {0} runs in here").format(agent.name)))

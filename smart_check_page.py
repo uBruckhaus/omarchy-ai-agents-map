@@ -116,6 +116,9 @@ class SmartCheckPage:
                    if analysis is not None else _("not checked yet"))
         group = self.group_card(body, "smart-analysis", _("PC setup summary"), "am-smartcheck-symbolic", summary,
                                 default_open=True)
+        helpers = ai_helper.helpers(set(self.installed_commands()))
+        if len(helpers) > 1 and not self.smart_analyzing:
+            group.append(self.ai_agent_picker(helpers, agent, self.fill_smart_check))
         row = Gtk.Box(spacing=8)
         button = Gtk.Button(label=_("Checking…") if self.smart_analyzing else _("Check now"))
         button.add_css_class("am-small-btn")

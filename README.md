@@ -77,7 +77,8 @@ LLM providers → models, under the **GPU** card (GPU memory and activity; it fo
   with a dot for working, running or ended; a click shows that terminal, × closes an ended one
   (Settings › **Terminal tabs above the map**, on by default).
 - **Working now**: while an agent is working (herdr shows it working, its process uses the CPU, its
-  session files were written in the last seconds, or its local LLM is generating), light runs along
+  session files were written in the last seconds, the session file it holds open is in the middle of
+  a turn, or its local LLM is generating), light runs along
   its line to its provider and model (Settings › **Map animations**: agents and other programs, only
   agents, or off; off when the desktop turns animations off).
 - **Usage statistics box** (new in 0.21.0): along a working agent's line to its provider, in the
@@ -96,11 +97,30 @@ LLM providers → models, under the **GPU** card (GPU memory and activity; it fo
   has no plan limits for a battery) shows on its box and card what its sessions active today cost at
   API prices, as "$3.40 today", refreshed every minute: green, yellow from 75 % of a day's limit, red
   over it. Settings › **Costs**: the currency (US dollar, or euro at the European Central Bank's daily
-  rate) and the day's limit (100 by default). The prices (Anthropic, OpenAI, DeepSeek, xAI, Google,
+  rate), the day's limit (100 by default), **Yellow from** and **Red from** (the share used at which
+  a cost or a battery turns yellow, 75 % by default, and red, 90 %; red always above yellow) and
+  **Notify when red**. The prices (Anthropic, OpenAI, DeepSeek, xAI, Google,
   with the date they were taken) come with the plugin in `plugin_costs.py`; an estimate.
 - **Agents using agents** (new in 0.22.0): when an agent started another one (the other's process
   runs under its own, for example Claude Code running `pi -p …` in its shell), an arrow runs along the
   left of the agents' card from the agent that uses the other to the one it uses, with light on it.
+  An agent can use several others at once, each with an arrow of its own. While it is used, the
+  agent it uses has its lines to its provider and on to its model in the arrow's colour too, with
+  the light in that colour (new in 0.23.0).
+- **Stop…** (new in 0.23.0): an agent with instances outside this window (a terminal window, the
+  background) offers to stop one of them, picked from a list with where and when it was started.
+- **In the background** (new in 0.23.0): for an instance that runs without a window (`claude -p …`
+  from a script, Pi in another agent's shell), the console opens a terminal tab that shows what it
+  writes, as it writes it (see Privacy).
+- **Ask an agent which MCP server fits** (new in 0.23.0, Add MCP server › MCP registry): in your own
+  words; the agent turns it into search words, the app searches the downloaded registry list with
+  them, and the agent picks the servers that fit from what was found, each with why. No web search.
+- **Ask an agent which model fits** (new in 0.23.0, Models page): in your own words; the agent
+  chosen for AI checks looks on the web for models that fit your question and this PC; its suggestions
+  (10 by default, **Suggestions** at the right of the agent line: 5 to 20) show in the result list as
+  the Hugging Face models they were found as, each opening its page and download options.
+- **Notify when red** (new in 0.23.0, Settings › Costs, on by default): a desktop notification once
+  when an agent's limit or cost turns red, with its reset time.
 - **Used from outside the map**: when a program that is not on the map (a plugin such as Video
   Trans, a chat app, a script) generates with a local LLM, the line from that LLM to the model is
   drawn bold in a colour of its own, light runs along it, and the model box says who uses it ("in use
@@ -672,8 +692,13 @@ the backup and Undo), and the agent is told the same context. A context you set 
   the local LLMs' program, data and model folders with `lstat` only (no file is opened, links are
   not followed), at most 400 000 entries per folder and 60 s in all, plus `statvfs` of their disks.
 - **Working now** reads, every 2 s while the window is open, the CPU time of the running agents'
-  own processes (`/proc/<pid>/stat`, your own UID only) and the modification times of their session
-  files (no contents).
+  own processes (`/proc/<pid>/stat`, your own UID only), the modification times of their session
+  files, and of a session file a running agent holds open (`/proc/<pid>/fd`, a `.jsonl` file of your
+  own) its last 64 KiB for the turn markers `task_started`, `task_complete` and `turn_aborted` only
+  (Codex writes them; whether a turn has begun and not ended). Nothing else of those files is kept.
+  When Codex's `config.toml` names no model, the model of its last turn comes from the `model` key
+  of the `turn_context` lines in its newest session file (`~/.codex/sessions/<year>/<month>/<day>/`,
+  the last 256 KiB, else the first 64 KiB).
 - **Subagents** reads, every 2 s while the window is open: for each running Claude Code instance its
   working folder (`/proc/<pid>/cwd`, your own processes only) to find its project folder in
   `~/.claude/projects`, and there the session folders' `subagents/`: each subagent's `.meta.json` (its
@@ -706,13 +731,27 @@ the backup and Undo), and the agent is told the same context. A context you set 
   `~/.local/state/omarchy-plugin-ai/exchange-rate.json`; with US dollars nothing is fetched.
 - **Agents using agents** reads the parent process ids of the running agents' processes
   (`/proc/<pid>/stat`, at most 12 levels up), nothing else.
+- **Following an instance in the background** (the map's console on an instance that runs without
+  a window, on a click only): the one place where conversation text is read. A terminal tab runs
+  `session_follow.py`, which shows what that instance writes as it writes it: its session file
+  (Pi `~/.pi/agent/sessions/<folder>/*.jsonl`, Claude Code `~/.claude/projects/<folder>/*.jsonl`,
+  the one it holds open, else the newest one begun after it started and before another instance of
+  the same program in the same folder started, or, with no other instance there, a session it
+  resumed), else its output when that goes to a file of yours.
+  Questions, answers, the tools it calls and the first line of what they gave back, each shortened;
+  every control character but line breaks and tabs is removed (escape sequences included), from
+  the folder and file names too, so nothing can drive the terminal. Your own regular files only: each look opens the file anew without following a link or
+  blocking and checks the opened file itself; at most 1 MiB per look, lines over 4 MiB skipped. It
+  stops when that instance has ended (checked by its start time, so a later process with the same
+  number does not keep it going; one whose start time cannot be read is not followed at all).
+  Nothing is stored.
 - **Details pages** (ⓘ on an agent or local LLM card) read usage as numbers and times only:
   Omarchy's usage records (Claude Code, Codex), the token, model, cost, folder, lines-changed,
   parent-session and time columns of Hermes's (`~/.hermes/state.db`) and OpenCode's
   (`~/.local/share/opencode/opencode.db`) session databases and the session id and time of their
   messages (never titles or message content), opened read-only, and the names and dates of Pi's
   session files (never opened). No
-  conversation text is read. Whether an agent is signed in is judged from whether its credential
+  conversation text is read (only **Following an instance in the background** shows it, on a click). Whether an agent is signed in is judged from whether its credential
   file exists (never opened) or an API-key variable is set (its name only); Cursor CLI is asked
   with its own `cursor-agent status`. Claude Code's session files (`~/.claude/projects/…/*.jsonl`,
   subagent runs included) are read for numbers only: of model replies the model, token counts, time
@@ -729,7 +768,13 @@ the backup and Undo), and the agent is told the same context. A context you set 
   links, or resumed only when it is your own regular file, and curl writes into that open file),
   the npm registry for DeepSeek Harness, PyPI
   (and `uv`) for vLLM; `huggingface.co` for model search, a model's page (its numbers and GGUF facts) and its model card (`/raw/main/README.md`, at most 200 kB, shown as plain text), and downloads; for Antigravity CLI Google's release manifest (`antigravity-cli-auto-updater-…run.app/manifests/linux_<arch>.json`) and its tarball on `storage.googleapis.com` (checked against the manifest's SHA-512); the local Ollama on
-  127.0.0.1 only after checking that the listening socket belongs to you; the same for each running
+  127.0.0.1 only after checking that the listening socket belongs to you (before a Hugging Face
+  model's download options are shown for Ollama, `huggingface.co/v2/<repo>/manifests/<quant>` is
+  asked for each of its files, the same request Ollama sends first, at most 256 KiB, 15 s, 30 files
+  (a size beyond those is not offered for Ollama), to offer only what Ollama can pull; a model pull reads
+  Ollama's progress stream itself: one deadline over connecting, headers and every read, the
+  headers within 30 s, lines of at most 64 KiB and at most 200 000 of them, Cancel heard within a
+  second while the reply is read); the same for each running
   local LLM's own API every 2 s while the window is open (which models are loaded) and for
   **Free GPU memory** (unload); answers are capped at 1 MiB and only shown, never run;
   `registry.modelcontextprotocol.io` (its server list also automatically on start, at most every 12 h, see
@@ -741,19 +786,38 @@ the backup and Undo), and the agent is told the same context. A context you set 
   of the local LLMs and agents AI Agents Map installed, and what `mise outdated` asks; a search site you added yourself (Add a site…: https
   only, no redirects, only when you search on it); an MCP server's own address when you click **Test**; and,
   for a newly installed unknown agent (automatic, see above), whatever Claude Code or Codex
-  searches. All web requests go through `curl` with https only, at most a few https redirects
+  searches. All web requests AI Agents Map makes itself (not the local LLMs' APIs on 127.0.0.1
+  above, and not what an agent fetches during its own look-up) go through `curl` with https only, at most a few https redirects
   (none for skills and the registry), size and time limits, and request headers handed over on
   stdin, never on the command line.
 - **AI look-ups** (Smart Check's Check now, Daily AI checks when switched on, looking up a new
   agent): the agent chosen in Settings, run as its adapter's `research` command: Claude Code
-  `claude -p <prompt> --tools WebSearch WebFetch --allowedTools WebSearch WebFetch
+  `claude -p --tools WebSearch WebFetch --allowedTools WebSearch WebFetch
   --strict-mcp-config --no-session-persistence --disable-slash-commands --output-format json`
   (no shell, no files, no MCP servers) or Codex `codex --search exec --sandbox read-only
-  --skip-git-repo-check --json --output-schema <schema> <prompt>`, in a private folder, with the
+  --skip-git-repo-check --json --output-schema <schema> -`, in a private folder, with the
   environment of an agent session removed, one deadline (10 min) and a size limit on its output.
-  The prompt holds only what the card says; the answer is web text and is checked field by field
+  With these two commands (the built-in adapters) the prompt is handed on stdin, never on the
+  command line, so other accounts cannot read it in the process list; an agent added later whose
+  adapter puts `{prompt}` into its research command gets it there. The prompt holds only what the card says; the answer is web text and is checked field by field
   (known names only, plain version numbers, https links, short single-line text, at most 15
   findings) before it is shown. Nothing in an answer is ever run.
+- **Ask an agent which model fits** (Models page, on **Ask** only): your question, the graphics
+  card's name, its memory and the computer's memory, and the names of the models you already have,
+  sent to the agent chosen for AI checks as a look-up like the ones above (with the built-in Claude
+  Code and Codex commands: prompt on stdin, web tools only; an agent added later uses its own
+  adapter's research command). Its answer is checked (model names, sizes, short reasons) and shown as plain text;
+  each suggestion is then looked up with one Hugging Face model search (the same request as typing
+  it into the search, on the site chosen there) and listed as the first model it finds. The question is not stored.
+- **Ask an agent which MCP server fits** (Add MCP server › MCP registry, on **Ask** only): two short
+  look-ups by the agent chosen for AI checks, told not to search the web (prompt on stdin with the
+  built-in Claude Code and Codex commands). First your request only, answered with at most 8 search
+  words (plain characters only); the app searches the registry list it has downloaded with each, as
+  the normal search does, then the agent gets your request and those candidates (at most 60: name,
+  title, the start of the description, all public registry text) and picks the ones that fit, each
+  with one sentence why. Only names from the candidates are kept; the picks show in the result list
+  (10 by default, **Suggestions**: 5 to 20). Nothing of this PC goes to the agent; the request is not
+  stored.
 - **AI tasks** ("Do it with …", "Fix it with …", on a click only): the agent itself started in a
   terminal tab (`claude <prompt>` / `codex <prompt>`, the prompt one argument, written by AI
   Agents Map), where it asks before each step as it always does and you watch.
@@ -773,8 +837,18 @@ the backup and Undo), and the agent is told the same context. A context you set 
   replaced, written as a new 0600 file with `mkstemp` and moved over the old one, never through a
   link). The key never goes into an argv, a log, a backup or AI Agents Map's own settings.
 - **Starts**: `systemctl --user` start/stop/enable/disable/daemon-reload for the services it
-  installed or that start a local LLM (service-management); the installers' `curl`, `tar`, the Jan
-  AppImage's `--appimage-extract` (after its SHA-256 matched), `uv venv`/`uv pip install`,
+  installed or that start a local LLM (service-management); the installers' `curl`, `tar` (a release
+  archive is read through twice first: at most 20 GB unpacked by the sizes its entries declare,
+  which is what `tar` writes, and 200 000 entries; no absolute or `..` names, no links leading out
+  of its folder, nothing written below one of the archive's own symbolic links, no link target that
+  passes through one on its way (each target followed part by part, whatever the order of the
+  entries; only its last part may be a link, as in `libx.so -> libx.so.1`), no hard link to a
+  link, no devices or pipes; nothing is unpacked otherwise), the Jan AppImage's
+  `--appimage-extract` (after its SHA-256 matched; this runs the AppImage itself, a program: what
+  it writes into its folder is measured twice a second, and its whole process group, children it
+  left behind included, is ended as soon as that passes 20 GB, after 15 minutes, or when it ends;
+  on a failure, the timeout or the limit, the partial folder is removed, as for a release archive
+  that fails to unpack; what it could write in half a second, or elsewhere, is not bounded), `uv venv`/`uv pip install`,
   `npm install --ignore-scripts` for DeepSeek Harness (installer);
   the watcher service described above (service-management: `systemctl --user start/stop` of the
   connected LLMs' services, `lms server start/stop`, `lms daemon down`; a hidden LM Studio it
@@ -788,7 +862,12 @@ the backup and Undo), and the agent is told the same context. A context you set 
   `omarchy-agent-usage-update <agent>` when an agent card's usage is older than ten minutes; an MCP
   server's command when you click **Test** or ask for its tools, or right after you connect an agent
   to it (the check above; in its own process group, stopped afterwards); an AppImage's `--appimage-extract` only on **Look inside…**, when adding a server
-  from it, or for a newer version of an app looked into before; `claude -p` or `codex exec` for a new agent and on **Update skill…**; `wl-paste`,
+  from it, or for a newer version of an app looked into before (this runs the AppImage you picked,
+  in a private folder; what it writes there is measured twice a second and its whole process group
+  is ended as soon as that passes 2 GB for Look inside…, 10 GB for a whole app, or when it ends;
+  the private folder is always removed afterwards, also when it fails (a whole app that unpacked
+  well is first moved out of it to `~/Applications`); like any program you run, what it does
+  elsewhere is not bounded); `claude -p` or `codex exec` for a new agent and on **Update skill…**; `wl-paste`,
   `lspci`, `hyprctl`; `herdr [--session <name>] api snapshot` while an agent's details page is open
   and a herdr server of yours runs (never starts one), and `herdr agent focus <pane>` on a click on
   a herdr pane (the pane id checked against a strict pattern), then `hyprctl` focuses the window of
@@ -798,7 +877,15 @@ the backup and Undo), and the agent is told the same context. A context you set 
   the link; for Ollama its own `DELETE /api/delete` on 127.0.0.1 after the port-owner check.
 - **Stops** an agent started here on **Stop**, on **Stop and close**, or when AI Agents Map ends:
   SIGHUP to its own process group (it was started here as a session of its own), SIGTERM after 3 s
-  and SIGKILL after 6 s if it is still there.
+  and SIGKILL after 6 s if it is still there. An instance started elsewhere (a terminal window, the
+  background) only on **Stop…** and your pick from its list: a process of your own, held by a pidfd
+  before it is checked, and only while its kernel start time is still exactly the one shown (an
+  unknown start time: it is left alone); SIGTERM, then SIGKILL after 3 s, both through that pidfd,
+  so a process that got the same number meanwhile is never hit.
+- **Notifies** (Settings › Costs › Notify when red, on by default) once per limit and reset, or per
+  day for a cost, when an agent's battery or cost turns red: a desktop notification with the
+  agent's name and the limit, as plain text (markup and control characters removed). What was
+  notified is kept in `~/.local/state/ai-agents-map/red-notified.json` (0600).
 - **Writes**, each only after you confirm it with its preview (except AI Agents Map's own state):
   the agents' settings files named above, security settings included (`~/.claude/settings.json`,
   `~/.codex/config.toml`, `~/.copilot/settings.json`, `~/.config/cursor/cli-config.json`,

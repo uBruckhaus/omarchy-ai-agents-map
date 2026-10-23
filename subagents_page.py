@@ -47,7 +47,8 @@ class SubagentsPage:
 
     def agent_link_tip(self, user: str, used: str) -> str:
         names = {f"agent:{a.command}": a.name for a in self.agent_list}
-        return _("{0} uses {1}: it started it and works with it.").format(
+        return _("Working together: {0} started {1} and hands it work, then uses its answers. "
+                 "Light flows along the line while they work.").format(
             names.get(user, user.partition(":")[2]), names.get(used, used.partition(":")[2]))
 
     def set_subagent_lists(self, lists: dict):

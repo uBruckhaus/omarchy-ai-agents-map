@@ -68,10 +68,6 @@ def ensure_entry(wanted: bool = True, path: Path = ENTRY, here: Path = HERE) -> 
             return False
     except OSError:
         return False
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.new")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o644)
-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        handle.write(text)
-    os.replace(tmp, path)
+    import ai_core
+    ai_core.atomic_write(path, text, mode=0o644, dir_mode=0o755)      # a launcher entry: readable like the others
     return True

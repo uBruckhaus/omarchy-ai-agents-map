@@ -384,6 +384,28 @@ class PageParts:
         self.toasts.add_toast(toast)
         return toast
 
+    def show_error(self, message: str, seconds: int = 12):
+        """An error as a toast with a copy button (the copy symbol) that puts the whole text on the
+        clipboard: errors from programs and web services are long and are pasted into a report."""
+        toast = self.toast(message, seconds)
+        title = Gtk.Box(spacing=8)
+        label = Gtk.Label(label=message, wrap=True, max_width_chars=70, xalign=0, lines=3)
+        label.set_ellipsize(Pango.EllipsizeMode.END)
+        label.set_use_markup(False)
+        title.append(label)
+        copy = Gtk.Button(icon_name="edit-copy-symbolic", valign=Gtk.Align.CENTER)
+        copy.add_css_class("flat")
+        copy.set_tooltip_text(_("Copy the message"))
+
+        def copied(button):
+            Gdk.Display.get_default().get_clipboard().set(message)
+            button.set_icon_name("object-select-symbolic")
+            GLib.timeout_add(1200, lambda: button.set_icon_name("edit-copy-symbolic") or False)
+        copy.connect("clicked", copied)
+        title.append(copy)
+        toast.set_custom_title(title)
+        return toast
+
     def show_note(self, message: str):
         """A short message."""
         self.toast(message, 6)

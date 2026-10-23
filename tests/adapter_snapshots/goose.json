@@ -67,6 +67,7 @@
  "sandbox_setting": "",
  "replies": [],
  "subagents": [],
+ "session_files": "goose-db",
  "asks_setting": "",
  "access": {
   "how": "An API key or sign-in for a provider (OpenRouter, Anthropic, OpenAI, Google …), or a local LLM from the map",

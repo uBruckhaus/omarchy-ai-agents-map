@@ -32,6 +32,8 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+import ai_core
+
 GiB = 2 ** 30
 RESERVE = int(1.5 * GiB)       # compute buffers and what the desktop keeps
 STEP = 4096
@@ -272,7 +274,7 @@ def ollama_manifest(models_root: Path, name: str) -> dict:
         v2 = models_root / "manifests-v2" / "ollama.com" / Path(*parts[1:]) / tag
         if v2.is_file():
             path = v2
-    return json.loads(path.read_text(encoding="utf-8")[:1_000_000])
+    return json.loads(ai_core.read_head(path, 1_000_000))
 
 
 def ollama_model_file(models_root: Path, name: str) -> Path | None:
@@ -292,7 +294,7 @@ def ollama_context(models_root: Path, name: str, default: int = 0) -> int:
         if layer.get("mediaType") == "application/vnd.ollama.image.params":
             digest = str(layer.get("digest", "")).replace(":", "-")
             try:
-                params = json.loads((models_root / "blobs" / digest).read_text(encoding="utf-8")[:100_000])
+                params = json.loads(ai_core.read_head(models_root / "blobs" / digest, 100_000))
             except (OSError, ValueError):
                 continue
             if isinstance(params, dict) and isinstance(params.get("num_ctx"), int):

@@ -53,10 +53,11 @@ def basename(path: str) -> str:
 def change(path, new_text: str):
     """A connect.Change of one settings file (its text now, then new_text); None when it stays."""
     import connect
+    import ai_core
     from pathlib import Path
     path = Path(path)
     try:
-        old_text = path.read_text(encoding="utf-8")[:1_000_000]
+        old_text = ai_core.read_whole(path, 1_000_000).decode("utf-8", "replace")   # larger: no change offered
     except FileNotFoundError:
         old_text = ""
     except OSError:

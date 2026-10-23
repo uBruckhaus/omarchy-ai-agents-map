@@ -183,7 +183,8 @@ def fix_prompt(finding: Finding) -> str:
 # Task ids of this app; other plugins' tasks show with their own id.
 TASKS = {"mcp-updates": N_("MCP server updates"), "agent-setup": N_("Looking up new agents"),
          "setup-analysis": N_("Setup analysis"), "mcp-update": N_("MCP server update tasks"),
-         "fix": N_("Fixes after a failed install"), "smart-fix": N_("Fixes from Smart Check")}
+         "fix": N_("Fixes after a failed install"), "smart-fix": N_("Fixes from Smart Check"),
+         "model-advice": N_("Model advice")}
 
 
 @dataclass

@@ -115,7 +115,8 @@ def _cache() -> dict:
     if _CACHE is None:
         import json
         try:
-            data = json.loads(SCAN_CACHE.read_text(encoding="utf-8"))
+            import ai_core
+            data = json.loads(ai_core.read_head(SCAN_CACHE, 4_000_000, follow=False))
             _CACHE = {k: tuple(v) for k, v in data.items()} if isinstance(data, dict) else {}
         except (OSError, ValueError):
             _CACHE = {}
@@ -312,12 +313,15 @@ def unpack_bin(path: Path) -> tuple[Path, Path]:
     import ai_core
     TEMP.mkdir(parents=True, exist_ok=True, mode=0o700)
     work = Path(tempfile.mkdtemp(prefix="appimage-", dir=str(TEMP)))
-    _out, ok = ai_core.read_bounded_output([str(path), "--appimage-extract", "usr/bin/*"], max_bytes=256 * 1024,
-                                           timeout=60, cwd=str(work))
-    folder = work / "squashfs-root/usr/bin"
-    if not ok or not folder.is_dir() or _folder_size(work) > MAX_BIN_BYTES:
+    try:
+        ok = ai_core.run_with_disk_budget([str(path), "--appimage-extract", "usr/bin/*"], str(work),
+                                          MAX_BIN_BYTES, timeout=60)          # stopped as soon as it gets larger
+        folder = work / "squashfs-root/usr/bin"
+        if not ok or not folder.is_dir() or _folder_size(work) > MAX_BIN_BYTES:
+            raise RuntimeError(f"could not look inside {path.name}")
+    except BaseException:                  # nothing of a failed look stays
         shutil.rmtree(work, ignore_errors=True)
-        raise RuntimeError(f"could not look inside {path.name}")
+        raise
     return work, folder
 
 
@@ -489,8 +493,8 @@ def unpack(appimage: Path, into: Path | None = None) -> Path:
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True, mode=0o700)
     try:
-        _out, ok = ai_core.read_bounded_output([str(appimage), "--appimage-extract"], max_bytes=256 * 1024,
-                                               timeout=600, cwd=str(work))
+        ok = ai_core.run_with_disk_budget([str(appimage), "--appimage-extract"], str(work), MAX_APP_BYTES,
+                                          timeout=600)                        # stopped as soon as it gets larger
         if not ok or not (work / "squashfs-root").is_dir():
             raise RuntimeError(f"could not unpack {appimage.name}")
         if _folder_size(work) > MAX_APP_BYTES:

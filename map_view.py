@@ -76,6 +76,18 @@ STOP_VRAM = 256 * 1024 ** 2                        # a local LLM holding this mu
 STOP = "\U000F04DB"                              # Nerd Font stop: beside the console while it runs here
 ANIMATION_MODES = ("all", "agents", "off")    # Settings › Map animations
 START_W = 18             # the start button's square, left of where the pin and the tick go
+# An agent box's symbols sit in a strip of their own at its right (no background, no frame), each
+# in a fixed slot, so they line up from box to box and never cover the name. From the right: the
+# pin and the tick (CHECK_ROOM), start/stop, the stop for instances outside this window, the
+# battery or today's cost, the console, subagents, traffic. The strip is as wide as all of them
+# together, also while some are not shown; the box (and its column) grows to fit the name.
+CHECK_ROOM = 24          # left of the pin: the tick of a selected box
+BUTTON_SLOT = START_W + 4
+MARK_SLOT = 23           # the subagents mark and the traffic arrows (14 px and their margins)
+BATTERY_SLOT = 29        # the battery (20 px, its nub and margins); a cost label may need more
+TILE_ROOM = 44           # from a box's left to its text: the icon tile (draw_tile)
+TEXT_W_MAX = 220         # an agent's name or detail wider than this is shortened (…)
+TEXT_GAP = 6             # between an agent's text and its symbols
 # The categories whose boxes each column holds (a column with none of them on is gone).
 # Categories: selecting in one hides that category's other boxes.
 CATEGORY = {"agent": "agent", "cloud": "provider", "runtime": "provider", "model": "model", "more": "model",
@@ -144,6 +156,8 @@ class MapView(Gtk.DrawingArea):
         self.pin_tips = ("Pin", "Unpin")   # tooltips (pin, unpin), translated by the window
         self.start_rects = {}    # agent box id -> rectangle of its start button, for clicks
         self.stop_rects = {}     # agent box id -> rectangle of its stop button (while it runs here)
+        self.console_rects = {}  # agent box id -> its console while it runs (here or in a window of its own)
+        self.on_console = None   # on_console(node id, its rectangle): its terminals (here, windows, background)
         self.batteries = {}      # box id -> (left 0..1, colour, tooltip): an online agent's limits, a local LLM's GPU
         self.costs = {}          # agent box id -> (label, tooltip, colour): paid per token, today's cost, no battery
         self.cost_rects = {}     # agent box id -> rectangle of that label (its tooltip)
@@ -157,11 +171,15 @@ class MapView(Gtk.DrawingArea):
         self.on_subagents = None # callback(agent box id): the mark clicked
         self.subagents_tip = None  # callback(agent box id) -> tooltip of the mark
         self.agent_links = set() # (agent box id, agent box id): the first started the second and uses it
-        self.agent_link_tip = None   # callback(user box id, used box id) -> tooltip of that arrow
-        self.agent_link_points = []  # [(user, used, [(x, y)…])] of the arrows drawn (for the tooltip)
+        self.agent_link_tip = None   # callback(user box id, used box id) -> tooltip of that line
+        self.agent_link_points = []  # [(user, used, [(x, y)…])] of the lines drawn (for the tooltip)
         self.start_state = None  # start_state(node id) -> "start", "show" (runs here) or "" (no button)
         self.on_start = None     # on_start(node id): start it, or show its terminal
         self.on_stop = None      # on_stop(node id): stop it (it runs here)
+        self.outside_count = None    # outside_count(node id) -> instances running outside this window
+        self.on_halt = None      # on_halt(node id, its rectangle): which of those to stop (a menu)
+        self.halt_tip = "Stop an instance…"   # translated by the window
+        self.halt_rects = {}     # agent box id -> its stop button for instances outside this window
         self.start_tips = ("Start", "Show terminal")   # translated by the window
         self.group_rects = {}    # model folder -> rectangle of its group in the models column
         self.move_target_ok = None  # callback(model id, folder) -> bool: may the model go there
@@ -173,6 +191,9 @@ class MapView(Gtk.DrawingArea):
         self.mode_off = set()    # categories the header's setup choice (All · Online · Local LLMs) leaves out
         self.mode_hidden = set() # boxes it leaves out (agents that cannot use local LLMs)
         self.column_x = {}       # column -> x of its boxes, for the headings
+        self.min_width = 0       # the least width the columns need side by side (layout)
+        self.text_widths = {}    # (text, font) -> pixels (text_width)
+        self.measure = None      # the Pango layout text_width measures with
         self.zoom = 1.0          # drawing scale (ZOOM_STEPS)
         self.on_zoom = None      # callback(zoom) after Ctrl+scroll
         self.usage = None        # gpu_usage.Usage: GPU memory per local LLM, loaded models, activity
@@ -259,6 +280,15 @@ class MapView(Gtk.DrawingArea):
         """[(user, used)] of the arrows between agents that are on the map now, in drawing order."""
         return [(u, v) for u, v in sorted(self.agent_links) if u in self.boxes and v in self.boxes]
 
+    def called_agents(self) -> set:
+        """The agents another one on the map uses now (the arrow's end): their lines in the collaboration colour."""
+        return {used for _user, used in self.drawn_agent_links()}
+
+    def collab_edges(self) -> set:
+        """Edge indexes of the called agents' paths (agent → provider → model), drawn in the collaboration
+        colour as long as the other agent uses it, also where another agent shares the provider's line."""
+        return set().union(*(self.active.get(agent, set()) for agent in self.called_agents()))
+
     def agent_link_curve(self, user: str, used: str) -> tuple:
         """(start, control 1, control 2, end) of the arc from `user` to `used` along the left of their card;
         the end is where the arrowhead's base is. Several arcs: each a bit further out."""
@@ -276,28 +306,25 @@ class MapView(Gtk.DrawingArea):
                      for a, b, c, d in zip(start, c1, c2, end))
 
     def draw_agent_links(self, cr):
-        """An arc along the left of the agents' card from an agent to one it started and uses, with an
-        arrowhead at the one used (its lights run in FlowLayer, as on the other active lines)."""
+        """An arc along the left of the agents' card from an agent to one it started and works with, in
+        the collaboration colour, a dot at each end (its lights run in FlowLayer, as on the other active
+        lines, in the same colour)."""
         self.agent_link_points = []
         cr.set_line_cap(cairo.LINE_CAP_ROUND)
         for user, used in self.drawn_agent_links():
             curve = self.agent_link_curve(user, used)
             start, c1, c2, base = curve
             self.agent_link_points.append((user, used, [self.bezier(curve, i / 24) for i in range(25)]))
-            end = (base[0] + 7, base[1])
-            cr.set_source_rgba(*self.color("accent", 0.95))
+            end = (base[0] + 7, base[1])                              # the box of the agent used
+            cr.set_source_rgba(*self.color("collab", 0.95))
             cr.set_line_width(1.8)
             cr.move_to(*start)
             cr.curve_to(*c1, *c2, *base)
+            cr.line_to(*end)
             cr.stroke()
-            # The arrowhead: pointing into the box of the agent used.
-            cr.move_to(*end)
-            cr.line_to(end[0] - 8, end[1] - 4.5)
-            cr.line_to(end[0] - 8, end[1] + 4.5)
-            cr.close_path()
-            cr.fill()
-            cr.arc(start[0], start[1], 2.6, 0, 2 * math.pi)          # where it starts: the user
-            cr.fill()
+            for x, y in (start, end):                                 # both agents take part
+                cr.arc(x, y, 2.6, 0, 2 * math.pi)
+                cr.fill()
         cr.set_line_cap(cairo.LINE_CAP_BUTT)
 
     def subagents_at(self, x, y):
@@ -449,6 +476,41 @@ class MapView(Gtk.DrawingArea):
 
     # --- layout -----------------------------------------------------------------------
 
+    def agent_slots(self) -> dict:
+        """Where an agent box's symbols end, counted from the box's right edge, and the strip's
+        width ("strip"): the same for every agent box."""
+        meter = max([BATTERY_SLOT] + [self.text_width(label, "Sans 7.5") + 9 for label, *_rest in self.costs.values()])
+        slots, offset = {}, PIN_W + CHECK_ROOM
+        for name, room in (("start", BUTTON_SLOT), ("halt", BUTTON_SLOT), ("meter", meter),
+                           ("console", BUTTON_SLOT), ("subagents", MARK_SLOT), ("traffic", MARK_SLOT)):
+            slots[name] = offset
+            offset += room
+        slots["strip"] = offset
+        return slots
+
+    def text_width(self, text: str, font: str) -> int:
+        """Pixels `text` takes in `font` (measured once, kept)."""
+        key = (text, font)
+        if key not in self.text_widths:
+            if self.measure is None:
+                self.measure = PangoCairo.create_layout(cairo.Context(cairo.ImageSurface(cairo.FORMAT_ARGB32, 1, 1)))
+            self.measure.set_font_description(Pango.FontDescription.from_string(font))
+            self.measure.set_width(-1)
+            self.measure.set_text(text, -1)
+            if len(self.text_widths) > 2000:
+                self.text_widths.clear()
+            self.text_widths[key] = self.measure.get_pixel_size()[0]
+        return self.text_widths[key]
+
+    def agent_width(self, nodes) -> int:
+        """The width an agent box needs: its tile, its name or detail (at most TEXT_W_MAX) and the
+        symbol strip."""
+        text = 0
+        for node in nodes:
+            text = max(text, self.text_width(node.label, "Sans Bold 9"),
+                       self.text_width(node.detail, "Sans 8") if node.detail else 0)
+        return TILE_ROOM + min(text, TEXT_W_MAX) + TEXT_GAP + self.agent_slots()["strip"]
+
     def layout(self, width: int, height: int):
         self.boxes = {}
         if self.graph is None:
@@ -459,21 +521,33 @@ class MapView(Gtk.DrawingArea):
         # Arrows between agents run along the left of their card: room for them when it is the first.
         room = AGENT_LINK_ROOM if self.agent_links and active and active[0] == 1 else 0
         width -= room
-        node_w = max(NODE_W_MIN, min(NODE_W_MAX, (width - 2 * PAD - (count - 1) * COLUMN_GAP_MIN) // count))
-        gap = max(COLUMN_GAP_MIN, (width - 2 * PAD - count * node_w) // max(1, count - 1))
+        # The other columns share the view's width (not a wider map's: that would widen them too).
+        view = self.viewport_width() / min(self.zoom, 1.0) - room if self.viewport_width() > 0 else width
+        base = min(width, view)
+        node_w = int(max(NODE_W_MIN, min(NODE_W_MAX, (base - 2 * PAD - (count - 1) * COLUMN_GAP_MIN) // count)))
+        # A column with agents is as wide as its widest agent needs (name and symbols side by side).
+        widths = {}
+        for column in active:
+            agents = [n for n in self.shown(column) if n.kind == "agent"]
+            widths[column] = max(node_w, self.agent_width(agents)) if agents else node_w
+        total = sum(widths.values())
+        gap = max(COLUMN_GAP_MIN, (width - 2 * PAD - total) // max(1, count - 1))
         gap = min(gap, COLUMN_GAP_MAX)   # few columns: keep them together, centred
         if count == 1:
             gap = 0
-        used = count * node_w + (count - 1) * gap
+        used = total + (count - 1) * gap
         left = room + PAD + max(0, (width - 2 * PAD - used) // 2)
+        # The least the columns need side by side: a view narrower than that scrolls sideways (relayout).
+        self.min_width = room + 2 * PAD + total + (count - 1) * COLUMN_GAP_MIN
         self.column_x = {}
         self.group_labels = []
         self.group_rects = {}
         self.card_rects = {}
-        card_w = node_w + 2 * CARD_PAD
-        for slot, column in enumerate(active):
+        x = left
+        for column in active:
             y = self.column_top(self.column_height(column), height, hub=column == 1)
-            x = left + slot * (node_w + gap)
+            column_w = widths[column]
+            card_w = column_w + 2 * CARD_PAD
             self.column_x[column] = x
             for nodes in self.groups(column):
                 key = self.group_key(nodes[0])
@@ -492,10 +566,11 @@ class MapView(Gtk.DrawingArea):
                                           sum(1 for n in nodes if n.kind != "more"), nodes[0].kind))
                 by = cy + GROUP_LABEL_H
                 for node in nodes:
-                    self.boxes[node.id] = (cx + CARD_PAD, by, node_w, NODE_H)
+                    self.boxes[node.id] = (cx + CARD_PAD, by, column_w, NODE_H)
                     by += NODE_H + NODE_GAP
                 if column == 3 and nodes[0].group:
                     self.group_rects[nodes[0].group] = (cx, cy, card_w, card_h)
+            x += column_w + gap
         # Drawn in this order (the last on top): cards in their columns, then the ones moved by hand,
         # the latest last (self.cards keeps that order).
         moved = list(self.cards)
@@ -580,10 +655,18 @@ class MapView(Gtk.DrawingArea):
         parent = self.get_ancestor(Gtk.Viewport) or self.get_parent()
         return parent.get_width() if parent is not None and parent.get_width() > 0 else self.get_width()
 
+    def wanted_width(self) -> int:
+        """The map's own width: zoomed in, wider than the view; columns that need more room than the
+        view has (wide agent names), as wide as they need; else the view's (0)."""
+        view = self.viewport_width()
+        need = self.min_width if self.min_width > view else 0
+        if self.zoom > 1:
+            return int(max(view, need) * self.zoom)
+        return int(need * self.zoom)
+
     def relayout(self):
         self.set_content_height(int(self.needed_height() * self.zoom))
-        # Zoomed in: wider than the view, so it scrolls sideways too.
-        self.set_content_width(int(self.viewport_width() * self.zoom) if self.zoom > 1 else 0)
+        self.set_content_width(self.wanted_width())     # wider than the view: it scrolls sideways too
         self.queue_draw()
 
     def set_zoom(self, zoom: float):
@@ -1079,8 +1162,12 @@ class MapView(Gtk.DrawingArea):
         battery = next((n for n, (bx, by, bw, bh) in self.battery_rects.items()
                         if bx <= x <= bx + bw and by <= y <= by + bh and n in self.batteries), None)
         stop = self.stop_at(x, y)
-        if stop is not None and len(self.start_tips) > 2:
+        if self.halt_at(x, y) is not None:
+            self.set_tooltip_text(self.halt_tip)
+        elif stop is not None and len(self.start_tips) > 2:
             self.set_tooltip_text(self.start_tips[3 if stop.startswith("runtime:") and len(self.start_tips) > 3 else 2])
+        elif self.console_at(x, y) is not None:
+            self.set_tooltip_text(self.start_tips[1])
         elif start is not None and self.start_state is not None:
             self.set_tooltip_text(self.start_tips[1 if self.start_state(start) == "show" else 0])
         elif battery is not None:
@@ -1129,6 +1216,20 @@ class MapView(Gtk.DrawingArea):
 
     def stop_at(self, x, y):
         for node_id, (sx, sy, sw, sh) in self.stop_rects.items():
+            if sx <= x <= sx + sw and sy <= y <= sy + sh:
+                return node_id
+        return None
+
+    def halt_at(self, x, y):
+        """The agent box whose stop button for its instances outside this window is at (x, y)."""
+        for node_id, (sx, sy, sw, sh) in self.halt_rects.items():
+            if sx <= x <= sx + sw and sy <= y <= sy + sh:
+                return node_id
+        return None
+
+    def console_at(self, x, y):
+        """The agent box whose console is at (x, y) in map units, or None."""
+        for node_id, (sx, sy, sw, sh) in self.console_rects.items():
             if sx <= x <= sx + sw and sy <= y <= sy + sh:
                 return node_id
         return None
@@ -1250,6 +1351,14 @@ class MapView(Gtk.DrawingArea):
         helped = self.subagents_at(x, y)
         if helped is not None and self.on_subagents is not None:
             self.on_subagents(helped)
+            return
+        halt = self.halt_at(x, y)
+        if halt is not None and self.on_halt is not None:
+            self.on_halt(halt, self.to_pixels(self.halt_rects[halt]))
+            return
+        console = self.console_at(x, y)
+        if console is not None and self.on_console is not None:
+            self.on_console(console, self.to_pixels(self.console_rects[console]))
             return
         start = self.start_at(x, y)
         if start is not None and self.on_start is not None:
@@ -1569,6 +1678,7 @@ class MapView(Gtk.DrawingArea):
         ("dot", x, y, radius, rgba)."""
         tail, steps = 0.3, 22        # tail length (in segments) and the samples it is drawn with
         fg = self.color("fg")
+        called = self.called_agents()
         marks = []
         for agent, edges in paths:
             level = 1.0 if levels is None else levels.get(agent, 0.0)
@@ -1576,7 +1686,8 @@ class MapView(Gtk.DrawingArea):
                 continue
             # An app outside the map: its own colour; an MCP server in use: its line's; an agent: the accent.
             accent = self.color("outside" if agent.startswith("outside:") else
-                                EDGE_COLORS["mcp"] if agent.startswith("mcp:") else "accent")
+                                EDGE_COLORS["mcp"] if agent.startswith("mcp:") else
+                                "collab" if agent.startswith("link:") or agent in called else "accent")
             light = tuple(a + (f - a) * 0.6 for a, f in zip(accent[:3], fg[:3]))   # brighter than the line under it
             offset = (sum(map(ord, agent)) % 97) / 97          # agents do not pulse in step
             count = len(edges)
@@ -1639,8 +1750,8 @@ class MapView(Gtk.DrawingArea):
         if self.graph is None:
             return
         zoom = self.zoom
-        if zoom > 1 and abs(int(self.viewport_width() * zoom) - self.get_content_width()) > 2:
-            GLib.idle_add(self.relayout)          # the view was resized: follow it
+        if abs(self.wanted_width() - self.get_content_width()) > 2:
+            GLib.idle_add(self.relayout)          # the view was resized, or the columns need more room
         cr.scale(zoom, zoom)
         width, height = width / zoom, height / zoom
         node_w, _gap = self.layout(width, height)
@@ -1655,6 +1766,7 @@ class MapView(Gtk.DrawingArea):
         order = [i for i in range(len(self.graph.edges)) if i not in active_edges] + sorted(active_edges)
         agent = self.single_agent()
         own_path = self.active.get(agent, set()) if agent else set()
+        collab = self.collab_edges()
         markers = []                 # failed lines: a "!" on each, drawn over all lines
         dimmed = {n.id for n in self.graph.nodes if n.dim and n.kind == "subagent"}
         drawn = set()                # edge indexes drawn this time
@@ -1689,8 +1801,9 @@ class MapView(Gtk.DrawingArea):
                 cr.set_dash([0.1, 5])
             else:
                 # Loaded in its local LLM but no agent's: solid and light (EDGE_COLORS["loaded"]).
-                # Agents on different models: violet; the one picked agent's own path stays in the accent.
-                tint = None if index in own_path else self.tints.get(index)
+                # Agents on different models: violet; the one picked agent's own path stays in the accent;
+                # an agent another one uses now: its path in the collaboration colour, as the arrow to it.
+                tint = "collab" if active and index in collab else None if index in own_path else self.tints.get(index)
                 cr.set_source_rgba(*self.color(tint or ("accent" if active else "outside" if outside
                                                else EDGE_COLORS.get("loaded" if loaded else edge.kind, "muted")),
                                                0.85 if loaded and alpha == 1.0 else alpha))
@@ -1719,6 +1832,8 @@ class MapView(Gtk.DrawingArea):
         self.pin_rects = {}
         self.start_rects = {}
         self.stop_rects = {}
+        self.halt_rects = {}
+        self.console_rects = {}
         self.battery_rects = {}
         self.traffic_rects = {}
         self.subagent_rects = {}
@@ -1761,19 +1876,28 @@ class MapView(Gtk.DrawingArea):
             use = self.runtime_use(node)
             detail = node.detail or (self.outside_label(node.id) if node.kind == "model" else "")
             right = 0                # room kept free at the right for the loaded mark or the start button
-            if node.kind == "agent" and self.start_state is not None and self.start_state(node.id):
-                right = self.draw_start(cr, layout, node.id, x, y, w, h, faded)
+            if node.kind == "agent":
+                # Its symbols, each in its slot of the strip at the right (agent_slots).
+                slots = self.agent_slots()
+                end = x + w
+                if self.start_state is not None and self.start_state(node.id):
+                    self.draw_start(cr, layout, node.id, x, y, w, h, faded, right=end - slots["start"])
+                if node.id in self.batteries:
+                    self.draw_battery(cr, node.id, end - slots["meter"], y, h, faded)
+                elif node.id in self.costs:
+                    self.draw_cost(cr, layout, node.id, end - slots["meter"], y, h, faded)
+                if self.start_state is not None:
+                    self.draw_console(cr, layout, node.id, end - slots["console"], y, h, faded)
+                if node.id in self.subagents:
+                    self.draw_subagents(cr, node.id, end - slots["subagents"], y, h, faded)
+                if node.id in self.traffic:
+                    self.draw_traffic(cr, node.id, end - slots["traffic"], y, h, faded)
+                right = slots["strip"] + TEXT_GAP - PIN_W - (24 if node.id in self.selected else 4)
             elif node.kind == "runtime" and self.on_stop is not None and use is not None and use.running \
                     and use.vram >= STOP_VRAM:
                 right = self.draw_runtime_stop(cr, layout, node.id, x, y, w, h, faded)
-            if node.kind in ("agent", "runtime") and node.id in self.batteries:
+            if node.kind == "runtime" and node.id in self.batteries:
                 right += self.draw_battery(cr, node.id, x + w - PIN_W - (24 if selected else 4) - right, y, h, faded)
-            elif node.kind == "agent" and node.id in self.costs:
-                right += self.draw_cost(cr, layout, node.id, x + w - PIN_W - (24 if selected else 4) - right, y, h, faded)
-            if node.kind == "agent" and node.id in self.traffic:
-                right += self.draw_traffic(cr, node.id, x + w - PIN_W - (24 if selected else 4) - right, y, h, faded)
-            if node.kind == "agent" and node.id in self.subagents:
-                right += self.draw_subagents(cr, node.id, x + w - PIN_W - (24 if selected else 4) - right, y, h, faded)
             text_x = self.draw_tile(cr, layout, node, x, y, h, faded, alpha, use)
             if node.kind == "runtime" and use is not None and use.vram >= 64 * 1024 ** 2:
                 detail = " · ".join(filter(None, [detail, f"{use.vram / 1024 ** 3:.1f} GB GPU"]))
@@ -2014,24 +2138,39 @@ class MapView(Gtk.DrawingArea):
         cr.move_to(x + (16 - text_w) / 2, y + (16 - text_h) / 2)
         PangoCairo.show_layout(cr, layout)
 
-    def draw_start(self, cr, layout, node_id, x, y, w, h, faded) -> int:
+    def draw_start(self, cr, layout, node_id, x, y, w, h, faded, right=None) -> int:
         """An agent's start button (▶), left of the tick; while it runs here a stop button in its
-        place, and left of it a console. Returns the room they take from the text."""
+        place. While instances run outside this window (terminal windows, background), a stop button
+        left of it: a menu of them, to end one. Its console is drawn by draw_console, left of the
+        battery. Returns the room they take."""
         state = self.start_state(node_id) if self.start_state is not None else ""
-        sx = x + w - PIN_W - (24 if node_id in self.selected else 4) - START_W
+        sx = (right if right is not None else x + w - PIN_W - (24 if node_id in self.selected else 4)) - START_W
         sy = y + (h - START_W) / 2
         hot = node_id == self.hover
-        if state != "show":
+        if state == "show":
+            self.stop_rects[node_id] = (sx, sy, START_W, START_W)
+            self.draw_square_button(cr, layout, sx, sy, STOP, "red", True, hot, faded)
+        else:
             self.start_rects[node_id] = (sx, sy, START_W, START_W)
             self.draw_square_button(cr, layout, sx, sy, PLAY, "fg", False, hot, faded)
+        if self.outside_count is None or not self.outside_count(node_id):
             return START_W + 4
-        # Running here: stop where ▶ was, then left of it the console (show its terminal).
-        self.stop_rects[node_id] = (sx, sy, START_W, START_W)
-        self.draw_square_button(cr, layout, sx, sy, STOP, "red", True, hot, faded)
         left = sx - START_W - 4
-        self.start_rects[node_id] = (left, sy, START_W, START_W)
-        self.draw_square_button(cr, layout, left, sy, CONSOLE, "accent", True, hot, faded)
-        return int(sx - left) + START_W + 4
+        self.halt_rects[node_id] = (left, sy, START_W, START_W)
+        self.draw_square_button(cr, layout, left, sy, STOP, "red", True, hot, faded)
+        return 2 * (START_W + 4)
+
+    def draw_console(self, cr, layout, node_id, right, y, h, faded) -> int:
+        """A running agent's console ending at `right`: it runs here ("show": its terminal pane) or
+        in a terminal window of its own ("outside": brings that window to the front). Returns the
+        room it takes (none while it does not run)."""
+        state = self.start_state(node_id) if self.start_state is not None else ""
+        if state not in ("show", "outside"):
+            return 0
+        left, sy = right - START_W, y + (h - START_W) / 2
+        self.console_rects[node_id] = (left, sy, START_W, START_W)
+        self.draw_square_button(cr, layout, left, sy, CONSOLE, "accent", True, node_id == self.hover, faded)
+        return START_W + 4
 
     def draw_runtime_stop(self, cr, layout, node_id, x, y, w, h, faded) -> int:
         """A local LLM holding GPU memory: a stop button (it asks: stop, or only free the memory)."""
@@ -2063,7 +2202,7 @@ class MapView(Gtk.DrawingArea):
 
     def draw_battery(self, cr, node_id, right, y, h, faded) -> int:
         """A small battery ending at `right`: filled to what is left of the tightest limit, green,
-        yellow (a quarter or less) or red (under a tenth). Returns the room it takes."""
+        yellow or red at the levels of Settings › Costs. Returns the room it takes."""
         left, colour, _tip = self.batteries[node_id]
         bw, bh = 20, 10
         bx, by = right - bw - 5, y + (h - bh) / 2
@@ -2576,6 +2715,17 @@ class LegendSample(Gtk.DrawingArea):
                 cr.stroke()
                 cr.arc(cx, mid + 3.4, 1.0, 0, 2 * math.pi)
                 cr.fill()
+                return
+            if value == "collab":
+                # Agents working together: the arc in its own colour, a dot at each end.
+                cr.set_source_rgba(*self.colors("collab", 0.95))
+                cr.set_line_width(1.8)
+                cr.move_to(5, mid)
+                cr.line_to(width - 5, mid)
+                cr.stroke()
+                for x in (5, width - 5):
+                    cr.arc(x, mid, 2.6, 0, 2 * math.pi)
+                    cr.fill()
                 return
             if value == "outside":
                 # A local LLM used from outside the map: the provider → model line, bold in its colour,

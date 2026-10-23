@@ -154,6 +154,7 @@
  "sandbox_setting": "",
  "replies": [],
  "subagents": [],
+ "session_files": "",
  "asks_setting": "approvals.mode",
  "access": {
   "how": "A provider key (hermes setup), or a local LLM from the map",

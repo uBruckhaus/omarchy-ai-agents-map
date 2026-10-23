@@ -31,6 +31,28 @@ def outside_color(colors: dict) -> str:
     return colors.get("cyan", "") or DEFAULT_COLORS["cyan"]
 
 
+def collab_color(colors: dict) -> str:
+    """The colour of a line between two agents working together (one started the other and uses
+    it): the hue furthest from every colour the map's lines and marks already use (the accent, red,
+    yellow, green, violet, cyan and the hooks' orange), as bright and saturated as the accent. On
+    most themes a pink; on a theme whose colours are all greens, still one that stands apart."""
+    import colorsys
+    used = []
+    for key in ("accent", "red", "yellow", "green", "magenta", "cyan", "orange"):
+        r, g, b = (v / 255 for v in _rgb(colors.get(key) or DEFAULT_COLORS[key]))
+        hue, sat, _val = colorsys.rgb_to_hsv(r, g, b)
+        if sat > 0.15:                       # a grey has no hue to keep away from
+            used.append(hue)
+
+    def distance(hue):
+        return min((min(abs(hue - u), 1 - abs(hue - u)) for u in used), default=1.0)
+    hue = max((i / 72 for i in range(72)), key=distance)
+    r, g, b = (v / 255 for v in _rgb(colors.get("accent") or DEFAULT_COLORS["accent"]))
+    _h, sat, val = colorsys.rgb_to_hsv(r, g, b)
+    rgb = colorsys.hsv_to_rgb(hue, max(0.45, min(sat, 0.75)), max(0.8, val))
+    return "#" + "".join(f"{round(v * 255):02x}" for v in rgb)
+
+
 class ThemePalette:
     """Expose the desktop theme's colors to the AI Agents Map."""
 

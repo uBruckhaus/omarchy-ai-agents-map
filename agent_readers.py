@@ -7,7 +7,9 @@ Only the keys named here are read; keys, tokens and other values stay where they
 
 from __future__ import annotations
 
+import os
 import re
+from pathlib import Path
 
 import agent_details as ad
 
@@ -89,8 +91,39 @@ def codex(details: "ad.Details"):
             if isinstance(entry, dict):
                 details.providers.append(ad.provider_for_url(ad._text(entry.get("name"), 40) or name,
                                                                 entry.get("base_url"), active=name == chosen))
+    if not details.model and not chosen:
+        details.model = codex_session_model()          # none set: Codex's own default, as its last session ran it
     if chosen and details.model:
         details.model = f"{details.model} ({chosen})"
+
+
+CODEX_MODEL = re.compile(rb'"type"\s*:\s*"turn_context".*?"model"\s*:\s*"([A-Za-z0-9._:-]{1,80})"')
+
+
+def codex_session_model(root: str = "~/.codex/sessions") -> str:
+    """The model of the last turn in Codex's newest session file (sessions/YYYY/MM/DD/rollout-….jsonl),
+    "" when there is none. Only that key of its turn_context lines is read."""
+    folder = ad._expand(root)
+    for _level in range(3):
+        last = ad._last_dirs(folder)
+        if not last:
+            return ""
+        folder = Path(last[0])
+    try:
+        files = sorted((e.stat().st_mtime, e.path) for _i, e in zip(range(2000), os.scandir(folder))
+                       if e.name.endswith(".jsonl") and e.is_file(follow_symlinks=False))
+        if not files:
+            return ""
+        with open(files[-1][1], "rb") as handle:
+            size = os.fstat(handle.fileno()).st_size
+            handle.seek(max(0, size - 256 * 1024))
+            found = CODEX_MODEL.findall(handle.read(256 * 1024))
+            if not found:
+                handle.seek(0)
+                found = CODEX_MODEL.findall(handle.read(64 * 1024))
+    except OSError:
+        return ""
+    return found[-1].decode("ascii") if found else ""
 
 
 def copilot(details: "ad.Details"):

@@ -213,7 +213,7 @@ class TokenChart(Gtk.DrawingArea):
 
 class Battery(Gtk.DrawingArea):
     """What is left of an online agent's limits, as on its box on the map (MapView.draw_battery):
-    green, yellow (a quarter or less) or red (under a tenth); the tooltip lists every limit."""
+    green, yellow or red at the levels of Settings › Costs; the tooltip lists every limit."""
 
     def __init__(self, colors, left: float, colour: str, tip: str):
         super().__init__()

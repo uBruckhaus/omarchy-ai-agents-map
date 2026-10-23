@@ -8,10 +8,14 @@ An agent counts as working when any of these says so (all read-only, cheap, ever
   /proc/<pid>/stat of this user's own processes;
 - its session files were written in the last few seconds (each answer and tool call is
   appended there; its adapter's activity fact lists where);
-- the local LLM it uses now is generating (the graphics card is busy with a loaded model).
+- the local LLM it uses now is generating (the graphics card is busy with a loaded model);
+- the session file it has open is in the middle of a turn: begun, not yet ended (Codex writes
+  task_started … task_complete), also while the model thinks or a command runs for a long time
+  and nothing else moves.
 """
 
 import os
+import re
 import time
 
 import agent_details
@@ -19,6 +23,40 @@ import agent_details
 CPU_BUSY = 0.02                  # share of one core over the last interval that counts as working
 RECENT = 8                       # seconds: session files written this recently
 TICKS = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100
+TURN_TAIL = 64 * 1024            # bytes read from the end of an open session file
+TURN_MARK = re.compile(rb'"type"\s*:\s*"(task_started|task_complete|turn_aborted)"')
+TURN_STALE = 30 * 60             # a turn begun but not written to for this long: ended without a mark
+
+
+def in_turn(pid: int, proc: str = "/proc", wall: float | None = None) -> bool:
+    """One of this user's processes has a session file (.jsonl) open whose last turn mark is a
+    beginning: it works on that turn now."""
+    wall = time.time() if wall is None else wall
+    try:
+        if os.stat(f"{proc}/{pid}").st_uid != os.getuid():
+            return False
+        fds = os.listdir(f"{proc}/{pid}/fd")[:512]
+    except OSError:
+        return False
+    for fd in fds:
+        try:
+            target = os.readlink(f"{proc}/{pid}/fd/{fd}")
+        except OSError:
+            continue
+        if not target.endswith(".jsonl"):
+            continue
+        try:
+            info = os.stat(target)
+            if info.st_uid != os.getuid() or wall - info.st_mtime > TURN_STALE:
+                continue
+            with open(target, "rb") as handle:
+                handle.seek(max(0, info.st_size - TURN_TAIL))
+                marks = TURN_MARK.findall(handle.read(TURN_TAIL))
+        except OSError:
+            continue
+        if marks and marks[-1] == b"task_started":
+            return True
+    return False
 
 
 def cpu_ticks(pid: int, proc: str = "/proc") -> int | None:
@@ -74,5 +112,7 @@ class Activity:
                 continue
             newest = agent_details.newest_mtime(list(agent_details.activity(agent)))
             if newest is not None and wall - newest.timestamp() <= RECENT:
+                busy.add(agent)
+            elif any(in_turn(pid, proc, wall) for pid in pids_by_agent[agent][:8]):
                 busy.add(agent)
         return busy

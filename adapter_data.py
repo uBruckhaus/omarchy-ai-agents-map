@@ -189,7 +189,7 @@ def check(data: dict, name: str) -> None:
         argv = data[table]["argv"]
         if not argv or argv[0] != data["command"] or any(
                 "{" in a and a not in placeholders for a in argv) or any(argv.count(p) > 1 for p in placeholders) \
-                or (table in ("research", "task") and "{prompt}" not in argv):
+                or (table == "task" and "{prompt}" not in argv):         # research without it: on stdin
             raise AdapterError(f"{name}: {table}.argv must start with “{data['command']}”; "
                                f"{', '.join(placeholders)} each once at most, as an argument of its own")
     if "details" in data:
@@ -468,6 +468,7 @@ def harness(data: dict, name: str = "adapter", hooks=None) -> Harness:
         replies=(data["replies"]["folder"], data["replies"].get("depth", 1), data["replies"]["format"],
                  tuple(sorted(data["replies"].get("contexts", {}).items()))) if "replies" in data else (),
         subagents=(data["subagents"]["format"], data["subagents"]["path"]) if "subagents" in data else (),
+        session_files=data.get("sessions", {}).get("reader", ""),
         usage=ref(*USAGE[data["usage"]]) if "usage" in data else None,
         local_llm=llm, skills=skills, mcp=mcp,
         login_status=(tuple(data["login_status"]["argv"]), data["login_status"]["no"], data["login_status"]["yes"])

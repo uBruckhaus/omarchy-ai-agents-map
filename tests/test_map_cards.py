@@ -13,7 +13,8 @@ class Cards:
     """MapView's cards, order and layout without the widget."""
     for name in ("group_key", "all_groups", "in_order", "keep_order", "groups", "siblings", "order_slot",
                  "reorder", "card_height", "column_height", "needed_height", "layout", "column_top",
-                 "visible_rows", "group_title", "default_layout", "card_header_at", "card_at"):
+                 "visible_rows", "group_title", "default_layout", "card_header_at", "card_at",
+                 "agent_slots", "agent_width", "text_width"):
         locals()[name] = M.__dict__[name]
     del name
 
@@ -21,6 +22,11 @@ class Cards:
         self.graph, self.order, self.cards, self.group_titles = built, {}, {}, {"mcp": "MCP servers"}
         self.scroll_adjustment, self.zoom, self.saved = None, 1.0, 0
         self.agent_links = set()
+        self.costs, self.text_widths, self.measure = {}, {}, None
+
+    @staticmethod
+    def viewport_width():
+        return 0
 
     def shown(self, column):
         return self.graph.column(column)
@@ -98,6 +104,42 @@ class OrderTest(unittest.TestCase):
         self.assertEqual(cw, bw + 2 * map_view.CARD_PAD)
         self.assertEqual(ch, view.card_height(2))
         self.assertLess(cy + ch, view.card_rects["skills"][1])         # skills' card below, not on top
+
+    def test_the_agents_column_fits_the_name_and_every_symbol(self):
+        """The symbols' strip is always as wide as all of them; the name has its own room beside it,
+        and a longer name makes the agent boxes and their card wider (not the others)."""
+        view = Cards(built())
+        view.layout(1200, 800)
+        slots = view.agent_slots()
+        bx, _by, bw, _bh = view.boxes["agent:pi"]
+        name = view.text_width("Claude", "Sans Bold 9")
+        self.assertGreaterEqual(bw, map_view.TILE_ROOM + name + map_view.TEXT_GAP + slots["strip"])
+        mcp_w = view.boxes["mcp:alpha"][2]
+        long = built()
+        long.add(graph.Node("agent:long", 1, "An agent with a really rather long name indeed", "", "agent"))
+        wide = Cards(long)
+        wide.layout(1200, 800)
+        self.assertGreater(wide.boxes["agent:pi"][2], bw)
+        self.assertEqual(wide.boxes["agent:pi"][2], wide.boxes["agent:long"][2])   # one width per column
+        self.assertEqual(wide.card_rects["agents"][2], wide.boxes["agent:pi"][2] + 2 * map_view.CARD_PAD)
+        self.assertEqual(wide.boxes["mcp:alpha"][2], mcp_w)
+        # Slots from the right: start, the outside stop, battery/cost, console, subagents, traffic.
+        order = [slots[k] for k in ("start", "halt", "meter", "console", "subagents", "traffic", "strip")]
+        self.assertEqual(order, sorted(order))
+
+    def test_a_long_cost_label_widens_its_slot(self):
+        view = Cards(built())
+        narrow = view.agent_slots()
+        view.costs = {"agent:pi": ("$1234.56 today", "", "fg")}
+        wide = view.agent_slots()
+        self.assertGreater(wide["console"] - wide["meter"], narrow["console"] - narrow["meter"])
+
+    def test_columns_wider_than_the_view_scroll_sideways(self):
+        long = built()
+        long.add(graph.Node("agent:long", 1, "x" * 80, "", "agent"))
+        view = Cards(long)
+        view.layout(500, 800)
+        self.assertGreater(view.min_width, 500)
 
     def test_agent_arrows_get_room_when_the_agents_card_comes_first(self):
         view = Cards(built())

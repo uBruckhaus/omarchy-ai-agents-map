@@ -11,6 +11,7 @@ checks. Nothing an agent answers is ever run by the app.
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import shutil
@@ -73,6 +74,9 @@ def look_up(command: str, task: str, prompt: str, schema: dict, run=_bounded, re
     work.mkdir(parents=True, exist_ok=True, mode=0o700)
     schema_file = work / f"schema-{task}.json"
     ai_core.atomic_write(schema_file, json.dumps(schema))
+    stdin = agent_profiles.research_input(command, prompt)        # the question on stdin, not in argv
+    if stdin is not None:
+        run = functools.partial(run, stdin=stdin)
     return plugin_ai.look_up_argv(agent_profiles.research_command(command, prompt, schema_file),
                                   harness.research_output if harness else "text", plugin=plugin_id(), task=task,
                                   agent=command, run=run, cwd=str(work), result_of=result_of)

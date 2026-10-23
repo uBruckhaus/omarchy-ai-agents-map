@@ -55,9 +55,15 @@ def write(pid=None):
     if path is None:
         return
     pid = pid or os.getpid()
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
-    with os.fdopen(fd, "w") as f:
-        f.write(f"{pid}:{process_starttime(pid)}\n")
+    import tempfile
+    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}-", dir=str(path.parent))   # new and unique, 0600
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(f"{pid}:{process_starttime(pid)}\n")
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 def read():
@@ -66,14 +72,14 @@ def read():
     if path is None:
         return None
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)   # a FIFO in its place: not waited on
     except OSError:
         return None
-    with os.fdopen(fd) as f:
+    with os.fdopen(fd, "rb") as f:
         info = os.fstat(f.fileno())
         if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
             return None
-        parts = f.readline().strip().split(":")
+        parts = f.read(64).decode("ascii", "replace").strip().split(":")
     if not parts[0].isdigit():
         return None
     return int(parts[0]), parts[1] if len(parts) > 1 else ""

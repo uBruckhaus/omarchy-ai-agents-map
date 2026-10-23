@@ -112,6 +112,17 @@ is_agents_map_process() {
     return 0
 }
 
+# The record through a new, unique file next to it (mktemp: 0600, never through a link left there),
+# then moved into place: a redirection would follow a link at that path and truncate its target.
+write_pid_file() {
+    local tmp
+    tmp="$(mktemp "${1}.XXXXXX" 2>/dev/null)" || return 0
+    if printf '%s\n' "$2" > "$tmp" && mv -f -T -- "$tmp" "$1"; then
+        return 0
+    fi
+    rm -f -- "$tmp"
+}
+
 main() {
     local pid_file
     pid_file="$(resolve_pid_file)"
@@ -119,7 +130,8 @@ main() {
     # Check recorded PID (only from a regular file this user owns)
     if [[ -n "$pid_file" && -f "$pid_file" && ! -L "$pid_file" && -O "$pid_file" ]]; then
         local rec_pid rec_st
-        IFS=":" read -r rec_pid rec_st _ < "$pid_file" || true
+        # At most 64 bytes and 1 s: something swapped in after the checks above cannot hang the bar icon.
+        IFS=":" read -r rec_pid rec_st _ < <(timeout 1 head -c 64 -- "$pid_file" 2>/dev/null) || true
         if is_agents_map_process "$rec_pid" "$rec_st"; then
             kill -USR1 "$rec_pid" 2>/dev/null || true
             exit 0
@@ -135,7 +147,7 @@ main() {
         if is_agents_map_process "$p"; then
             kill -USR1 "$p" 2>/dev/null || true
             st="$(get_proc_starttime "$p")"
-            [[ -n "$pid_file" ]] && echo "${p}:${st}" > "$pid_file"
+            [[ -n "$pid_file" ]] && write_pid_file "$pid_file" "${p}:${st}"
             exit 0
         fi
     done < <(pgrep -u "$USER_ID" -f "${CANONICAL_SCRIPT}" 2>/dev/null || true)
@@ -144,7 +156,7 @@ main() {
     "$PYTHON_BIN" "${CANONICAL_SCRIPT}" >/dev/null 2>&1 &
     local child_pid=$!
     st="$(get_proc_starttime "$child_pid")"
-    [[ -n "$pid_file" ]] && echo "${child_pid}:${st}" > "$pid_file"
+    [[ -n "$pid_file" ]] && write_pid_file "$pid_file" "${child_pid}:${st}"
     exit 0
 }
 

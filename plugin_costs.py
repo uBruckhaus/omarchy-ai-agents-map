@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import stat
 import tempfile
 import time
 from pathlib import Path
@@ -168,11 +169,15 @@ def cost_text(usd: float, currency: str = "usd", usd_per_eur: float | None = Non
     return f"{number} €" if shown == "eur" else ("<$0.01" if number == "<0.01" else f"${number}")
 
 
-def cost_colour(usd: float, limit: float, currency: str = "usd", usd_per_eur: float | None = None) -> str:
-    """"green", "yellow" (from LOW_SHARE of the limit) or "red" (over it); limit in the shown currency."""
+def cost_colour(usd: float, limit: float, currency: str = "usd", usd_per_eur: float | None = None,
+                yellow: float = LOW_SHARE, red: float | None = None) -> str:
+    """"green", "yellow" (from `yellow` of the limit) or "red" (from `red` of it, or over it when
+    None); limit in the shown currency. A plugin with its own warning levels passes both."""
     amount, _shown = in_currency(usd, currency, usd_per_eur)
     share = amount / limit if limit > 0 else 0.0
-    return "red" if share > 1 else "yellow" if share >= LOW_SHARE else "green"
+    if share > 1 if red is None else share >= red:
+        return "red"
+    return "yellow" if share >= yellow else "green"
 
 
 # --- the euro rate --------------------------------------------------------------------------------
@@ -199,7 +204,9 @@ def parse_ecb(body: bytes) -> tuple[float, str] | None:
 
 def _kept(path: Path) -> dict:
     try:
-        data = json.loads(path.read_text()[:4096])
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)   # a link or a FIFO in its place: not read
+        with os.fdopen(fd, "rb") as handle:
+            data = json.loads(handle.read(4096)) if stat.S_ISREG(os.fstat(handle.fileno()).st_mode) else {}
     except (OSError, ValueError):
         return {}
     rate = data.get("usd_per_eur") if isinstance(data, dict) else None

@@ -281,6 +281,9 @@ def apply(result: Plan, backup_root: Path = BACKUP_ROOT) -> Path:
             raise RuntimeError(f"{path} exists already")
     for argv in result.commands:
         _run(argv)
+    for change in result.changes:          # again, just before writing: the agent may have rewritten it meanwhile
+        if _read(change.path) != change.old:
+            raise RuntimeError(f"{change.path} changed in the meantime")
     folder = backup_root / dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     folder.mkdir(parents=True, mode=0o700)
     manifest = []

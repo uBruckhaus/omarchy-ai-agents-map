@@ -114,7 +114,7 @@
   "--json",
   "--output-schema",
   "{schema}",
-  "{prompt}"
+  "-"
  ],
  "research_output": "codex-jsonl",
  "task": [
@@ -140,6 +140,7 @@
   []
  ],
  "subagents": [],
+ "session_files": "codex-files",
  "asks_setting": "approval_policy",
  "access": {
   "how": "A ChatGPT plan (Plus, Pro, Business), or an API key from platform.openai.com",

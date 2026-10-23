@@ -71,13 +71,8 @@ def load(path: Path | None = None) -> dict:
 
 
 def _save(links: dict, path: Path):
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    tmp = path.with_name(f".{path.name}.new")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        json.dump(links, handle, indent=2, ensure_ascii=False)
-        handle.write("\n")
-    os.replace(tmp, path)
+    import ai_core
+    ai_core.atomic_write(path, json.dumps(links, indent=2, ensure_ascii=False) + "\n")
 
 
 def remember(link_key: str, kind: str, applied: bool, hints: list, target: str = "", path: Path | None = None):

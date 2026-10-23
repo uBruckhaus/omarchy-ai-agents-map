@@ -184,11 +184,19 @@ def researchers(installed) -> list[str]:
 
 
 def research_command(researcher: str, prompt: str, schema_file: Path) -> list[str]:
+    """The look-up's argv. Its adapter's argv without "{prompt}": the prompt goes on stdin
+    (research_input), so what was asked never shows in the process list (/proc/<pid>/cmdline)."""
     import harnesses
     argv: tuple[str, ...] = harnesses.get(researcher).research
     binary = shutil.which(researcher) or researcher
     fill = {"{prompt}": prompt, "{schema}": str(schema_file)}
     return [binary] + [fill.get(a, a) for a in argv[1:]]
+
+
+def research_input(researcher: str, prompt: str) -> bytes | None:
+    """The prompt for the look-up's stdin, None when its argv carries it (an older adapter)."""
+    import harnesses
+    return None if "{prompt}" in harnesses.get(researcher).research else prompt.encode("utf-8")
 
 
 def first_json(text: str):

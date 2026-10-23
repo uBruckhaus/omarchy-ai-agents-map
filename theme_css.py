@@ -11,7 +11,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 import ai_core
 import corners
 import desktop
-from palette import outside_color
+from palette import collab_color, outside_color
 
 
 class ThemeCss:
@@ -281,6 +281,10 @@ class ThemeCss:
         .am-agent-icon.am-status-missing {{ color: {muted_hex}; }}
         .am-card textview.am-diff, .am-card textview.am-diff text {{ background: alpha({fg_hex}, 0.04);
             color: {fg_hex}; font-size: 11px; }}
+        .am-card textview.am-prompt, .am-card textview.am-prompt text {{ background: transparent;
+            color: {fg_hex}; font-size: 12px; }}
+        .am-card .am-prompt-frame {{ background: alpha({fg_hex}, 0.04); border: 1px solid alpha({fg_hex}, 0.18);
+            border-radius: 6px; }}
         .am-card button.am-primary {{ background: alpha({accent_hex}, 0.25); border-color: {accent_hex}; }}
         .am-card button.am-danger {{ color: {red_hex}; border-color: alpha({red_hex}, 0.6); }}
         popover button.am-danger {{ color: {red_hex}; border-color: alpha({red_hex}, 0.6); }}
@@ -475,7 +479,8 @@ class ThemeCss:
                                   "outside": outside_hex, "hook": orange_hex,
                                   # agents on different models (violet), outside apps (cyan)
                                   "orange": orange_hex, "magenta": colors.get("magenta", "#cba6f7"),
-                                  "cyan": colors.get("cyan", "#94e2d5")},
+                                  "cyan": colors.get("cyan", "#94e2d5"),
+                                  "collab": collab_color(colors)},   # agents working together
                                  radius)
         self.apply_style_scheme(bg_hex)
         css = self.adw_colors_css(bg_hex, fg_hex, accent_hex, red_hex, green_hex, yellow_hex, radius) + css

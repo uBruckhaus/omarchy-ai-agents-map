@@ -107,6 +107,17 @@ class HerdrTest(unittest.TestCase):
         with mock.patch.object(os, "getuid", return_value=os.getuid() + 1):
             self.assertEqual(desktop_omarchy._parent(os.getpid()), 0)   # another user's process: not followed
 
+    def test_generic_desktop_focuses_through_hyprland(self):
+        """Asterism outside Omarchy (generic mode) on Hyprland: the same window look-up; elsewhere none."""
+        import desktop_generic
+        import desktop_omarchy
+        with mock.patch.object(desktop_generic, "_hyprland", return_value=desktop_omarchy), \
+                mock.patch.object(desktop_omarchy, "focus_process", return_value=True) as focus:
+            self.assertTrue(desktop_generic.focus_process([500]))
+            focus.assert_called_once_with([500])
+        with mock.patch.object(desktop_generic, "_hyprland", return_value=None):
+            self.assertFalse(desktop_generic.focus_process([500]))
+
 
 if __name__ == "__main__":
     unittest.main()

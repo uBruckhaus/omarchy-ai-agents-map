@@ -320,15 +320,91 @@ def _remove_if_same(path: Path, st):
         path.unlink(missing_ok=True)
 
 
+MAX_ENTRIES = 200_000            # files, folders and links in one release archive
+
+
+def check_archive(archive: Path, limit: int = 0, max_entries: int = MAX_ENTRIES):
+    """Before anything is unpacked: the archive's entries, read as a stream twice (nothing written),
+    must add up to at most `limit` bytes (MAX_UNPACKED) and MAX_ENTRIES entries; names and link
+    targets must stay inside the folder (no absolute path, no "..", no device or FIFO), and nothing
+    may lead through a symbolic link of the archive itself: no member below one, no link whose target
+    passes one (`a -> .` then `b -> a/..` would point outside), whatever the order. Raises."""
+    import posixpath
+    import tarfile
+    limit = limit or MAX_UNPACKED
+
+    def members():
+        try:
+            with tarfile.open(archive, "r|*") as stream:
+                for count, member in enumerate(stream, 1):
+                    if count > max_entries:
+                        raise RuntimeError("the archive holds too many files")
+                    yield member
+        except tarfile.TarError as error:
+            raise RuntimeError(f"not a readable archive: {error}") from None
+
+    links = set()                                   # every symbolic link's own path
+    for member in members():
+        if member.issym():
+            links.add(posixpath.normpath(member.name.rstrip("/")))
+
+    def through_link(path: str) -> bool:
+        parts = path.split("/")
+        return any("/".join(parts[:i]) in links for i in range(1, len(parts)))
+
+    def walk(start: list, target: str) -> str | None:
+        """Where `target` leads from the folder `start`, one part at a time as the file system would:
+        None when it passes one of the archive's links on the way (only its last part may be one: a
+        chain such as libx.so -> libx.so.1 -> libx.so.1.2) or climbs above the archive's folder."""
+        here = list(start)
+        names = [part for part in target.split("/") if part not in ("", ".")]
+        for index, part in enumerate(names):
+            if part == "..":
+                if not here:
+                    return None
+                here.pop()
+                continue
+            here.append(part)
+            if index < len(names) - 1 and "/".join(here) in links:
+                return None
+        return "/".join(here)
+
+    total = 0
+    for member in members():
+        name = member.name.rstrip("/")
+        if name.startswith("/") or ".." in name.split("/"):
+            raise RuntimeError(f"the archive names a path outside its folder: {name[:80]}")
+        name = posixpath.normpath(name)
+        if through_link(name):
+            raise RuntimeError(f"the archive writes through one of its links: {name[:80]}")
+        if member.issym() or member.islnk():
+            if member.linkname.startswith("/"):
+                raise RuntimeError(f"the archive links outside its folder: {name[:80]}")
+            start = name.split("/")[:-1] if member.issym() else []      # a hard link's target: from the top
+            target = walk(start, member.linkname)
+            if target is None or (member.islnk() and (not target or target in links)):
+                raise RuntimeError(f"the archive links outside its folder or through a link: {name[:80]}")
+        elif not (member.isfile() or member.isdir()):
+            raise RuntimeError(f"the archive holds a device or pipe: {name[:80]}")
+        total += max(0, member.size)
+        if total > limit:
+            raise RuntimeError("the archive unpacks to more than the release limit")
+
+
 def extract(archive: Path, folder: Path):
+    check_archive(archive)                 # sizes, names and links first: nothing written for a bad one
     folder.mkdir(parents=True, exist_ok=True)
     flag = "--zstd" if archive.name.endswith(".zst") else "-z" if archive.name.endswith((".tgz", ".gz")) else ""
     argv = ["tar", "-x", "-f", str(archive), "-C", str(folder), "--no-same-owner", "--no-same-permissions"] \
         + ([flag] if flag else [])
-    out, ok = ai_core.read_bounded_output(argv, max_bytes=64 * 1024, timeout=1800, merge_stderr=True)
-    if not ok:
-        raise RuntimeError(f"unpacking failed: {out.decode('utf-8', 'replace').strip()[:300]}")
-    check_unpacked_size(folder)
+    try:
+        out, ok = ai_core.read_bounded_output(argv, max_bytes=64 * 1024, timeout=1800, merge_stderr=True)
+        if not ok:
+            raise RuntimeError(f"unpacking failed: {out.decode('utf-8', 'replace').strip()[:300]}")
+        check_unpacked_size(folder)
+    except BaseException:                  # failed, too large or cancelled: the partial folder goes
+        shutil.rmtree(folder, ignore_errors=True)
+        raise
 
 
 # --- files and services ------------------------------------------------------------------------------
@@ -373,7 +449,7 @@ def check_unpacked_size(folder: Path, limit: int = 0):
 def read_env(path: Path) -> dict:
     values = {}
     try:
-        text = path.read_text(encoding="utf-8")[:65536]
+        text = ai_core.read_head(path, 65536).decode("utf-8", "replace")
     except OSError:
         return values
     for key, value in re.findall(r"^\s*([A-Z_][A-Z0-9_]*)=(.*)$", text, re.MULTILINE):
@@ -409,11 +485,15 @@ def unpack_appimage(archive: Path, folder: Path):
     """An AppImage whose SHA-256 was checked against its release (Installer.install):
     its own --appimage-extract, so FUSE is not needed."""
     archive.chmod(0o755)
-    _out, ok = ai_core.read_bounded_output([str(archive), "--appimage-extract"], max_bytes=64 * 1024,
-                                           timeout=900, cwd=str(folder))
-    if not ok:
-        raise RuntimeError("unpacking the AppImage failed")
-    check_unpacked_size(folder)
+    try:
+        ok = ai_core.run_with_disk_budget([str(archive), "--appimage-extract"], str(folder), MAX_UNPACKED,
+                                          timeout=900)                        # stopped as soon as it gets larger
+        if not ok:
+            raise RuntimeError("unpacking the AppImage failed")
+        check_unpacked_size(folder)
+    except BaseException:                  # over the budget, too slow, failed or cancelled: nothing of it stays
+        shutil.rmtree(folder, ignore_errors=True)
+        raise
 
 
 class Installer:
@@ -771,16 +851,18 @@ class LmStudio(Installer):
 
     def models_folder(self) -> str:
         try:
-            value = json.loads(self.settings.read_text(encoding="utf-8")[:2_000_000]).get("downloadsFolder", "")
+            value = json.loads(ai_core.read_head(self.settings, 2_000_000)).get("downloadsFolder", "")
         except (OSError, ValueError, AttributeError):
             value = ""
         return value if isinstance(value, str) else ""
 
     def set_models_folder_value(self, models: Path):
         try:
-            data = json.loads(self.settings.read_text(encoding="utf-8")[:2_000_000])
-        except (OSError, ValueError):
+            data = json.loads(ai_core.read_whole(self.settings, 2_000_000))
+        except FileNotFoundError:
             data = {}
+        except (OSError, ValueError):          # too large or not JSON: never written over with less
+            raise RuntimeError("LM Studio's settings.json cannot be read; set the folder in LM Studio")
         if not isinstance(data, dict):
             data = {}
         data["downloadsFolder"] = str(models)
@@ -1010,7 +1092,7 @@ class Jan(Installer):
         import inventory
         settings = inventory.JAN_ROOT / "settings.json"
         try:
-            data = json.loads(settings.read_text(encoding="utf-8")[:2_000_000])
+            data = json.loads(ai_core.read_whole(settings, 2_000_000))
         except FileNotFoundError:
             data = {}
         except (OSError, ValueError):

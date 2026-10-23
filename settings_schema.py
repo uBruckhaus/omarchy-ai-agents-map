@@ -17,6 +17,8 @@ SUBAGENT_MINUTES = (10, 30, 60, 120)                # how long finished subagent
 SUBAGENT_COUNTS = (5, 10, 20, 40)                   # how many finished ones at most (10: the default)
 COST_CURRENCIES = ("usd", "eur")                    # what agents paid per token cost is shown in
 COST_LIMITS = (10, 25, 50, 100, 200, 500)           # a day, in that currency (100: the default)
+WARN_YELLOW = (50, 60, 70, 75, 80, 85)              # % of a day's limit or of a plan's limit used: yellow (75)
+WARN_RED = (80, 85, 90, 95, 100)                    # … red (90); always above yellow (agent_details.warn_levels)
 LOOKS = ("omarchy", "adwaita")
 
 
@@ -84,6 +86,11 @@ SCHEMA: dict[str, Setting] = {
                              "Settings › Costs: US dollars, or euros at the ECB's daily rate (plugin_costs.usd_per_eur)"),
     "cost_limit": Setting(100, lambda v: v in COST_LIMITS and not isinstance(v, bool),
                           "Settings › Costs: a day's limit for an agent paid per token (its cost label's colour)"),
+    "warn_yellow": Setting(75, lambda v: v in WARN_YELLOW and not isinstance(v, bool),
+                           "Settings › Costs: yellow from this % of a day's limit (API key) or of a plan's limit used"),
+    "warn_red": Setting(90, lambda v: v in WARN_RED and not isinstance(v, bool),
+                        "Settings › Costs: red from this % (the same two kinds)"),
+    "warn_notify": Setting(True, _bool, "Settings › Costs: a desktop notification when an agent turns red"),
     "map_zoom": Setting(1.0, _number, "the map's zoom"),
     "map_layout": Setting({}, _mapping, "the map's cards: {\"order\": {card: [box ids]}, \"cards\": {card: [x, y]}} "
                           "(drag a box inside its card, a card by its header; Default layout clears it)"),
@@ -104,6 +111,10 @@ SCHEMA: dict[str, Setting] = {
     "removed_models_folders": Setting({}, _mapping, "{local LLM: its models folder} of local LLMs uninstalled here"),
     "look_up_new_agents": Setting(True, _bool, "Settings › Look up new agents"),
     "ai_checks": Setting(False, _bool, "Settings › Daily AI checks (an agent looks up MCP server updates; uses tokens)"),
+    "model_advice_count": Setting(10, lambda v: v in (5, 10, 15, 20) and not isinstance(v, bool),
+                                  "Models › Ask an agent: how many models it suggests (model_advice.MODEL_COUNTS)"),
+    "mcp_advice_count": Setting(10, lambda v: v in (5, 10, 15, 20) and not isinstance(v, bool),
+                                "Add MCP server › Ask an agent: how many servers it suggests (mcp_advice.SERVER_COUNTS)"),
     "ai_checks_agent": Setting("", _text, "Settings › Agent for AI checks (its command; \"\": the first that can)"),
     "mcp_list": Setting(True, _bool, "Settings › Keep the MCP server list (mcp_registry.refresh_list on start)"),
     # Add-ons (Asterism)

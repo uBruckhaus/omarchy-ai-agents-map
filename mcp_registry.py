@@ -342,12 +342,8 @@ def _write_list(path: Path, data: dict):
     text = json.dumps(data, ensure_ascii=False).encode()
     if len(text) > LIST_MAX_FILE:
         raise OSError("the MCP server list is over LIST_MAX_FILE")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    part = path.with_name(path.name + ".part")
-    fd = os.open(part, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
-    with os.fdopen(fd, "wb") as handle:
-        handle.write(text)
-    os.replace(part, path)
+    import ai_core
+    ai_core.atomic_write(path, text)
 
 
 def refresh_list(path: Path | None = None, now: float | None = None, fetch=None) -> bool:

@@ -192,6 +192,47 @@ class ChecksTest(unittest.TestCase):
         self.assertIn("claude auth login", missing[0].step)
         self.assertEqual(st.summary_line(checks)[0], "missing")
 
+    def test_a_sign_in_the_service_turns_down_says_expired(self):
+        """Omarchy's record waits for auth while Codex's sign-in file is there (an expired token,
+        a changed plan): not "Signed in", not paid per token, and a button to sign in again."""
+        codex = agents.Agent(command="codex", name="Codex", icon="x", installed=True)
+        (self.home / ".codex").mkdir()
+        (self.home / ".codex/auth.json").write_text("{}")
+        record = {"ready": True, "tierLabel": "", "usageStatusText": "Waiting for auth", "limits": []}
+        checks = st.agent_checks(codex, ad.Details(), record, self.inv, {}, root=self.home, environ={})
+        expired = next(c for c in checks if c.title == "Sign-in expired")
+        self.assertEqual(expired.state, "missing")
+        self.assertEqual(expired.sign_in, "codex")
+        self.assertIn("codex login", expired.command)
+        self.assertNotIn("Signed in", [c.title for c in checks])
+        details = ad.Details(has_usage=True, usage_note="Waiting for auth")
+        self.assertFalse(st.pays_per_token("codex", details, environ={}))
+
+    def test_every_collectors_words_for_a_sign_in(self):
+        """Claude's and Grok's "Sign-in expired" too; "Limits paused" needs no new sign-in."""
+        claude = agents.Agent(command="claude", name="Claude Code", icon="x", installed=True)
+        record = {"ready": True, "tierLabel": "Max 5x", "usageStatusText": "Sign-in expired"}
+        checks = st.agent_checks(claude, ad.Details(model="opus"), record, self.inv, {}, root=self.home, environ={})
+        self.assertEqual(next(c for c in checks if c.title == "Sign-in expired").sign_in, "claude")
+        record["usageStatusText"] = "Limits paused"
+        checks = st.agent_checks(claude, ad.Details(model="opus"), record, self.inv, {}, root=self.home, environ={})
+        titles = [c.title for c in checks]
+        self.assertIn("Signed in", titles)
+        self.assertIn("Limits paused", titles)
+        self.assertNotIn("Sign-in expired", titles)
+
+    def test_not_signed_in_offers_the_sign_in_button(self):
+        claude = agents.Agent(command="claude", name="Claude Code", icon="x", installed=True)
+        checks = st.agent_checks(claude, ad.Details(model="opus"), {}, self.inv, {}, root=self.home, environ={})
+        self.assertEqual(next(c for c in checks if c.title == "Not signed in").sign_in, "claude")
+
+    def test_waiting_for_auth_without_any_sign_in_is_not_signed_in(self):
+        codex = agents.Agent(command="codex", name="Codex", icon="x", installed=True)
+        record = {"ready": False, "usageStatusText": "Waiting for auth", "authHelpText": "Run `codex login`."}
+        checks = st.agent_checks(codex, ad.Details(), record, self.inv, {}, root=self.home, environ={})
+        self.assertIn("Not signed in", [c.title for c in checks])
+        self.assertNotIn("Sign-in expired", [c.title for c in checks])
+
     def test_an_agent_without_a_model_service_needs_one_set_up(self):
         # OpenClaw brings no model service of its own: with nothing in its settings it cannot answer.
         claw = agents.Agent(command="openclaw", name="OpenClaw", icon="x", installed=True)

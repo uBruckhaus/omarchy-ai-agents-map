@@ -56,6 +56,7 @@
  "sandbox_setting": "",
  "replies": [],
  "subagents": [],
+ "session_files": "gemini-files",
  "asks_setting": "",
  "access": {
   "how": "A Google account (free tier), or an API key from aistudio.google.com",

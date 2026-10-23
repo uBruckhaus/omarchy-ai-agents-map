@@ -101,6 +101,7 @@
   []
  ],
  "subagents": [],
+ "session_files": "pi-files",
  "asks_setting": "defaultTools",
  "access": {
   "how": "Sign in inside Pi (/login: Claude, ChatGPT, Copilot …), an API key, or a local LLM from the map",

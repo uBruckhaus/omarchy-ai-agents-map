@@ -48,15 +48,18 @@ def _quote(value: str) -> str:
 
 def fetch(url: str, max_bytes: int = 2 * 1024 * 1024, timeout: float = 20, redirects: int = 3,
           headers: dict | None = None, data: bytes | None = None, method: str | None = None,
-          head: bool = False, local: bool = False, user_url: bool = False, include: bool = False) -> bytes:
-    """The body (or, with head=True, the response headers) of url; raises FetchError."""
+          head: bool = False, local: bool = False, user_url: bool = False, include: bool = False,
+          errors: bool = False) -> bytes:
+    """The body (or, with head=True, the response headers) of url; raises FetchError. errors: an
+    answer with an error status is returned too (with include, its status line says which), for a
+    service whose error answer is what the caller wants to read."""
     _check(url, local or user_url, user_url)
     config = [f"url = {_quote(url)}"]
     for name, value in (headers or {}).items():
         if not re.fullmatch(r"[A-Za-z0-9-]{1,100}", str(name)):
             raise FetchError("not a header name")
         config.append(f"header = {_quote(f'{name}: {value}')}")
-    argv = ["curl", "--config", "-", "--silent", "--show-error", "--fail",
+    argv = ["curl", "--config", "-", "--silent", "--show-error"] + ([] if errors else ["--fail"]) + [
             "--proto", "=https" if not (local or user_url) else "=http,https",
             "--max-time", str(int(timeout)), "--max-filesize", str(max_bytes),
             "--user-agent", "ai-agents-map"]

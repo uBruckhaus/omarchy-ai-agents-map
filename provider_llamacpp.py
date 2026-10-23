@@ -2,6 +2,7 @@
 
 import os
 
+import ai_core
 import llm_engine
 from harnesses import Way
 from providers import Provider
@@ -84,7 +85,7 @@ class Engine(llm_engine.LlamaRouter):
         unit = self._unit(rt)
         if unit is None:
             return []
-        text = unit.read_text(encoding="utf-8", errors="replace")[:200_000]
+        text = ai_core.read_head(unit, 200_000).decode("utf-8", "replace")
         found = [(unit, text)]
         for line in re.findall(r"^ExecStart=[-@:+!]*(.+)$", text, re.MULTILINE)[:3]:
             try:
@@ -92,7 +93,7 @@ class Engine(llm_engine.LlamaRouter):
             except (ValueError, IndexError):
                 continue
             try:
-                head = program.read_bytes()[:200_000]
+                head = ai_core.read_head(program, 200_000)
             except OSError:
                 continue
             if not head.startswith(b"\x7fELF"):
@@ -102,7 +103,7 @@ class Engine(llm_engine.LlamaRouter):
     def _ours(self, rt) -> bool:
         unit = self._unit(rt)
         try:
-            return unit is not None and "installed by AI Agents Map" in unit.read_text(errors="replace")[:4000]
+            return unit is not None and "installed by AI Agents Map" in ai_core.read_head(unit, 4000).decode("utf-8", "replace")
         except OSError:
             return False
 

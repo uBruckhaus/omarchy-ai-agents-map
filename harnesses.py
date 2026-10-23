@@ -201,6 +201,7 @@ class Harness:
     replies: tuple = ()               # ("~/…" session folder, depth of its files, format, ((model name
                                       # prefix, context size), …)): the map's usage statistics box (usage_box)
     subagents: tuple = ()             # (format, "~/…" where it keeps them): its subagents (subagents.py)
+    session_files: str = ""           # its [sessions] reader ("pi-files", "claude-files"): session_follow.py follows those
     asks_setting: str = ""            # the security setting that says when it asks before acting
 
 
@@ -367,9 +368,11 @@ def _with_newer_facts(harness: Harness) -> Harness:
     if own is None or own is harness:
         return harness
     filled = {n: getattr(own, n) for n in NEWER_FACTS if _empty(harness, n) and not _empty(own, n)}
-    if "research" in filled or (harness.research_output == "text" and own.research_output != "text" and own.research):
+    if "research" in filled or (harness.research_output == "text" and own.research_output != "text" and own.research) \
+            or ("{prompt}" in harness.research and own.research and "{prompt}" not in own.research):
         # The format belongs to its command; an add-on's look-up that only answers in text (signed
-        # before research.output) gives way to the app's own, which also says its token use.
+        # before research.output), or that puts the prompt into argv (signed before it went on stdin),
+        # gives way to the app's own.
         filled.update(research=own.research, research_output=own.research_output)
     return dataclasses.replace(harness, **filled) if filled else harness
 

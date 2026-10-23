@@ -148,7 +148,8 @@ class Engine(llm_engine.Engine):
 
     def _settings(self) -> dict:
         try:
-            data = json.loads(self.SETTINGS.read_text(encoding="utf-8")[:2_000_000])
+            import ai_core
+            data = json.loads(ai_core.read_head(self.SETTINGS, 2_000_000))
         except (OSError, ValueError):
             return {}
         return data if isinstance(data, dict) else {}

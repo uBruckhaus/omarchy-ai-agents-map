@@ -175,8 +175,17 @@ def focus_window(app_id: str) -> bool:
 
 
 def focus_process(pids: list[int]) -> bool:
-    """Other programs' windows cannot be raised from here on most desktops (Wayland)."""
-    return False
+    """Under Hyprland (any distribution) the compositor brings the program's window (or its
+    terminal's) to the front; other programs' windows cannot be raised from here on most other
+    desktops (Wayland)."""
+    hypr = _hyprland()
+    return hypr is not None and hypr.focus_process(pids)
+
+
+def windows() -> dict:
+    """Under Hyprland its windows; other desktops do not tell (Wayland)."""
+    hypr = _hyprland()
+    return hypr.windows() if hypr is not None else {}
 
 
 def _hyprland():
