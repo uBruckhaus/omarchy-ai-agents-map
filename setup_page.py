@@ -268,7 +268,7 @@ class SetupPage:
             return tile
         node_id = self.addon_node(addon)
         return self.with_menu(tile, lambda widget, rect: self.show_context(
-            widget, node_id, rect, extra=[self.addon_entry(addon)]) if node_id else self.addon_menu(widget, rect, addon))
+            widget, node_id, rect, extra=self.addon_entries(addon)) if node_id else self.addon_menu(widget, rect, addon))
 
     def addon_node(self, addon) -> str:
         """The map box of an add-on that is on: agent:… or runtime:… ("" for an online provider)."""
@@ -283,9 +283,22 @@ class SetupPage:
         return lambda popover: self.menu_item(_("Add-on…"), popover, lambda: self.open_addons(select=addon.id),
                                               _("What it reads, sends and may do; update or remove it"))
 
+    def addon_entries(self, addon) -> list:
+        """The card's add-on items: Update add-on (when the signed catalog has a newer version), then
+        Add-on…; each a function of the popover."""
+        entries = []
+        item = next((i for i in self.addon_update_items() if i.id == addon.id), None)
+        if item is not None:
+            entries.append(lambda popover: self.menu_item(
+                _("Update add-on to {0}").format(item.entry.version), popover, lambda: self.update_addon(item),
+                _("The newer signed version from the catalog; it is checked before it replaces this one.")))
+        entries.append(self.addon_entry(addon))
+        return entries
+
     def addon_menu(self, widget, rect, addon):
         popover = self.context_popover(widget, rect)
-        self.show_menu(popover, addon.name, [self.sign_in_entries(addon, popover), [self.addon_entry(addon)(popover)]])
+        self.show_menu(popover, addon.name, [self.sign_in_entries(addon, popover),
+                                             [entry(popover) for entry in self.addon_entries(addon)]])
 
     def sign_in_entries(self, addon, popover) -> list:
         """An online provider's add-on: Sign in to … for each installed agent of its providers."""

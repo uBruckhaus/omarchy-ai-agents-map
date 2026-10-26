@@ -211,22 +211,54 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
 
     def do_activate(self):
         if self.window is None:
-            try:
-                ai_core.migrate_settings()
-            except OSError:
-                pass
-            self.load_addons()
-            self.build_window()
-            self.hold()  # Keep the singleton alive while its popup is hidden.
-            signal.signal(signal.SIGUSR1, lambda *_: GLib.idle_add(self.toggle))
-            for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
-                signal.signal(sig, lambda *_: sys.exit(0))
-            GLib.timeout_add(100, lambda: True)  # Let Python dispatch SIGUSR1.
-            self.watch_theme()
-            write_pid_file()
-            if hasattr(self, "setup_needed") and self.setup_needed():
-                self.setup_pending = True           # a fresh Asterism: pick what goes on the map (open_content)
+            self.boot()
+            return
+        if getattr(self, "booting", False):
+            self.window.present()               # started again while it starts: the same window
+            return
         self.open()
+
+    def boot(self):
+        """The very first moment of a start: the bare window with the start overview, at once. The
+        add-ons (their signatures are checked), the pages and the looks at this PC follow after its
+        first frame, behind the overview; right after login they can take a while."""
+        self.booting = True
+        signal.signal(signal.SIGUSR1, lambda *_: GLib.idle_add(self.toggle))
+        for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+            signal.signal(sig, lambda *_: sys.exit(0))
+        GLib.timeout_add(100, lambda: True)  # Let Python dispatch SIGUSR1.
+        self.make_window()
+        self.apply_theme_css()
+        holder = Gtk.Overlay(child=Gtk.Box(hexpand=True, vexpand=True))
+        self.window.set_content(holder)
+        self.window.present()
+        try:
+            self.show_splash(holder)
+        except Exception:                     # no overview: the window fills in as it is built
+            self.splash_shown = True
+        self.after_first_frame(self.finish_boot)
+
+    def finish_boot(self):
+        try:
+            ai_core.migrate_settings()
+        except OSError:
+            pass
+        self.load_addons()
+        shown = getattr(self, "splash", None)
+        holder = shown.widget.get_parent() if shown is not None else None
+        if isinstance(holder, Gtk.Overlay):
+            holder.remove_overlay(shown.widget)       # moves over the built window's cards and map
+        self.build_window()
+        if shown is not None and not shown.gone and shown.widget.get_parent() is None:
+            self.card_frame.add_overlay(shown.widget)
+        self.hold()  # Keep the singleton alive while its popup is hidden.
+        self.watch_theme()
+        write_pid_file()
+        if hasattr(self, "setup_needed") and self.setup_needed():
+            self.setup_pending = True           # a fresh Asterism: pick what goes on the map (open_content)
+        self.booting = False
+        self.fit()
+        self.first_open_content()
 
     # --- add-ons (Asterism only) ---------------------------------------------------------------
 
@@ -298,7 +330,8 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
 
     # --- window ----------------------------------------------------------------
 
-    def build_window(self):
+    def make_window(self):
+        """The window itself, still empty (boot shows it with the start overview)."""
         settings = Gtk.Settings.get_default()
         if settings is not None:
             settings.set_property("gtk-enable-primary-paste", False)
@@ -327,6 +360,11 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         window.connect("notify::is-active", lambda w, _p: not w.is_active()
                        and setattr(self, "left_front", time.monotonic()))
         self.window = window
+
+    def build_window(self):
+        if self.window is None:
+            self.make_window()
+        window = self.window
 
         # The cards beside the map need room: the card follows its own width.
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP, hexpand=True, vexpand=True)
@@ -2587,7 +2625,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.set_selection([i for i in self.selection if i in ids])
         self.update_first_card()
 
-    def show_splash(self):
+    def show_splash(self, over=None):
         """The first open: what is on this PC, kind by kind (splash.py), while the scans run."""
         import splash
         self.splash_shown = True
@@ -2596,7 +2634,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             Gtk.IconTheme.get_for_display(display).has_icon(desktop.app_id()) else "system-search-symbolic"
         self.splash = splash.Splash(desktop.app_name(), icon, [
             ("agents", _("Agents")), ("local", _("Local LLMs")), ("mcp", _("MCP servers")), ("skills", _("Skills"))])
-        self.card_frame.add_overlay(self.splash.widget)
+        (over or self.card_frame).add_overlay(self.splash.widget)
         self.splash_counted = False        # open_content counts once collect has run
 
     def splash_counts(self):
@@ -4121,6 +4159,9 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
 
     def toggle(self):
         """The bar icon: open it, bring it to the front, or (already in front) hide it."""
+        if getattr(self, "booting", False):
+            self.window.present()           # still starting: it shows, nothing else yet
+            return False
         if not self.window.is_visible():
             self.open()
         elif self.window.is_active() or time.monotonic() - self.left_front < 1.0:
@@ -4252,6 +4293,10 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
     def close(self):
         """Closing the window: while agents run here, ask first (stop them, or keep them running
         in the background); then hide."""
+        if getattr(self, "booting", False):
+            # Still starting (nothing runs here yet): other desktops quit, Omarchy hides.
+            self.window.hide() if desktop.stays_in_background() else self.quit()
+            return
         running = [pane for pane in self.sessions.values() if pane.running]
         if running and not getattr(self, "close_asked", False):
             self.ask_close(running)

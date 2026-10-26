@@ -2745,5 +2745,7 @@
  "Not updated: {0}": "Non aggiornati: {0}",
  "Add-on updates ready: {0}": "Aggiornamenti dei componenti aggiuntivi pronti: {0}",
  "Newer versions of your add-ons are ready: {0}. Update all of them here, or one at a time with Update on its card.": "Sono pronte nuove versioni dei tuoi componenti aggiuntivi: {0}. Aggiornali tutti qui, oppure uno alla volta con Aggiorna sulla sua scheda.",
- "Add-ons are being updated. Try again in a moment.": "I componenti aggiuntivi sono in aggiornamento. Riprova tra un momento."
+ "Add-ons are being updated. Try again in a moment.": "I componenti aggiuntivi sono in aggiornamento. Riprova tra un momento.",
+ "Update add-on to {0}": "Aggiorna il componente a {0}",
+ "The newer signed version from the catalog; it is checked before it replaces this one.": "La versione firmata più recente del catalogo; viene controllata prima di sostituire questa."
 }

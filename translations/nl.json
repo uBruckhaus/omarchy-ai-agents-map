@@ -2745,5 +2745,7 @@
  "Not updated: {0}": "Niet bijgewerkt: {0}",
  "Add-on updates ready: {0}": "Add-on-updates klaar: {0}",
  "Newer versions of your add-ons are ready: {0}. Update all of them here, or one at a time with Update on its card.": "Er zijn nieuwere versies van je add-ons: {0}. Werk ze hier allemaal bij, of één voor één met Bijwerken op de kaart.",
- "Add-ons are being updated. Try again in a moment.": "Add-ons worden bijgewerkt. Probeer het zo opnieuw."
+ "Add-ons are being updated. Try again in a moment.": "Add-ons worden bijgewerkt. Probeer het zo opnieuw.",
+ "Update add-on to {0}": "Add-on bijwerken naar {0}",
+ "The newer signed version from the catalog; it is checked before it replaces this one.": "De nieuwere ondertekende versie uit de catalogus; die wordt gecontroleerd voordat ze deze vervangt."
 }

@@ -2745,5 +2745,7 @@
  "Not updated: {0}": "Non mis à jour : {0}",
  "Add-on updates ready: {0}": "Mises à jour de modules prêtes : {0}",
  "Newer versions of your add-ons are ready: {0}. Update all of them here, or one at a time with Update on its card.": "De nouvelles versions de tes modules sont prêtes : {0}. Mets-les toutes à jour ici, ou une par une avec Mettre à jour sur sa carte.",
- "Add-ons are being updated. Try again in a moment.": "Les modules sont en cours de mise à jour. Réessaie dans un instant."
+ "Add-ons are being updated. Try again in a moment.": "Les modules sont en cours de mise à jour. Réessaie dans un instant.",
+ "Update add-on to {0}": "Mettre à jour l’extension vers {0}",
+ "The newer signed version from the catalog; it is checked before it replaces this one.": "La version signée plus récente du catalogue ; elle est vérifiée avant de remplacer celle-ci."
 }
