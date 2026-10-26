@@ -84,5 +84,39 @@ class OddRepliesTest(unittest.TestCase):
         self.assertEqual(result["status"], "failed")
 
 
+
+class StdioWriteDeadlineTest(unittest.TestCase):
+    def test_server_that_stops_reading_ends_with_timeout(self):
+        with mock.patch.object(mcp_tools, "TIMEOUT", 1.0):
+            link = mcp_tools._Stdio({"command": "sleep", "args": ["30"], "env": {}})
+        try:
+            started = time.monotonic()
+            with self.assertRaises(TimeoutError):
+                link.send({"jsonrpc": "2.0", "id": 2, "method": "tools/list",
+                           "params": {"cursor": "x" * 1_000_000}})
+            self.assertLess(time.monotonic() - started, 5)
+        finally:
+            link.close()
+
+    def test_huge_cursor_ends_the_paging(self):
+        pages = [{"tools": [{"name": "a"}], "nextCursor": "c" * (mcp_tools.MAX_CURSOR + 1)}]
+
+        class Link:
+            def __init__(self, *_a):
+                self.sent = []
+
+            def send(self, message):
+                self.sent.append(message)
+
+            def answer(self, number):
+                return {"capabilities": {}} if number == 1 else pages[0]
+
+            def close(self):
+                pass
+        with mock.patch.object(mcp_tools, "_Stdio", Link):
+            result = mcp_tools.ask({"transport": "stdio"})
+        self.assertEqual([t["name"] for t in result["tools"]], ["a"])
+
+
 if __name__ == "__main__":
     unittest.main()

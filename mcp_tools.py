@@ -43,6 +43,9 @@ def _params(schema) -> list:
     return [n[:64] for n in names if isinstance(n, str) and _NAME.match(n[:64])][:40]
 
 
+MAX_CURSOR = 1024         # a page cursor longer than this ends the paging
+
+
 def _result(message: dict) -> dict:
     """A JSON-RPC answer's result (a dict, else empty), or RuntimeError for its error, whatever
     shape a server sends them in."""
@@ -77,8 +80,23 @@ class _Stdio:
         self.deadline = time.monotonic() + TIMEOUT
 
     def send(self, message: dict):
-        self.proc.stdin.write(json.dumps(message).encode() + b"\n")
-        self.proc.stdin.flush()
+        """Written without blocking under the same deadline as the answers: a server that stops
+        reading its stdin ends the ask with TimeoutError instead of hanging it."""
+        assert self.proc.stdin is not None      # started with stdin=PIPE
+        fd = self.proc.stdin.fileno()
+        os.set_blocking(fd, False)
+        data = memoryview(json.dumps(message).encode() + b"\n")
+        while data:
+            left = self.deadline - time.monotonic()
+            if left <= 0:
+                raise TimeoutError("the server does not read")
+            _r, ready, _x = select.select([], [fd], [], left)
+            if not ready:
+                continue
+            try:
+                data = data[os.write(fd, data):]
+            except BlockingIOError:
+                continue
 
     def answer(self, wanted: int) -> dict:
         while True:
@@ -191,7 +209,9 @@ def ask(entry: dict) -> dict:
                        "params": {"cursor": cursor} if cursor else {}})
             page = link.answer(number)
             tools += _clean(page.get("tools"), "tool")
-            cursor = page.get("nextCursor") if isinstance(page.get("nextCursor"), str) else None
+            cursor = page.get("nextCursor")
+            if not isinstance(cursor, str) or len(cursor) > MAX_CURSOR:
+                cursor = None           # an odd or huge cursor: the pages so far are enough
             number += 1
             if not cursor or len(tools) >= MAX_TOOLS or number > 20:
                 break
