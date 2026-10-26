@@ -2726,5 +2726,17 @@
  ],
  "Not checked with Hugging Face (only the first sizes of a model are), so {0} is not offered it. Download it with llama.cpp or LM Studio, or get the file and add it under On this PC.": "Non vérifié auprès de Hugging Face (seules les premières tailles d’un modèle le sont), il n’est donc pas proposé à {0}. Téléchargez-le avec llama.cpp ou LM Studio, ou récupérez le fichier et ajoutez-le sous Sur ce PC.",
  "Layout pinned: card places, box order and folded cards stay after Refresh and a restart. Click to unpin": "Disposition épinglée : les places des cartes, l'ordre des cases et les cartes repliées restent après Actualiser et un redémarrage. Cliquez pour désépingler",
- "Pin this layout: keep card places, box order and folded cards after Refresh and a restart (unpinned, the map starts in its default layout)": "Épingler cette disposition : garder les places des cartes, l'ordre des cases et les cartes repliées après Actualiser et un redémarrage (non épinglée, la carte démarre avec sa disposition par défaut)"
+ "Pin this layout: keep card places, box order and folded cards after Refresh and a restart (unpinned, the map starts in its default layout)": "Épingler cette disposition : garder les places des cartes, l'ordre des cases et les cartes repliées après Actualiser et un redémarrage (non épinglée, la carte démarre avec sa disposition par défaut)",
+ "not connected": "non connecté",
+ "{0} not connected": "{0} non connectés",
+ "Local MCP servers": "Serveurs MCP locaux",
+ "Online MCP servers": "Serveurs MCP en ligne",
+ "Looking at what is on this PC…": "Recherche de ce qui est sur ce PC…",
+ "A folder where MCP servers are looked for (unpacked apps)": "Un dossier où chercher des serveurs MCP (apps décompressées)",
+ "A folder where skills are looked for": "Un dossier où chercher des skills",
+ "Stop looking in this folder (nothing in it is deleted)": "Ne plus chercher dans ce dossier (rien n'y est supprimé)",
+ "{0} added: what is found in it shows on the map": "{0} ajouté : ce qui s'y trouve apparaît sur la carte",
+ "{0} gets the MCP server {1} ({2}), found on this PC. Nothing else in its settings changes.": "{0} reçoit le serveur MCP {1} ({2}), trouvé sur ce PC. Rien d'autre ne change dans ses réglages.",
+ "Tools your agents can call. Servers found on this PC are on the map: draw a line from an agent to one to connect it.": "Des outils que vos agents peuvent appeler. Les serveurs trouvés sur ce PC sont sur la carte : tracez une ligne d'un agent vers l'un d'eux pour le connecter.",
+ "Faded boxes on the map are on this PC but not connected: draw a line from an agent to one.": "Les cases estompées sur la carte sont sur ce PC mais pas connectées : tracez une ligne d'un agent vers l'une d'elles."
 }

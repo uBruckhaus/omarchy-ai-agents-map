@@ -2142,6 +2142,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             self.new_versions = sorted(p.name for p in versions)
             self.refresh_overview()
             self.refresh_map()
+            self.splash_found()
             page = self.page_name()
             if page == "addskills":
                 self.show_found_skills()
@@ -2550,12 +2551,14 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                   "in_use": lambda names: _("in use · {0}").format(names),
                   "server_off": _("server off")}
         # Only what is set up: adding, updating and removing happen on Setup.
-        built = graph.build(self.agent_list, details, self.inventory, labels, link_hints.load(), self.running)
+        built = graph.build(self.agent_list, details, self.inventory, labels, link_hints.load(), self.running,
+                            self.available_items())
         headers = [_("MCP servers · skills"), _("Agents"), _("LLM providers"), _("Models")]
         for view in (self.side_map,):
             # Card titles by group key ("cloud": the online providers' card; "online": the online
             # models' card detail).
-            view.group_titles = {"mcp": _("MCP servers"), "skills": _("Skills"), "online": _("Online"),
+            view.group_titles = {"mcp": _("Local MCP servers"), "mcp-online": _("Online MCP servers"),
+                                 "skills": _("Skills"), "online": _("Online"),
                                  "agents": _("Agents"), "cloud": _("Online providers"), "local": _("Local LLMs"),
                                  "models": _("Models")}
             view.set_graph(built, headers)
@@ -2563,6 +2566,48 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         ids = {n.id for n in built.nodes}
         self.set_selection([i for i in self.selection if i in ids])
         self.update_first_card()
+
+    def show_splash(self):
+        """The first open: what is on this PC, kind by kind (splash.py), while the scans run."""
+        import splash
+        self.splash_shown = True
+        display = Gdk.Display.get_default()
+        icon = desktop.app_id() if display is not None and \
+            Gtk.IconTheme.get_for_display(display).has_icon(desktop.app_id()) else "system-search-symbolic"
+        self.splash = splash.Splash(desktop.app_name(), icon, [
+            ("agents", _("Agents")), ("local", _("Local LLMs")), ("mcp", _("MCP servers")), ("skills", _("Skills"))])
+        self.card_frame.add_overlay(self.splash.widget)
+        agents_found = sum(1 for a in self.agent_list if a.installed)
+        llms_found = sum(1 for r in self.inventory.runtimes if r.installed)
+        GLib.timeout_add(350, lambda: self.splash.step("agents", agents_found))
+        GLib.timeout_add(550, lambda: self.splash.step("local", llms_found))
+        if not self.checking_new and self.found_mcp is not None:
+            self.splash_found()
+
+    def splash_found(self):
+        """The background scan is done: the splash shows the MCP servers and skills, then fades."""
+        shown = getattr(self, "splash", None)
+        if shown is None or shown.gone or shown.finished:
+            return
+        available = self.available_items()
+        loose = {kind: sum(1 for item in available if item[0] == kind) for kind in ("mcp", "skills")}
+        servers = len(self.inventory.mcp) + len(self.available_mcp())
+        skill_sets = len(self.inventory.skill_sets) + len(self.found_skills or [])
+        for key, count in (("mcp", servers), ("skills", skill_sets)):
+            shown.step(key, count, _("{0} not connected").format(loose[key]) if loose[key] else "")
+        shown.finish(_("Faded boxes on the map are on this PC but not connected: draw a line from an agent "
+                       "to one.") if available else "")
+
+    def available_items(self) -> list:
+        """What is on this PC that no agent uses yet, for graph.build: the MCP servers Asterism knows
+        (mcp_library) and the programs found with one, the skill sets found (skills_scan)."""
+        items = [("mcp", m.name, m.name, _("not connected")) for m in self.inventory.mcp if not m.agents]
+        items += [("mcp", c.name, c.name, _("not connected")) for c in self.available_mcp()]
+        for skill_set in self.found_skills or []:
+            count = len(skill_set.skills)
+            items.append(("skills", skill_set.path, skill_set.path,
+                          ngettext("1 skill", "{0} skills", count).format(count) + " · " + _("not connected")))
+        return items
 
     # --- views -----------------------------------------------------------------
 
@@ -4065,6 +4110,8 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.refresh_overview()
         self.refresh_map()
         self.window.present()
+        if not getattr(self, "splash_shown", False):
+            self.show_splash()
         self.sync_provider_watch()
         self.start_gpu_poll()
         self.research_new_agents()

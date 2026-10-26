@@ -2726,5 +2726,17 @@
  ],
  "Not checked with Hugging Face (only the first sizes of a model are), so {0} is not offered it. Download it with llama.cpp or LM Studio, or get the file and add it under On this PC.": "Niet gecontroleerd bij Hugging Face (alleen de eerste groottes van een model worden dat), dus het wordt {0} niet aangeboden. Download het met llama.cpp of LM Studio, of haal het bestand op en voeg het toe onder Op deze pc.",
  "Layout pinned: card places, box order and folded cards stay after Refresh and a restart. Click to unpin": "Indeling vastgezet: plaatsen van kaarten, volgorde van vakken en ingeklapte kaarten blijven na Vernieuwen en een herstart. Klik om los te maken",
- "Pin this layout: keep card places, box order and folded cards after Refresh and a restart (unpinned, the map starts in its default layout)": "Deze indeling vastzetten: plaatsen van kaarten, volgorde van vakken en ingeklapte kaarten behouden na Vernieuwen en een herstart (niet vastgezet start de kaart in de standaardindeling)"
+ "Pin this layout: keep card places, box order and folded cards after Refresh and a restart (unpinned, the map starts in its default layout)": "Deze indeling vastzetten: plaatsen van kaarten, volgorde van vakken en ingeklapte kaarten behouden na Vernieuwen en een herstart (niet vastgezet start de kaart in de standaardindeling)",
+ "not connected": "niet verbonden",
+ "{0} not connected": "{0} niet verbonden",
+ "Local MCP servers": "Lokale MCP-servers",
+ "Online MCP servers": "Online MCP-servers",
+ "Looking at what is on this PC…": "Kijken wat er op deze pc staat…",
+ "A folder where MCP servers are looked for (unpacked apps)": "Een map waarin naar MCP-servers wordt gezocht (uitgepakte apps)",
+ "A folder where skills are looked for": "Een map waarin naar skills wordt gezocht",
+ "Stop looking in this folder (nothing in it is deleted)": "Niet meer in deze map zoeken (er wordt niets verwijderd)",
+ "{0} added: what is found in it shows on the map": "{0} toegevoegd: wat erin gevonden wordt, staat op de kaart",
+ "{0} gets the MCP server {1} ({2}), found on this PC. Nothing else in its settings changes.": "{0} krijgt de MCP-server {1} ({2}), gevonden op deze pc. Verder verandert er niets in zijn instellingen.",
+ "Tools your agents can call. Servers found on this PC are on the map: draw a line from an agent to one to connect it.": "Hulpmiddelen die je agents kunnen aanroepen. Op deze pc gevonden servers staan op de kaart: trek een lijn van een agent naar een server om hem te verbinden.",
+ "Faded boxes on the map are on this PC but not connected: draw a line from an agent to one.": "Vervaagde vakjes op de kaart staan op deze pc maar zijn niet verbonden: trek een lijn van een agent naar een vakje."
 }

@@ -626,11 +626,13 @@ class ConnectPage:
         from an agent that has it; or (line dragged off) remove it."""
         agent = next((a for a in self.agent_list if f"agent:{a.command}" == agent_id), None)
         server = next((m for m in self.inventory.mcp if m.name == name), None)
-        if agent is None or server is None:
+        found = next((c for c in self.available_mcp() if c.name == name), None) if server is None else None
+        if agent is None or (server is None and found is None):
             return
         already = mcp_ctl.is_connected(agent.command, name)
-        self.connecting = {"agent": agent, "mcp": name, "sources": list(server.agents), "from": self.view,
-                           "remove_only": remove_only}
+        self.connecting = {"agent": agent, "mcp": name, "sources": list(server.agents) if server else [],
+                           "from": self.view, "remove_only": remove_only,
+                           "entry": self.found_entry(found) if found else None}
         self.connect_title.set_label((_("Remove {0} from {1}") if remove_only else _("Connect {0} to {1}"))
                                      .format(name, agent.name).upper())
         self.connect_reset()
@@ -655,7 +657,12 @@ class ConnectPage:
                                          .format(name, agent.name))
         elif already:
             self.connect_intro.set_label(_("{0} has the MCP server {1} already.").format(agent.name, name))
+        elif found is not None:
+            self.connect_intro.set_label(
+                _("{0} gets the MCP server {1} ({2}), found on this PC. Nothing else in its settings changes.")
+                .format(agent.name, name, mcp_ctl.describe(self.connecting["entry"])))
         else:
+            assert server is not None
             source, entry = mcp_ctl.entry_from([a for a in server.agents if a != agent.command], name)
             if entry is None:
                 entry = mcp_library.load().get(name)
@@ -842,7 +849,7 @@ class ConnectPage:
             return skills_ctl.plan(info["agent"].command, info["skills"], remove=remove or info["remove_only"])
         if "mcp" in info:
             return mcp_ctl.plan(info["agent"].command, info["mcp"], info["sources"],
-                                remove=remove or info["remove_only"])
+                                remove=remove or info["remove_only"], entry=info.get("entry"))
         models = self.connect_models
         model = models[self.connect_model.get_selected()] if models else ""
         return connect.plan(info["agent"].command, info["runtime"], model, self.connect_use_now.get_active(),

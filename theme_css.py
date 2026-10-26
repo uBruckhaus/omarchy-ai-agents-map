@@ -214,6 +214,22 @@ class ThemeCss:
         .am-setup-absent .am-setup-glyph {{ color: {dim_hex}; }}
         .am-setup-absent {{ background: transparent; border-style: dashed; }}
         .am-setup-absent .am-addon-name, .am-setup-absent .am-agent-detail {{ color: {dim_hex}; }}
+        /* The first open's splash (splash.py): over the content, fades out. */
+        .am-splash {{ background: alpha({bg_hex}, 0.97); color: {fg_hex}; opacity: 1;
+            transition: opacity 450ms ease-out; }}
+        .am-splash.am-splash-gone {{ opacity: 0; }}
+        .am-splash-icon {{ color: {accent_hex}; animation: am-splash-pulse 1.6s ease-in-out infinite; }}
+        @keyframes am-splash-pulse {{ 0% {{ opacity: 0.55; -gtk-icon-transform: scale(0.92); }}
+            50% {{ opacity: 1; -gtk-icon-transform: scale(1.06); }}
+            100% {{ opacity: 0.55; -gtk-icon-transform: scale(0.92); }} }}
+        .am-splash-title {{ font-size: 20px; font-weight: 700; }}
+        .am-splash-row {{ font-size: 13px; }}
+        .am-splash-count {{ font-size: 13px; color: {muted_hex}; }}
+        .am-splash-tick {{ color: {green_hex}; font-weight: 700; min-width: 16px; }}
+        progressbar.am-splash-bar {{ min-width: 300px; }}
+        progressbar.am-splash-bar trough, progressbar.am-splash-bar progress {{ min-height: 4px;
+            border-radius: 2px; }}
+        progressbar.am-splash-bar progress {{ background: {accent_hex}; transition: min-width 300ms; }}
         button.am-setup-section {{ padding: 2px 6px; min-height: 0; }}
         button.am-setup-section:hover {{ background: alpha({fg_hex}, 0.08); }}
         /* Setup's categories: group cards (heading and content in one frame). */

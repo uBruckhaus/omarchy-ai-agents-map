@@ -391,6 +391,8 @@ class MapView(Gtk.DrawingArea):
     @staticmethod
     def group_key(node) -> str:
         """The card a box is in: one per category, the models one per folder."""
+        if node.kind == "mcp" and node.group == "online":
+            return "mcp-online"               # MCP servers at a URL: a card of their own
         if node.kind in ("mcp", "skills"):
             return node.kind
         if node.kind == "agent":
@@ -410,7 +412,7 @@ class MapView(Gtk.DrawingArea):
         groups = {}
         for node in self.graph.column(column) if nodes is None else nodes:
             groups.setdefault(self.group_key(node), []).append(node)
-        first = {"mcp": 0, "skills": 1, "online": 0, "local": 1}
+        first = {"mcp": 0, "mcp-online": 1, "skills": 2, "online": 0, "local": 1}
         keys = sorted(groups, key=lambda k: first.get(k, 0))      # stable: models folders keep their order
         return [(key, self.in_order(key, groups[key])) for key in keys]
 
@@ -2060,7 +2062,8 @@ class MapView(Gtk.DrawingArea):
         self.draw_hooks(cr)                       # over the boxes: a hook is never half hidden
         self.draw_link(cr)
 
-    CARD_KINDS = {"agents": "agent", "online": "cloud", "local": "runtime", "mcp": "mcp", "skills": "skills",
+    CARD_KINDS = {"agents": "agent", "online": "cloud", "local": "runtime", "mcp": "mcp", "mcp-online": "mcp",
+                  "skills": "skills",
                   "subagents": "subagent"}
 
     def draw_cards(self, cr, layout, only=None):

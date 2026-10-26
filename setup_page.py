@@ -443,23 +443,31 @@ class SetupPage:
         new_mcp, new_skills = self.new_found()
         updates = self.open_updates()
         outer = box
-        box = self.setup_section(outer, "mcp", _("MCP servers"), len(self.inventory.mcp))
-        self.note(box, _("Tools your agents can call. A server no agent uses is not on the map."))
-        flow = self.setup_flow()
-        for server in sorted(self.inventory.mcp, key=lambda s: s.name.lower()):
-            node_id = f"mcp:{server.name}"
-            users = ", ".join(names.get(a, a) for a in server.agents) or _("not used by any agent")
-            key = server.name.lower()
-            icon = MCP_GLYPHS.get(key) or next((g for k, g in MCP_GROUP_GLYPHS.items() if k in key), "app")
-            flow.append(self.item_card(node_id, glyph(icon), server.name, users,
-                                       lambda n=server.name: self.open_mcp_details(n), update=updates.get(node_id),
-                                       dim=not server.agents))
-        flow.append(self.add_tile(_("Add MCP server"), _("{0} new on this PC").format(len(new_mcp)) if new_mcp
-                                  else _("Recommended, registry, this PC"), "app", self.open_add_mcp))
-        box.append(flow)
+        # Two groups, as on the map: servers that run on this PC, and online ones (a URL).
+        for key, title, servers in (("mcp", _("Local MCP servers"), [m for m in self.inventory.mcp if m.kind != "url"]),
+                                    ("mcp-online", _("Online MCP servers"),
+                                     [m for m in self.inventory.mcp if m.kind == "url"])):
+            box = self.setup_section(outer, key, title, len(servers))
+            if key == "mcp":
+                self.note(box, _("Tools your agents can call. Servers found on this PC are on the map: draw a "
+                                 "line from an agent to one to connect it."))
+                self.scan_folder_row(box, "mcp")
+            flow = self.setup_flow()
+            for server in sorted(servers, key=lambda s: s.name.lower()):
+                node_id = f"mcp:{server.name}"
+                users = ", ".join(names.get(a, a) for a in server.agents) or _("not used by any agent")
+                name = server.name.lower()
+                icon = MCP_GLYPHS.get(name) or next((g for k, g in MCP_GROUP_GLYPHS.items() if k in name), "app")
+                flow.append(self.item_card(node_id, glyph(icon), server.name, users,
+                                           lambda n=server.name: self.open_mcp_details(n), update=updates.get(node_id),
+                                           dim=not server.agents))
+            flow.append(self.add_tile(_("Add MCP server"), _("{0} new on this PC").format(len(new_mcp)) if new_mcp
+                                      else _("Recommended, registry, this PC"), "app", self.open_add_mcp))
+            box.append(flow)
 
         box = self.setup_section(outer, "skills", _("Skills"), len(self.inventory.skill_sets))
         self.note(box, _("Folders of instructions your agents read."))
+        self.scan_folder_row(box, "skills")
         flow = self.setup_flow()
         for skill_set in sorted(self.inventory.skill_sets, key=lambda s: s.path.lower()):
             sub = ngettext("1 skill", "{0} skills", len(skill_set.skills)).format(len(skill_set.skills)) \
@@ -550,6 +558,51 @@ class SetupPage:
                 flow.append(self.add_tile(_("Change folder…"), _("Its models move along"), "folder",
                                           lambda f=own: self.change_model_folder(f), small=True))
             card.append(flow)
+
+    # --- MCP and skill folders: where the scans look too (extra_folders) -------------------------------
+
+    def scan_folder_row(self, box, kind: str):
+        """Add folder… and the folders added before (✕ stops looking there): what the scans find in
+        them is on the map, faded, until a line connects it."""
+        import extra_folders
+        row = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=6, column_spacing=6,
+                          row_spacing=4, homogeneous=False)
+        add = Gtk.Button(label=_("Add folder…"))
+        add.add_css_class("am-small-btn")
+        add.set_tooltip_text(_("A folder where MCP servers are looked for (unpacked apps)") if kind == "mcp"
+                             else _("A folder where skills are looked for"))
+        add.connect("clicked", lambda *_a: self.add_scan_folder(kind))
+        row.append(add)
+        for path in extra_folders.saved(kind):
+            chip = Gtk.Button(label=f"{self.tilde_path(path)}  ✕")
+            chip.add_css_class("am-small-btn")
+            chip.set_tooltip_text(_("Stop looking in this folder (nothing in it is deleted)"))
+            chip.connect("clicked", lambda *_a, p=path: self.drop_scan_folder(kind, p))
+            row.append(chip)
+        box.append(row)
+
+    def add_scan_folder(self, kind: str):
+        import extra_folders
+
+        def done(path):
+            self.save_scan_folders(kind, extra_folders.with_change(kind, add=[path]))
+            self.toast(_("{0} added: what is found in it shows on the map").format(path.name), 6)
+        saved = extra_folders.saved(kind)
+        self.pick_folder(_("Add folder"), saved[-1] if saved else "~", done)
+
+    def drop_scan_folder(self, kind: str, path: str):
+        import extra_folders
+        self.save_scan_folders(kind, extra_folders.with_change(kind, drop=[path]))
+
+    def save_scan_folders(self, kind: str, folders: list):
+        """Store the folders, then the scans again (their file cache keeps it quick), Setup and the map."""
+        if kind == "mcp":
+            self.save_setting(mcp_folders=folders)
+        else:
+            self.save_setting(skill_folders=folders)
+        self.refresh_setup()
+        # A scan still running looked at the old folders: the new one right after it.
+        GLib.timeout_add(500, lambda: bool(self.checking_new) or self.check_new_apps() or False)
 
     # --- model folders: Add folder, Change folder (model_folders) -----------------------------------
 

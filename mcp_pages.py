@@ -1089,6 +1089,24 @@ class McpPages:
             real = candidate.program
         return real in self.configured_now or any(m.name == candidate.name for m in self.inventory.mcp)
 
+    def available_mcp(self) -> list:
+        """Programs found on this PC with an MCP server that is not set up yet, ready to start
+        (not inside an AppImage, not a newer version of one set up): the map draws them faded, a
+        line from an agent to one sets it up (found_entry)."""
+        listed, found = {m.name for m in self.inventory.mcp}, []
+        for candidate in self.found_mcp or []:
+            if candidate.appimage or candidate.update_from or candidate.name in listed \
+                    or any(c.name == candidate.name for c in found) or self.installed_mcp(candidate):
+                continue
+            found.append(candidate)
+        return found
+
+    @staticmethod
+    def found_entry(candidate) -> dict:
+        """A found program's server as an entry (mcp_ctl.normal shape): started as its usage says."""
+        return {"transport": "stdio", "command": candidate.command[0], "args": list(candidate.command[1:]),
+                "env": {}, "url": "", "headers": {}}
+
     def show_found_mcp(self):
         """Programs offering an MCP server that is not set up yet (the others are on the map)."""
         box = self.add_found_list

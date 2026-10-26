@@ -5,6 +5,8 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import isolate  # noqa: E402
 import connect  # noqa: E402
 import corners  # noqa: E402
 import skills_scan  # noqa: E402
@@ -41,6 +43,11 @@ class WebTest(unittest.TestCase):
 
 
 class ScanTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        isolate.desktop_in(self, Path(tmp.name))   # the settings too: no folders added on the real Setup
+
     def test_skill_sets_from_apps(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

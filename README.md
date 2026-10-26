@@ -47,8 +47,11 @@ that fold with a click on their bar:
   coding, images, voice, research and writing), one tile each with the next step.
 - **AI agents, Local LLMs**: every one the plugin knows. Installed ones have a blue frame and their
   version, the others **Install**. A click on an installed card opens its details.
-- **MCP servers, Skills, Models**: a card for each one that is installed, and a card at the end of
-  each section that adds one (**Add MCP server**, **Add skills**, **Add model**).
+- **Local MCP servers, Online MCP servers, Skills, Models**: a card for each one that is set up
+  (servers at a web address in their own section), and a card at the end of each section that adds
+  one (**Add MCP server**, **Add skills**, **Add model**). **Add folder…** in Local MCP servers and
+  Skills adds a folder where the plugin looks for them too (for example a shared disk with unpacked
+  apps or your own skills); **✕** on an added folder stops looking there, nothing in it is deleted.
 - **⋯** or a right-click on a card opens the same menu as the box on the map: update, sign in, start
   or stop, details, uninstall or remove, move a model. A yellow **↑ version** means an update is
   waiting, a red **!** an open problem there (hover it).
@@ -57,7 +60,9 @@ that fold with a click on their bar:
   limit and when it resets. On a running local LLM's card it is the GPU memory still free.
 - The refresh symbol (F5) in the header looks again at what is installed, set up and signed in, and runs the checks of a start again (new apps, add-ons, updates, open problems).
 
-**The map** shows only what is set up, across the whole width: MCP servers and skills ← agents →
+**The map** shows what is set up, plus, faded and without lines, the MCP servers and skill folders
+found on this PC that no agent uses yet (a line from an agent connects one; nothing is connected by
+itself), across the whole width: MCP servers and skills ← agents →
 LLM providers → models, under the **GPU** card (GPU memory and activity; it folds).
 
 - Hover a box to light it and what it is joined to; the **pin** at its top right keeps that lit.
@@ -141,6 +146,16 @@ LLM providers → models, under the **GPU** card (GPU memory and activity; it fo
 - **Safer Move to… and Change folder…** (0.25.0): a model is moved only if it is still the very file
   the preview saw (device and inode); both folders are reached one name at a time from `/` without
   following links, and every step works relative to those pinned folders. Undo checks the same way.
+- **Found on this PC** (new in 0.26.0): MCP servers and skill folders that no agent uses yet are
+  faded boxes on the map; drag a line from an agent to one to connect it. The connect page shows the
+  start command (the one the program's own usage text names, with a folder that fits the app) and the
+  exact change before anything is written. Servers at a web address get a card of their own
+  (**Online MCP servers**).
+- **Add folder…** (new in 0.26.0) in Setup's Local MCP servers and Skills: the scans also look in
+  the folders you add there (settings `mcp_folders`, `skill_folders`).
+- **Start overview** (new in 0.26.0): the first open after a start shows, in an animated overlay,
+  the agents, local LLMs, MCP servers and skills as they are found (and how many are not connected
+  yet), then fades; a click closes it.
 - **Used from outside the map**: when a program that is not on the map (a plugin such as Video
   Trans, a chat app, a script) generates with a local LLM, the line from that LLM to the model is
   drawn bold in a colour of its own, light runs along it, and the model box says who uses it ("in use
@@ -359,8 +374,9 @@ ticked agents at once: one preview, one Undo). No agent is ticked unless you sel
   they are for. Each package is pinned to its newest version on npm or PyPI when you open it
   (`npx -y pkg@1.2.3`, `uvx pkg==1.2.3`); offline it stays unpinned.
 - **On this PC**: programs that offer an MCP server, found by reading the files (nothing is
-  started): your own programs (`~/.local/bin`, `~/bin`, extracted apps in `~/Applications`, `/opt`)
-  and anything on PATH with "mcp" in its name. A program counts when its own usage text has an
+  started): your own programs (`~/.local/bin`, `~/bin`, extracted apps in `~/Applications`, `/opt`,
+  and the folders you add on Setup with **Add folder…**: each folder and the app folders in it) and
+  anything on PATH with "mcp" in its name. A program counts when its own usage text has an
   `mcp` mode (`x-cli mcp [--automation-read-root DIR]`) or it holds the MCP protocol's words; read
   and write folders get a folder that fits the app. AppImages are never run by this scan: **Look
   inside…** unpacks each one's `usr/bin` into a temporary folder, reads it and removes it again.
@@ -394,7 +410,8 @@ ticked agents at once: one preview, one Undo). No agent is ticked unless you sel
 - **By hand**: a command line, or an address with headers.
 
 **+ Skills** opens the same kind of page: skill folders that apps brought along and no agent reads
-yet (`/usr/share`, `/opt`, `~/Applications`, `~/.local/share`, global npm packages, Claude plugins),
+yet (`/usr/share`, `/opt`, `~/Applications`, `~/.local/share`, global npm packages, Claude plugins,
+and the folders you add on Setup › Skills with **Add folder…**),
 or a search of the skills.sh directory. A skill from the web is fetched from its GitHub repository
 (file list from `api.github.com`, files from `raw.githubusercontent.com`) into a folder of your
 choice, by default `~/.agents/skills`. Skills can hold scripts an agent may run later; the page

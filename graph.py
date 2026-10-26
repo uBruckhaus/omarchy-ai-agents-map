@@ -96,7 +96,8 @@ class Node:
     icon_font: str = ""
     dim: bool = False        # drawn faded
     status: str = ""         # local runtimes: "running", "stopped" (installed) or "missing"
-    group: str = ""          # models: the folder they live in ("" = an online provider's)
+    group: str = ""          # models: the folder they live in ("" = an online provider's); MCP servers:
+                             # "online" for one at a URL (a card of its own on the map)
     active: bool = False     # models: an agent's model, or one an open agent runs
 
 
@@ -159,11 +160,13 @@ def split_model(model: str) -> tuple[str, str]:
 
 
 def build(agent_list, details: dict, inventory, labels: dict | None = None, failures: dict | None = None,
-          running: dict | None = None) -> Graph:
+          running: dict | None = None, available=()) -> Graph:
     """Only what is set up: installed agents and local LLMs, the MCP servers and skill
     sets agents use, models. agent_list: agents.Agent (installed ones are drawn); details: command ->
     agent_details.Details; labels: functions n -> translated text ("skills", "more");
-    running: command -> the model of each open instance ("" = its settings')."""
+    running: command -> the model of each open instance ("" = its settings');
+    available: (kind, ident, label, detail) of MCP servers and skill sets on this PC that no agent
+    uses yet: a faded box without lines, so a line drawn to it sets it up."""
     labels = {"skills": "{0} skills".format, "more": "+{0} more".format, "running": lambda n: "running" if n == 1
               else f"{n} running", "in_use": "in use · {0}".format,
               "server_off": "server off", **(labels or {})}
@@ -260,7 +263,8 @@ def build(agent_list, details: dict, inventory, labels: dict | None = None, fail
         for name in inventory.agent_mcp.get(agent.command, []):
             server = next((s for s in inventory.mcp if s.name == name), None)
             mid = f"mcp:{name}"
-            graph.add(Node(mid, 0, name, server.target if server else "", "mcp"))
+            graph.add(Node(mid, 0, name, server.target if server else "", "mcp",
+                           group="online" if server and server.kind == "url" else ""))
             graph.link(aid, mid, "mcp")
         for path in inventory.agent_skills.get(agent.command, []):
             skill_set = next((s for s in inventory.skill_sets if s.path == path), None)
@@ -268,6 +272,12 @@ def build(agent_list, details: dict, inventory, labels: dict | None = None, fail
             count = len(skill_set.skills) if skill_set else 0
             graph.add(Node(sid, 0, path, labels["skills"](count), "skills"))
             graph.link(aid, sid, "skills")
+
+    for kind, ident, label, detail in available:
+        if kind in ("mcp", "skills"):
+            server = next((s for s in inventory.mcp if s.name == ident), None) if kind == "mcp" else None
+            graph.add(Node(f"{kind}:{ident}", 0, label, detail, kind, dim=True,
+                           group="online" if server and server.kind == "url" else ""))
 
     # Every installed local runtime (something to connect agents to), with its models.
     for rt in inventory.runtimes:

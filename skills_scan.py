@@ -4,7 +4,8 @@ running anything. The agents' own skill folders are not offered again.
 
 Where it looks (a few levels deep, skipping big folders that never hold
 skills): /usr/share, /usr/local/share, /opt, ~/Applications (extracted
-AppImages), ~/.local/share, the global npm folder, Claude plugins.
+AppImages), ~/.local/share, the global npm folder, Claude plugins, and
+the folders added on Setup › Skills (extra_folders).
 """
 
 import os
@@ -53,7 +54,12 @@ def scan(known=()) -> list[SkillSet]:
     """Skill sets not among `known` (real paths of folders agents read already)."""
     known = {os.path.realpath(os.path.expanduser(k)) for k in known}
     found, seen, visited = [], set(), 0
-    for root, depth in ROOTS:
+    try:
+        import extra_folders
+        added = [(folder, 3) for folder in extra_folders.folders("skills")]
+    except (OSError, ValueError):
+        added = []
+    for root, depth in added + ROOTS:
         stack = [(root, 0)]
         while stack and visited < MAX_DIRS:
             folder, level = stack.pop()

@@ -103,6 +103,8 @@ SCHEMA: dict[str, Setting] = {
     "setup_collapsed": Setting([], _texts, "Setup: sections folded (closed-by-default ones as \"<key>:open\")"),
     "details_open": Setting([], _texts, "details pages: group cards opened (open-by-default ones as \"<key>:closed\")"),
     "model_folders": Setting([], _texts, "Setup › Models: folders added by hand (Add folder, Change folder), ~-paths"),
+    "mcp_folders": Setting([], _texts, "Setup › MCP servers: folders added by hand (Add folder), where programs are looked for"),
+    "skill_folders": Setting([], _texts, "Setup › Skills: folders added by hand (Add folder), where skill sets are looked for"),
     "add_where": Setting({}, _mapping, "the add pages' last tab: {\"mcp\": …, \"models\": …, \"skills\": …}"),
     "seen_found": Setting({}, _mapping, "programs and skill sets already shown as new on this PC"),
     "header_order": Setting([], _texts, "the order of the header's symbols (hold the left mouse button + drag)"),

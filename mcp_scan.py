@@ -2,7 +2,9 @@
 
 Where it looks:
 - the user's own programs: ~/.local/bin, ~/bin, ~/Applications/<app>/
-  (extracted AppImages: usr/bin), /opt/*/bin;
+  (extracted AppImages: usr/bin), /opt/*/bin, and the folders added on
+  Setup (extra_folders: the folder itself and its <app>/ folders, as
+  ~/Applications);
 - AppImages in ~/Applications and ~/.local/bin: never run by the scan.
   Only when the user clicks "Look inside" (look_inside) is each one's
   usr/bin unpacked (the AppImage's own --appimage-extract) into a private
@@ -86,7 +88,9 @@ def scan_file(path: Path, keep: bool = True) -> tuple[int, bytes]:
         with open(path, "rb") as handle, mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ) as data:
             count = sum(1 for marker in MARKERS if data.find(marker) >= 0)
             usage = b""
-            hit = re.search(rb"[\w.-]{1,64} mcp +\[", data)
+            # "x-cli mcp [--root DIR]"; or only "mcp [--…" where the program's name is put in front
+            # when it runs (the help text right after another string: "…mcpmcp [--connect PORT]").
+            hit = re.search(rb"[\w.-]{1,64} mcp +\[", data) or re.search(rb"mcp +\[--[a-z]", data)
             if hit:
                 block = data[hit.start():hit.start() + 900]
                 # The mcp usage: its first line and the indented lines after it.
@@ -97,6 +101,9 @@ def scan_file(path: Path, keep: bool = True) -> tuple[int, bytes]:
                         break
                     kept.append(line.strip())
                 usage = b" ".join(kept).split(b"\x00")[0][:600]
+            if not usage and count >= 2 and data.find(b"--automation-read-root") >= 0:
+                # A usage text made when the program runs (clap): its root options are still there.
+                usage = b"mcp [--automation-read-root DIR] [--automation-write-root DIR]"
             if not usage and data.find(b"MCP server") >= 0 and "mcp" in path.name.lower():
                 count = max(count, 1)
     except (OSError, ValueError):
@@ -106,7 +113,7 @@ def scan_file(path: Path, keep: bool = True) -> tuple[int, bytes]:
     return count, usage
 
 
-SCAN_CACHE = CACHE.parent / "mcp-scan-2.json"
+SCAN_CACHE = CACHE.parent / "mcp-scan-3.json"
 _CACHE = None
 
 
@@ -148,6 +155,8 @@ def command_for(program: Path, usage: str) -> tuple[list, bool]:
     if not usage:
         return [str(program), "mcp"], False
     command = [str(program), "mcp"]
+    if re.search(r"\|\s*--headless\b|\[--headless\]", usage):
+        command.append("--headless")          # its default is a running app (vectorcraft --connect)
     folder = folder_for(program.name)
     for option in re.findall(r"--(?:[\w-]*(?:read|write)[\w-]*-)?root\b", usage):
         if option not in command:
@@ -180,9 +189,21 @@ def _executables(folder: Path, depth: int = 0) -> list[Path]:
     return found
 
 
+def added_folders() -> list[Path]:
+    """The folders added on Setup › MCP servers (Add folder…)."""
+    try:
+        import extra_folders
+        return extra_folders.folders("mcp")
+    except (OSError, ValueError):
+        return []
+
+
 def own_programs() -> list[Path]:
     places = [HOME / ".local/bin", HOME / "bin"]
-    for root in (HOME / "Applications", OPT):
+    added = added_folders()
+    for folder in added:
+        places += [folder, folder / "bin", folder / "usr/bin"]
+    for root in (HOME / "Applications", OPT, *added):
         try:
             apps = sorted(p for p in root.iterdir() if p.is_dir())[:100]
         except OSError:
@@ -206,9 +227,10 @@ def path_programs() -> list[Path]:
 
 
 def appimages() -> list[Path]:
-    """AppImages the user keeps as programs (executable, in ~/Applications or ~/.local/bin)."""
+    """AppImages the user keeps as programs (executable, in ~/Applications, ~/.local/bin or a
+    folder added on Setup)."""
     found = []
-    for folder in (HOME / "Applications", HOME / ".local/bin"):
+    for folder in (HOME / "Applications", HOME / ".local/bin", *added_folders()):
         try:
             found += sorted(p for p in folder.iterdir() if p.name.lower().endswith(".appimage")
                             and p.is_file() and os.access(p, os.X_OK))[:100]

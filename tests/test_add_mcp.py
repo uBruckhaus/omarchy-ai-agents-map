@@ -8,6 +8,8 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import isolate  # noqa: E402
 import connect  # noqa: E402
 import mcp_ctl  # noqa: E402
 import mcp_catalog  # noqa: E402
@@ -257,6 +259,7 @@ class ScanTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.home = Path(self.tmp.name)
+        isolate.desktop_in(self, self.home)      # the settings too: no folders added on the real Setup
         for name, value in (("HOME", self.home), ("CACHE", self.home / "cache/appimages"),
                             ("SCAN_CACHE", self.home / "cache/scan.json"), ("_CACHE", None),
                             ("OPT", self.home / "opt")):
