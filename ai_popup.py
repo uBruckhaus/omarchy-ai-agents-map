@@ -17,6 +17,7 @@ import json
 import signal
 import sys
 import threading
+import traceback
 
 import gi
 
@@ -239,6 +240,16 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.after_first_frame(self.finish_boot)
 
     def finish_boot(self):
+        try:
+            self.build_after_boot()
+        except Exception:
+            # A half-built window cannot be used: say why and end, rather than stay a window
+            # that never fills in (the next start tries again).
+            traceback.print_exc()
+            self.booting = False
+            self.quit()
+
+    def build_after_boot(self):
         try:
             ai_core.migrate_settings()
         except OSError:

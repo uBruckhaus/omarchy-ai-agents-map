@@ -26,11 +26,14 @@ class ThemeCss:
         path = str(desktop.theme_dir() or "")
         if not path:
             return
-        self.theme_monitor = Gio.File.new_for_path(path).monitor(Gio.FileMonitorFlags.WATCH_MOVES, None)
-        self.theme_monitor.connect("changed", lambda *_: GLib.timeout_add(300, self.reload_theme))
-        parent = Gio.File.new_for_path(os.path.dirname(path))
-        self.theme_parent_monitor = parent.monitor_directory(Gio.FileMonitorFlags.WATCH_MOVES, None)
-        self.theme_parent_monitor.connect("changed", lambda *_: GLib.timeout_add(300, self.reload_theme))
+        try:
+            self.theme_monitor = Gio.File.new_for_path(path).monitor(Gio.FileMonitorFlags.WATCH_MOVES, None)
+            self.theme_monitor.connect("changed", lambda *_: GLib.timeout_add(300, self.reload_theme))
+            parent = Gio.File.new_for_path(os.path.dirname(path))
+            self.theme_parent_monitor = parent.monitor_directory(Gio.FileMonitorFlags.WATCH_MOVES, None)
+            self.theme_parent_monitor.connect("changed", lambda *_: GLib.timeout_add(300, self.reload_theme))
+        except GLib.Error:
+            pass                # no file monitor (e.g. none left): a theme change shows after a restart
 
     def reload_theme(self):
         if self.theme.reload():
