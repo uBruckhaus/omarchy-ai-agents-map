@@ -43,6 +43,17 @@ def _params(schema) -> list:
     return [n[:64] for n in names if isinstance(n, str) and _NAME.match(n[:64])][:40]
 
 
+def _result(message: dict) -> dict:
+    """A JSON-RPC answer's result (a dict, else empty), or RuntimeError for its error, whatever
+    shape a server sends them in."""
+    error = message.get("error")
+    if error is not None:
+        text = error.get("message", error) if isinstance(error, dict) else error
+        raise RuntimeError(str(text)[:200])
+    result = message.get("result")
+    return result if isinstance(result, dict) else {}
+
+
 def _clean(items, kind: str) -> list:
     found = []
     for item in items if isinstance(items, list) else []:
@@ -78,9 +89,7 @@ class _Stdio:
                 except ValueError:
                     continue            # a server printing other things on stdout
                 if isinstance(message, dict) and message.get("id") == wanted:
-                    if "error" in message:
-                        raise RuntimeError(str(message["error"].get("message", message["error"]))[:200])
-                    return message.get("result") or {}
+                    return _result(message)
             left = self.deadline - time.monotonic()
             if left <= 0:
                 raise TimeoutError("no answer")
@@ -157,9 +166,7 @@ class _Http:
         message = self.results.get(wanted)
         if message is None:
             raise RuntimeError("no answer")
-        if "error" in message:
-            raise RuntimeError(str(message["error"].get("message", message["error"]))[:200])
-        return message.get("result") or {}
+        return _result(message)
 
     def close(self):
         pass
@@ -184,7 +191,7 @@ def ask(entry: dict) -> dict:
                        "params": {"cursor": cursor} if cursor else {}})
             page = link.answer(number)
             tools += _clean(page.get("tools"), "tool")
-            cursor = page.get("nextCursor")
+            cursor = page.get("nextCursor") if isinstance(page.get("nextCursor"), str) else None
             number += 1
             if not cursor or len(tools) >= MAX_TOOLS or number > 20:
                 break
@@ -221,8 +228,11 @@ def ask_and_keep(name: str, entry: dict) -> dict:
     now = dt.datetime.now().isoformat(timespec="seconds")
     try:
         result = {"status": "ok", "checked": now, **ask(entry)}
-    except (OSError, ValueError, RuntimeError, TimeoutError) as error:
+    except Exception as error:          # any odd server: a failed ask, never a dead worker
         result = {"status": "failed", "checked": now, "error": str(error)[:300]}
     import ai_core
-    ai_core.atomic_write(cache_file(name), json.dumps(result, ensure_ascii=False, indent=1))   # 0600, no links followed
+    try:
+        ai_core.atomic_write(cache_file(name), json.dumps(result, ensure_ascii=False, indent=1))   # 0600, no links followed
+    except (OSError, ValueError):
+        pass
     return result

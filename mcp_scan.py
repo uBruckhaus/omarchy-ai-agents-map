@@ -62,12 +62,71 @@ class Candidate:
 
 
 def _is_elf_or_script(path: Path) -> bool:
+    import ai_core
     try:
-        with open(path, "rb") as handle:
-            head = handle.read(4)
+        head = ai_core.read_head(path, 4)
     except OSError:
         return False
     return head == b"\x7fELF" or head[:2] == b"#!"
+
+
+USAGE_SPAN = 900        # the usage block read after a hit
+OVERLAP = 2048          # kept from one chunk to the next: a marker or a usage block across the seam
+
+
+def _scan_bytes(fd: int, size: int, name: str) -> tuple[int, bytes]:
+    """The markers and the MCP usage block from an open file, read in CHUNKs (never mapped: a file
+    someone truncates meanwhile then reads short instead of killing the process) and never more
+    than `size` bytes."""
+    seen, first_hit, second_hit = set(), None, None
+    automation = server_text = False
+    tail, done = b"", 0
+
+    def read() -> bytes:
+        nonlocal done
+        chunk = os.read(fd, min(CHUNK, size - done)) if done < size else b""
+        done += len(chunk)
+        return chunk
+
+    chunk = read()
+    while chunk:
+        following = read()           # read one ahead: the last buffer is known as the last one
+        data = tail + chunk
+        last = not following
+        chunk = following
+        seen.update(m for m in MARKERS if m not in seen and m in data)
+        automation = automation or b"--automation-read-root" in data
+        server_text = server_text or b"MCP server" in data
+        # A hit whose block would run past this buffer is taken from the next one (it is in its
+        # overlap); at the end of the file the block is what is there.
+        usable = len(data) if last else len(data) - USAGE_SPAN
+        if first_hit is None:
+            hit = re.search(rb"[\w.-]{1,64} mcp +\[", data)
+            if hit and (hit.start() < usable):
+                first_hit = data[hit.start():hit.start() + USAGE_SPAN]
+        if first_hit is None and second_hit is None:
+            hit = re.search(rb"mcp +\[--[a-z]", data)
+            if hit and hit.start() < usable:
+                second_hit = data[hit.start():hit.start() + USAGE_SPAN]
+        tail = data[-OVERLAP:]
+    count = len(seen)
+    usage = b""
+    block = first_hit if first_hit is not None else second_hit
+    if block is not None:
+        # The mcp usage: its first line and the indented lines after it.
+        lines = block.split(b"\n")
+        kept = [lines[0]]
+        for line in lines[1:]:
+            if not line.startswith(b"   ") or re.match(rb"\s+[\w.-]+ \w", line) and b"--" not in line:
+                break
+            kept.append(line.strip())
+        usage = b" ".join(kept).split(b"\x00")[0][:600]
+    if not usage and count >= 2 and automation:
+        # A usage text made when the program runs (clap): its root options are still there.
+        usage = b"mcp [--automation-read-root DIR] [--automation-write-root DIR]"
+    if not usage and server_text and "mcp" in name.lower():
+        count = max(count, 1)
+    return count, usage
 
 
 def scan_file(path: Path, keep: bool = True) -> tuple[int, bytes]:
@@ -83,29 +142,16 @@ def scan_file(path: Path, keep: bool = True) -> tuple[int, bytes]:
         return count, usage.encode("utf-8", "replace")
     if info.st_size > MAX_BYTES or info.st_size == 0:
         return 0, b""
-    import mmap
+    import ai_core
+    # "x-cli mcp [--root DIR]"; or only "mcp [--…" where the program's name is put in front when it
+    # runs (the help text right after another string: "…mcpmcp [--connect PORT]").
     try:
-        with open(path, "rb") as handle, mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ) as data:
-            count = sum(1 for marker in MARKERS if data.find(marker) >= 0)
-            usage = b""
-            # "x-cli mcp [--root DIR]"; or only "mcp [--…" where the program's name is put in front
-            # when it runs (the help text right after another string: "…mcpmcp [--connect PORT]").
-            hit = re.search(rb"[\w.-]{1,64} mcp +\[", data) or re.search(rb"mcp +\[--[a-z]", data)
-            if hit:
-                block = data[hit.start():hit.start() + 900]
-                # The mcp usage: its first line and the indented lines after it.
-                lines = block.split(b"\n")
-                kept = [lines[0]]
-                for line in lines[1:]:
-                    if not line.startswith(b"   ") or re.match(rb"\s+[\w.-]+ \w", line) and b"--" not in line:
-                        break
-                    kept.append(line.strip())
-                usage = b" ".join(kept).split(b"\x00")[0][:600]
-            if not usage and count >= 2 and data.find(b"--automation-read-root") >= 0:
-                # A usage text made when the program runs (clap): its root options are still there.
-                usage = b"mcp [--automation-read-root DIR] [--automation-write-root DIR]"
-            if not usage and data.find(b"MCP server") >= 0 and "mcp" in path.name.lower():
-                count = max(count, 1)
+        fd = ai_core.open_regular(path)
+        try:
+            size = min(os.fstat(fd).st_size, MAX_BYTES)
+            count, usage = _scan_bytes(fd, size, path.name)
+        finally:
+            os.close(fd)
     except (OSError, ValueError):
         return 0, b""
     if keep:
@@ -174,8 +220,9 @@ def server_name(program: Path) -> str:
 
 def _executables(folder: Path, depth: int = 0) -> list[Path]:
     found = []
+    import ai_core
     try:
-        entries = sorted(folder.iterdir())[:500]
+        entries = sorted(Path(e.path) for e in ai_core.scandir_head(folder, 500))
     except OSError:
         return found
     for entry in entries:
@@ -203,9 +250,10 @@ def own_programs() -> list[Path]:
     added = added_folders()
     for folder in added:
         places += [folder, folder / "bin", folder / "usr/bin"]
+    import ai_core
     for root in (HOME / "Applications", OPT, *added):
         try:
-            apps = sorted(p for p in root.iterdir() if p.is_dir())[:100]
+            apps = sorted(Path(e.path) for e in ai_core.scandir_head(root, 1000) if e.is_dir())[:100]
         except OSError:
             continue
         for app in apps:
@@ -220,7 +268,8 @@ def path_programs() -> list[Path]:
     found = []
     for folder in os.environ.get("PATH", "").split(":"):
         try:
-            found += [Path(folder) / n for n in os.listdir(folder) if "mcp" in n.lower()][:50]
+            import ai_core
+            found += [Path(e.path) for e in ai_core.scandir_head(folder, 20000) if "mcp" in e.name.lower()][:50]
         except OSError:
             continue
     return found
@@ -232,8 +281,10 @@ def appimages() -> list[Path]:
     found = []
     for folder in (HOME / "Applications", HOME / ".local/bin", *added_folders()):
         try:
-            found += sorted(p for p in folder.iterdir() if p.name.lower().endswith(".appimage")
-                            and p.is_file() and os.access(p, os.X_OK))[:100]
+            import ai_core
+            found += sorted(Path(e.path) for e in ai_core.scandir_head(folder, 5000)
+                            if e.name.lower().endswith(".appimage") and e.is_file()
+                            and os.access(e.path, os.X_OK))[:100]
         except OSError:
             continue
     return found
@@ -265,7 +316,9 @@ def _unpacked_versions() -> dict:
     """app -> versions unpacked in ~/Applications/<app>-<version>/."""
     found = {}
     try:
-        folders = [p for p in (HOME / "Applications").iterdir() if p.is_dir() and not p.name.startswith(".")]
+        import ai_core
+        folders = [Path(e.path) for e in ai_core.scandir_head(HOME / "Applications", 5000)
+                   if e.is_dir() and not e.name.startswith(".")]
     except OSError:
         return found
     for folder in folders[:200]:
@@ -376,8 +429,11 @@ def look_inside(paths) -> dict:
 
 def not_looked_into() -> list[Path]:
     """AppImages whose programs were never looked at (and not unpacked by hand)."""
-    extracted = {p.name for p in (HOME / "Applications").iterdir() if p.is_dir()} \
-        if (HOME / "Applications").is_dir() else set()
+    import ai_core
+    try:
+        extracted = {e.name for e in ai_core.scandir_head(HOME / "Applications", 5000) if e.is_dir()}
+    except OSError:
+        extracted = set()
     return [i for i in appimages() if appimage_stem(i) not in extracted and looked_into(i) is None]
 
 

@@ -2117,7 +2117,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             [str(p) for a in self.agent_list if a.installed for p in skills_ctl.skill_dirs(a.command)]
         agent_list, runtimes = list(self.agent_list), list(self.inventory.runtimes)
 
-        def work():
+        def looks():
             mcp_scan.cleanup_old_cache()
             connect.prune_retired()
             for rt in (r for r in runtimes if r.installed):
@@ -2143,7 +2143,16 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                 updates = agent_updates.check(agent_list, runtimes)     # cached, asked every 6 h at most
             except (OSError, ValueError, RuntimeError):
                 updates = []
-            GLib.idle_add(done, mcp, skills, versions, updates)
+            return mcp, skills, versions, updates
+
+        def work():
+            # Whatever a scan raises, done() runs: checking_new is never left set (it would stop
+            # every later look for new programs until a restart).
+            try:
+                found = looks()
+            except Exception:
+                found = (self.found_mcp, self.found_skills, [], [])
+            GLib.idle_add(done, *found)
 
         def done(mcp, skills, versions, updates):
             self.checking_new = False

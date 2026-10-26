@@ -347,7 +347,10 @@ class McpPages:
         self.open_mcp_details(name)
 
         def work():
-            result = mcp_tools.ask_and_keep(name, entry)
+            try:
+                result = mcp_tools.ask_and_keep(name, entry)
+            except Exception as error:      # the server is never left marked as being asked
+                result = {"status": "failed", "error": str(error)[:300]}
             GLib.idle_add(done, result)
 
         def done(result):

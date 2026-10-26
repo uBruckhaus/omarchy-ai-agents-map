@@ -22,6 +22,7 @@ SKIP = {"icons", "locale", "man", "doc", "fonts", "themes", "mime", "zoneinfo", 
         "recently-used.xbel", "keyrings", "nvim", "tracker3", "ai-agents-map", "kxmlgui5", "gnome-shell",
         "omarchy-plugin-i18n", ".git", "__pycache__", "marketplaces", "site-packages", "dist-packages", "ollama", "lm-studio"}
 MAX_DIRS = 20000
+MAX_ENTRIES = 2000       # names read from one folder at most
 
 
 @dataclass
@@ -37,9 +38,10 @@ def _tilde(path) -> str:
 
 
 def _skills_in(folder: Path) -> list[str]:
+    import ai_core
     try:
-        return sorted(e.name for e in folder.iterdir()
-                      if not e.name.startswith(".") and e.is_dir() and (e / "SKILL.md").is_file())[:200]
+        return sorted(e.name for e in ai_core.scandir_head(folder, MAX_ENTRIES)
+                      if not e.name.startswith(".") and e.is_dir() and os.path.isfile(os.path.join(e.path, "SKILL.md")))[:200]
     except OSError:
         return []
 
@@ -52,6 +54,7 @@ def origin_of(folder: Path) -> str:
 
 def scan(known=()) -> list[SkillSet]:
     """Skill sets not among `known` (real paths of folders agents read already)."""
+    import ai_core
     known = {os.path.realpath(os.path.expanduser(k)) for k in known}
     found, seen, visited = [], set(), 0
     try:
@@ -65,7 +68,8 @@ def scan(known=()) -> list[SkillSet]:
             folder, level = stack.pop()
             visited += 1
             try:
-                entries = [e for e in os.scandir(folder) if e.is_dir(follow_symlinks=False)]
+                # Bounded: a folder filled with millions of names costs MAX_ENTRIES at most.
+                entries = [e for e in ai_core.scandir_head(folder, MAX_ENTRIES) if e.is_dir(follow_symlinks=False)]
             except OSError:
                 continue
             names = [e.name for e in entries]
@@ -79,6 +83,8 @@ def scan(known=()) -> list[SkillSet]:
             if level >= depth:
                 continue
             for entry in entries:
+                if visited + len(stack) >= MAX_DIRS:
+                    break             # the queue never holds more than the folders still allowed
                 if entry.name in SKIP or entry.name.startswith(".") and entry.name not in (".claude",):
                     continue
                 stack.append((Path(entry.path), level + 1))

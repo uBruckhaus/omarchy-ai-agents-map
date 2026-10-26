@@ -143,6 +143,31 @@ def read_head(path, limit: int, follow: bool = True) -> bytes:
         os.close(fd)
 
 
+def open_regular(path, follow: bool = True) -> int:
+    """A descriptor of a regular file, opened without blocking and checked on the opened file (a
+    FIFO or device put in its place raises OSError instead of hanging the reader). Close it."""
+    fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC | (0 if follow else os.O_NOFOLLOW))
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError(f"{path} is not a regular file")
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+def scandir_head(folder, limit: int) -> list:
+    """At most `limit` entries of a folder (os.DirEntry), in no order: never more listed or kept, so
+    a folder someone filled with millions of names costs no more than `limit` of them."""
+    found = []
+    with os.scandir(folder) as entries:
+        for entry in entries:
+            found.append(entry)
+            if len(found) >= limit:
+                break
+    return found
+
+
 def read_whole(path, limit: int, follow: bool = True) -> bytes:
     """A whole regular file of at most `limit` bytes, for reading in order to rewrite it: a larger
     one raises OSError instead of handing back its start (a prefix written back would lose the rest)."""
