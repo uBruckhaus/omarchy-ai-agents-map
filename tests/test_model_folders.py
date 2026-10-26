@@ -105,6 +105,29 @@ class ModelFoldersTest(unittest.TestCase):
         self.assertEqual((self.router / "gemma-Q4.gguf").resolve(), (self.gemma / "gemma-Q4.gguf").resolve())
         self.assertIn(str(self.gemma / "mmproj-BF16.gguf"), self.ini.read_text())
 
+    def test_change_folder_refuses_a_swapped_ancestor_of_the_new_folder(self):
+        folder = model_folders.discover(self.runtimes)[0]
+        parent = self.models / "disk"
+        parent.mkdir()
+        change = model_folders.plan(folder, parent / "chess", self.runtimes, ini=self.ini)
+        elsewhere = self.root / "elsewhere"
+        elsewhere.mkdir()
+        parent.rename(self.models / "disk.old")
+        parent.symlink_to(elsewhere)
+        with self.assertRaises(ValueError):
+            model_move.apply(change.move)
+        self.assertEqual(list(elsewhere.rglob("*")), [])
+        self.assertTrue((self.gemma / "gemma-Q4.gguf").is_file())
+
+    def test_change_folder_makes_several_missing_folders(self):
+        folder = model_folders.discover(self.runtimes)[0]
+        new = self.models / "new-disk" / "models" / "chess"
+        change = model_folders.plan(folder, new, self.runtimes, ini=self.ini)
+        done = model_move.apply(change.move)
+        self.assertTrue((new / "gemma-Q4.gguf").is_file())
+        self.assertEqual(model_move.undo(change.move, done), [])
+        self.assertTrue((self.gemma / "gemma-Q4.gguf").is_file())
+
     def test_what_will_not_see_the_models_is_said_first(self):
         folder = model_folders.discover(self.runtimes)[0]
         outside = self.root / "elsewhere"                                   # outside LM Studio's folder

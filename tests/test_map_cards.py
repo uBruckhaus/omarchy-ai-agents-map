@@ -24,6 +24,7 @@ class Cards:
         self.agent_links = set()
         self.costs, self.text_widths, self.measure = {}, {}, None
         self.collapsed, self.folded = set(), set()
+        self.view_columns = 0
 
     def relayout(self):
         pass
@@ -376,6 +377,31 @@ class OrderTest(unittest.TestCase):
         self.assertEqual(view.cards, {})
         self.assertEqual(view.card_rects["skills"], home)
         self.assertEqual(view.order["mcp"], ["mcp:alpha", "mcp:beta"])
+
+
+class NarrowColumnsTest(unittest.TestCase):
+    """The narrow window: more columns than the view shares scroll sideways, not squeezed."""
+
+    class View(Cards):
+        @staticmethod
+        def viewport_width():
+            return 900
+
+    def test_more_columns_than_the_view_shares_make_the_map_wider(self):
+        view = self.View(built())                    # MCP servers · agents · providers: 3 columns
+        view.layout(900, 800)
+        squeezed = view.boxes["mcp:alpha"][2]
+        self.assertLessEqual(view.min_width, 900)    # all in the view
+        view.view_columns = 2
+        view.layout(900, 800)
+        self.assertGreater(view.boxes["mcp:alpha"][2], squeezed)
+        self.assertGreater(view.min_width, 900)      # wider than the view: it scrolls sideways
+        two = self.View(built(mcp=()))
+        two.shown = lambda column: [] if column == 0 else two.graph.column(column)
+        two.view_columns = 2
+        two.layout(900, 800)
+        # The providers' boxes are as wide with the MCP column shown as with only the two.
+        self.assertEqual(two.boxes["cloud:anthropic"][2], view.boxes["cloud:anthropic"][2])
 
 
 if __name__ == "__main__":

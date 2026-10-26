@@ -18,8 +18,10 @@ RIGHT_PAGES = ("connect", "install", "models", "mcp", "addmcp", "addskills", "st
 DETAIL_LABEL_WIDTH = 90   # the dim labels of a compact detail grid
 FULL_WIDTH_SHARE = 0.9    # of the monitor's width: a window this wide is really maximized
 
-NARROW_WITH_AGENT = frozenset({"agents", "online", "local"})     # who works through what
-NARROW_IDLE = frozenset({"online", "local", "models"})            # what is there to use
+NARROW = frozenset({"agents", "online", "local"})     # who works through what
+# The columns those fill (agents | providers): their width is the narrow window's column width, so
+# more categories switched on there make the map scroll sideways instead of squeezing the columns.
+NARROW_COLUMNS = 2
 
 
 def narrow(width: int) -> bool:
@@ -40,20 +42,20 @@ def really_maximized(reported, width: int, monitor_width: int | None) -> bool:
     return monitor_width is None or width >= monitor_width * FULL_WIDTH_SHARE
 
 
-def layer_situation(width: int, agent_running: bool):
-    """What the map's categories are chosen for: ("narrow", running?), ("wide",), or None while the
-    window has no width yet."""
+def layer_situation(width: int):
+    """What the map's categories are chosen for: ("narrow",), ("wide",), or None while the window
+    has no width yet. Whether an agent runs does not count: a Show switch clicked in the narrow
+    window stays until the window gets wide."""
     if width <= 0:
         return None
-    return ("narrow", bool(agent_running)) if narrow(width) else ("wide",)
+    return ("narrow",) if narrow(width) else ("wide",)
 
 
 def layers_for(situation, wide_layers, saved) -> set:
-    """The categories for a situation. Narrow: with an agent running, agents and providers; with
-    none, providers and models. Wide: the full-size window's own (kept while it was narrow), else
-    the saved choice with the agents shown."""
+    """The categories for a situation. Narrow: agents and providers. Wide: the full-size window's
+    own (kept while it was narrow), else the saved choice with the agents shown."""
     if situation[0] == "narrow":
-        return set(NARROW_WITH_AGENT if situation[1] else NARROW_IDLE)
+        return set(NARROW)
     if wide_layers is not None:
         return set(wide_layers)
     return set(saved) | {"agents"}

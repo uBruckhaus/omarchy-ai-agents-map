@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "ubruckhaus.ai-agents-map",
   "name": "AI Agents Map",
-  "version": "0.24.0",
+  "version": "0.25.0",
   "author": "Uwe Bruckhaus",
   "license": "MIT",
   "description": "Your AI setup on one map: coding agents with plan, limits and usage, local LLMs (llama.cpp, Ollama, LM Studio, vLLM, Jan, KoboldCpp) and their models, MCP servers and skills. Setup installs, updates and signs in everything; connect by drawing a line, with preview and Undo. Batteries show limits, local LLMs get a stop button. New: subagents on their own map, arrows when one agent starts another, API cost in $ or € with a day's limit, and Goose. 8 languages.",

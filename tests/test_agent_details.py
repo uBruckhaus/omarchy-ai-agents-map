@@ -136,6 +136,44 @@ class DetailsTest(unittest.TestCase):
         self.write(".codex/config.toml", 'model = "o9"\n')
         self.assertEqual(ad.details_for("codex", usage_dir=self.home).model, "o9")      # set: as it is
 
+    def test_claude_model_from_its_last_session(self):
+        """No model in settings.json: the one its newest session's last reply ran, as the map's alias."""
+        import agent_readers
+        self.write(".claude/settings.json", '{"theme": "dark"}')
+        self.assertEqual(agent_readers.claude_session_model(), "")         # no sessions yet
+        old = self.write(".claude/projects/-a/old.jsonl", '{"message":{"model":"claude-sonnet-5-5"}}\n')
+        os.utime(old, (1_700_000_000, 1_700_000_000))
+        self.write(".claude/projects/-b/new.jsonl",
+                   '{"type":"assistant","message":{"model":"claude-sonnet-5-5"}}\n'
+                   '{"type":"assistant","message":{"model":"<synthetic>"}}\n'
+                   '{"type":"assistant","message":{"model":"claude-opus-5-5"}}\n')
+        self.assertEqual(agent_readers.claude_session_model(), "opus")
+        self.assertEqual(ad.details_for("claude", usage_dir=self.home).model, "opus")
+        self.write(".claude/projects/-b/new.jsonl", '{"message":{"model":"claude-haiku-5-5"}}\n')
+        self.assertEqual(agent_readers.claude_session_model(), "claude-haiku-5-5")   # no alias: its own name
+        self.write(".claude/settings.json", '{"model": "sonnet"}')
+        self.assertEqual(ad.details_for("claude", usage_dir=self.home).model, "sonnet")   # set: as it is
+
+    def test_claude_session_model_by_file_time_and_cached(self):
+        """A resumed old project counts by its file's time; within CLAUDE_RESCAN the folders are not
+        looked through again, and an unchanged file is not read again."""
+        import agent_readers
+        self.write(".claude/settings.json", "{}")
+        old = self.write(".claude/projects/-old/s.jsonl", '{"message":{"model":"claude-sonnet-5-5"}}\n')
+        for n in range(20):                                   # more projects than any shortlist
+            self.write(f".claude/projects/-p{n}/s.jsonl", '{"message":{"model":"claude-haiku-5-5"}}\n')
+            os.utime(self.home / f".claude/projects/-p{n}/s.jsonl", (1_700_000_000 + n,) * 2)
+        os.utime(self.home / ".claude/projects/-old", (1_600_000_000,) * 2)   # its folder looks oldest
+        os.utime(old, (1_800_000_000,) * 2)                    # but its session was written last
+        agent_readers._claude_seen["folder"] = None
+        self.assertEqual(agent_readers.claude_session_model(), "sonnet")
+        with mock.patch.object(agent_readers.os, "scandir", side_effect=AssertionError("rescanned")):
+            self.assertEqual(agent_readers.claude_session_model(), "sonnet")
+        (self.home / ".claude/projects/-p3").chmod(0)          # unreadable project: skipped, not fatal
+        self.addCleanup((self.home / ".claude/projects/-p3").chmod, 0o755)
+        agent_readers._claude_seen["folder"] = None
+        self.assertEqual(agent_readers.claude_session_model(), "sonnet")
+
     def test_oversized_file_ignored(self):
         self.write(".copilot/config.json", '{"model": "x"}' + " " * (ad.MAX_FILE_BYTES + 1))
         self.assertEqual(ad.details_for("copilot", usage_dir=self.home).model, "")

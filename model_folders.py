@@ -190,20 +190,26 @@ def plan(folder: Folder, new, runtimes, repointable=lambda key: False, ini: Path
         raise ValueError("the new folder is inside this one")
     if target.exists() and not target.is_dir():
         raise ValueError(f"{target} is not a folder")
-    steps, size = [], 0
+    steps, size, idents = [], 0, {}
+    target = real(target)                              # resolved once here: model_move never follows links
     for path in folder.files:
+        path = real(path.parent) / path.name           # model_move walks real folders only
+        if not path.is_relative_to(source):
+            raise ValueError(f"{path.name} lies outside this folder")
         st = os.stat(path, follow_symlinks=False)
-        if st.st_uid != os.getuid():
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid():
             raise ValueError(f"{path.name} belongs to another account")
         dest = target / path.name
         if os.path.lexists(dest):
             raise ValueError(f"{dest} exists already")
         steps.append((path, dest))
+        idents[str(path)] = (st.st_dev, st.st_ino)
         size += st.st_size
     if not steps:
         raise ValueError("this folder holds no model files of its own")
     move = model_move.Move(name=source.name, steps=steps, size=size, copy=not _same_disk(source, target),
-                           root=target, back=source)
+                           root=target, back=source, idents=idents,
+                           anchors={str(target): model_move.anchor(target), str(source): model_move.anchor(source)})
     change = Change(move)
     moved = {str(s): d for s, d in steps}
     for rt in runtimes:

@@ -133,6 +133,14 @@ LLM providers → models, under the **GPU** card (GPU memory and activity; it fo
 - **Layout pin** (new in 0.24.0): the pin right of the zoom keeps the map's layout (where you put
   the cards, the order of the boxes, which cards are folded) after Refresh (F5) and a restart.
   Unpinned, as it starts, the map comes back in its default layout on every refresh and start.
+- **Claude's model from its last session** (new in 0.25.0): when ~/.claude/settings.json sets no
+  model, Claude's box shows the model of its newest session (as its alias, e.g. opus, when it is one).
+- **Narrow window** (new in 0.25.0): half the screen or less always shows agents and providers; a
+  category switched on there stays until the window is full size again, and more categories scroll
+  the map sideways instead of squeezing the boxes.
+- **Safer Move to… and Change folder…** (0.25.0): a model is moved only if it is still the very file
+  the preview saw (device and inode); both folders are reached one name at a time from `/` without
+  following links, and every step works relative to those pinned folders. Undo checks the same way.
 - **Used from outside the map**: when a program that is not on the map (a plugin such as Video
   Trans, a chat app, a script) generates with a local LLM, the line from that LLM to the model is
   drawn bold in a colour of its own, light runs along it, and the model box says who uses it ("in use

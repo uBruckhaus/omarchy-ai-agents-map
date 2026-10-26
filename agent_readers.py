@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import os
 import re
+import threading
+import time
 from pathlib import Path
 
 import agent_details as ad
@@ -74,11 +76,82 @@ def opencode(details: "ad.Details"):
 
 def claude(details: "ad.Details"):
     settings = ad.read_json(ad._expand("~/.claude/settings.json"))
-    details.model = ad._text(settings.get("model"))
+    details.model = ad._text(settings.get("model")) or claude_session_model()   # none set: as its last session ran
     env = settings.get("env") if isinstance(settings.get("env"), dict) else {}
     base = env.get("ANTHROPIC_BASE_URL")
     if isinstance(base, str) and base:
         details.providers.append(ad.provider_for_url("Anthropic API", base))
+
+
+CLAUDE_MODEL = re.compile(rb'"model"\s*:\s*"(claude-[A-Za-z0-9._-]{1,80})"')
+CLAUDE_RESCAN = 30.0             # s between looks for the newest session file (the poll runs every 2 s)
+CLAUDE_MAX_ENTRIES = 2000        # project folders, and session files in each, looked at
+_claude_seen = {"folder": None, "at": 0.0, "file": None, "key": None, "model": ""}
+_claude_lock = threading.Lock()                  # the poll and the map's workers both ask
+
+
+def _newest_claude_session(folder):
+    """Path of the most recently written session file (projects/<folder>/<session>.jsonl), by the
+    file's own time (writing to a file does not touch its folder's); a project or file that cannot
+    be read is skipped, not the whole look."""
+    newest = None
+    try:
+        projects = [e.path for _i, e in zip(range(CLAUDE_MAX_ENTRIES), os.scandir(folder))
+                    if e.is_dir(follow_symlinks=False)]
+    except OSError:
+        return None
+    for project in projects:
+        try:
+            with os.scandir(project) as entries:
+                for _i, entry in zip(range(CLAUDE_MAX_ENTRIES), entries):
+                    try:
+                        if not entry.name.endswith(".jsonl") or not entry.is_file(follow_symlinks=False):
+                            continue
+                        mtime = entry.stat(follow_symlinks=False).st_mtime_ns
+                    except OSError:                       # gone since the listing: the others still count
+                        continue
+                    if newest is None or mtime > newest[0]:
+                        newest = (mtime, entry.path)
+        except OSError:
+            continue
+    return newest[1] if newest else None
+
+
+def claude_session_model(root: str = "~/.claude/projects") -> str:
+    """With no "model" in settings.json Claude Code runs its own default: the model of the last reply
+    in its newest session file (projects/<folder>/<session>.jsonl), as the alias the map switches
+    between ("claude-opus-5-5" -> "opus") when it is one; "" when there is none. Only the "model"
+    values of the file's end are read. Called by the 2 s poll and every map refresh, so the
+    newest file is looked for at most every CLAUDE_RESCAN seconds (or when it is gone or there was
+    none), and its end is read again only when the file changed."""
+    with _claude_lock:
+        return _claude_session_model(ad._expand(root))
+
+
+def _claude_session_model(folder) -> str:
+    import online_models
+    seen = _claude_seen
+    now = time.monotonic()
+    if seen["folder"] != folder or seen["file"] is None or now - seen["at"] >= CLAUDE_RESCAN:
+        seen.update(folder=folder, at=now, file=_newest_claude_session(folder))
+    path = seen["file"]
+    if path is None:
+        return ""
+    try:
+        with open(path, "rb") as handle:
+            st = os.fstat(handle.fileno())
+            key = (path, st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns)
+            if key == seen["key"]:
+                return seen["model"]
+            handle.seek(max(0, st.st_size - 256 * 1024))
+            found = CLAUDE_MODEL.findall(handle.read(256 * 1024))
+    except OSError:
+        seen["file"] = None                       # gone: look again next time
+        return ""
+    model = found[-1].decode("ascii") if found else ""
+    model = next((a for a in online_models.CLAUDE_ALIASES if a in model.split("-")), model) if model else ""
+    seen.update(key=key, model=model)
+    return model
 
 
 def codex(details: "ad.Details"):

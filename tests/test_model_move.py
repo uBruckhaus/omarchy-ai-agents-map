@@ -2,6 +2,7 @@ import os
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -123,16 +124,20 @@ class ModelMoveTest(unittest.TestCase):
         secret.chmod(0o600)
         move = model_move.plan("llamacpp", self.llama, "qwen", "koboldcpp", self.kobold)
         move.copy = copy
-        make_parents = model_move._make_parents
+        walk = model_move._walk
+        swapped = []
 
-        def swap_then_make(target, root):
-            source.unlink()
-            source.symlink_to(secret)
-            make_parents(target, root)
-        model_move._make_parents = swap_then_make
-        self.addCleanup(setattr, model_move, "_make_parents", make_parents)
+        def swap_then_walk(path, root, base, make=False):
+            if make:                                 # the target folder: the source is open already
+                source.unlink()
+                source.symlink_to(secret)
+                swapped.append(True)
+            return walk(path, root, base, make)
+        model_move._walk = swap_then_walk
+        self.addCleanup(setattr, model_move, "_walk", walk)
         with self.assertRaises(ValueError):
             model_move.apply(move)
+        self.assertEqual(swapped, [True])               # the swap happened with the source open
         leftovers = [p for p in self.kobold.rglob("*") if p.is_file() or p.is_symlink()]
         self.assertEqual(leftovers, [])
         self.assertEqual(secret.read_bytes(), b"SECRET")
@@ -169,6 +174,239 @@ class ModelMoveTest(unittest.TestCase):
         move.copy = True
         with self.assertRaises(ValueError):
             model_move.apply(move)
+
+    def private_twin(self, name: str = "qwen.gguf") -> Path:
+        """A private folder of 'another account' holding a file with the model's name (mode 0644)."""
+        private = Path(self.tmp.name) / "private"
+        private.mkdir()
+        twin = private / name
+        twin.write_bytes(b"VICTIM")
+        twin.chmod(0o644)
+        return private
+
+    def swap_folder(self, folder: Path, to: Path):
+        """Put a link to `to` where folder was (the folder itself is kept aside)."""
+        folder.rename(folder.with_name(folder.name + ".old"))
+        folder.symlink_to(to)
+
+    def assert_victim_untouched(self, private: Path, *folders: Path):
+        self.assertEqual((private / "qwen.gguf").read_bytes(), b"VICTIM")
+        for folder in folders:
+            self.assertEqual([p for p in folder.rglob("*") if p.is_file() or p.is_symlink()], [])
+
+    def test_source_parent_swapped_after_the_preview(self):
+        for copy in (False, True):
+            with self.subTest(copy=copy):
+                self.setUp()
+                self.gguf(self.llama / "qwen.gguf")
+                move = model_move.plan("llamacpp", self.llama, "qwen", "koboldcpp", self.kobold)
+                move.copy = copy
+                private = self.private_twin()
+                self.swap_folder(self.llama, private)
+                with self.assertRaises(ValueError):
+                    model_move.apply(move)
+                self.assert_victim_untouched(private, self.kobold)
+
+    def test_higher_source_ancestor_swapped_after_the_preview(self):
+        for copy in (False, True):
+            with self.subTest(copy=copy):
+                self.setUp()
+                models = Path(self.tmp.name) / "models"
+                deep = models / "llama"
+                self.gguf(deep / "qwen.gguf")
+                move = model_move.plan("llamacpp", deep, "qwen", "koboldcpp", self.kobold)
+                move.copy = copy
+                private = self.private_twin()
+                (private / "llama").mkdir()
+                (private / "llama" / "qwen.gguf").write_bytes(b"VICTIM")
+                self.swap_folder(models, private)        # models/llama is now private/llama
+                with self.assertRaises(ValueError):
+                    model_move.apply(move)
+                self.assertEqual((private / "llama" / "qwen.gguf").read_bytes(), b"VICTIM")
+                self.assert_victim_untouched(private, self.kobold)
+
+    def test_same_name_same_folder_but_another_file(self):
+        path = self.gguf(self.llama / "qwen.gguf")
+        move = model_move.plan("llamacpp", self.llama, "qwen", "koboldcpp", self.kobold)
+        path.unlink()
+        self.gguf(path, b"GGUF other file")            # a new inode under the planned name
+        with self.assertRaises(ValueError):
+            model_move.apply(move)
+        self.assertEqual(path.read_bytes(), b"GGUF other file")
+        self.assertFalse((self.kobold / "qwen.gguf").exists())
+
+    def test_undo_refuses_a_swapped_target_folder(self):
+        for copy in (False, True):
+            with self.subTest(copy=copy):
+                self.setUp()
+                self.gguf(self.llama / "qwen.gguf")
+                move = model_move.plan("llamacpp", self.llama, "qwen", "koboldcpp", self.kobold)
+                move.copy = copy
+                done = model_move.apply(move)
+                private = self.private_twin()
+                self.swap_folder(self.kobold, private)
+                problems = model_move.undo(move, done)
+                self.assertEqual(len(problems), 1)
+                self.assertEqual((private / "qwen.gguf").read_bytes(), b"VICTIM")
+                self.assertFalse((self.llama / "qwen.gguf").exists())
+
+    def test_undo_refuses_a_swapped_higher_target_ancestor(self):
+        self.gguf(self.llama / "qwen.gguf")
+        move = model_move.plan("llamacpp", self.llama, "qwen", "lmstudio", self.lms)
+        done = model_move.apply(move)
+        moved = done[0][1]
+        self.assertNotEqual(moved.parent, self.lms.resolve())  # local/<model>/ below the folder
+        private = Path(self.tmp.name) / "private"
+        (private / moved.parent.name).mkdir(parents=True)
+        (private / moved.parent.name / "qwen.gguf").write_bytes(b"VICTIM")
+        local = self.lms / "local"
+        local.rename(self.lms / "local.old")
+        local.symlink_to(private)
+        self.assertEqual(len(model_move.undo(move, done)), 1)
+        self.assertEqual((private / moved.parent.name / "qwen.gguf").read_bytes(), b"VICTIM")
+        self.assertFalse((self.llama / "qwen.gguf").exists())
+
+    def test_undo_after_a_copy_checks_the_copy_not_the_original(self):
+        self.gguf(self.llama / "qwen.gguf")
+        move = model_move.plan("llamacpp", self.llama, "qwen", "koboldcpp", self.kobold)
+        move.copy = True
+        done = model_move.apply(move)
+        target = self.kobold / "qwen.gguf"
+        target.unlink()
+        self.gguf(target, b"GGUF replaced")              # another file under the moved name
+        self.assertEqual(len(model_move.undo(move, done)), 1)
+        self.assertEqual(target.read_bytes(), b"GGUF replaced")
+        self.assertFalse((self.llama / "qwen.gguf").exists())
+
+    def test_target_folder_swapped_after_the_preview(self):
+        for copy in (False, True):
+            with self.subTest(copy=copy):
+                self.setUp()
+                self.gguf(self.llama / "qwen.gguf")
+                move = model_move.plan("llamacpp", self.llama, "qwen", "koboldcpp", self.kobold)
+                move.copy = copy
+                elsewhere = Path(self.tmp.name) / "elsewhere"
+                elsewhere.mkdir()
+                self.swap_folder(self.kobold, elsewhere)
+                with self.assertRaises(ValueError):
+                    model_move.apply(move)
+                self.assertEqual(list(elsewhere.iterdir()), [])
+                self.assertTrue((self.llama / "qwen.gguf").is_file())
+
+    def test_higher_target_ancestor_swapped_after_the_preview(self):
+        deep = Path(self.tmp.name) / "disk" / "kobold"
+        deep.mkdir(parents=True)
+        self.gguf(self.llama / "qwen.gguf")
+        move = model_move.plan("llamacpp", self.llama, "qwen", "koboldcpp", deep)
+        elsewhere = Path(self.tmp.name) / "elsewhere"
+        (elsewhere / "kobold").mkdir(parents=True)
+        self.swap_folder(deep.parent, elsewhere)
+        with self.assertRaises(ValueError):
+            model_move.apply(move)
+        self.assertEqual(list((elsewhere / "kobold").iterdir()), [])
+        self.assertTrue((self.llama / "qwen.gguf").is_file())
+
+    def test_undo_refuses_a_swapped_restore_folder(self):
+        self.gguf(self.llama / "qwen.gguf")
+        move = model_move.plan("llamacpp", self.llama, "qwen", "koboldcpp", self.kobold)
+        done = model_move.apply(move)
+        elsewhere = Path(self.tmp.name) / "elsewhere"
+        elsewhere.mkdir()
+        self.swap_folder(self.llama, elsewhere)
+        self.assertEqual(len(model_move.undo(move, done)), 1)
+        self.assertEqual(list(elsewhere.iterdir()), [])
+        self.assertTrue((self.kobold / "qwen.gguf").is_file())
+
+    def test_a_folder_others_can_write_into_is_refused(self):
+        for folder in ("llama", "kobold"):
+            with self.subTest(folder=folder):
+                self.setUp()
+                self.gguf(self.llama / "qwen.gguf")
+                move = model_move.plan("llamacpp", self.llama, "qwen", "koboldcpp", self.kobold)
+                getattr(self, folder).chmod(0o777)
+                with self.assertRaises(ValueError):
+                    model_move.apply(move)
+                self.assertTrue((self.llama / "qwen.gguf").is_file())
+                self.assertFalse((self.kobold / "qwen.gguf").exists())
+
+    def test_source_that_cannot_be_removed_is_not_moved(self):
+        for copy in (False, True):
+            with self.subTest(copy=copy):
+                self.setUp()
+                self.gguf(self.llama / "qwen.gguf")
+                move = model_move.plan("llamacpp", self.llama, "qwen", "koboldcpp", self.kobold)
+                move.copy = copy
+                self.llama.chmod(0o555)
+                self.addCleanup(self.llama.chmod, 0o755)
+                with self.assertRaises(ValueError) as caught:
+                    model_move.apply(move)
+                self.assertEqual(caught.exception.done, [])
+                self.assertTrue((self.llama / "qwen.gguf").is_file())
+                self.assertEqual(list(self.kobold.iterdir()), [])
+
+    def test_a_swapped_partial_copy_is_neither_published_nor_removed(self):
+        self.gguf(self.llama / "qwen.gguf", b"GGUF" + b"\0" * 3_000_000)
+        move = model_move.plan("llamacpp", self.llama, "qwen", "koboldcpp", self.kobold)
+        move.copy = True
+        partial, aside = self.kobold / ".qwen.gguf.part", self.kobold / "aside"
+        swapped = []
+
+        def progress(_fraction, _name):
+            if not swapped:
+                partial.rename(aside)
+                partial.write_bytes(b"THEIRS")
+                swapped.append(True)
+        with self.assertRaises(ValueError):
+            model_move.apply(move, progress)
+        self.assertFalse((self.kobold / "qwen.gguf").exists())
+        self.assertEqual(partial.read_bytes(), b"THEIRS")
+        self.assertTrue((self.llama / "qwen.gguf").is_file())
+
+    def test_target_folder_replaced_by_another_real_folder(self):
+        for copy in (False, True):
+            with self.subTest(copy=copy):
+                self.setUp()
+                self.gguf(self.llama / "qwen.gguf")
+                self.kobold.chmod(0o700)
+                move = model_move.plan("llamacpp", self.llama, "qwen", "koboldcpp", self.kobold)
+                move.copy = copy
+                self.kobold.rename(self.kobold.with_name("kobold.old"))
+                self.kobold.mkdir(mode=0o755)               # this account's, readable by all
+                with self.assertRaises(ValueError):
+                    model_move.apply(move)
+                self.assertEqual(list(self.kobold.iterdir()), [])
+                self.assertTrue((self.llama / "qwen.gguf").is_file())
+
+    def test_undo_refuses_a_restore_folder_replaced_by_another_real_folder(self):
+        self.gguf(self.llama / "qwen.gguf")
+        move = model_move.plan("llamacpp", self.llama, "qwen", "koboldcpp", self.kobold)
+        done = model_move.apply(move)
+        self.llama.rename(self.llama.with_name("llama.old"))
+        self.llama.mkdir()
+        self.assertEqual(len(model_move.undo(move, done)), 1)
+        self.assertEqual(list(self.llama.iterdir()), [])
+        self.assertTrue((self.kobold / "qwen.gguf").is_file())
+
+    def test_a_group_writable_target_anchor_is_refused_for_nested_folders(self):
+        self.gguf(self.llama / "qwen.gguf")
+        move = model_move.plan("llamacpp", self.llama, "qwen", "lmstudio", self.lms)
+        self.lms.chmod(0o775)
+        with self.assertRaises(ValueError):
+            model_move.apply(move)
+        self.assertEqual(list(self.lms.rglob("*.gguf")), [])
+        self.assertTrue((self.llama / "qwen.gguf").is_file())
+
+    def test_without_proc_a_same_disk_move_copies(self):
+        self.gguf(self.llama / "qwen.gguf")
+        move = model_move.plan("llamacpp", self.llama, "qwen", "koboldcpp", self.kobold)
+        real_isdir = os.path.isdir
+        with unittest.mock.patch.object(model_move.os.path, "isdir",
+                                        lambda p: False if p == "/proc/self/fd" else real_isdir(p)):
+            done = model_move.apply(move)
+            self.assertTrue((self.kobold / "qwen.gguf").is_file())
+            self.assertFalse((self.llama / "qwen.gguf").exists())
+            self.assertEqual(model_move.undo(move, done), [])
+        self.assertTrue((self.llama / "qwen.gguf").is_file())
 
 
 if __name__ == "__main__":

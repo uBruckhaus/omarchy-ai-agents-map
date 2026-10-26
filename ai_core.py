@@ -50,6 +50,25 @@ def drop_agent_session_vars(environ=None) -> list:
     return names
 
 
+def add_user_program_dirs(environ=None) -> list:
+    """Started from the app launcher, the app has the desktop session's PATH, which lacks what a
+    shell's `mise activate` adds: mise's shims and ~/.local/bin go at its end (what is already on it
+    still wins), so agents installed with mise are found and started, and their children find them
+    too. Returns the folders added."""
+    environ = os.environ if environ is None else environ
+    home = Path.home()
+    mise_data = Path(environ.get("MISE_DATA_DIR") or home / ".local/share/mise")
+    if not mise_data.is_absolute():               # relative: would mean another folder in every child's cwd
+        mise_data = home / ".local/share/mise"
+    current = environ.get("PATH", "")
+    path = current.split(os.pathsep)
+    added = [str(d) for d in (mise_data / "shims", home / ".local/bin")
+             if d.is_dir() and str(d) not in path]
+    if added:                                     # appended as they are: empty parts keep their meaning
+        environ["PATH"] = os.pathsep.join(([current] if current else []) + added)
+    return added
+
+
 def settings_file() -> Path:
     import desktop
     return desktop.config_dir() / "settings.json"

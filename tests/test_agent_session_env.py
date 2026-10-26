@@ -1,6 +1,8 @@
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import ai_core  # noqa: E402
@@ -30,6 +32,39 @@ class AgentSessionEnvTest(unittest.TestCase):
         self.assertEqual(child["CLAUDE_CONFIG_DIR"], "/home/u/.claude")
         self.assertEqual(child["TERM"], "xterm-256color")
 
+
+class UserProgramDirsTest(unittest.TestCase):
+    """Started from the app launcher, the session's PATH lacks mise's shims: they are added at its end."""
+
+    def test_shims_and_local_bin_are_added_once_at_the_end(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / "mise/shims").mkdir(parents=True)
+            (home / ".local/bin").mkdir(parents=True)
+            env = {"PATH": "/usr/bin", "MISE_DATA_DIR": str(home / "mise")}
+            with mock.patch.object(ai_core.Path, "home", return_value=home):
+                added = ai_core.add_user_program_dirs(env)
+                self.assertEqual(added, [str(home / "mise/shims"), str(home / ".local/bin")])
+                self.assertEqual(env["PATH"], ":".join(["/usr/bin", *added]))
+                self.assertEqual(ai_core.add_user_program_dirs(env), [])
+
+    def test_missing_folders_are_not_added(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {"PATH": "/usr/bin"}
+            with mock.patch.object(ai_core.Path, "home", return_value=Path(tmp)):
+                self.assertEqual(ai_core.add_user_program_dirs(env), [])
+            self.assertEqual(env["PATH"], "/usr/bin")
+
+
+    def test_empty_path_parts_and_a_relative_mise_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / ".local/share/mise/shims").mkdir(parents=True)
+            env = {"PATH": "/usr/bin::/bin:", "MISE_DATA_DIR": "relative/mise"}
+            with mock.patch.object(ai_core.Path, "home", return_value=home):
+                added = ai_core.add_user_program_dirs(env)
+            self.assertEqual(added, [str(home / ".local/share/mise/shims")])       # not relative/mise
+            self.assertEqual(env["PATH"], "/usr/bin::/bin::" + added[0])           # empty parts kept
 
 if __name__ == "__main__":
     unittest.main()

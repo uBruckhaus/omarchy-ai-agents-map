@@ -196,6 +196,7 @@ class MapView(Gtk.DrawingArea):
         self.mode_hidden = set() # boxes it leaves out (agents that cannot use local LLMs)
         self.column_x = {}       # column -> x of its boxes, for the headings
         self.min_width = 0       # the least width the columns need side by side (layout)
+        self.view_columns = 0    # >0: the view's width is shared by this many columns, more scroll sideways
         self.text_widths = {}    # (text, font) -> pixels (text_width)
         self.measure = None      # the Pango layout text_width measures with
         self.zoom = 1.0          # drawing scale (ZOOM_STEPS)
@@ -612,7 +613,8 @@ class MapView(Gtk.DrawingArea):
         # The other columns share the view's width (not a wider map's: that would widen them too).
         view = self.viewport_width() / min(self.zoom, 1.0) - room if self.viewport_width() > 0 else width
         base = min(width, view)
-        node_w = int(max(NODE_W_MIN, min(NODE_W_MAX, (base - 2 * PAD - (count - 1) * COLUMN_GAP_MIN) // count)))
+        share = min(count, self.view_columns) if self.view_columns > 0 else count
+        node_w = int(max(NODE_W_MIN, min(NODE_W_MAX, (base - 2 * PAD - (share - 1) * COLUMN_GAP_MIN) // share)))
         # A column with agents is as wide as its widest agent needs (name and symbols side by side).
         widths = {}
         for column in active:
