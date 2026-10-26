@@ -2738,5 +2738,12 @@
  "{0} added: what is found in it shows on the map": "{0} toegevoegd: wat erin gevonden wordt, staat op de kaart",
  "{0} gets the MCP server {1} ({2}), found on this PC. Nothing else in its settings changes.": "{0} krijgt de MCP-server {1} ({2}), gevonden op deze pc. Verder verandert er niets in zijn instellingen.",
  "Tools your agents can call. Servers found on this PC are on the map: draw a line from an agent to one to connect it.": "Hulpmiddelen die je agents kunnen aanroepen. Op deze pc gevonden servers staan op de kaart: trek een lijn van een agent naar een server om hem te verbinden.",
- "Faded boxes on the map are on this PC but not connected: draw a line from an agent to one.": "Vervaagde vakjes op de kaart staan op deze pc maar zijn niet verbonden: trek een lijn van een agent naar een vakje."
+ "Faded boxes on the map are on this PC but not connected: draw a line from an agent to one.": "Vervaagde vakjes op de kaart staan op deze pc maar zijn niet verbonden: trek een lijn van een agent naar een vakje.",
+ "Update all": "Alles bijwerken",
+ "Updating add-ons…": "Add-ons worden bijgewerkt…",
+ "Add-ons updated: {0}": "Add-ons bijgewerkt: {0}",
+ "Not updated: {0}": "Niet bijgewerkt: {0}",
+ "Add-on updates ready: {0}": "Add-on-updates klaar: {0}",
+ "Newer versions of your add-ons are ready: {0}. Update all of them here, or one at a time with Update on its card.": "Er zijn nieuwere versies van je add-ons: {0}. Werk ze hier allemaal bij, of één voor één met Bijwerken op de kaart.",
+ "Add-ons are being updated. Try again in a moment.": "Add-ons worden bijgewerkt. Probeer het zo opnieuw."
 }

@@ -1,4 +1,4 @@
-"""The first open's splash: an overlay over the window's content while the app looks at what is on
+"""The first open's splash: a centred box over the window's content while the app looks at what is on
 this PC (agents and local LLMs at once, MCP servers and skills in the background scan). Each kind
 slides in with a spinner that turns into ✓ and its number when that look is done; then the overlay
 fades out. A click dismisses it at once; it never stays longer than MAX_SECONDS."""
@@ -24,11 +24,12 @@ class Splash:
         self.gone = False
         self.finished = False
         self.started = time.monotonic()
-        self.widget = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14, halign=Gtk.Align.FILL,
-                              valign=Gtk.Align.FILL, hexpand=True, vexpand=True)
+        # A box in the middle of the window, not over all of it: the map shows around it.
+        self.widget = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14, halign=Gtk.Align.CENTER,
+                              valign=Gtk.Align.CENTER)
         self.widget.add_css_class("am-splash")
         inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, halign=Gtk.Align.CENTER,
-                        valign=Gtk.Align.CENTER, vexpand=True)
+                        valign=Gtk.Align.CENTER)
         icon = Gtk.Image.new_from_icon_name(icon_name)
         icon.set_pixel_size(88)
         icon.add_css_class("am-splash-icon")
@@ -43,7 +44,7 @@ class Splash:
         self.bar = Gtk.ProgressBar(fraction=0.0)
         self.bar.add_css_class("am-splash-bar")
         inner.append(self.bar)
-        listing = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, width_request=300)
+        listing = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, width_request=260)
         self.rows = {}
         for key, label in rows:
             line = Gtk.Box(spacing=10)

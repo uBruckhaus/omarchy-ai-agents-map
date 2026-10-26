@@ -299,13 +299,7 @@ class SetupPage:
 
     def addon_updates(self) -> set:
         """Ids of the add-ons the signed catalog has a newer version of."""
-        try:
-            from addons_page import build_items
-            items = build_items(self.addons, getattr(self, "addons_entries", []), self.agent_list,
-                                self.inventory.runtimes)
-        except Exception:
-            return set()
-        return {i.id for i in items if i.update}
+        return {i.id for i in self.addon_update_items()}
 
     def update_setup_button(self):
         if self.setup_welcome:

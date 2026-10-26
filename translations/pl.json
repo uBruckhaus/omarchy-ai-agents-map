@@ -2818,5 +2818,12 @@
  "{0} added: what is found in it shows on the map": "Dodano {0}: to, co zostanie w nim znalezione, pojawi się na mapie",
  "{0} gets the MCP server {1} ({2}), found on this PC. Nothing else in its settings changes.": "{0} otrzymuje serwer MCP {1} ({2}) znaleziony na tym komputerze. Nic innego w jego ustawieniach się nie zmienia.",
  "Tools your agents can call. Servers found on this PC are on the map: draw a line from an agent to one to connect it.": "Narzędzia, których mogą używać Twoje agenty. Serwery znalezione na tym komputerze są na mapie: narysuj linię od agenta do serwera, aby go połączyć.",
- "Faded boxes on the map are on this PC but not connected: draw a line from an agent to one.": "Wyblakłe pola na mapie są na tym komputerze, ale niepołączone: narysuj linię od agenta do jednego z nich."
+ "Faded boxes on the map are on this PC but not connected: draw a line from an agent to one.": "Wyblakłe pola na mapie są na tym komputerze, ale niepołączone: narysuj linię od agenta do jednego z nich.",
+ "Update all": "Zaktualizuj wszystko",
+ "Updating add-ons…": "Aktualizowanie dodatków…",
+ "Add-ons updated: {0}": "Zaktualizowane dodatki: {0}",
+ "Not updated: {0}": "Nie zaktualizowano: {0}",
+ "Add-on updates ready: {0}": "Aktualizacje dodatków gotowe: {0}",
+ "Newer versions of your add-ons are ready: {0}. Update all of them here, or one at a time with Update on its card.": "Nowsze wersje twoich dodatków są gotowe: {0}. Zaktualizuj je wszystkie tutaj albo pojedynczo przyciskiem Aktualizuj na karcie.",
+ "Add-ons are being updated. Try again in a moment.": "Dodatki są właśnie aktualizowane. Spróbuj ponownie za chwilę."
 }

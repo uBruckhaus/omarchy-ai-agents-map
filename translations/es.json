@@ -2738,5 +2738,12 @@
  "{0} added: what is found in it shows on the map": "{0} añadida: lo que se encuentre en ella aparece en el mapa",
  "{0} gets the MCP server {1} ({2}), found on this PC. Nothing else in its settings changes.": "{0} recibe el servidor MCP {1} ({2}), encontrado en este PC. Nada más cambia en su configuración.",
  "Tools your agents can call. Servers found on this PC are on the map: draw a line from an agent to one to connect it.": "Herramientas que tus agentes pueden usar. Los servidores encontrados en este PC están en el mapa: traza una línea desde un agente hasta uno para conectarlo.",
- "Faded boxes on the map are on this PC but not connected: draw a line from an agent to one.": "Las cajas atenuadas del mapa están en este PC pero sin conectar: traza una línea desde un agente hasta una."
+ "Faded boxes on the map are on this PC but not connected: draw a line from an agent to one.": "Las cajas atenuadas del mapa están en este PC pero sin conectar: traza una línea desde un agente hasta una.",
+ "Update all": "Actualizar todo",
+ "Updating add-ons…": "Actualizando complementos…",
+ "Add-ons updated: {0}": "Complementos actualizados: {0}",
+ "Not updated: {0}": "No actualizados: {0}",
+ "Add-on updates ready: {0}": "Actualizaciones de complementos listas: {0}",
+ "Newer versions of your add-ons are ready: {0}. Update all of them here, or one at a time with Update on its card.": "Hay versiones nuevas de tus complementos: {0}. Actualízalos todos aquí o uno a uno con Actualizar en su tarjeta.",
+ "Add-ons are being updated. Try again in a moment.": "Se están actualizando los complementos. Inténtalo de nuevo en un momento."
 }

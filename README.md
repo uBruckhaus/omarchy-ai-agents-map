@@ -153,9 +153,10 @@ LLM providers → models, under the **GPU** card (GPU memory and activity; it fo
   (**Online MCP servers**).
 - **Add folder…** (new in 0.26.0) in Setup's Local MCP servers and Skills: the scans also look in
   the folders you add there (settings `mcp_folders`, `skill_folders`).
-- **Start overview** (new in 0.26.0): the first open after a start shows, in an animated overlay,
-  the agents, local LLMs, MCP servers and skills as they are found (and how many are not connected
-  yet), then fades; a click closes it.
+- **Start overview** (new in 0.26.0): the first open after a start shows, in an animated box in the
+  middle of the window, the agents, local LLMs, MCP servers and skills as they are found (and how
+  many are not connected yet), then fades; a click closes it. Since 0.26.1 the window and this box
+  appear at once and the looks at this PC run right after, so a slow first start is never blank.
 - **Used from outside the map**: when a program that is not on the map (a plugin such as Video
   Trans, a chat app, a script) generates with a local LLM, the line from that LLM to the model is
   drawn bold in a colour of its own, light runs along it, and the model box says who uses it ("in use

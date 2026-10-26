@@ -209,14 +209,17 @@ class ThemeCss:
         .am-addon-off {{ color: {fg_hex}; background: alpha({fg_hex}, 0.12); }}
         .am-addon-failed {{ color: {red_hex}; background: alpha({red_hex}, 0.16); }}
         .am-addon-available {{ color: {accent_hex}; border: 1px solid alpha({accent_hex}, 0.5); }}
+        .am-addon-update-bar {{ background: alpha({accent_hex}, 0.10); border: 1px solid alpha({accent_hex}, 0.35);
+            border-radius: {radius}px; padding: 8px 12px; }}
         .am-setup-tile {{ background: alpha({fg_hex}, 0.04); border: 1px solid alpha({fg_hex}, 0.10);
             border-radius: {radius}px; padding: 12px 14px; color: {fg_hex}; }}
         .am-setup-absent .am-setup-glyph {{ color: {dim_hex}; }}
         .am-setup-absent {{ background: transparent; border-style: dashed; }}
         .am-setup-absent .am-addon-name, .am-setup-absent .am-agent-detail {{ color: {dim_hex}; }}
-        /* The first open's splash (splash.py): over the content, fades out. */
+        /* The first open's splash (splash.py): a centred box over the content, fades out. */
         .am-splash {{ background: alpha({bg_hex}, 0.97); color: {fg_hex}; opacity: 1;
-            transition: opacity 450ms ease-out; }}
+            border: 1px solid alpha({fg_hex}, 0.14); border-radius: {radius}px; padding: 24px 28px;
+            margin: 12px; box-shadow: 0 12px 40px alpha(black, 0.45); transition: opacity 450ms ease-out; }}
         .am-splash.am-splash-gone {{ opacity: 0; }}
         .am-splash-icon {{ color: {accent_hex}; animation: am-splash-pulse 1.6s ease-in-out infinite; }}
         @keyframes am-splash-pulse {{ 0% {{ opacity: 0.55; -gtk-icon-transform: scale(0.92); }}
@@ -226,7 +229,7 @@ class ThemeCss:
         .am-splash-row {{ font-size: 13px; }}
         .am-splash-count {{ font-size: 13px; color: {muted_hex}; }}
         .am-splash-tick {{ color: {green_hex}; font-weight: 700; min-width: 16px; }}
-        progressbar.am-splash-bar {{ min-width: 300px; }}
+        progressbar.am-splash-bar {{ min-width: 260px; }}
         progressbar.am-splash-bar trough, progressbar.am-splash-bar progress {{ min-height: 4px;
             border-radius: 2px; }}
         progressbar.am-splash-bar progress {{ background: {accent_hex}; transition: min-width 300ms; }}

@@ -2738,5 +2738,12 @@
  "{0} added: what is found in it shows on the map": "{0} hinzugefügt: was darin gefunden wird, erscheint auf der Karte",
  "{0} gets the MCP server {1} ({2}), found on this PC. Nothing else in its settings changes.": "{0} bekommt den MCP-Server {1} ({2}), gefunden auf diesem PC. Sonst ändert sich nichts an seinen Einstellungen.",
  "Tools your agents can call. Servers found on this PC are on the map: draw a line from an agent to one to connect it.": "Werkzeuge, die deine Agenten aufrufen können. Auf diesem PC gefundene Server sind auf der Karte: Zieh eine Linie von einem Agenten zu einem, um ihn zu verbinden.",
- "Faded boxes on the map are on this PC but not connected: draw a line from an agent to one.": "Blasse Kästen auf der Karte sind auf diesem PC, aber nicht verbunden: Zieh eine Linie von einem Agenten zu einem."
+ "Faded boxes on the map are on this PC but not connected: draw a line from an agent to one.": "Blasse Kästen auf der Karte sind auf diesem PC, aber nicht verbunden: Zieh eine Linie von einem Agenten zu einem.",
+ "Update all": "Alle aktualisieren",
+ "Updating add-ons…": "Add-ons werden aktualisiert…",
+ "Add-ons updated: {0}": "Add-ons aktualisiert: {0}",
+ "Not updated: {0}": "Nicht aktualisiert: {0}",
+ "Add-on updates ready: {0}": "Add-on-Updates bereit: {0}",
+ "Newer versions of your add-ons are ready: {0}. Update all of them here, or one at a time with Update on its card.": "Neuere Versionen deiner Add-ons sind bereit: {0}. Aktualisiere hier alle auf einmal oder einzeln mit Aktualisieren auf der jeweiligen Karte.",
+ "Add-ons are being updated. Try again in a moment.": "Add-ons werden gerade aktualisiert. Versuch es gleich noch einmal."
 }

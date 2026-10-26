@@ -124,7 +124,11 @@ try:
     from addons_page import AddonsPage      # Asterism only: the Add-ons page (not in the Omarchy plugin)
 except ImportError:
     class AddonsPage:                       # the plugin: no add-ons, no page
-        pass
+        def addon_update_items(self) -> list:
+            return []
+
+        def update_all_addons(self):
+            pass
 from ui_helpers import (MCP_GLYPHS, MCP_GROUP_GLYPHS, RUN_GLYPHS, SpaceBar, glyph_label,  # noqa: F401
                         TokenChart, monitor_height, pick_cards, short_gpu, short_number, size_text, when)
 
@@ -221,7 +225,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             self.watch_theme()
             write_pid_file()
             if hasattr(self, "setup_needed") and self.setup_needed():
-                GLib.idle_add(self.open_setup)      # a fresh Asterism: pick what goes on the map
+                self.setup_pending = True           # a fresh Asterism: pick what goes on the map (open_content)
         self.open()
 
     # --- add-ons (Asterism only) ---------------------------------------------------------------
@@ -279,7 +283,9 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             changed = [(e.id, s) for e, s in suggestions] != [(e.id, s) for e, s in
                                                               getattr(self, "addon_suggestions", [])]
             self.addon_suggestions = suggestions
+            had_updates = {i.id for i in self.addon_update_items()}
             self.addons_entries = entries
+            changed = changed or {i.id for i in self.addon_update_items()} != had_updates   # "Add-on updates ready"
             if changed:
                 self.refresh_overview()
                 self.refresh_map()
@@ -1473,6 +1479,11 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                 self.hint_line(ngettext("{0} is on this PC but not on the map", "{1} are on this PC but not on the map",
                                         len(waiting)).format(listed(waiting, 1), listed(waiting, 3)),
                                [(button, opener)])
+        # Newer versions of installed add-ons in the signed catalog (Asterism): say so, one click for all.
+        pending = self.addon_update_items() if not getattr(self, "addons_updating", False) else []
+        if pending:
+            self.hint_line(_("Add-on updates ready: {0}").format(listed([i.name for i in pending], 3)),
+                           [(_("Update all"), self.update_all_addons), (_("Add-ons"), lambda: self.open_addons())])
         versions = getattr(self, "new_versions", [])
         if versions:
             self.hint_line(_("New version found: {0} · Add MCP server › Look inside… to use it").format(
@@ -2577,6 +2588,11 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.splash = splash.Splash(desktop.app_name(), icon, [
             ("agents", _("Agents")), ("local", _("Local LLMs")), ("mcp", _("MCP servers")), ("skills", _("Skills"))])
         self.card_frame.add_overlay(self.splash.widget)
+        self.splash_counted = False        # open_content counts once collect has run
+
+    def splash_counts(self):
+        """The agents and local LLMs found (collect has run): their rows get ✓ and the number."""
+        self.splash_counted = True
         agents_found = sum(1 for a in self.agent_list if a.installed)
         llms_found = sum(1 for r in self.inventory.runtimes if r.installed)
         GLib.timeout_add(350, lambda: self.splash.step("agents", agents_found))
@@ -4106,14 +4122,57 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
 
     def open(self):
         self.fit()
+        if getattr(self, "first_open_pending", False):
+            self.window.present()           # opened again before the first open's looks began
+            return
+        if not getattr(self, "splash_shown", False):
+            # The first open: the window with its splash at once, the looks at this PC after its first
+            # frame (right after login they can take a while, and nothing would show meanwhile).
+            self.window.present()
+            try:
+                self.show_splash()
+            except Exception:               # no splash: everything at once, as without one
+                self.splash_shown = True
+                self.open_content()
+                return
+            self.after_first_frame(self.first_open_content)
+            self.first_open_pending = True  # set last: an error above leaves nothing pending
+            return
+        self.open_content()
+
+    def first_open_content(self):
+        """The first open's looks, once: the window may have been closed again meanwhile (then it
+        stays hidden, the looks still run)."""
+        self.first_open_pending = False
+        self.open_content(show=self.window.is_visible())
+
+    def after_first_frame(self, then):
+        """`then` once the window has been drawn, or after half a second, whichever comes first."""
+        state = {"done": False, "handler": 0, "clock": self.window.get_frame_clock()}
+
+        def run(*_args):
+            if not state["done"]:
+                state["done"] = True
+                if state["clock"] is not None and state["handler"]:
+                    state["clock"].disconnect(state["handler"])
+                GLib.idle_add(lambda: then() and False)
+            return False
+
+        if state["clock"] is not None:
+            state["handler"] = state["clock"].connect("after-paint", run)
+        GLib.timeout_add(500, run)
+
+    def open_content(self, show: bool = True):
         self.collect()
         self.refresh_overview()
         self.refresh_map()
-        self.window.present()
-        if not getattr(self, "splash_shown", False):
-            self.show_splash()
+        if show:
+            self.window.present()
+        if getattr(self, "splash_counted", True) is False:
+            self.splash_counts()
         self.sync_provider_watch()
-        self.start_gpu_poll()
+        if show:
+            self.start_gpu_poll()
         self.research_new_agents()
         self.ai_check_mcp_updates()
         self.refresh_mcp_list()
@@ -4121,6 +4180,9 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.look_for_addons()
         self.run_health()
         self.launcher_entry_on_open()
+        if getattr(self, "setup_pending", False):
+            self.setup_pending = False
+            GLib.idle_add(self.open_setup)
         # Restarted after a language change: back on the settings page.
         view = os.environ.pop("AI_AGENTS_MAP_VIEW", "")
         if view in ai_core.VIEWS:
