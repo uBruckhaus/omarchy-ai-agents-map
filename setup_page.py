@@ -458,7 +458,7 @@ class SetupPage:
             if key == "mcp":
                 self.note(box, _("Tools your agents can call. Servers found on this PC are on the map: draw a "
                                  "line from an agent to one to connect it."))
-                self.scan_folder_row(box, "mcp")
+                self.scan_folder_row(box, "mcp", add_button=False)
             flow = self.setup_flow()
             for server in sorted(servers, key=lambda s: s.name.lower()):
                 node_id = f"mcp:{server.name}"
@@ -470,6 +470,9 @@ class SetupPage:
                                            dim=not server.agents))
             flow.append(self.add_tile(_("Add MCP server"), _("{0} new on this PC").format(len(new_mcp)) if new_mcp
                                       else _("Recommended, registry, this PC"), "app", self.open_add_mcp))
+            if key == "mcp":
+                flow.append(self.add_tile(_("Add folder…"), _("A folder where MCP servers are looked for (unpacked apps)"),
+                                          "folder", lambda: self.add_scan_folder("mcp")))
             box.append(flow)
 
         box = self.setup_section(outer, "skills", _("Skills"), len(self.inventory.skill_sets))
@@ -568,19 +571,23 @@ class SetupPage:
 
     # --- MCP and skill folders: where the scans look too (extra_folders) -------------------------------
 
-    def scan_folder_row(self, box, kind: str):
-        """Add folder… and the folders added before (✕ stops looking there): what the scans find in
-        them is on the map, faded, until a line connects it."""
+    def scan_folder_row(self, box, kind: str, add_button: bool = True):
+        """Add folder… (unless the section has it as a card) and the folders added before (✕ stops
+        looking there): what the scans find in them is on the map, faded, until a line connects it."""
         import extra_folders
+        saved = extra_folders.saved(kind)
+        if not add_button and not saved:
+            return
         row = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=6, column_spacing=6,
                           row_spacing=4, homogeneous=False)
-        add = Gtk.Button(label=_("Add folder…"))
-        add.add_css_class("am-small-btn")
-        add.set_tooltip_text(_("A folder where MCP servers are looked for (unpacked apps)") if kind == "mcp"
-                             else _("A folder where skills are looked for"))
-        add.connect("clicked", lambda *_a: self.add_scan_folder(kind))
-        row.append(add)
-        for path in extra_folders.saved(kind):
+        if add_button:
+            add = Gtk.Button(label=_("Add folder…"))
+            add.add_css_class("am-small-btn")
+            add.set_tooltip_text(_("A folder where MCP servers are looked for (unpacked apps)") if kind == "mcp"
+                                 else _("A folder where skills are looked for"))
+            add.connect("clicked", lambda *_a: self.add_scan_folder(kind))
+            row.append(add)
+        for path in saved:
             chip = Gtk.Button(label=f"{self.tilde_path(path)}  ✕")
             chip.add_css_class("am-small-btn")
             chip.set_tooltip_text(_("Stop looking in this folder (nothing in it is deleted)"))
