@@ -33,7 +33,7 @@ class TrafficPage:
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         self.traffic_title = Gtk.Label()
         page.append(self.page_header(self.traffic_title, self.close_traffic, _("Back (Backspace, Esc)")))
-        column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP_TIGHT * 2)
+        column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         column.add_css_class("am-settings")
         self.traffic_now = self.info_card(_("Now"))
         column.append(self.traffic_now)

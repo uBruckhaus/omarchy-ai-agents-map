@@ -102,6 +102,34 @@ class Engine(llm_engine.Engine):
         import models_ctl
         models_ctl.ollama_delete(name, rt.address)
 
+    # Its server's settings in the app's env file (only when the app installed it): for every model;
+    # a restart makes them count.
+    tuning = {
+        "OLLAMA_FLASH_ATTENTION": (r"0|1", "flash attention (1): less memory for the context, often faster"),
+        "OLLAMA_KV_CACHE_TYPE": (r"f16|q8_0|q4_0", "the context's cache: q8_0 halves its memory (needs flash attention)"),
+        "OLLAMA_NUM_PARALLEL": (r"[1-8]", "requests per model served at once (each needs its own context)"),
+        "OLLAMA_MAX_LOADED_MODELS": (r"[1-8]", "models kept loaded at once"),
+    }
+    tuning_per_model = False
+
+    def tuning_now(self, rt):
+        import install_ctl
+        if self.slots_fixed_by(rt):
+            return {}
+        env = install_ctl.read_env(install_ctl.Ollama.env_file)
+        return {"*": {k: v for k, v in env.items() if k in self.tuning}}
+
+    def tuning_changes(self, rt, section, key, value):
+        import re
+        import install_ctl
+        if self.slots_fixed_by(rt):
+            raise ValueError("not the app's own Ollama service: change it where it was set up")
+        if section != "*" or key not in self.tuning or not re.fullmatch(self.tuning[key][0], value):
+            raise ValueError(f"{key} = {value} is not a setting the app changes")
+        env_file = install_ctl.Ollama.env_file
+        found = llm_engine.change(env_file, llm_engine.env_with(env_file.read_text(encoding="utf-8"), key, value))
+        return [found] if found is not None else []
+
     def gpu_build(self, vendor):
         return {"amd": "ROCm", "nvidia": "CUDA"}.get(vendor, "")
 

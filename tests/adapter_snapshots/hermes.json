@@ -150,6 +150,8 @@
  "research_output": "text",
  "task": [],
  "rewrite": [],
+ "advise": [],
+ "closed": [],
  "tools_setting": [],
  "sandbox_setting": "",
  "replies": [],
@@ -292,13 +294,16 @@
  "detect": false,
  "limits": false,
  "details": true,
- "models": null,
+ "models": [
+  "adapter_hooks_hermes.models_choices",
+  "adapter_hooks_hermes.models_plan"
+ ],
  "local_llm": {
   "files": [
    "~/.hermes/config.yaml"
   ],
   "added": [
-   "model:\n  default: m1\n  provider: llamacpp\n  base_url: ''\nproviders:\n  llamacpp:\n    name: llama.cpp\n    api: http://127.0.0.1:8080/v1\n    api_key: local\n    default_model: m1\n    discover_models: false\n    models:\n      m1:\n        context_length: 8192\n      m2: {}\n"
+   "model:\n  default: \"m1\"\n  provider: \"llamacpp\"\n  base_url: ''\nproviders:\n  llamacpp:\n    name: llama.cpp\n    api: http://127.0.0.1:8080/v1\n    api_key: local\n    default_model: m1\n    discover_models: false\n    models:\n      m1:\n        context_length: 8192\n      m2: {}\n"
   ],
   "connected": true,
   "active": true,

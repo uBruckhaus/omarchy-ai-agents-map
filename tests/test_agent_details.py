@@ -87,6 +87,29 @@ class DetailsTest(unittest.TestCase):
         self.assertEqual(d.limits[0].percent, 1.0)
         self.assertIsNotNone(d.usage_updated.tzinfo)
 
+    def test_plan_label_names_service_codes(self):
+        self.assertEqual(ad.plan_label("prolite"), "Pro Lite")
+        self.assertEqual(ad.plan_label(" Plus "), "Plus")
+        self.assertEqual(ad.plan_label("Max 5x"), "Max 5x")
+        self.assertEqual(ad.plan_label(None), "")
+
+    def test_usage_is_stale_after_a_new_sign_in(self):
+        import os
+        from unittest import mock
+        usage = self.home / "usage"
+        usage.mkdir()
+        record = usage / "codex.json"
+        record.write_text("{}")
+        auth = self.home / ".codex/auth.json"
+        auth.parent.mkdir()
+        auth.write_text("{}")
+        now = record.stat().st_mtime
+        os.utime(auth, (now - 60, now - 60))
+        with mock.patch.object(ad, "has_usage_collector", return_value=True):
+            self.assertFalse(ad.usage_is_stale("codex", usage_dir=usage, root=self.home))
+            os.utime(auth, (now + 60, now + 60))
+            self.assertTrue(ad.usage_is_stale("codex", usage_dir=usage, root=self.home))
+
     def test_usage_stamps_follow_the_records(self):
         """The map's poll reads a record again when its time changes; other files are left out."""
         folder = self.home / "usage"

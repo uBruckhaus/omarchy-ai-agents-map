@@ -231,21 +231,41 @@ def llama_settings(name: str, ini: Path | None = None) -> tuple[int, str]:
 
 def llama_context_text(old: str, name: str, ctx: int) -> str:
     """models.ini with ctx-size set in the model's section (made if missing); the rest stays."""
-    if not re.fullmatch(r"[^\[\]\x00-\x1f\x7f]{1,200}", name) or not 0 < ctx < 10_000_000:
+    if not 0 < ctx < 10_000_000:
         raise ValueError("bad model or context")
+    return ini_text(old, name, "ctx-size", str(ctx))
+
+
+INI_KEY = re.compile(r"[a-z0-9][a-z0-9-]{0,40}")
+INI_VALUE = re.compile(r"[A-Za-z0-9_.:+-]{1,40}")
+
+
+def ini_text(old: str, section: str, key: str, value: str) -> str:
+    """models.ini with `key = value` in `section` ("*": every model; made if missing); the rest stays."""
+    if not re.fullmatch(r"[^\[\]\x00-\x1f\x7f]{1,200}", section) or not INI_KEY.fullmatch(key) \
+            or not INI_VALUE.fullmatch(value):
+        raise ValueError("bad section, key or value")
     old = old or "version = 1\n"
     lines = old.splitlines(keepends=True)
-    start = next((i for i, l in enumerate(lines) if re.match(rf"^\s*\[{re.escape(name)}\]\s*$", l)), None)
+    start = next((i for i, l in enumerate(lines) if re.match(rf"^\s*\[{re.escape(section)}\]\s*$", l)), None)
     if start is None:
-        return old.rstrip("\n") + f"\n\n[{name}]\nctx-size = {ctx}\n"
+        return old.rstrip("\n") + f"\n\n[{section}]\n{key} = {value}\n"
     end = next((i for i in range(start + 1, len(lines)) if re.match(r"^\s*\[", lines[i])), len(lines))
     for i in range(start + 1, end):
-        if re.match(r"^\s*ctx-size\s*=", lines[i]):
-            lines[i] = f"ctx-size = {ctx}\n"
+        if re.match(rf"^\s*{re.escape(key)}\s*=", lines[i]):
+            lines[i] = f"{key} = {value}\n"
             break
     else:
-        lines.insert(start + 1, f"ctx-size = {ctx}\n")
+        lines.insert(start + 1, f"{key} = {value}\n")
     return "".join(lines)
+
+
+def ini_sections(path: Path | None = None) -> dict:
+    """{section: {key: value}} of models.ini ({} when it is not there)."""
+    try:
+        return _ini_sections((path or MODELS_INI).read_text(encoding="utf-8"))
+    except OSError:
+        return {}
 
 
 def llama_model_file(models_dir: Path, name: str) -> Path | None:

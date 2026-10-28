@@ -1,7 +1,7 @@
 """AI Agents Map: building blocks several pages share (group cards, tiles, headings, intro cards,
 scrolled lists) and the notices at the bottom of the window (a mixin of ai_popup.AgentsMap)."""
 
-from gi.repository import Adw, GLib, Gdk, Gtk, Pango
+from gi.repository import Adw, GLib, Gtk, Pango
 
 import ai_core
 import connect
@@ -35,16 +35,18 @@ class PageParts:
         card.append(head)
         for line in lines:
             text = Gtk.Label(label=line, xalign=0, wrap=True, max_width_chars=1)
-            text.add_css_class("am-agent-detail")
+            text.add_css_class("am-card-text")        # explanations: body text (13 px), as info cards
             card.append(text)
         box.append(card)
         return card
 
     @staticmethod
-    def section_heading(box, text: str):
-        """A section heading of the Add pages and the MCP / skills pages: one style for all."""
-        label = Gtk.Label(label=text.upper(), xalign=0)
-        label.add_css_class("am-section-heading")
+    def section_heading(box, text: str, muted: bool = True, upper: bool = True):
+        """A section heading inside a page or card: one style everywhere (11 px, bold, upper case);
+        muted (the default): dim, else in the text colour (a settings section). A page's own title
+        (view_heading, page_header) and libadwaita's group titles are other levels."""
+        label = Gtk.Label(label=text.upper() if upper else text, xalign=0, wrap=True, max_width_chars=1)
+        label.add_css_class("am-section-heading" if muted else "am-setting-heading")
         box.append(label)
         return label
 
@@ -76,25 +78,34 @@ class PageParts:
                    "ok": ("✓", "am-hint-ok"), "info": ("i", "am-hint-info")}
 
     @staticmethod
-    def page_header(title: Gtk.Label, on_back, tip: str) -> Gtk.Box:
-        """Back · ⌫ and the page title (a label the page sets), over a rule."""
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
-        header = Gtk.Box(spacing=8)
+    def back_button(on_back, tip: str, shortcut: str = "· ⌫") -> Gtk.Button:
+        """The pages' Back button (and the terminal's, without the shortcut)."""
         back = Gtk.Button()
         for css in ("flat", "am-header-btn", "am-back-bordered"):
             back.add_css_class(css)
         back_box = Gtk.Box(spacing=6)
         back_box.append(Gtk.Image.new_from_icon_name("go-previous-symbolic"))
         back_box.append(Gtk.Label(label=_("Back")))
-        back_box.append(Gtk.Label(label="· ⌫"))
+        if shortcut:
+            back_box.append(Gtk.Label(label=shortcut))
         back.set_child(back_box)
         back.set_tooltip_text(tip)
         back.connect("clicked", lambda *_: on_back())
-        header.append(back)
+        return back
+
+    @staticmethod
+    def page_header(title: Gtk.Label, on_back, tip: str, end=()) -> Gtk.Box:
+        """Back · ⌫ and the page title (a label the page sets), over a rule; end: widgets after the
+        title (a folder, a one-line explanation), the one that should take the room hexpands."""
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
+        header = Gtk.Box(spacing=ai_core.GAP_INLINE)
+        header.append(PageParts.back_button(on_back, tip))
         title.set_xalign(0)
-        title.set_hexpand(True)
+        title.set_hexpand(not end)
         title.add_css_class("am-section-title")
         header.append(title)
+        for widget in end:
+            header.append(widget)
         box.append(header)
         rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         rule.add_css_class("am-settings-rule")
@@ -175,7 +186,7 @@ class PageParts:
     def action_row(*buttons, start=()) -> Gtk.Box:
         """The page's buttons, right under its cards: `start` at the left (a status), the buttons at
         the right, the main one last."""
-        row = Gtk.Box(spacing=8)
+        row = Gtk.Box(spacing=ai_core.GAP_INLINE)
         row.add_css_class("am-button-row")
         for widget in start:
             row.append(widget)
@@ -313,16 +324,8 @@ class PageParts:
         row.add_css_class("monospace")
         row.set_title_selectable(True)
         row.add_prefix(Gtk.Image.new_from_icon_name("utilities-terminal-symbolic"))
-        copy = Gtk.Button(icon_name="edit-copy-symbolic", valign=Gtk.Align.CENTER)
-        copy.add_css_class("flat")
-        copy.set_tooltip_text(_("Copy"))
-
-        def copied(button):
-            Gdk.Display.get_default().get_clipboard().set(command)
-            button.set_icon_name("object-select-symbolic")
-            GLib.timeout_add(1200, lambda: button.set_icon_name("edit-copy-symbolic") or False)
-        copy.connect("clicked", copied)
-        row.add_suffix(copy)
+        from ui_helpers import copy_button
+        row.add_suffix(copy_button(lambda: command))
         return row
 
     def limit_row(self, limit) -> Gtk.Widget:
@@ -359,6 +362,120 @@ class PageParts:
         box.append(bar)
         return box
 
+    @staticmethod
+    def action_button(label: str = "", *, role: str = "secondary", size: str = "inline", on_click=None,
+                      tip: str = "") -> Gtk.Button:
+        """Every page's button (docs/layout.md): size "page" for a page's own actions (am-page-btn,
+        action_row makes them so too), "inline" in rows, cards and boxes (am-small-btn); role
+        "primary" for the one action it is for (am-primary), "danger" for removing or stopping
+        (am-danger), else "secondary". Dialog responses keep libadwaita's own look."""
+        button = Gtk.Button(label=label, valign=Gtk.Align.CENTER)
+        button.add_css_class("am-page-btn" if size == "page" else "am-small-btn")
+        if role == "primary":
+            button.add_css_class("am-primary")
+        elif role == "danger":
+            button.add_css_class("am-danger")
+        if tip:
+            button.set_tooltip_text(tip)
+        if on_click is not None:
+            button.connect("clicked", lambda _b: on_click())
+        return button
+
+    # --- an AI help run, with its progress box (ai_progress) ------------------------------------------
+
+    def local_ai_helper(self):
+        """The local helper confirmed in Settings (local_helper.Candidate), while it is still set up."""
+        import local_helper
+        installed = {a.command for a in self.agent_list if a.installed}
+        try:
+            found = local_helper.candidates(installed, self.inventory.runtimes)
+        except Exception:
+            return None
+        return local_helper.chosen(found, ai_core.setting("ai_local_helper"))
+
+    def ready_helper_model(self, candidate):
+        """On the worker thread: the helper's local LLM started and its model loaded (raises)."""
+        import runtime_ctl
+        rt = next((r for r in self.inventory.runtimes if r.key == candidate.runtime), None)
+        if rt is None:
+            raise RuntimeError(_("{0} is not installed").format(candidate.runtime))
+        ok, why = runtime_ctl.load(rt, candidate.model, wait=60)
+        if not ok:
+            raise RuntimeError(_("{0} could not load {1}: {2}").format(rt.name, candidate.model, why))
+
+    def run_ai_help(self, title: str, agent: str, steps, work, done, model: str | None = None):
+        """work(step) on a thread: what an agent is asked, step by step; step(key, text="") says which
+        step is under way, step.done(key, detail) what one came to. done(result) then runs here, with
+        what work returned or the exception it raised. The box shows the agent, its model, the steps
+        and the time; In the background lets it go on unseen (a toast says when it is done), Cancel
+        ends the agent's program (ai_helper.watched)."""
+        import threading
+        import agent_details
+        import ai_helper
+        import ai_progress
+        import ai_protocol
+        import plugin_ai
+        from ui_helpers import short_number
+        old = getattr(self, "ai_box", None)
+        if old is not None and not old.gone:
+            old.fade()
+        cancel = threading.Event()
+        state = {"background": False}
+        if model is None:
+            try:
+                model = agent_details.details_for(agent).model
+            except Exception:
+                model = ""
+        name = ai_helper.name_of(agent)
+        box = ai_progress.AiProgress(title, " · ".join(filter(None, [name, model])), "am-smartcheck-symbolic",
+                                     steps, on_cancel=cancel.set,
+                                     on_background=lambda: state.update(background=True))
+        self.ai_box = box
+        self.card_frame.add_overlay(box.widget)
+        started = dt.datetime.now().replace(microsecond=0)
+        entry = ai_protocol.Entry(title, "look-up", agent, model)
+
+        def step(key, text=""):
+            GLib.idle_add(lambda: box.start(key, text) and False)
+        step.done = lambda key, detail="": GLib.idle_add(lambda: box.done(key, detail) and False)
+
+        def run():
+            with ai_helper.watched(cancel, entry):
+                try:
+                    result = work(step)
+                except Exception as error:      # the agent, its sign-in, the web, an answer that did not hold up
+                    result = error
+            GLib.idle_add(finish, result)
+
+        def tokens() -> int:
+            try:
+                runs = [r for r in plugin_ai.runs() if r.get("agent") == agent
+                        and str(r.get("when", "")) >= started.isoformat()]
+            except Exception:
+                return 0
+            return sum(plugin_ai.tokens_of(r) or 0 for r in runs)
+
+        def finish(result):
+            failed = isinstance(result, Exception)
+            used = tokens()
+            if failed:
+                box.fail(_("{0} could not answer: {1}").format(name, str(result)[:400]), cancelled=cancel.is_set())
+            else:
+                box.succeed(_("{0} tokens").format(short_number(used)) if used else "")
+            entry.steps([(r["label"].get_label(), r["state"], r["detail"].get_label()) for r in
+                         (box.rows[k] for k in box.order)])
+            entry.end("cancelled" if cancel.is_set() else "failed" if failed else "ok",
+                      str(result) if failed else "", box.seconds(), used)
+            if state["background"] and not cancel.is_set():
+                self.toast(_("{0}: done").format(title) if not failed else
+                           _("{0} did not work: {1}").format(title, str(result)[:120]), 8)
+            self.ai_entry = entry          # a change the page makes from this answer is noted in it
+            done(result)
+            return False
+
+        threading.Thread(target=run, daemon=True).start()
+        return box
+
     # --- notices -----------------------------------------------------------------------------------------
 
     def toast(self, message: str, seconds: int, button: str = "", on_button=None, on_dismissed=None) -> Adw.Toast:
@@ -393,16 +510,8 @@ class PageParts:
         label.set_ellipsize(Pango.EllipsizeMode.END)
         label.set_use_markup(False)
         title.append(label)
-        copy = Gtk.Button(icon_name="edit-copy-symbolic", valign=Gtk.Align.CENTER)
-        copy.add_css_class("flat")
-        copy.set_tooltip_text(_("Copy the message"))
-
-        def copied(button):
-            Gdk.Display.get_default().get_clipboard().set(message)
-            button.set_icon_name("object-select-symbolic")
-            GLib.timeout_add(1200, lambda: button.set_icon_name("edit-copy-symbolic") or False)
-        copy.connect("clicked", copied)
-        title.append(copy)
+        from ui_helpers import copy_button
+        title.append(copy_button(lambda: message, _("Copy the message")))
         toast.set_custom_title(title)
         return toast
 

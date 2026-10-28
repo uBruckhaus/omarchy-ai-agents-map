@@ -35,7 +35,11 @@
   "~/.config/opencode"
  ],
  "homepage": "https://opencode.ai",
- "ask": [],
+ "ask": [
+  "opencode",
+  "run",
+  "{prompt}"
+ ],
  "games": [],
  "effort": [],
  "configure": [],
@@ -53,6 +57,8 @@
  "research_output": "text",
  "task": [],
  "rewrite": [],
+ "advise": [],
+ "closed": [],
  "tools_setting": [],
  "sandbox_setting": "",
  "replies": [],
@@ -247,7 +253,10 @@
  "detect": false,
  "limits": false,
  "details": true,
- "models": null,
+ "models": [
+  "adapter_hooks_opencode.models_choices",
+  "adapter_hooks_opencode.models_plan"
+ ],
  "local_llm": {
   "files": [
    "~/.config/opencode/opencode.json"

@@ -61,3 +61,31 @@ def skills_write(text: str, folder: str, remove: bool) -> str:
     else:
         data.pop("skills", None)
     return connect._dump(data)
+
+
+# --- its online models on the map (online_models) ------------------------------------------------
+
+def models_choices(current="", home=None):
+    """"provider/model" of every model its models.json names (the map leaves the local LLMs' out:
+    their boxes show them); built-in providers it was not given a list for are not guessed."""
+    import connect
+    from pathlib import Path
+    data = connect._json(connect._read((home or Path.home()) / ".pi/agent/models.json"))
+    found = []
+    for provider, entry in (data.get("providers") or {}).items():
+        for row in (entry.get("models") if isinstance(entry, dict) else None) or []:
+            if isinstance(row, dict) and isinstance(row.get("id"), str):
+                found.append(f"{provider}/{row['id']}")
+    return found
+
+
+def models_plan(model, home):
+    """(file, old text, new text, provider): defaultProvider and defaultModel in its settings.json."""
+    import connect
+    import online_models
+    provider, name = online_models.split(model)
+    path = home / ".pi/agent/settings.json"
+    old = connect._read(path)
+    settings = connect._json(old)
+    settings["defaultProvider"], settings["defaultModel"] = provider, name
+    return path, old, connect._dump(settings), provider

@@ -38,7 +38,7 @@ class ConnectPage:
         self.connect_title = Gtk.Label()
         page.append(self.page_header(self.connect_title, self.close_connect,
                                      _("Back without changing anything (Backspace, Esc)")))
-        column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP_TIGHT * 2)
+        column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         column.add_css_class("am-settings")
 
         self.connect_about = self.info_card(_("What happens"), "info")
@@ -182,7 +182,11 @@ class ConnectPage:
 
     def on_map_attach(self, runtime_id: str, model_id: str):
         """A line drawn from a local LLM to one of its models: the model is loaded there (ready),
-        and the agents ticked (none at first) get the local LLM with that model."""
+        and the agents ticked (none at first) get the local LLM with that model. From an online
+        provider: its agents switch to that model (one of them at once, several: ticked)."""
+        if runtime_id.startswith("cloud:"):
+            self.attach_online(runtime_id, model_id)
+            return
         runtime = next((r for r in self.inventory.runtimes if f"runtime:{r.key}" == runtime_id), None)
         model = next((n.label for n in self.side_map.graph.nodes if n.id == model_id), "")
         agents = [a for a in self.agent_list if a.installed and a.command in connect.SUPPORTED
@@ -211,6 +215,43 @@ class ConnectPage:
         def answered(_d, answer):
             if answer == "connect":
                 self.attach_apply([agent for agent, check in checks if check.get_active()], runtime, model)
+        dialog.connect("response", answered)
+        dialog.present(self.window)
+
+    def attach_online(self, cloud_id: str, model_id: str):
+        import online_models
+        graph = self.side_map.graph
+        model = next((n.label for n in graph.nodes if n.id == model_id), "")
+        users = {e.source for e in graph.edges if e.target == cloud_id and e.kind in ("uses", "available", "offer")}
+        provider = next((n.label for n in graph.nodes if n.id == cloud_id), cloud_id)
+        agents = [a for a in self.agent_list if f"agent:{a.command}" in users and online_models.supported(a.command)
+                  and online_models.target(a.command, provider, model) is not None]
+        if not model or not agents:
+            self.show_note(_("No agent here can be switched to {0}'s models.").format(provider))
+            return
+        if len(agents) == 1:
+            self.switch_online(agents, model, cloud_id)
+            return
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        checks = []
+        dialog = Adw.AlertDialog(heading=_("Use {0}?").format(model),
+                                 body=_("Tick the agents that should use {0} from {1} (backup, Undo).")
+                                 .format(model, provider))
+        for agent in agents:
+            check = Gtk.CheckButton(label=agent.name, active=True)
+            box.append(check)
+            checks.append((agent, check))
+        dialog.set_extra_child(box)
+        dialog.add_response("cancel", _("Cancel"))
+        dialog.add_response("use", _("Use it"))
+        dialog.set_response_appearance("use", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("use")
+        dialog.set_close_response("cancel")
+
+        def answered(_d, answer):
+            chosen = [agent for agent, check in checks if check.get_active()]
+            if answer == "use" and chosen:
+                self.switch_online(chosen, model, cloud_id)
         dialog.connect("response", answered)
         dialog.present(self.window)
 
@@ -258,17 +299,44 @@ class ConnectPage:
         each agent's next start."""
         import online_models
         provider = next((n.label for n in self.side_map.graph.nodes if n.id == cloud_id), cloud_id)
-        backups, stuck = [], []
+        plans, stuck, switched = [], [], []
+        for agent in agents:
+            # Its own choice for this model of this service ("provider/model" for a harness with
+            # several providers), or none: then it is not switched. Every plan first, then the writes.
+            choice = online_models.target(agent.command, provider, model) \
+                if online_models.supported(agent.command) else None
+            try:
+                plan_now = online_models.plan(agent.command, choice) if choice is not None else None
+            except (OSError, ValueError, RuntimeError) as error:
+                plan_now, stuck = None, stuck + [f"{agent.name} ({error})"]
+                continue
+            if plan_now is None:
+                stuck.append(agent.name)
+            elif plan_now.changes:
+                plans.append(plan_now)
+                switched.append(agent.name)
+        backups = []
         try:
-            for agent in agents:
-                if not online_models.supported(agent.command):
-                    stuck.append(agent.name)
-                    continue
-                plan_now = online_models.plan(agent.command, model)
-                if plan_now.changes:
-                    backups.append(connect.apply(plan_now))
+            for plan_now in plans:
+                backups.append(connect.apply(plan_now))
         except (OSError, ValueError, RuntimeError) as error:
-            self.show_note(_("Not changed: {0}").format(error))
+            # One write failed: the ones before it are put back, so nothing is half switched. What
+            # cannot be put back is said, with its Undo kept.
+            left = []
+            for backup in reversed(backups):
+                try:
+                    if not connect.undo(backup):
+                        left.append(backup)
+                except (OSError, ValueError):
+                    left.append(backup)
+            self.collect()
+            self.refresh_overview()
+            self.refresh_map()
+            if left:
+                self.toast(_("Not changed: {0}. Some agents were switched already and could not be put back.")
+                           .format(error), 0, _("Undo"), lambda: self.undo_many(left))
+            else:
+                self.show_note(_("Not changed: {0}").format(error))
             return
         self.collect()
         self.refresh_overview()
@@ -277,7 +345,7 @@ class ConnectPage:
             self.show_note(_("{0} cannot be changed from here yet.").format(", ".join(stuck)))
         if backups:
             self.toast(_("{0} use {1} ({2}) from their next start").format(
-                ", ".join(a.name for a in agents if a.name not in stuck), model, provider),
+                ", ".join(switched), model, provider),
                 30, _("Undo"), lambda: self.undo_many(backups))
 
     def offer_sign_out(self, agent_id: str, cloud_id: str):
@@ -597,7 +665,10 @@ class ConnectPage:
             self.connect_models = models
             context = llm_engine.of(runtime).agent_context(runtime)
             self.connect_context = context
-            self.connect_model = self.dropdown(models or [_("(no models found)")], 0,
+            # A model chosen before (the first-agent guide's starter model), once, when it is there.
+            chosen, self.connect_preselect = getattr(self, "connect_preselect", None), None
+            self.connect_model = self.dropdown(models or [_("(no models found)")],
+                                               models.index(chosen) if chosen in models else 0,
                                                lambda _i: (self.update_connect_preview(), self.connect_run_check()))
             if not remove_only:
                 self.setting_line(form, _("Model"), _("The model the agent uses when it works with this provider."),

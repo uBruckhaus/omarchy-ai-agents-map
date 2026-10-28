@@ -62,6 +62,8 @@
  "research_output": "text",
  "task": [],
  "rewrite": [],
+ "advise": [],
+ "closed": [],
  "tools_setting": [
   "~/.omp/agent/settings.json",
   "defaultTools"

@@ -274,6 +274,26 @@ class Engine:
     # --- the Models page: adding, removing and tuning its models ----------------------------------
     download = ""               # "file": GGUF files into its folder; "pull": its own download; "": not here
     removable = ""              # "file": its files to the trash; "api": its own delete; "": in its own app
+    # Performance settings the local LLM help may suggest (llm_tuning): {key: (allowed values as a
+    # regex, what it does)}; {} = none (no Performance card). Builds: (key, label) of the programs it
+    # can be installed as (ROCm, Vulkan, …), the one installed now from build_now().
+    tuning: dict = {}
+    _newer_from: "Engine | None" = None       # the app's engine whose newer facts it was given (_with_newer_facts)
+    tuning_per_model = True     # False: its settings count for every model ("*" only: an env file)
+    tuning_effect = "restart"   # when a changed setting counts (as context_effect)
+    builds: tuple = ()
+
+    def tuning_now(self, rt) -> dict:
+        """{"*": {key: value}, model: {key: value}}: what is set now (only `tuning`'s keys)."""
+        return {}
+
+    def tuning_changes(self, rt, section: str, key: str, value: str) -> list:
+        """The changes (connect.Change) that set it, written with a backup (Undo)."""
+        raise ValueError("nothing to change here")
+
+    def build_now(self, rt) -> str:
+        return ""
+
     context_settable = False    # the page sets a model's context for it
     context_effect = ""         # when a new context counts: "restart", "next-load", "" (at once)
 
@@ -370,11 +390,31 @@ def of(rt_or_key) -> Engine:
     key = rt_or_key if isinstance(rt_or_key, str) else rt_or_key.key
     provider = providers.get(key)
     engine = getattr(provider, "engine", None) if provider is not None else None
-    if isinstance(engine, Engine):
-        return engine
     built_in = next((p for p in providers.built_in_local() if p.key == key), None)
-    engine = getattr(built_in, "engine", None)
-    return engine if isinstance(engine, Engine) else DEFAULT
+    own = getattr(built_in, "engine", None)
+    if isinstance(engine, Engine):
+        return _with_newer_facts(engine, own) if isinstance(own, Engine) and own is not engine else engine
+    return own if isinstance(own, Engine) else DEFAULT
+
+
+# Facts newer than an add-on signed before them (the performance settings): a provider add-on's
+# engine without them gets them from the app's own engine for the same local LLM, until the add-on
+# is signed again with its own (as harnesses.NEWER_FACTS does for agents).
+NEWER_TUNING = ("tuning", "tuning_per_model", "tuning_effect", "builds")
+NEWER_METHODS = ("tuning_now", "tuning_changes", "build_now", "devices")
+
+
+def _with_newer_facts(engine: Engine, own: Engine) -> Engine:
+    if engine.tuning or not own.tuning or getattr(engine, "_newer_from", None) is own:
+        return engine
+    for name in NEWER_TUNING:
+        setattr(engine, name, getattr(own, name))
+    for name in NEWER_METHODS:
+        method = getattr(own, name, None)
+        if method is not None:
+            setattr(engine, name, method)
+    engine._newer_from = own
+    return engine
 
 
 def layout(rt_or_key) -> str:

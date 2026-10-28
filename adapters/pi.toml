@@ -85,3 +85,14 @@ dir = "~/.pi/agent"
 [tools]                                # the tools it is given
 file = "~/.pi/agent/settings.json"
 key = "defaultTools"
+
+[advise]                               # the local helper: one question, answered offline by the model it is given
+argv = ["pi", "-p", "--no-session", "--no-tools", "--no-mcp", "--no-extensions", "--no-context-files",
+        "--no-approve", "--offline"]   # no tools, MCP servers, extensions or project files; the prompt on stdin
+model = ["--provider", "{provider}", "--model", "{model}"]
+
+[closed]                               # what closes it in when the map starts it (agent_guard)
+background = []                        # its advise argv says it already
+
+[models]                               # its online models on the map: "provider/model" (its hooks)
+hook = true

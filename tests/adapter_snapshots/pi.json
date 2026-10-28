@@ -89,6 +89,32 @@
  "research_output": "text",
  "task": [],
  "rewrite": [],
+ "advise": [
+  [
+   "pi",
+   "-p",
+   "--no-session",
+   "--no-tools",
+   "--no-mcp",
+   "--no-extensions",
+   "--no-context-files",
+   "--no-approve",
+   "--offline"
+  ],
+  [
+   "--provider",
+   "{provider}",
+   "--model",
+   "{model}"
+  ],
+  "text"
+ ],
+ "closed": [
+  [],
+  [],
+  [],
+  ""
+ ],
  "tools_setting": [
   "~/.pi/agent/settings.json",
   "defaultTools"
@@ -204,7 +230,10 @@
  "detect": false,
  "limits": false,
  "details": true,
- "models": null,
+ "models": [
+  "adapter_hooks_pi.models_choices",
+  "adapter_hooks_pi.models_plan"
+ ],
  "local_llm": {
   "files": [
    "~/.pi/agent/models.json",

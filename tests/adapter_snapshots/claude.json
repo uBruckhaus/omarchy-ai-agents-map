@@ -137,6 +137,23 @@
   "--output-format",
   "text"
  ],
+ "advise": [],
+ "closed": [
+  [
+   "--strict-mcp-config",
+   "--settings",
+   "{\"disableAllHooks\": true}"
+  ],
+  [
+   "--permission-mode",
+   "manual",
+   "--strict-mcp-config",
+   "--settings",
+   "{\"disableAllHooks\": true, \"permissions\": {\"ask\": [\"Bash\", \"Edit\", \"Write\", \"MultiEdit\", \"NotebookEdit\"]}}"
+  ],
+  [],
+  ""
+ ],
  "tools_setting": [],
  "sandbox_setting": "sandbox.enabled",
  "replies": [

@@ -96,6 +96,32 @@ def local_llm_transform(texts, provider, label, url, models, context, model, use
     return [llm_text(texts[0], provider, label, url, models, model, use_now, remove)]
 
 
+# --- its online models on the map (online_models) ------------------------------------------------
+
+def models_choices(current="", home=None):
+    """"provider/model" of every model its opencode.json names under a provider."""
+    import connect
+    from pathlib import Path
+    data = connect._json(connect._read((home or Path.home()) / ".config/opencode/opencode.json"))
+    found = []
+    for provider, entry in (data.get("provider") or {}).items():
+        models = entry.get("models") if isinstance(entry, dict) else None
+        found += [f"{provider}/{name}" for name in (models or {}) if isinstance(name, str)]
+    return found
+
+
+def models_plan(model, home):
+    """(file, old text, new text, provider): its "model" ("provider/model") in opencode.json."""
+    import connect
+    import online_models
+    provider, _name = online_models.split(model)
+    path = home / ".config/opencode/opencode.json"
+    old = connect._read(path)
+    data = connect._json(old)
+    data["model"] = model
+    return path, old, connect._dump(data), provider
+
+
 # --- security settings (agent_security) ----------------------------------------------------------
 
 def security(report):

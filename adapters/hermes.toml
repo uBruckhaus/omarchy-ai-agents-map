@@ -124,3 +124,6 @@ argv = ["hermes", "doctor"]
 
 [details]                              # its model and providers (the agent's card)
 reader = "hermes"
+
+[models]                               # its online models on the map: "provider/model" (its hooks)
+hook = true

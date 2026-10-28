@@ -107,16 +107,8 @@ class TerminalPane(Gtk.Box):
         self.exit_code = None
 
         header = Gtk.Box(spacing=8)
-        back = Gtk.Button()
-        back.add_css_class("flat")
-        back.add_css_class("am-header-btn")
-        back.add_css_class("am-back-bordered")
-        back_box = Gtk.Box(spacing=6)
-        back_box.append(Gtk.Image.new_from_icon_name("go-previous-symbolic"))
-        back_box.append(Gtk.Label(label=_("Back")))
-        back.set_child(back_box)
-        back.set_tooltip_text(_("Back to the map; the agent keeps running here"))
-        back.connect("clicked", lambda *_: on_back())
+        from page_parts import PageParts       # here: gi's versions are set by then
+        back = PageParts.back_button(lambda: on_back(), _("Back to the map; the agent keeps running here"), shortcut="")
         header.append(back)
         title = Gtk.Label(label=agent.name.upper(), xalign=0)
         title.add_css_class("am-section-title")
@@ -181,6 +173,19 @@ class TerminalPane(Gtk.Box):
         code = os.waitstatus_to_exitcode(status) if status >= 0 else status
         self.exit_code = code
         self.set_state(False, _("ended") + (f" ({code})" if code else ""))
+
+    def transcript(self, most: int = 256 * 1024) -> str:
+        """What the terminal shows and keeps (its scrollback), as plain text, the end of it at most."""
+        Vte = vte()
+        try:
+            row, _col = self.terminal.get_cursor_position()
+            start = max(0, row - self.terminal.get_scrollback_lines())
+            text = self.terminal.get_text_range_format(Vte.Format.TEXT, start, 0, row, self.terminal.get_column_count())
+            text = text[0] if isinstance(text, tuple) else text
+        except (AttributeError, TypeError, ValueError):
+            return ""
+        text = (text or "").rstrip()
+        return text[-most:]
 
     def stop(self):
         """End the agent and what it started (its MCP servers, tools): SIGHUP to its process

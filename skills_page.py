@@ -18,26 +18,8 @@ class SkillsPage:
     def build_add_skills_page(self) -> Gtk.Widget:
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         page.add_css_class("am-add-page")       # one text scale (see the CSS)
-        header = Gtk.Box(spacing=8)
-        back = Gtk.Button()
-        back.add_css_class("flat")
-        back.add_css_class("am-header-btn")
-        back.add_css_class("am-back-bordered")
-        back_box = Gtk.Box(spacing=6)
-        back_box.append(Gtk.Image.new_from_icon_name("go-previous-symbolic"))
-        back_box.append(Gtk.Label(label=_("Back")))
-        back_box.append(Gtk.Label(label="· ⌫"))
-        back.set_child(back_box)
-        back.set_tooltip_text(_("Back without changing anything (Backspace, Esc)"))
-        back.connect("clicked", lambda *_: self.close_add_skills())
-        header.append(back)
-        title = Gtk.Label(label=_("Add skills").upper(), xalign=0, hexpand=True)
-        title.add_css_class("am-section-title")
-        header.append(title)
-        page.append(header)
-        rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-        rule.add_css_class("am-settings-rule")
-        page.append(rule)
+        page.append(self.page_header(Gtk.Label(label=_("Add skills").upper()), self.close_add_skills,
+                                     _("Back without changing anything (Backspace, Esc)")))
         self.intro_card(page, _("Skills teach your agents how to do a task."), [
             _("A skill is a folder with a SKILL.md: instructions, sometimes with scripts or templates, for one kind "
               "of work, e.g. making a PDF or releasing your app. An agent reads it only when a task fits, so many "
@@ -97,7 +79,7 @@ class SkillsPage:
         self.setting_line(body, _("Also for"), _("Agents that do not read this folder yet get it too."),
                           self.skills_agents)
         self.skills_agents.set_halign(Gtk.Align.FILL)
-        buttons = Gtk.Box(spacing=10)
+        buttons = Gtk.Box(spacing=ai_core.GAP_INLINE)
         self.skills_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=1, hexpand=True)
         self.skills_status.add_css_class("am-agent-detail")
         buttons.append(self.skills_status)

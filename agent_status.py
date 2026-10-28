@@ -597,7 +597,8 @@ def agent_checks(agent, info, record: dict, inventory, hints: dict, logged_in: b
                                                                                          "this page."),
                             login, sign_in=agent.command))
     elif record and record.get("ready") and record.get("tierLabel"):
-        checks.append(Check("ok", _("Signed in"), _("Plan: {0}").format(str(record["tierLabel"])[:40])))
+        import agent_details
+        checks.append(Check("ok", _("Signed in"), _("Plan: {0}").format(agent_details.plan_label(record["tierLabel"]))))
     elif record and record.get("authHelpText") and not record.get("ready"):
         checks.append(Check("missing", _("Not signed in"), str(record.get("usageStatusText") or "")[:200],
                             str(record["authHelpText"])[:300], sign_in=agent.command))

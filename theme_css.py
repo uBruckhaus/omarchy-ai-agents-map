@@ -196,9 +196,13 @@ class ThemeCss:
         .am-button-row {{ margin-top: 2px; margin-bottom: 4px; }}
         .am-header-moving {{ opacity: 0.55; outline: 1px dashed {accent_hex}; outline-offset: 1px; }}
         .am-header-drop {{ min-width: 3px; min-height: 26px; border-radius: 2px; background-color: {accent_hex}; }}
-        .am-card button.am-page-btn {{ font-size: 13px; font-weight: 600; min-height: 30px; min-width: 96px;
+        /* One size for a page's own actions (action_button size="page"); am-action-btn and am-download-btn
+           are older names for it. Also in the boxes over the card (the splash, the AI progress box). */
+        .am-card button.am-page-btn, .am-card button.am-action-btn, button.am-download-btn,
+        .am-splash button.am-page-btn {{ font-size: 13px; font-weight: 600; min-height: 30px; min-width: 96px;
             padding: 2px 16px; border: 1px solid alpha({fg_hex}, 0.35); border-radius: {radius}px; }}
-        .am-card button.am-page-btn:disabled {{ opacity: 0.45; }}
+        .am-card button.am-page-btn:disabled, .am-card button.am-action-btn:disabled,
+        button.am-download-btn:disabled, .am-splash button.am-page-btn:disabled {{ opacity: 0.45; }}
         .am-help-mark {{ font-weight: 700; }}
         .am-addon-card {{ background: alpha({fg_hex}, 0.04); border: 1px solid alpha({fg_hex}, 0.10);
             border-radius: {radius}px; padding: 10px 12px; min-height: 96px; }}
@@ -232,6 +236,8 @@ class ThemeCss:
         .am-splash-row {{ font-size: 13px; }}
         .am-splash-count {{ font-size: 13px; color: {muted_hex}; }}
         .am-splash-tick {{ color: {green_hex}; font-weight: 700; min-width: 16px; }}
+        .am-ai-failed {{ color: {red_hex}; font-weight: 700; min-width: 16px; }}
+        .am-ai-progress {{ padding: 22px 28px; }}
         progressbar.am-splash-bar {{ min-width: 260px; }}
         progressbar.am-splash-bar trough, progressbar.am-splash-bar progress {{ min-height: 4px;
             border-radius: 2px; }}
@@ -257,12 +263,12 @@ class ThemeCss:
             padding: 11px 13px; color: {fg_hex}; }}
         .am-setup-tile.am-setup-installed.am-setup-small {{ padding: 7px 9px; }}
         .am-setup-tile.am-setup-installed:hover {{ background: alpha({accent_hex}, 0.20); }}
-        .am-agent-icon.am-setup-glyph {{ font-size: 30px; min-width: 36px; }}
+        .am-agent-icon.am-setup-glyph {{ font-size: 28px; min-width: 36px; }}
         .am-setup-check {{ color: {bg_hex}; background: {accent_hex}; border-radius: {pill}px; min-width: 20px;
             min-height: 20px; font-size: 11px; font-weight: 700; }}
         .am-setup-title {{ font-size: 22px; font-weight: 700; }}
         .am-setup-small {{ padding: 8px 10px; }}
-        .am-agent-icon.am-setup-glyph-sm {{ font-size: 20px; min-width: 24px; }}
+        .am-agent-icon.am-setup-glyph-sm {{ font-size: 18px; min-width: 24px; }}
         .am-setup-add {{ background: transparent; border: 1px solid alpha({fg_hex}, 0.16); box-shadow: none; }}
         .am-setup-add .am-setup-glyph, .am-setup-add .am-setup-glyph-sm {{ color: {dim_hex}; }}
         .am-setup-add:hover {{ border-color: {accent_hex}; background: alpha({accent_hex}, 0.06); }}
@@ -284,7 +290,7 @@ class ThemeCss:
         list.am-pick-cards > row:selected {{ background: alpha({accent_hex}, 0.14); border: 2px solid {accent_hex};
             padding: 1px 3px; }}
         list.am-pick-cards > row.am-pick-heading {{ background: none; border: none; margin-bottom: 0; }}
-        .am-agent-icon.am-pick-glyph {{ font-size: 22px; min-width: 30px; }}
+        .am-agent-icon.am-pick-glyph {{ font-size: 20px; min-width: 30px; }}
         .am-choice.am-choice-card {{ background: alpha({fg_hex}, 0.04); border: 1px solid alpha({fg_hex}, 0.10);
             border-radius: {radius}px; padding: 8px 10px; margin-bottom: 2px; }}
         .am-choice.am-choice-card:hover {{ background: alpha({fg_hex}, 0.08); }}
@@ -307,8 +313,9 @@ class ThemeCss:
             color: {fg_hex}; font-size: 12px; }}
         .am-card .am-prompt-frame {{ background: alpha({fg_hex}, 0.04); border: 1px solid alpha({fg_hex}, 0.18);
             border-radius: 6px; }}
-        .am-card button.am-primary {{ background: alpha({accent_hex}, 0.25); border-color: {accent_hex}; }}
-        .am-card button.am-danger {{ color: {red_hex}; border-color: alpha({red_hex}, 0.6); }}
+        .am-card button.am-primary, .am-splash button.am-primary {{ background: alpha({accent_hex}, 0.25);
+            border-color: {accent_hex}; }}
+        .am-card button.am-danger, .am-splash button.am-danger {{ color: {red_hex}; border-color: alpha({red_hex}, 0.6); }}
         popover button.am-danger {{ color: {red_hex}; border-color: alpha({red_hex}, 0.6); }}
         .am-hint-error {{ color: {red_hex}; font-weight: bold; }}
         .am-an-mark {{ font-size: 22px; font-weight: 800; min-width: 28px; color: {dim_hex}; }}
@@ -317,9 +324,10 @@ class ThemeCss:
         .am-an-mark.slow {{ color: {yellow_hex}; }}
         .am-model-name {{ font-weight: 600; }}
         .am-help-picture {{ border-radius: {min(radius, 8)}px; }}
-        button.am-download-btn {{ padding: 6px 18px; font-weight: 700; }}
         .am-model-title {{ font-size: 17px; font-weight: 700; }}
-        .am-model-card {{ background: alpha({fg_hex}, 0.05); border-radius: {min(radius, 8)}px; padding: 12px 14px; }}
+        /* The same neutral surface as .am-help-card (background, border, corners); its own room inside. */
+        .am-model-card {{ background: alpha({fg_hex}, 0.03); border: 1px solid alpha({fg_hex}, 0.10);
+            border-radius: {radius}px; padding: 12px 14px; }}
         .am-fact-key {{ font-size: 9px; font-weight: 700; letter-spacing: 1px; color: {dim_hex}; }}
         .am-fact-value {{ font-family: monospace; font-weight: 600; }}
         .am-cap {{ font-size: 10px; font-weight: 600; border-radius: {pill}px; padding: 1px 8px;
@@ -434,6 +442,7 @@ class ThemeCss:
         .am-agent-icon {{ font-family: "JetBrainsMono Nerd Font", "Symbols Nerd Font", monospace;
             font-size: 22px; color: {accent_hex}; min-width: 28px; }}
         .am-agent-icon.am-agent-icon-omarchy {{ font-family: "omarchy"; }}
+        .am-agent-icon.am-glyph-large {{ font-size: 48px; min-width: 52px; }}   /* ui_helpers.glyph_widget size >= 32 */
         .am-agent-missing .am-agent-icon {{ color: {fg_hex}; }}
         image.am-icon {{ min-width: 0; }}
         .am-agent-name {{ font-size: 13px; font-weight: 600; }}
@@ -465,11 +474,8 @@ class ThemeCss:
         levelbar.am-limit block.am-hot {{ background: {orange_hex}; }}
         levelbar.am-limit block.am-full {{ background: {red_hex}; }}
         levelbar.am-limit block.empty {{ background: transparent; }}
-        .am-card button.am-small-btn {{ font-size: 11px; min-height: 0; padding: 1px 10px;
-            border: 1px solid alpha({fg_hex}, 0.35); border-radius: {radius}px; }}
-        .am-card button.am-action-btn {{ font-size: 13px; font-weight: 600; min-height: 34px; min-width: 120px;
-            padding: 4px 22px; border: 1px solid alpha({fg_hex}, 0.35); border-radius: {radius}px; }}
-        .am-card button.am-action-btn:disabled {{ opacity: 0.45; }}
+        .am-card button.am-small-btn, .am-splash button.am-small-btn {{ font-size: 11px; min-height: 0;
+            padding: 1px 10px; border: 1px solid alpha({fg_hex}, 0.35); border-radius: {radius}px; }}
         .am-card button.am-chip {{ font-size: 11px; min-height: 0; padding: 1px 10px; border-radius: {pill}px;
             border: 1px solid alpha({fg_hex}, 0.25); background: transparent; color: {dim_hex}; }}
         .am-card button.am-chip:checked {{ background: alpha({accent_hex}, 0.18); border-color: {accent_hex};

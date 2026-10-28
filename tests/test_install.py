@@ -35,7 +35,7 @@ class InstallTest(unittest.TestCase):
     def fake_release(self):
         """A local tar.zst... as .tgz with bin/ollama, served by a fake download."""
         src = self.home / "src"
-        (src / "bin").mkdir(parents=True)
+        (src / "bin").mkdir(parents=True, exist_ok=True)
         (src / "bin/ollama").write_text("#!/bin/sh\n")
         archive = self.home / "ollama-linux-amd64.tgz"
         with tarfile.open(archive, "w:gz") as tar:
@@ -83,6 +83,73 @@ class InstallTest(unittest.TestCase):
         self.assertFalse((folder / "v9.9.9").exists())
         self.assertFalse((self.home / ".local/bin/ollama").exists())
         self.assertFalse(self.ollama.env_file.exists())
+
+    def test_install_refuses_a_folder_with_other_things(self):
+        folder = self.home / "Applications"
+        (folder / "SomeApp").mkdir(parents=True)
+        with self.assertRaises(RuntimeError):
+            self.install(folder, self.home / "m")
+        self.assertTrue((folder / "SomeApp").exists())
+        self.assertFalse((folder / ic.MARKER).exists())
+
+    def test_reinstall_next_to_the_kept_models(self):
+        folder = self.home / "o"
+        self.install(folder, folder / "models")
+        (folder / "models/blob").write_text("x")
+        self.ollama.uninstall()
+        self.install(folder, folder / "models")
+        self.assertEqual(self.ollama.versions(folder), ["v9.9.9"])
+
+    def test_cleanup_touches_only_what_it_installed(self):
+        folder = self.home / "o"
+        self.install(folder, self.home / "m")
+        (folder / "notes").mkdir()                     # put there by hand after the install
+        (folder / "notes/keep.txt").write_text("x")
+        (folder / "v0.0.1-hand").mkdir()
+        self.assertEqual(self.ollama.versions(folder), ["v9.9.9"])
+        self.ollama.uninstall()
+        self.assertTrue((folder / "notes/keep.txt").exists())
+        self.assertTrue((folder / "v0.0.1-hand").exists())
+        self.assertFalse((folder / "v9.9.9").exists())
+        self.assertFalse((folder / ic.MARKER).exists())
+
+    def test_install_never_replaces_the_model_folder_or_a_foreign_version(self):
+        folder = self.home / "o"
+        with self.assertRaises(RuntimeError):
+            self.install(folder, folder / "v9.9.9/models")      # the version folder it would replace
+        self.assertFalse((self.home / ".local/bin/ollama").exists())
+        other = self.home / "p"
+        (other).mkdir()
+        self.install(other, self.home / "m")
+        mark = (other / ic.MARKER).read_text()
+        (other / ic.MARKER).write_text(mark.replace('"v9.9.9"', '"v0"'))   # v9.9.9 no longer recorded
+        with self.assertRaises(RuntimeError):
+            self.install(other, self.home / "m")
+        self.assertTrue((other / "v9.9.9/bin/ollama").exists())
+
+    def test_an_old_marker_keeps_its_versions_after_an_update(self):
+        folder = self.home / "o"
+        self.install(folder, self.home / "m")
+        (folder / ic.MARKER).write_text('{"runtime": "ollama"}\n')
+        self.ollama.record_version(folder, "v10.0.0")
+        self.assertIn("v9.9.9", ic.json.loads((folder / ic.MARKER).read_text())["versions"])
+
+    def test_a_linked_download_folder_is_refused_before_downloading(self):
+        folder = self.home / "o"
+        self.install(folder, self.home / "m")
+        cache = self.home / "cache"
+        cache.mkdir()
+        (folder / "downloads").symlink_to(cache)
+        with self.assertRaises(RuntimeError):
+            self.install(folder, self.home / "m")
+        self.assertEqual(list(cache.iterdir()), [])
+
+    def test_old_marker_without_a_list(self):
+        folder = self.home / "o"
+        self.install(folder, self.home / "m")
+        (folder / ic.MARKER).write_text('{"runtime": "ollama"}\n')
+        (folder / "photos").mkdir()
+        self.assertEqual(self.ollama.versions(folder), ["v9.9.9"])
 
     def test_reinstall_offers_the_earlier_model_folder(self):
         root = self.home / "Models"

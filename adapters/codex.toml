@@ -129,3 +129,10 @@ argv = ["codex", "{prompt}"]
 
 [rewrite]                              # a skill rewritten for an MCP server: read-only, the prompt on stdin
 argv = ["codex", "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--output-last-message", "{answer}", "-"]
+
+[closed]                               # what closes it in when the map starts it (agent_guard)
+background = ["--disable", "apps", "--disable", "plugins", "--disable", "hooks"]   # look-ups, rewrites: no connectors, plugins, hooks
+task = ["--sandbox", "read-only", "--ask-for-approval", "on-request", "--disable", "apps", "--disable", "plugins",
+        "--disable", "hooks"]           # task tabs: every change leaves the sandbox, so it asks first
+mcp_off = ["-c", "mcp_servers.{name}.enabled=false"]   # each MCP server of its [mcp] file, off for the run
+home_env = "CODEX_HOME"                # where its [mcp] file is when this variable moves its home

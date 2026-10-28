@@ -22,6 +22,30 @@ HOME = Path.home()
 CLAUDE_ALIASES = ("fable", "opus", "sonnet")
 MAX_CHOICES = 12
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,99}")
+# A harness with several providers names its choices "provider/model" (split at the first slash; the
+# model may hold more slashes, as "qwen/qwen3-coder" does): its adapter's models_choices hook.
+QUALIFIED = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}/[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,159}")
+
+
+def split(choice: str) -> tuple[str, str]:
+    """"deepseek-official/deepseek-flash" -> ("deepseek-official", "deepseek-flash"); ("", choice) else."""
+    if QUALIFIED.fullmatch(choice or ""):
+        provider, _sep, model = choice.partition("/")
+        return provider, model
+    return "", choice
+
+
+def target(command: str, service: str, model: str, current: str = "", home: Path | None = None) -> str | None:
+    """The agent's own choice for `model` of the online service the map shows as `service` (its
+    box's name): "provider/model" for a harness with several providers, the model itself for one
+    service (Claude Code, Codex); None when the agent has no such choice."""
+    import graph
+    found = choices(command, current, home)
+    for choice in found:
+        provider, name = split(choice)
+        if provider and name == model and graph.provider_name(provider).lower() == service.lower():
+            return choice
+    return model if model in found and not any(split(c)[0] for c in found) else None
 
 
 def _switcher(command: str):
@@ -65,8 +89,12 @@ def codex_choices(current: str = "", home: Path | None = None) -> list:
 def choices(command: str, current: str = "", home: Path | None = None) -> list:
     """The models the agent can be switched to (the one in use first when it is not listed)."""
     switcher = _switcher(command)
-    found = list(switcher[0](current, home))[:MAX_CHOICES] if switcher is not None else []
-    if current and current not in found and NAME.fullmatch(current):
+    try:
+        found = list(switcher[0](current, home))[:MAX_CHOICES * 4] if switcher is not None else []
+    except Exception:              # its settings unreadable or malformed: no choices, the map goes on
+        found = []
+    found = [c for c in found if isinstance(c, str) and (NAME.fullmatch(c) or QUALIFIED.fullmatch(c))]
+    if current and current not in found and (NAME.fullmatch(current) or QUALIFIED.fullmatch(current)):
         found.insert(0, current)
     return found
 
@@ -104,8 +132,10 @@ def plan(command: str, model: str, home: Path | None = None):
     """The change that makes `model` the agent's model (a connect.Plan: preview, backup, Undo)."""
     import connect
     switcher = _switcher(command)
-    if switcher is None or not NAME.fullmatch(model or ""):
+    if switcher is None or not (NAME.fullmatch(model or "") or QUALIFIED.fullmatch(model or "")):
         raise ValueError(model)
+    if QUALIFIED.fullmatch(model) and model not in choices(command, "", home):
+        raise ValueError(f"{model} is not one of the agent's own choices")
     path, old, new, provider = switcher[1](model, home or HOME)
     result = connect.Plan(command, "online", provider, connected=True)
     if new != old:

@@ -241,14 +241,18 @@ def task_prompt(update: Found) -> str:
     """What "Do it with <agent>…" asks the agent to do in its terminal tab."""
     if update.source == "app":
         return (f"Download the MCP server app \"{update.app}\" {update.latest} (I have {update.current}, in "
-                f"{APPS / (update.app + '-' + update.current)}). Release: {update.url}\n"
-                f"Get the Linux x86_64 AppImage of {update.latest} from the official release only, save it in "
-                f"{APPS} under its release file name and check its checksum if the release gives one. Do not "
+                f"{APPS / (update.app + '-' + update.current)}). Release (found by an automatic web look-up: "
+                f"check first that it is the app's official project): {update.url}\n"
+                f"Get the Linux x86_64 AppImage of {update.latest} from that official release only and save it in "
+                f"{APPS} under its release file name. Check its SHA-256 against the checksum the release "
+                f"publishes and show me both; if the release publishes none or they differ, delete the download "
+                f"and stop. Do not "
                 f"unpack it, do not change any agent's settings and do not delete the old version: AI Agents "
                 f"Map finds the new AppImage, unpacks it and moves the agents over, with Undo. Ask me before "
                 f"each step that changes files.")
     manager = "npm" if update.source == "npm" else "PyPI"
     return (f"The MCP server \"{update.name}\" runs the {manager} package {update.app} pinned to {update.current}; "
-            f"{update.latest} is out ({update.url}). Show me what changed and which agents' MCP settings pin "
+            f"an automatic web look-up says {update.latest} is out ({update.url}). Check that on {manager} itself "
+            f"first. Show me what changed and which agents' MCP settings pin "
             f"{update.app}@{update.current}, then, after I agree, change the pinned version to {update.latest}. "
             f"Ask me before each change.")

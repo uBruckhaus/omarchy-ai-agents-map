@@ -209,7 +209,7 @@ def check(agent_list, details: dict, inventory, built, pc: PC, agent_checks: dic
     area = Area("agents", _("Agents"), "\U000f06a9")
     if not installed:
         area.findings.append(Finding("warn", _("No agent installed"),
-                                     desktop.text("install_agent_first"), ("setup",)))
+                                     desktop.text("install_agent_first"), ("firstagent",)))
     ready = []
     for agent in installed:
         checks = agent_checks.get(agent.command, [])

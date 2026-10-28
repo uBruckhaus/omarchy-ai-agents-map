@@ -46,7 +46,7 @@ class SameTablesAsBeforeTest(unittest.TestCase):
         self.assertEqual(graph.PROVIDER_NAMES, {
             "anthropic": "Anthropic", "openai": "OpenAI", "openai-codex": "OpenAI", "google": "Google",
             "gemini": "Google", "github-copilot": "GitHub Copilot", "xai": "xAI", "nous": "Nous Research",
-            "openrouter": "OpenRouter", "groq": "Groq", "mistral": "Mistral", "deepseek": "DeepSeek",
+            "openrouter": "OpenRouter", "groq": "Groq", "mistral": "Mistral", "deepseek": "DeepSeek", "deepseek-official": "DeepSeek", "deepseek-account": "DeepSeek",
             "fireworks": "Fireworks", "together": "Together AI", "opencode": "OpenCode Zen", "zai": "Z.ai",
             "openclaw": "OpenClaw"})
 

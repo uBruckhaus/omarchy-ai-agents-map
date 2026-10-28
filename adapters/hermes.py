@@ -91,21 +91,71 @@ def llm_text(text: str, provider: str, label: str, url: str, models: list, conte
     if remove:
         text = _model_off(text, provider)
     if use_now and not remove:
-        block = connect._top_block(text, "model")
-        lines = [f"  default: {model}", f"  provider: {provider}", "  base_url: ''"]
-        if block is None:
-            text = "model:\n" + "\n".join(lines) + "\n" + text
-        else:
-            start, end = block
-            body = text[start:end]
-            for line in lines:
-                key = line.split(":", 1)[0].strip()
-                if re.search(rf"^  {key}:", body, re.MULTILINE):
-                    body = re.sub(rf"^  {key}:.*$", line, body, count=1, flags=re.MULTILINE)
-                else:
-                    body = body.rstrip("\n") + "\n" + line + "\n"
-            text = text[:start] + body + text[end:]
+        text = model_text(text, provider, model)
     return text
+
+
+def model_text(text: str, provider: str, model: str) -> str:
+    """The model block set to `model` of `provider` (its endpoint comes from its providers entry);
+    the rest of the file stays as it is."""
+    import connect
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", provider) \
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,159}", model):
+        raise ValueError("bad provider or model")
+    import json
+    block = connect._top_block(text, "model")
+    # Quoted (JSON's double quotes are YAML's): an id such as "null", "true" or "1.5" stays a name.
+    lines = [f"  default: {json.dumps(model)}", f"  provider: {json.dumps(provider)}", "  base_url: ''"]
+    if block is None:
+        return "model:\n" + "\n".join(lines) + "\n" + text
+    start, end = block
+    body = text[start:end]
+    header = body.split("\n", 1)[0]
+    if re.sub(r"#.*$", "", header).strip() != "model:":
+        # Written inline ("model: {default: …}") or as a plain value: not edited line by line here.
+        raise ValueError("Hermes's model setting is written inline in config.yaml; change it in Hermes")
+    children = [len(l) - len(l.lstrip(" ")) for l in body.split("\n")[1:] if l.strip() and not l.lstrip().startswith("#")]
+    if any(indent != 2 for indent in children) or "\t" in body:
+        # Only the two-space layout Hermes writes is edited here: another one would come out mixed.
+        raise ValueError("Hermes's model setting in config.yaml is indented in a way the app does not edit; "
+                         "change it in Hermes")
+    for line in lines:
+        key = line.split(":", 1)[0].strip()
+        if re.search(rf"^  {key}:", body, re.MULTILINE):
+            body = re.sub(rf"^  {key}:.*$", lambda _m, line=line: line, body, count=1, flags=re.MULTILINE)
+        else:
+            body = body.rstrip("\n") + "\n" + line + "\n"
+    return text[:start] + body + text[end:]
+
+
+# --- its online models on the map (online_models) ------------------------------------------------
+
+def models_choices(current="", home=None):
+    """"provider/model" of every model its providers block lists (under "    models:")."""
+    import connect
+    from pathlib import Path
+    text = connect._read((home or Path.home()) / ".hermes/config.yaml")
+    block = connect._top_block(text, "providers")
+    if block is None:
+        return []
+    found = []
+    body = text[block[0]:block[1]]
+    for entry in re.finditer(r"^  (\S+):[ \t]*\n((?:(?:    |\t\t).*\n?|\s*\n)*)", body, re.MULTILINE):
+        models = re.search(r"^    models:[ \t]*\n((?:(?:      ).*\n?|\s*\n)*)", entry.group(2), re.MULTILINE)
+        if models:
+            found += [f"{entry.group(1)}/{name}" for name in
+                      re.findall(r"^      ([^\s#][^\n#]*?):(?=[ \t]|$)", models.group(1), re.MULTILINE)]
+    return found
+
+
+def models_plan(model, home):
+    """(file, old text, new text, provider): its model block (default, provider, base_url)."""
+    import connect
+    import online_models
+    provider, name = online_models.split(model)
+    path = home / ".hermes/config.yaml"
+    old = connect._read(path)
+    return path, old, model_text(old, provider, name), provider
 
 
 def _first_provider(text: str):
@@ -132,7 +182,7 @@ def _model_off(text: str, provider: str) -> str:
         return text
     start, end = block
     body = text[start:end]
-    if not re.search(rf"^  provider:\s*{re.escape(provider)}\s*$", body, re.MULTILINE):
+    if not re.search(rf"^  provider:\s*[\"']?{re.escape(provider)}[\"']?\s*$", body, re.MULTILINE):
         return text
     following = _first_provider(text)
     if following is not None:
@@ -154,7 +204,7 @@ def local_llm_connected(texts, provider):
 def local_llm_active(texts, provider):
     import connect
     block = connect._top_block(texts[0], "model")
-    return bool(block) and re.search(rf"^  provider:\s*{re.escape(provider)}\s*$", texts[0][block[0]:block[1]],
+    return bool(block) and re.search(rf"^  provider:\s*[\"']?{re.escape(provider)}[\"']?\s*$", texts[0][block[0]:block[1]],
                                      re.MULTILINE) is not None
 
 

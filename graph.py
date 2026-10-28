@@ -12,6 +12,18 @@ import re
 from dataclasses import dataclass, field
 
 import providers
+from i18n import _
+
+MODEL_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}")
+
+
+def _last_model(command: str) -> str:
+    import usage_box
+    return usage_box.last_model(command)
+
+
+# The model of an online agent's latest session, for one whose settings name none (tests set None).
+LAST_MODEL = _last_model
 
 
 def _rebuild():
@@ -147,6 +159,30 @@ def provider_name(raw: str) -> str:
     return PROVIDER_NAMES.get(raw.lower(), raw)
 
 
+def online_choices(graph, agent, aid: str, model: str, model_provider: str, local_names: dict, runtimes: dict):
+    """A harness with several providers (Hermes, DeepSeek Harness, Pi, …): each online provider its
+    own settings (or its own built-in routes) offer, with those models, joined to it by an "offer" line
+    while it uses another provider: not a connection (nothing to disconnect), only what it can switch
+    to; the map draws it quietly while the agent is selected or hovered; a click or a line to one of
+    the models switches it."""
+    import online_models
+    local_keys = {key.lower() for key in providers.connect_keys().values()} | {n.lower() for n in local_names}
+    current = f"{model_provider}/{model}" if model and model_provider else ""
+    for choice in online_models.choices(agent.command, current):
+        provider, name = online_models.split(choice)
+        if not provider or provider.lower() in local_keys:
+            continue                      # a local LLM's models: its own box shows them
+        service = provider_name(provider)
+        cid = f"cloud:{service.lower()}"
+        graph.add(Node(cid, 2, service, "", "cloud"))
+        if not any(e.source == aid and e.target == cid for e in graph.edges):
+            graph.link(aid, cid, "offer")
+        mid = f"model:{cid}:{name.lower()}"
+        graph.add(Node(mid, 3, name, "", "model"))
+        if not any(e.source == cid and e.target == mid for e in graph.edges):
+            graph.link(cid, mid, "serves")
+
+
 def split_model(model: str) -> tuple[str, str]:
     """"qwen (llama-local)" -> ("qwen", "llama-local"); "anthropic/claude" -> ("claude", "anthropic")."""
     model = (model or "").strip()
@@ -224,15 +260,22 @@ def build(agent_list, details: dict, inventory, labels: dict | None = None, fail
             cid = f"cloud:{cloud.lower()}"
             graph.add(Node(cid, 2, cloud, "", "cloud"))
             graph.link(aid, cid, "uses")
+            implicit = False
+            if not model and LAST_MODEL is not None:
+                # Its settings name no model: it uses its own default, which its latest session says.
+                found = LAST_MODEL(agent.command)
+                if found and MODEL_NAME.fullmatch(found):
+                    model, implicit = found, True
             if model:
                 mid = f"model:{cid}:{model.lower()}"
-                graph.add(Node(mid, 3, model, "", "model"))
+                graph.add(Node(mid, 3, model, _("its default (last session)") if implicit else "", "model"))
                 graph.link(cid, mid, "serves")
                 graph.link(aid, mid, "default")
-            # The other models it can be switched to on the map (online_models: the agent's own list).
+            # The other models it can be switched to on the map (online_models: the agent's own list;
+            # "provider/model" choices of a harness with several providers come below).
             import online_models
             for other in online_models.choices(agent.command, model):
-                if other != model:
+                if other != model and not online_models.split(other)[0]:
                     oid = f"model:{cid}:{other.lower()}"
                     graph.add(Node(oid, 3, other, "", "model"))
                     if not any(e.source == cid and e.target == oid for e in graph.edges):
@@ -240,6 +283,7 @@ def build(agent_list, details: dict, inventory, labels: dict | None = None, fail
         elif model and model_provider in local_names:
             rt = runtimes[local_names[model_provider]]
             graph.link(aid, f"model:runtime:{rt.key}:{model.lower()}", "default")
+        online_choices(graph, agent, aid, model, model_provider, local_names, runtimes)
 
         # The model each open instance runs with: its own --model, else the settings'.
         for chosen in instances:

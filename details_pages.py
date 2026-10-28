@@ -40,17 +40,7 @@ class DetailsPages:
     def build_status_page(self) -> Gtk.Widget:
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         header = Gtk.Box(spacing=8)
-        back = Gtk.Button()
-        back.add_css_class("flat")
-        back.add_css_class("am-header-btn")
-        back.add_css_class("am-back-bordered")
-        back_box = Gtk.Box(spacing=6)
-        back_box.append(Gtk.Image.new_from_icon_name("go-previous-symbolic"))
-        back_box.append(Gtk.Label(label=_("Back")))
-        back_box.append(Gtk.Label(label="· ⌫"))
-        back.set_child(back_box)
-        back.set_tooltip_text(_("Back (Backspace, Esc)"))
-        back.connect("clicked", lambda *_: self.close_status())
+        back = self.back_button(lambda: self.close_status(), _("Back (Backspace, Esc)"))
         header.append(back)
         self.status_title = Gtk.Label(xalign=0, hexpand=True)
         self.status_title.add_css_class("am-section-title")
@@ -224,7 +214,7 @@ class DetailsPages:
                                       (_("Last 30 days"), money(spent.month), "")]))
         kinds = (_("Input"), _("Output"), _("Cache read"), _("Cache write"))
         for model, (provider, counts, parts) in sorted(spent.by_model.items(), key=lambda m: -sum(m[1][2]))[:6]:
-            self.settings_heading(group, _("{0}, last 30 days").format(model))
+            self.settings_heading(group, _("{0}, last 30 days").format(model), upper=False)
             rows = [(kind, _("{0} tokens · {1}").format(short_number(n), money(usd)), "")
                     for kind, n, usd in zip(kinds, counts, parts) if n]
             rows.append((_("In all"), money(sum(parts)), ""))
@@ -580,6 +570,7 @@ class DetailsPages:
         config.add_css_class("am-boxed")
         self.fill_runtime(config, rt, names, summary=True)
         group.append(config)
+        self.fill_runtime_performance(body, rt)
         for card in dict.fromkeys(h[3] for h in hooks if h[3] not in ("statistics", "health")):
             found = [h for h in hooks if h[3] == card]
             level = max(h[2] for h in found)

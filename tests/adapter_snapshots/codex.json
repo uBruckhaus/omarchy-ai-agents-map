@@ -131,6 +131,34 @@
   "{answer}",
   "-"
  ],
+ "advise": [],
+ "closed": [
+  [
+   "--disable",
+   "apps",
+   "--disable",
+   "plugins",
+   "--disable",
+   "hooks"
+  ],
+  [
+   "--sandbox",
+   "read-only",
+   "--ask-for-approval",
+   "on-request",
+   "--disable",
+   "apps",
+   "--disable",
+   "plugins",
+   "--disable",
+   "hooks"
+  ],
+  [
+   "-c",
+   "mcp_servers.{name}.enabled=false"
+  ],
+  "CODEX_HOME"
+ ],
  "tools_setting": [],
  "sandbox_setting": "sandbox_mode",
  "replies": [

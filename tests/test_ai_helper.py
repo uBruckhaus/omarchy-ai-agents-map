@@ -59,7 +59,9 @@ class AiHelperTest(unittest.TestCase):
             self.assertEqual(ai_helper.billing("codex", {}), ("unknown", ""))
 
     def test_task_argv_puts_the_prompt_in_as_one_argument(self):
-        self.assertEqual(ai_helper.task_argv("claude", "do; rm -rf x"), ["/usr/bin/claude", "do; rm -rf x"])
+        argv = ai_helper.task_argv("claude", "do; rm -rf x")
+        self.assertEqual((argv[0], argv[1:4], argv[-1]),
+                         ("/usr/bin/claude", ["--permission-mode", "manual", "--strict-mcp-config"], "do; rm -rf x"))
         self.assertIsNone(ai_helper.task_argv("pi", "x"))         # no task fact
 
 

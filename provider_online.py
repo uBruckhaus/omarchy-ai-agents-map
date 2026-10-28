@@ -24,7 +24,7 @@ ONLINE = [
     _online("openrouter", "OpenRouter", ("openrouter",)),
     _online("groq", "Groq", ("groq",)),
     _online("mistral", "Mistral", ("mistral",)),
-    _online("deepseek", "DeepSeek", ("deepseek",)),
+    _online("deepseek", "DeepSeek", ("deepseek", "deepseek-official", "deepseek-account")),
     _online("fireworks", "Fireworks", ("fireworks",)),
     _online("together", "Together AI", ("together",)),
     _online("opencode-zen", "OpenCode Zen", ("opencode",)),

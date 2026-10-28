@@ -10,6 +10,7 @@ import stat
 import subprocess
 import tempfile
 import threading
+import time
 from pathlib import Path
 from typing import cast
 
@@ -17,10 +18,12 @@ import i18n
 
 SETTINGS_MAX_BYTES = 256 * 1024
 MIN_WINDOW_SIZE = (420, 320)   # the card's width and its page height, logical px
-# One rhythm for every page: GAP between blocks (sections, cards, forms, card rows), GAP_TIGHT
-# between lines that belong together (hint lines, terminal tabs, a card's text).
+# One rhythm for every page: GAP between blocks (sections, cards, forms, card rows, list and detail
+# panes), GAP_TIGHT between lines that belong together (hint lines, terminal tabs, a card's text),
+# GAP_INLINE between controls side by side (buttons in a row, a label and its dropdown).
 GAP = 16
 GAP_TIGHT = 6
+GAP_INLINE = 8
 VIEWS = ("main", "setup")    # the cards with the map beside them, and Setup; the rest are sub-pages
 
 
@@ -261,10 +264,11 @@ def run_with_disk_budget(argv: list[str], cwd: str, budget: int, timeout: float,
 
 def read_bounded_output(argv: list[str], max_bytes: int = 64 * 1024, timeout: float = 5.0,
                         stdin: bytes | None = None, cwd: str | None = None, env: dict | None = None,
-                        merge_stderr: bool = False) -> tuple[bytes, bool]:
+                        merge_stderr: bool = False, cancel=None) -> tuple[bytes, bool]:
     """Run argv (no shell), read stdout with a byte cap and one deadline.
     `stdin`: bytes handed to the program (private data never goes into argv);
-    `merge_stderr`: read error messages too (same cap)."""
+    `merge_stderr`: read error messages too (same cap);
+    `cancel`: an Event; once it is set the program and its children are ended (not ok)."""
     try:
         proc = subprocess.Popen(list(argv), stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
                                 stdout=subprocess.PIPE,
@@ -295,7 +299,12 @@ def read_bounded_output(argv: list[str], max_bytes: int = 64 * 1024, timeout: fl
 
     thread = threading.Thread(target=reader, daemon=True)
     thread.start()
-    thread.join(timeout)
+    if cancel is None:
+        thread.join(timeout)
+    else:
+        deadline = time.monotonic() + timeout
+        while thread.is_alive() and not cancel.is_set() and time.monotonic() < deadline:
+            thread.join(min(0.2, max(0.0, deadline - time.monotonic())))
     if thread.is_alive() or state["over"]:
         try:
             os.killpg(proc.pid, 9)          # its children too (curl, npx, …)

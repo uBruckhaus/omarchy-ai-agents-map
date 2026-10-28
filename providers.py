@@ -213,5 +213,13 @@ def cloud_of_agent() -> dict:
 
 
 def online_names() -> dict:
-    """provider id in agent settings -> display name (graph.PROVIDER_NAMES)."""
-    return {pid: p.name for p in online() for pid in p.ids}
+    """provider id in agent settings -> display name (graph.PROVIDER_NAMES). An add-on's provider
+    gets the ids the app's own provider of the same key knows besides (newer ones: an add-on signed
+    before them does not list them yet)."""
+    names = {pid: p.name for p in online() for pid in p.ids}
+    shown = {p.key: p.name for p in online()}
+    for own in built_in_online():
+        if own.key in shown:
+            for pid in own.ids:
+                names.setdefault(pid, shown[own.key])
+    return names

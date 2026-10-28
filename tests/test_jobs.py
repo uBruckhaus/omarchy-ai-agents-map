@@ -28,6 +28,30 @@ class JobsTest(unittest.TestCase):
         self.assertTrue(self.ended.wait(5))
         return job
 
+    def test_an_older_save_cannot_remove_a_newer_one(self):
+        from unittest import mock
+        entered, release = threading.Event(), threading.Event()
+        real_unlink = Path.unlink
+
+        def slow_unlink(path, missing_ok=False):
+            if path == self.file and not entered.is_set():
+                entered.set()                  # the first save (nothing to keep) pauses before removing
+                release.wait(5)
+            real_unlink(path, missing_ok=missing_ok)
+
+        with mock.patch.object(Path, "unlink", slow_unlink):
+            first = threading.Thread(target=self.manager.save)
+            first.start()
+            self.assertTrue(entered.wait(5))
+            self.manager.jobs.append(jobs.Job("model", "x", "", {"kind": "model"}))
+            second = threading.Thread(target=self.manager.save)
+            second.start()
+            second.join(0.5)                   # unguarded, it would write now and lose its file next
+            release.set()
+            first.join(5)
+            second.join(5)
+        self.assertEqual(len(json.loads(self.file.read_text())), 1)
+
     def test_lost_connection_is_retried_and_resumes(self):
         calls = []
 

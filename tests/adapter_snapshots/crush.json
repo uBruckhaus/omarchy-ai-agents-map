@@ -53,6 +53,8 @@
  "research_output": "text",
  "task": [],
  "rewrite": [],
+ "advise": [],
+ "closed": [],
  "tools_setting": [],
  "sandbox_setting": "",
  "replies": [],

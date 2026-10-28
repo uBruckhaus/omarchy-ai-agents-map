@@ -42,26 +42,8 @@ class SettingsPages:
 
     def build_settings_page(self) -> Gtk.Widget:
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
-        header = Gtk.Box(spacing=8)
-        back = Gtk.Button()
-        back.add_css_class("flat")
-        back.add_css_class("am-header-btn")
-        back.add_css_class("am-back-bordered")
-        back_box = Gtk.Box(spacing=6)
-        back_box.append(Gtk.Image.new_from_icon_name("go-previous-symbolic"))
-        back_box.append(Gtk.Label(label=_("Back")))
-        back_box.append(Gtk.Label(label="· ⌫"))
-        back.set_child(back_box)
-        back.set_tooltip_text(_("Back (Backspace, Esc)"))
-        back.connect("clicked", lambda *_: self.close_settings())
-        header.append(back)
-        title = Gtk.Label(label=_("Settings").upper(), xalign=0, hexpand=True)
-        title.add_css_class("am-section-title")
-        header.append(title)
-        page.append(header)
-        rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-        rule.add_css_class("am-settings-rule")
-        page.append(rule)
+        page.append(self.page_header(Gtk.Label(label=_("Settings").upper()), self.close_settings,
+                                     _("Back (Backspace, Esc)")))
         self.settings_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP, margin_bottom=12)
         self.settings_box.add_css_class("am-settings")
         # One column: at most 760 px wide, centred. Two columns: the whole width, half and half.
@@ -260,11 +242,11 @@ class SettingsPages:
         return column
 
     @staticmethod
-    def settings_heading(box, text: str):
-        """A section heading on a page (libadwaita's heading style)."""
-        label = Gtk.Label(label=text, xalign=0)
-        label.add_css_class("heading")
-        box.append(label)
+    def settings_heading(box, text: str, upper: bool = True):
+        """A section heading on a page: the pages' one heading style (PageParts.section_heading);
+        upper=False keeps a name's own case (a model's)."""
+        from page_parts import PageParts
+        return PageParts.section_heading(box, text, muted=False, upper=upper)
 
     def dropdown(self, labels: list[str], selected: int, on_change) -> Gtk.DropDown:
         drop = Gtk.DropDown.new_from_strings(labels)
@@ -488,6 +470,38 @@ class SettingsPages:
         group.add(row)
         return row
 
+    def local_helper_choices(self):
+        """(every possible local helper, the suggested one), the suggestion first."""
+        import install_ctl
+        import local_helper
+        installed = {a.command for a in self.agent_list if a.installed}
+        found = local_helper.candidates(installed, self.inventory.runtimes)
+        suggested = local_helper.suggest(found, install_ctl.detect_gpu().vram)
+        if suggested is not None:
+            found = [suggested] + [c for c in found if c != suggested]
+        return found, suggested
+
+    def local_helper_row(self, group):
+        """Settings › Local helper: Off, or an agent with a local LLM's model (the app suggests one, the
+        user confirms it by choosing it)."""
+        import local_helper
+        try:
+            found, suggested = self.local_helper_choices()
+        except Exception:
+            found, suggested = [], None
+        names = {r.key: r.name for r in self.inventory.runtimes}
+        labels = [_("Off")] + [local_helper.label(c, names.get(c.runtime, "")) +
+                               (" " + _("(suggested)") if c == suggested else "") for c in found]
+        current = local_helper.chosen(found, ai_core.setting("ai_local_helper"))
+        row = self.combo_row(group, _("Local helper"),
+                             _("An agent with a model of your local LLM answers the AI help that needs no web "
+                               "(Smart Check, which MCP server fits, help with local LLMs) on this PC, without "
+                               "tokens. Suggested: the largest chat model your graphics card holds."),
+                             labels if found else [_("None set up")], found.index(current) + 1 if current else 0,
+                             lambda i: self.save_setting(ai_local_helper=found[i - 1].key if i > 0 and found else {}))
+        row.set_sensitive(bool(found))
+        return row
+
     def combo_row(self, group, title: str, hint: str, labels: list[str], selected: int, on_change) -> Adw.ComboRow:
         """A long explanation would squeeze the chosen value: its first sentence shows, all of it on hover."""
         short = self.short_hint(hint)
@@ -590,6 +604,7 @@ class SettingsPages:
                              helpers.index(chosen) if chosen in helpers else 0,
                              lambda i: helpers and self.save_setting(ai_checks_agent=helpers[i]))
         row.set_sensitive(bool(helpers))
+        self.local_helper_row(ai)
         self.switch_row(group, _("Keep the MCP server list"),
                         _("When the app starts, the MCP registry's list of servers is saved in the background "
                           "(at most every 12 hours, then only what changed), so searching it takes no time."),
@@ -791,17 +806,7 @@ class SettingsPages:
     def build_reorganize_page(self) -> Gtk.Widget:
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         header = Gtk.Box(spacing=8)
-        back = Gtk.Button()
-        back.add_css_class("flat")
-        back.add_css_class("am-header-btn")
-        back.add_css_class("am-back-bordered")
-        back_box = Gtk.Box(spacing=6)
-        back_box.append(Gtk.Image.new_from_icon_name("go-previous-symbolic"))
-        back_box.append(Gtk.Label(label=_("Back")))
-        back_box.append(Gtk.Label(label="· ⌫"))
-        back.set_child(back_box)
-        back.set_tooltip_text(_("Back without changing anything (Backspace, Esc)"))
-        back.connect("clicked", lambda *_: self.close_reorganize())
+        back = self.back_button(lambda: self.close_reorganize(), _("Back without changing anything (Backspace, Esc)"))
         header.append(back)
         title = Gtk.Label(label=_("Reorganize models").upper(), xalign=0, hexpand=True)
         title.add_css_class("am-section-title")
@@ -1039,17 +1044,7 @@ class SettingsPages:
     def build_help_page(self) -> Gtk.Widget:
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         header = Gtk.Box(spacing=8)
-        back = Gtk.Button()
-        back.add_css_class("flat")
-        back.add_css_class("am-header-btn")
-        back.add_css_class("am-back-bordered")
-        back_box = Gtk.Box(spacing=6)
-        back_box.append(Gtk.Image.new_from_icon_name("go-previous-symbolic"))
-        back_box.append(Gtk.Label(label=_("Back")))
-        back_box.append(Gtk.Label(label="· ⌫"))
-        back.set_child(back_box)
-        back.set_tooltip_text(_("Back (Backspace, Esc)"))
-        back.connect("clicked", lambda *_: self.close_help())
+        back = self.back_button(lambda: self.close_help(), _("Back (Backspace, Esc)"))
         header.append(back)
         title = Gtk.Label(label=_("Help").upper(), xalign=0, hexpand=True)
         title.add_css_class("am-section-title")

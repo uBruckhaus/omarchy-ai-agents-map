@@ -54,3 +54,10 @@ hook = true
 
 [details]                              # its model and providers (the agent's card)
 reader = "opencode"
+
+[models]                               # its online models on the map: "provider/model" (its hooks)
+hook = true
+
+[ask]                                  # one prompt, one answer (the first-agent guide's test)
+argv = ["opencode", "run", "{prompt}"]
+note = "tools are not switched off, but it asks before using one (no --auto); the test's question needs none"

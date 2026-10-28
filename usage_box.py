@@ -165,7 +165,7 @@ def codex_event(entry: dict) -> Event | None:
     payload = entry.get("payload")
     if when is None or not isinstance(payload, dict):
         return None
-    kind = payload.get("type")
+    kind = payload.get("type") or entry.get("type")      # Codex 0.164: turn_context is the line's own type
     if kind == "token_count":
         info = payload.get("info")
         last = info.get("last_token_usage") if isinstance(info, dict) else None
@@ -254,6 +254,58 @@ def read(form: str, path: Path, contexts: dict | None = None) -> tuple | None:
     window = last.window or window_for(model, contexts or {})
     rate = last_reply(events)
     return Reading(rate[0] if rate else None, last.used, window, model), last.when
+
+
+_LAST: dict = {}                   # command -> (monotonic time of the look, model)
+LAST_LOOK = 60                     # seconds between looks for an agent's latest session model
+LAST_DAYS = 30                     # sessions older than this say nothing about its model now
+
+
+def head_model(form: str, path: Path) -> str:
+    """The last model named in the first TAIL bytes of this account's own regular session file."""
+    reader = FORMATS.get(form)
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    except OSError:
+        return ""
+    with os.fdopen(fd, "rb") as handle:
+        st = os.fstat(handle.fileno())
+        if reader is None or not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid():
+            return ""
+        data = handle.read(TAIL)
+    model = ""
+    for line in data.split(b"\n")[:-1]:              # complete lines only
+        if not line or len(line) > MAX_LINE:
+            continue
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        event = reader(entry) if isinstance(entry, dict) else None
+        if event is not None and event.model:
+            model = event.model
+    return model
+
+
+def last_model(command: str, now: float | None = None) -> str:
+    """The model of the agent's newest session (its adapter's [replies] files, the last 30 days), or
+    "": what an online agent uses when its settings name none (its own default). Looked at once a
+    minute at most; numbers and model names only, as the usage box reads them."""
+    now = time.monotonic() if now is None else now
+    looked = _LAST.get(command)
+    if looked is not None and now - looked[0] < LAST_LOOK:
+        return looked[1]
+    model = ""
+    where = roots(command)
+    if where:
+        folder, depth, form, contexts = where
+        path = newest_file(folder, depth, time.time() - LAST_DAYS * 86400)
+        result = read(form, path, contexts) if path is not None else None
+        model = result[0].model if result is not None else ""
+        if not model and path is not None:
+            model = head_model(form, path)        # a long session names its model only at its start
+    _LAST[command] = (now, model)
+    return model
 
 
 class Rates:

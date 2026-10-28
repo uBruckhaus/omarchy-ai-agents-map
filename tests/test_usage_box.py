@@ -195,6 +195,20 @@ class RatesTest(unittest.TestCase):
         self.assertEqual(t.roots("pi")[1:], (1, "pi-jsonl", {}))
         self.assertEqual(t.roots("no-such-agent"), ())
 
+    def test_codex_names_its_model_in_a_line_of_its_own(self):
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "rollout.jsonl"
+            lines = [{"timestamp": "2026-10-27T12:00:00Z", "type": "turn_context",
+                      "payload": {"model": "gpt-6.1-sol", "cwd": "/x"}}]
+            lines += [{"timestamp": "2026-10-27T12:00:01Z", "type": "response_item",
+                       "payload": {"type": "message", "role": "assistant", "content": "x" * 2000}}] * 200
+            path.write_text("\n".join(json.dumps(l) for l in lines) + "\n")
+            self.assertEqual(t.head_model("codex-jsonl", path), "gpt-6.1-sol")
+            event = t.codex_event(lines[0])
+            self.assertEqual((event.kind, event.model), ("model", "gpt-6.1-sol"))
+
 
 if __name__ == "__main__":
     unittest.main()

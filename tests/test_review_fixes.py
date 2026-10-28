@@ -109,6 +109,11 @@ class ModelAdviceTest(unittest.TestCase):
             def toast(self, *_args):
                 pass
 
+            def run_ai_help(self, _title, _agent, _steps, work, done):
+                step = lambda *_a: None                       # noqa: E731
+                step.done = lambda *_a: None
+                pending.append(lambda: done(work(step)))
+
         class Rt:
             def __init__(self, name):
                 self.name, self.models = name, []

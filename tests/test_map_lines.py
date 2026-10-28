@@ -109,6 +109,7 @@ class OnlineTest(unittest.TestCase):
             g.link(source, target, kind)
         view.selected = ["agent:claude"]
         view.model_pick = types.MethodType(map_view.MapView.model_pick, view)
+        view.pick_for = types.MethodType(map_view.MapView.pick_for, view)
         self.assertEqual(view.model_pick("model:cloud:anthropic:sonnet"), ("agent:claude", "cloud:anthropic", "sonnet"))
         line = next(e for e in g.edges if e.target == "model:cloud:anthropic:opus" and e.kind == "serves")
         self.assertTrue(view.movable_edge(line))

@@ -77,16 +77,87 @@ class SmartCheckPage:
             body.append(self.status_hero("missing", _("No agent for Smart Check"),
                                          _("Install Claude Code or Codex: Smart Check lets it check this PC's AI "
                                            "setup and look for updates.")))
+            self.fill_smart_protocol(body)
             return
         analysis = smart_check.last()
         runs = ai_helper.runs()
         self.fill_smart_hero(body, agent, analysis)
+        self.fill_local_helper_hint(body)
         self.note_card(body, "warning", self.own_risk_text(), _("At your own risk"))
         self.fill_smart_analysis(body, agent, analysis, runs)
         self.fill_smart_updates(body, agent)
         self.fill_smart_tokens(body, runs)
+        self.fill_smart_protocol(body)
         for category in smart_check.categories(runs):
             self.fill_smart_category(body, category)
+
+    def fill_local_helper_hint(self, body):
+        """No local helper yet, but one could be: the suggestion, with Use it (the user confirms)."""
+        import local_helper
+        if ai_core.setting("ai_local_helper"):
+            return
+        try:
+            _found, suggested = self.local_helper_choices()
+        except Exception:
+            return
+        if suggested is None:
+            return
+        names = {r.key: r.name for r in self.inventory.runtimes}
+        text = _("{0} could answer Smart Check and the AI help that needs no web on this PC, without tokens.").format(
+            local_helper.label(suggested, names.get(suggested.runtime, "")))
+        card = self.note_card(body, "info", text, _("A local helper"))
+
+        def use(_button):
+            self.save_setting(ai_local_helper=suggested.key)
+            self.toast(_("Local helper: {0}").format(local_helper.label(suggested)), 5)
+            self.fill_smart_check()
+        button = self.action_button(_("Use it"), role="primary", on_click=lambda: use(None))
+        button.set_halign(Gtk.Align.START)
+        card.body.append(button)
+
+    PROTOCOL_SHOWN = 30
+
+    def fill_smart_protocol(self, body):
+        """Protocol: every AI help run (ai_protocol), the newest first: what was asked, what came back,
+        what it led to; each opens to the whole text (Copy, for a report or a second opinion)."""
+        import ai_protocol
+        from gi.repository import Adw, Gio
+        from ui_helpers import copy_button, readonly_text
+        found = ai_protocol.entries(most=self.PROTOCOL_SHOWN)
+        if not found:
+            return
+        group = self.group_card(body, "smart-protocol", _("Protocol"), "document-open-recent-symbolic",
+                                ngettext("1 AI help run", "{0} AI help runs", len(found)).format(len(found)))
+        self.note(group, _("What each AI help run was asked, what the agent answered, which options closed it "
+                           "in and, for a task in a tab, what its terminal showed: to look over what was done."))
+        results = {"ok": _("worked"), "failed": _("failed"), "cancelled": _("Cancelled"), "running": _("running"),
+                   "started": _("started")}
+        listbox = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        listbox.add_css_class("boxed-list")
+        for entry in found:
+            row = Adw.ExpanderRow(use_markup=False, title=str(entry.get("title", ""))[:120])
+            row.set_subtitle(" · ".join(filter(None, [
+                self.smart_when(str(entry.get("when", ""))), ai_helper.name_of(str(entry.get("agent", ""))),
+                str(entry.get("model", ""))[:60], results.get(str(entry.get("result")), str(entry.get("result", ""))),
+                _("{0} s").format(entry.get("seconds")) if entry.get("seconds") else "",
+                _("{0} tokens").format(short_number(int(entry.get("tokens") or 0))) if entry.get("tokens") else ""])))
+            text = ai_protocol.as_text(entry)
+            view = readonly_text(text)
+            scroller = Gtk.ScrolledWindow(child=view, min_content_height=120, max_content_height=360,
+                                          propagate_natural_height=True)
+            holder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_top=6, margin_bottom=6,
+                             margin_start=6, margin_end=6)
+            holder.append(scroller)
+            buttons = Gtk.Box(spacing=6, halign=Gtk.Align.END)
+            buttons.append(copy_button(lambda t=text: t, label=_("Copy")))
+            holder.append(buttons)
+            row.add_row(holder)
+            listbox.append(row)
+        group.append(listbox)
+        folder = self.action_button(_("Open the protocol folder"), on_click=lambda: Gio.AppInfo.launch_default_for_uri(
+            ai_protocol.FOLDER.as_uri(), None) if ai_protocol.FOLDER.is_dir() else None)
+        folder.set_halign(Gtk.Align.START)
+        group.append(folder)
 
     def fill_smart_hero(self, body, agent, analysis):
         name = ai_helper.name_of(agent)
@@ -152,7 +223,7 @@ class SmartCheckPage:
                                  valign=Gtk.Align.CENTER)
                 fix.add_css_class("am-small-btn")
                 fix.connect("clicked", lambda *_a, f=finding: self.do_with_agent(
-                    "smart-fix:" + f.title[:40], f.title, smart_check.fix_prompt(f)))
+                    "smart-fix:" + f.title[:40], f.title, smart_check.fix_prompt(f), agent=task_agent))
                 item.add_suffix(fix)
             listbox.append(item)
         group.append(listbox)
@@ -311,7 +382,8 @@ class SmartCheckPage:
 
     def run_smart_analysis(self):
         """Check now: the chosen agent looks at a summary of the setup (in the background, minutes)."""
-        agent = ai_helper.chosen(set(self.installed_commands()))
+        local = self.local_ai_helper()          # the setup is shown to it: no web needed, the local helper first
+        agent = local.agent if local is not None else ai_helper.chosen(set(self.installed_commands()))
         if agent is None or self.smart_analyzing:
             return
         self.smart_analyzing = True
@@ -320,22 +392,26 @@ class SmartCheckPage:
         updates = self.open_ai_mcp_updates() or None          # else the last answer kept
         waiting = list(self.mcp_updates())
 
-        def work():
-            try:
-                details = {a.command: agent_details.details_for(a.command) for a in agent_list if a.installed}
-                pc = health.pc_info([rt.models_dir for rt in inv.runtimes if rt.installed and rt.models_dir])
-                setup = smart_check.snapshot(agent_list, details, inv, report, pc, updates, waiting)
-                result = smart_check.analyze(agent, setup)
-            except Exception as error:          # the agent, its sign-in, the web, an answer that did not hold up
-                result = error
-            GLib.idle_add(done, result)
+        name = ai_helper.name_of(agent)
 
-        def done(result):
+        def work(step):
+            details = {a.command: agent_details.details_for(a.command) for a in agent_list if a.installed}
+            pc = health.pc_info([rt.models_dir for rt in inv.runtimes if rt.installed and rt.models_dir])
+            setup = smart_check.snapshot(agent_list, details, inv, report, pc, updates, waiting)
+            if local is not None:
+                step("load")
+                self.ready_helper_model(local)
+            step("ask")
+            result = smart_check.analyze(agent, setup, look_up=ai_helper.advise_as_look_up(local) if local else None)
+            step.done("ask", _("{0} problems, {1} tips").format(result.count("problem"), result.count("tip")))
+            return result
+
+        def done(_result):
             self.smart_analyzing = False
-            if isinstance(result, Exception):
-                self.toast(_("Smart Check did not work: {0}").format(str(result)[:120]), 8)
             if self.page_name() == "smartcheck":
                 self.fill_smart_check()
-            return False
 
-        threading.Thread(target=work, daemon=True).start()
+        steps = [("collect", _("Summing up this PC's setup")), ("ask", _("{0} looks at it").format(name))]
+        if local is not None:
+            steps.insert(1, ("load", _("Loading {0}").format(local.model)))
+        self.run_ai_help(_("Smart Check"), agent, steps, work, done, model=local.model if local is not None else None)

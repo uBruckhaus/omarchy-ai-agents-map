@@ -142,3 +142,9 @@ argv = ["claude", "{prompt}"]
 [rewrite]                              # a skill rewritten for an MCP server: no tools at all, the prompt on stdin
 argv = ["claude", "-p", "--tools", "", "--strict-mcp-config", "--no-session-persistence",
         "--disable-slash-commands", "--output-format", "text"]
+
+[closed]                               # what closes it in when the map starts it (agent_guard)
+background = ["--strict-mcp-config", "--settings", "{\"disableAllHooks\": true}"]   # look-ups, rewrites: their tools are in their argv; no hooks
+# Task tabs: "ask" rules win over the user's own allow-list, so every command and edit is asked first; no hooks.
+task = ["--permission-mode", "manual", "--strict-mcp-config", "--settings",
+        "{\"disableAllHooks\": true, \"permissions\": {\"ask\": [\"Bash\", \"Edit\", \"Write\", \"MultiEdit\", \"NotebookEdit\"]}}"]

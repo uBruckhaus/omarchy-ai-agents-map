@@ -47,6 +47,58 @@ class Engine(llm_engine.LlamaRouter):
         before = connect._read(context_ctl.MODELS_INI)
         return [connect.Change(context_ctl.MODELS_INI, before, context_ctl.llama_context_text(before, name, ctx))]
 
+    # The router's per-model settings in models.ini ("*": every model); a restart makes them count.
+    tuning = {
+        "flash-attn": (r"on|off|auto", "flash attention: less memory for the context, often faster"),
+        "cache-type-k": (r"f16|q8_0|q4_0", "the context's key cache: q8_0 halves its memory, q4_0 quarters it"),
+        "cache-type-v": (r"f16|q8_0|q4_0", "the context's value cache (needs flash attention when quantized)"),
+        "gpu-layers": (r"all|\d{1,3}", "how many layers run on the graphics card (all: the fastest)"),
+        "parallel": (r"[1-8]", "requests served at once (each needs its own share of the context)"),
+        "batch-size": (r"64|128|256|512|1024|2048|4096|8192", "prompt tokens read per step"),
+        "ubatch-size": (r"64|128|256|512|1024|2048|4096", "the physical batch (at most batch-size)"),
+        "threads": (r"[1-9]|[1-9]\d|1\d\d|2[0-5]\d", "CPU threads for what is not on the card"),
+    }
+    builds = (("rocm", "ROCm"), ("vulkan", "Vulkan"), ("cuda", "CUDA"), ("cpu", "CPU"))
+
+    def tuning_now(self, rt):
+        import context_ctl
+        return {section: {k: v for k, v in values.items() if k in self.tuning}
+                for section, values in context_ctl.ini_sections().items()}
+
+    def tuning_changes(self, rt, section, key, value):
+        import re
+        import connect
+        import context_ctl
+        if key not in self.tuning or not re.fullmatch(self.tuning[key][0], value):
+            raise ValueError(f"{key} = {value} is not a setting the app changes")
+        before = connect._read(context_ctl.MODELS_INI)
+        return [connect.Change(context_ctl.MODELS_INI, before, context_ctl.ini_text(before, section, key, value))]
+
+    def build_now(self, rt):
+        """Its own install's build ("b11658-rocm"), else what its devices say (any build, also one
+        made by hand): "ROCm0: AMD Radeon …" → rocm."""
+        import install_ctl
+        version = install_ctl.installer("llamacpp").current_version()
+        if "-" in version:
+            return version.rsplit("-", 1)[-1]
+        return self.devices(rt)[0]
+
+    @staticmethod
+    def devices(rt) -> tuple[str, str]:
+        """(build, its device lines) from `llama-server --list-devices` (bounded, a few seconds)."""
+        import re
+        import shutil
+        binary = shutil.which("llama-server")
+        if binary is None:
+            return "", ""
+        out, _ok = ai_core.read_bounded_output([binary, "--list-devices"], max_bytes=8192, timeout=20,
+                                               merge_stderr=True)
+        lines = [l.strip() for l in out.decode("utf-8", "replace").splitlines()
+                 if re.match(r"\s+(ROCm|Vulkan|CUDA|Metal|SYCL|CPU)\d*:", l)]
+        first = lines[0].split(":", 1)[0].rstrip("0123456789").lower() if lines else ""
+        return {"rocm": "rocm", "vulkan": "vulkan", "cuda": "cuda"}.get(first, "cpu" if out else ""), \
+            "\n".join(lines[:4])
+
     def model_context(self, rt, name):
         import context_ctl
         return context_ctl.llama_settings(name)[0]

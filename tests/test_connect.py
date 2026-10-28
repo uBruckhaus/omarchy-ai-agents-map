@@ -46,7 +46,7 @@ class ConnectTest(unittest.TestCase):
         new = result.changes[0].new
         self.assertIn("providers:\n  llama-local:\n    name: llama.cpp (local)\n    api: http://127.0.0.1:8080/v1", new)
         self.assertIn("      Qwen:\n        context_length: 98304\n      Gemma: {}", new)
-        self.assertIn("model:\n  default: Qwen\n  provider: llama-local\n  base_url: ''\nagent:", new)
+        self.assertIn("model:\n  default: \"Qwen\"\n  provider: \"llama-local\"\n  base_url: ''\nagent:", new)
         self.assertIn("image_gen:\n  provider: nous", new)     # other blocks untouched
         backup = connect.apply(result, self.home / "backups")
         self.assertTrue(connect.is_connected("hermes", "llamacpp"))
@@ -207,7 +207,7 @@ class MoveTest(ConnectTest):
         new = moved.changes[0].new
         self.assertNotIn("  llama-local:", new)
         self.assertIn("  ollama-local:\n", new)
-        self.assertIn("  default: gemma:latest\n  provider: ollama-local", new)
+        self.assertIn("  default: \"gemma:latest\"\n  provider: \"ollama-local\"", new)
 
 
 class ActiveTest(ConnectTest):

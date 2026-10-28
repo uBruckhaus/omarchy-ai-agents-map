@@ -39,6 +39,11 @@ USAGE_TIMEOUT = 90
 
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
 
+# Plans the usage records name by their service's code (Codex's planType), as people know them.
+# A label not listed here (Claude's "Max 5x") is shown as it is.
+PLAN_NAMES = {"free": "Free", "go": "Go", "plus": "Plus", "pro": "Pro", "prolite": "Pro Lite",
+              "team": "Team", "business": "Business", "enterprise": "Enterprise", "edu": "Edu"}
+
 @dataclass
 class Provider:
     name: str
@@ -223,11 +228,17 @@ def usage_record(command: str, usage_dir: Path = USAGE_DIR) -> dict:
     return read_json(usage_dir / f"{command}.json")
 
 
+def plan_label(raw) -> str:
+    """A usage record's plan, readable: "prolite" -> "Pro Lite"."""
+    text = _text(raw, 40)
+    return PLAN_NAMES.get(text.strip().lower(), text)
+
+
 def apply_usage(details: Details, record: dict):
     if not record:
         return
     details.has_usage = bool(record.get("ready")) or bool(record.get("hasLocalStats"))
-    details.plan = _text(record.get("tierLabel"), 40) or details.plan
+    details.plan = plan_label(record.get("tierLabel")) or details.plan
     details.today_prompts = _count(record.get("todayPrompts"))
     details.today_sessions = _count(record.get("todaySessions"))
     details.today_tokens = _count(record.get("todayTotalTokens"))
@@ -247,15 +258,31 @@ def apply_usage(details: Details, record: dict):
                                             resets_at=_time(item.get("resetsAt"))))
 
 
-def usage_is_stale(command: str, usage_dir: Path = USAGE_DIR) -> bool:
-    """True when Omarchy collects usage for this agent and its record is old (or missing)."""
+def usage_is_stale(command: str, usage_dir: Path = USAGE_DIR, root: Path = HOME) -> bool:
+    """True when Omarchy collects usage for this agent and its record is old (or missing), or older
+    than the agent's sign-in (a new sign-in, a changed plan: the record still tells the old one)."""
     if not has_usage_collector(command):
         return False
     try:
-        age = dt.datetime.now().timestamp() - (usage_dir / f"{command}.json").stat().st_mtime
+        written = (usage_dir / f"{command}.json").stat().st_mtime
     except OSError:
         return True
-    return age > USAGE_MAX_AGE
+    if dt.datetime.now().timestamp() - written > USAGE_MAX_AGE:
+        return True
+    return signed_in_since(command, written, root)
+
+
+def signed_in_since(command: str, when: float, root: Path = HOME) -> bool:
+    """The agent's credential file changed after `when` (only its time is looked at, never its text)."""
+    import agent_status
+    access = agent_status.access_table().get(command)
+    for name in access.files if access is not None else ():
+        try:
+            if (root / name).stat().st_mtime > when:
+                return True
+        except OSError:
+            continue
+    return False
 
 
 def has_usage_collector(command: str) -> bool:

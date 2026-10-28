@@ -24,9 +24,49 @@ def glyph_widget(text: str, font: str = "", size: int = 24, classes=()) -> Gtk.W
         widget = Gtk.Label(label=text if font != "icon" else "")
         if font == "omarchy":
             widget.add_css_class("am-agent-icon-omarchy")
+        if size >= 32:
+            widget.add_css_class("am-glyph-large")    # a big icon (a details page's): as big as its image
     for css in classes:
         widget.add_css_class(css)
     return widget
+
+
+def copy_button(get_text, tip: str = "", label: str = "") -> Gtk.Button:
+    """The one Copy button: the copy symbol (with `label`, the symbol and the word), flat; a tick for a
+    moment after it copied. get_text() gives what goes on the clipboard (plain text)."""
+    from gi.repository import Adw, GLib
+    button = Gtk.Button(valign=Gtk.Align.CENTER)
+    content = Adw.ButtonContent(icon_name="edit-copy-symbolic", label=label) if label else None
+    if content is not None:
+        button.set_child(content)
+    else:
+        button.set_icon_name("edit-copy-symbolic")
+    button.add_css_class("flat")
+    button.set_tooltip_text(tip or _("Copy"))
+
+    def icon(name):
+        if content is not None:
+            content.set_icon_name(name)
+        else:
+            button.set_icon_name(name)
+
+    def copied(_button):
+        Gdk.Display.get_default().get_clipboard().set(str(get_text() or ""))
+        icon("object-select-symbolic")
+        GLib.timeout_add(1200, lambda: icon("edit-copy-symbolic") or False)
+    button.connect("clicked", copied)
+    return button
+
+
+def readonly_text(text: str = "", wrap=None) -> Gtk.TextView:
+    """Text to read and select, not to edit (a file preview, a protocol entry): monospace, the pages'
+    preview look (am-diff)."""
+    view = Gtk.TextView(editable=False, cursor_visible=False, monospace=True,
+                        wrap_mode=wrap if wrap is not None else Gtk.WrapMode.WORD_CHAR,
+                        top_margin=8, bottom_margin=8, left_margin=10, right_margin=10)
+    view.add_css_class("am-diff")
+    view.get_buffer().set_text(text)
+    return view
 
 
 def glyph_label(name: str) -> Gtk.Widget:

@@ -180,7 +180,7 @@ def researchers(installed) -> list[str]:
     research fact: the web and nothing else), in the agent list's order."""
     import harnesses
     return [h.command for h in harnesses.all_harnesses()
-            if h.research and h.command in installed and shutil.which(h.command)]
+            if h.research and h.closed and h.command in installed and shutil.which(h.command)]
 
 
 def research_command(researcher: str, prompt: str, schema_file: Path) -> list[str]:
@@ -189,8 +189,9 @@ def research_command(researcher: str, prompt: str, schema_file: Path) -> list[st
     import harnesses
     argv: tuple[str, ...] = harnesses.get(researcher).research
     binary = shutil.which(researcher) or researcher
+    import agent_guard
     fill = {"{prompt}": prompt, "{schema}": str(schema_file)}
-    return [binary] + [fill.get(a, a) for a in argv[1:]]
+    return agent_guard.background(researcher, [binary] + [fill.get(a, a) for a in argv[1:]])
 
 
 def research_input(researcher: str, prompt: str) -> bytes | None:
@@ -220,7 +221,9 @@ SCHEMA = {"type": "object", "additionalProperties": True,
 def _bounded(argv, **kwargs):
     import ai_core
     # Our own look-up run: the provider watcher does not start the agent's local LLMs for it.
+    import ai_helper
     kwargs.setdefault("env", {**os.environ, "AI_AGENTS_MAP_NO_PROVIDERS": "1"})
+    kwargs.setdefault("cancel", getattr(ai_helper._watch, "cancel", None))    # the progress box's Cancel
     return ai_core.read_bounded_output(argv, **kwargs)
 
 

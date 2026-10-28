@@ -11,10 +11,15 @@ SOURCES = sorted(p.name for p in Path(__file__).resolve().parent.parent.glob("*.
 
 class I18nTest(unittest.TestCase):
     def msgids(self):
+        """Every _("…") and N_("…") text, also one written over several lines (the parser joins them)."""
+        import ast
         root = Path(__file__).resolve().parent.parent
         found = set()
         for name in SOURCES:
-            found |= set(re.findall(r'_\("((?:[^"\\]|\\.)*)"\)', (root / name).read_text()))
+            for node in ast.walk(ast.parse((root / name).read_text())):
+                if isinstance(node, ast.Call) and getattr(node.func, "id", None) in ("_", "N_") and node.args \
+                        and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+                    found.add(node.args[0].value)
         return found
 
     def test_every_msgid_translated(self):

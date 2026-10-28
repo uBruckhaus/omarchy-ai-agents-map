@@ -486,7 +486,8 @@ def unpack_appimage(archive: Path, folder: Path):
     its own --appimage-extract, so FUSE is not needed."""
     archive.chmod(0o755)
     try:
-        ok = ai_core.run_with_disk_budget([str(archive), "--appimage-extract"], str(folder), MAX_UNPACKED,
+        import mcp_scan                   # its own program, run closed in (bubblewrap)
+        ok = ai_core.run_with_disk_budget(mcp_scan.extract_argv(archive, folder), str(folder), MAX_UNPACKED,
                                           timeout=900)                        # stopped as soon as it gets larger
         if not ok:
             raise RuntimeError("unpacking the AppImage failed")
@@ -562,10 +563,100 @@ class Installer:
         except OSError:
             return ""
 
+    def marker(self, folder: Path) -> dict | None:
+        """The program folder's marker when it is this runtime's, else None."""
+        try:
+            path = folder / MARKER
+            if path.is_symlink() or not path.is_file() or path.stat().st_size > 64 * 1024:
+                return None
+            data = json.loads(path.read_text())
+        except (OSError, ValueError):
+            return None
+        return data if isinstance(data, dict) and data.get("runtime") == self.key else None
+
+    def claim(self, folder: Path, models: Path | None = None):
+        """Make `folder` this runtime's program folder: a new or empty folder (the model folder may be
+        in it: a reinstall), or one it already owns. A folder with other things in it is refused."""
+        folder.mkdir(parents=True, exist_ok=True)
+        if folder.is_symlink() or not folder.is_dir():
+            raise RuntimeError(f"{folder} is not a folder of its own; nothing was installed")
+        mark = self.marker(folder)
+        if mark is None:
+            if (folder / MARKER).exists() or (folder / MARKER).is_symlink():
+                raise RuntimeError(f"{folder} belongs to another install; choose an empty folder")
+            if any(not holds(child, models) for child in folder.iterdir()):
+                raise RuntimeError(f"{folder} is not empty; choose an empty folder of its own for {self.name}")
+            mark = {"runtime": self.key, "versions": []}
+        self.write_marker(folder, mark)
+
+    def write_marker(self, folder: Path, mark: dict):
+        tmp = folder / f"{MARKER}.new"
+        tmp.unlink(missing_ok=True)
+        tmp.write_text(json.dumps(mark) + "\n")
+        os.replace(tmp, folder / MARKER)
+
+    def record_version(self, folder: Path, version: str):
+        mark = self.marker(folder) or {"runtime": self.key}
+        listed = mark.get("versions")
+        # An older marker without the list: the versions found the old way become the list first.
+        known = listed if isinstance(listed, list) else self.versions(folder)
+        known = [v for v in known if isinstance(v, str) and v != version]
+        mark["versions"] = known + [version]
+        self.write_marker(folder, mark)
+
+    def check_room(self, folder: Path, models: Path | None, version: str):
+        """Before anything is downloaded: the model folder is not where this install writes, and its
+        download folder is a real folder of its own (a link would send the downloads elsewhere)."""
+        downloads = folder / "downloads"
+        if downloads.is_symlink() or (downloads.exists() and not downloads.is_dir()):
+            raise RuntimeError(f"{downloads} is not a folder of its own; nothing was installed")
+        for path in (downloads, folder / f".{version}.partial", folder / version):
+            if holds(path, models):
+                raise RuntimeError(f"the model folder {models} is inside {path}, which the install replaces; "
+                                   f"choose another place for the models")
+
+    def make_room(self, folder: Path, path: Path, models: Path | None):
+        """Remove `path` before an install writes it again: only a staging or download folder, or a
+        version folder this app installed; never the model folder or one that holds it."""
+        if not (path.exists() or path.is_symlink()):
+            return
+        if holds(path, models):
+            raise RuntimeError(f"{path} holds the model folder; choose another place for the models")
+        if path.is_symlink() or not path.is_dir():
+            raise RuntimeError(f"{path} is in the way; nothing was installed")
+        name = path.name
+        ours = name == "downloads" or (name.startswith(".") and name.endswith(".partial")) \
+            or name in self.versions(folder)
+        if path.parent != folder or not ours:
+            raise RuntimeError(f"{path} was not put there by AI Agents Map; nothing was replaced")
+        shutil.rmtree(path)
+
     def versions(self, folder: Path) -> list[str]:
-        found = [p for p in folder.iterdir() if p.is_dir() and not p.is_symlink() and not p.name.startswith(".")
-                 and p.name not in ("downloads", "models", "current")]
+        """The version folders this app installed here, oldest first. Only names the marker lists (an
+        older marker without the list: the current version and folders that hold the program)."""
+        mark = self.marker(folder)
+        if mark is None:
+            return []
+        listed = mark.get("versions")
+        if isinstance(listed, list):
+            names = [v for v in listed if isinstance(v, str)]
+        else:
+            current = self.current_version_in(folder)
+            names = [p.name for p in folder.iterdir() if p.name == current
+                     or (p.is_dir() and not p.is_symlink() and (p / self.bin_rel).exists())]
+        found = []
+        for name in names:
+            path = folder / name
+            if NAME_RE.fullmatch(name) and not name.startswith(".") and name not in ("downloads", "models", "current") \
+                    and path.is_dir() and not path.is_symlink():
+                found.append(path)
         return [p.name for p in sorted(found, key=lambda p: p.stat().st_mtime)]
+
+    def current_version_in(self, folder: Path) -> str:
+        try:
+            return os.readlink(folder / "current")
+        except OSError:
+            return ""
 
     def install(self, folder: Path, models: Path | None, start_at_login: bool, start_now: bool, gpu: Gpu,
                 release: Release, progress, cancelled):
@@ -574,8 +665,8 @@ class Installer:
         missing = [name for name, _url, _size in release.assets if name not in release.digests]
         if missing:
             raise RuntimeError(f"{missing[0]}: no SHA-256 checksum to check it against; nothing was installed")
-        folder.mkdir(parents=True, exist_ok=True)
-        (folder / MARKER).write_text(json.dumps({"runtime": self.key}) + "\n")
+        self.claim(folder, models)
+        self.check_room(folder, models, release.version)
         if models is not None and self.uses_models:
             models.mkdir(parents=True, exist_ok=True)
         downloads = folder / "downloads"
@@ -593,7 +684,7 @@ class Installer:
             raise Cancelled()
         progress(1.0, "unpack")
         partial = folder / f".{release.version}.partial"
-        shutil.rmtree(partial, ignore_errors=True)
+        self.make_room(folder, partial, models)
         partial.mkdir()
         for asset_name, _url, _size in release.assets:
             self.unpack(downloads / asset_name, partial)
@@ -602,9 +693,9 @@ class Installer:
         if not (partial / self.bin_rel).exists():
             raise RuntimeError(f"the download has no {self.bin_rel}")
         version_dir = folder / release.version
-        shutil.rmtree(version_dir, ignore_errors=True)
+        self.make_room(folder, version_dir, models)
         os.replace(partial, version_dir)
-        shutil.rmtree(downloads, ignore_errors=True)
+        self.make_room(folder, downloads, models)
         self.switch(folder, release.version)
         if self.env_file != HOME:
             _write(self.env_file, self.env_text(models, gpu), 0o600)
@@ -619,6 +710,7 @@ class Installer:
                     raise RuntimeError(f"installed, but it did not start: {message}")
 
     def switch(self, folder: Path, version: str):
+        self.record_version(folder, version)
         current = folder / "current"
         tmp = folder / ".current.new"
         tmp.unlink(missing_ok=True)
@@ -644,8 +736,17 @@ class Installer:
         login = self.has_service and _systemctl("is-enabled", "--quiet", f"{self.service}.service")[0]
         models = Path(self.models_folder() or folder / "models") if self.uses_models else None
         self.install(folder, models, login, running, gpu, release, progress, cancelled)
+        current = self.current_version_in(folder)
         for old in self.versions(folder)[:-2]:
-            shutil.rmtree(folder / old, ignore_errors=True)
+            if old != current and not holds(folder / old, models):
+                shutil.rmtree(folder / old, ignore_errors=True)
+                self.forget_version(folder, old)
+
+    def forget_version(self, folder: Path, version: str):
+        mark = self.marker(folder)
+        if mark is not None and isinstance(mark.get("versions"), list):
+            mark["versions"] = [v for v in mark["versions"] if v != version]
+            self.write_marker(folder, mark)
 
     def set_models_folder(self, models: Path):
         models = check_folder(str(models))      # it goes into the unit's environment file and settings
@@ -675,18 +776,37 @@ class Installer:
         if self.env_file != HOME:
             self.env_file.unlink(missing_ok=True)
         self.unconfigure()
-        for child in folder.iterdir():
-            if models is not None and (child == models or models.is_relative_to(child)):
-                continue            # the model folder was chosen inside the program folder: keep it
-            if child.is_dir() and not child.is_symlink():
-                shutil.rmtree(child)
-            else:
-                child.unlink()
-        if not any(folder.iterdir()):
-            folder.rmdir()
+        # Only what this app put here: its version folders, `current`, unfinished downloads and the
+        # marker. Anything else in the folder stays, and so does a model folder chosen inside it.
+        for name in self.versions(folder):
+            if not holds(folder / name, models):
+                shutil.rmtree(folder / name)
+        for name in ("current", ".current.new", f"{MARKER}.new"):
+            path = folder / name
+            if path.is_symlink() or path.is_file():
+                path.unlink()
+        for path in [folder / "downloads", *folder.glob(".*.partial")]:
+            if path.is_dir() and not path.is_symlink() and not holds(path, models):
+                shutil.rmtree(path)
+        (folder / MARKER).unlink(missing_ok=True)
+        try:
+            folder.rmdir()                       # only when nothing else is left
+        except OSError:
+            pass
 
     def unconfigure(self):
         """Undo configure() (LM Studio: its desktop entry)."""
+
+
+def holds(path: Path, models: Path | None) -> bool:
+    """`path` is the model folder or one that contains it (both resolved: links count)."""
+    if models is None:
+        return False
+    try:
+        inside, model = path.resolve(), models.resolve()
+    except OSError:
+        return True                  # unsure: keep it
+    return inside == model or model.is_relative_to(inside)
 
 
 def flatten(folder: Path):
@@ -908,10 +1028,10 @@ class Vllm(Installer):
         uv = shutil.which("uv")
         if not uv:
             raise RuntimeError("needs uv (pacman -S uv)")
-        folder.mkdir(parents=True, exist_ok=True)
-        (folder / MARKER).write_text(json.dumps({"runtime": self.key}) + "\n")
+        self.claim(folder, models)
+        self.check_room(folder, models, release.version)
         partial = folder / f".{release.version}.partial"
-        shutil.rmtree(partial, ignore_errors=True)
+        self.make_room(folder, partial, models)
         progress(0.05, "python environment")
         for argv in ([uv, "venv", str(partial / "venv"), "--python", "3.12"],
                      [uv, "pip", "install", "--python", str(partial / "venv/bin/python"), f"vllm=={release.version[1:]}"]):
@@ -922,7 +1042,7 @@ class Vllm(Installer):
             if not ok:
                 raise RuntimeError(out.decode("utf-8", "replace").strip()[-300:] or "pip failed")
         version_dir = folder / release.version
-        shutil.rmtree(version_dir, ignore_errors=True)
+        self.make_room(folder, version_dir, models)
         os.replace(partial, version_dir)
         self.switch(folder, release.version)
         models.mkdir(parents=True, exist_ok=True)
@@ -1204,10 +1324,10 @@ class Dsh(Installer):
         npm = shutil.which("npm")
         if not npm:
             raise RuntimeError("needs Node.js with npm (mise use -g node)")
-        folder.mkdir(parents=True, exist_ok=True)
-        (folder / MARKER).write_text(json.dumps({"runtime": self.key}) + "\n")
+        self.claim(folder, models)
+        self.check_room(folder, models, release.version)
         partial = folder / f".{release.version}.partial"
-        shutil.rmtree(partial, ignore_errors=True)
+        self.make_room(folder, partial, models)
         partial.mkdir()
         (partial / "package.json").write_text('{"private": true}\n')
         progress(0.1, f"npm install {self.PACKAGE}@{release.version[1:]}")
@@ -1222,7 +1342,7 @@ class Dsh(Installer):
             raise RuntimeError(out.decode("utf-8", "replace").strip()[-300:] or "npm failed")
         check_unpacked_size(partial)
         version_dir = folder / release.version
-        shutil.rmtree(version_dir, ignore_errors=True)
+        self.make_room(folder, version_dir, models)
         os.replace(partial, version_dir)
         self.switch(folder, release.version)
         progress(1.0, "done")
@@ -1254,6 +1374,37 @@ class Agy(Installer):
                 or any(c in url for c in "\"'\\ \n\r\t") or "/../" in url:
             raise RuntimeError("Google's release manifest is not in the expected form; nothing was installed")
         return Release(f"v{version}", [(name, url, 0)], {name: sha512})
+
+
+class Mise(Installer):
+    """mise, the tool most agents are installed with (`mise use -g <agent>`), for a PC that has none
+    (the first-agent guide): its static (musl) Linux build from its GitHub release, the SHA-256 GitHub
+    lists for the asset checked before anything is unpacked; `mise` into ~/.local/bin. Its install
+    script (curl | sh) is not run. Agents it installs land in mise's own folders, where the app looks."""
+    key, name, command, service = "mise", "mise", "mise", ""
+    bin_rel = "bin/mise"
+    has_service = False
+    uses_models = False
+    site = "https://mise.jdx.dev"
+    ARCHES = {"x86_64": "x64", "aarch64": "arm64"}
+
+    def latest(self, gpu: Gpu, build: str = "") -> Release:
+        arch = self.ARCHES.get(os.uname().machine)
+        if arch is None:
+            raise RuntimeError(f"no mise build for {os.uname().machine}")
+        data = _curl_json("https://api.github.com/repos/jdx/mise/releases/latest")
+        version = str(data.get("tag_name", ""))
+        if not re.fullmatch(r"v\d{4}\.\d{1,2}\.\d{1,3}", version):
+            raise RuntimeError("no mise release found")
+        wanted = f"mise-{version}-linux-{arch}-musl.tar.gz"
+        assets = [a for a in data.get("assets", []) if isinstance(a, dict) and a.get("name") == wanted]
+        if not assets:
+            raise RuntimeError(f"mise {version} has no {wanted}")
+        return github_release(version, assets)
+
+
+# Tools the first-agent guide installs before an agent (not a local LLM, not an agent).
+TOOL_INSTALLERS = {"mise": Mise()}
 
 
 # --- installs described as data (harnesses.Download), for agents and local LLMs from add-ons ----------
@@ -1424,7 +1575,7 @@ harnesses.on_change(_rebuild)
 
 
 def installer(key: str):
-    return INSTALLERS.get(key) or AGENT_INSTALLERS.get(key)
+    return INSTALLERS.get(key) or AGENT_INSTALLERS.get(key) or TOOL_INSTALLERS.get(key)
 
 
 def _models_root(path: Path) -> Path:

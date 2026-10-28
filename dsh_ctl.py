@@ -177,6 +177,55 @@ def connect_text(text: str, provider: str, label: str, url: str, models: list, c
     return join(header, blocks)
 
 
+# --- the default model (the map's online models) -----------------------------------------------------
+
+MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,159}$")
+MAX_PACKAGE_FILE = 2 * 1024 * 1024
+
+
+def model_text(text: str, provider: str, model: str) -> str:
+    """The patch with the default model set to `model` of `provider` (one of its routes); the
+    entry's other settings (its reasoning effort) and every other entry stay as they are."""
+    if not ID_RE.match(provider) or not MODEL_RE.match(model):
+        raise ValueError("bad provider or model")
+    header, blocks = split(text)
+    index = _find(blocks, DEFAULT_ID)
+    entry: dict = parse(blocks[index]) if index is not None else {"id": DEFAULT_ID, "name": DEFAULT_NAME}
+    config = v if isinstance(v := entry.get("config"), dict) else {}
+    config["provider"], config["model"] = provider, model
+    entry["config"] = config
+    if index is None:
+        blocks.append(dump(entry))
+    else:
+        blocks[index] = dump(entry)
+    return join(header, blocks)
+
+
+def _package_text(path: Path) -> str:
+    try:
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_PACKAGE_FILE:
+            return ""
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
+def builtin_choices(packages: Path) -> list[str]:
+    """"provider/model" of DeepSeek Harness's own route: the provider its base profile gives the
+    default model (dsh-base), with the models its DeepSeek package lists (DEFAULT_MODELS), both read
+    from the installed packages (`packages`: its node_modules/@deepseek-ai); nothing when they are
+    not there or say otherwise."""
+    base = _package_text(packages / "dsh-base/cordis.patch.yml")
+    found = re.search(r"-\s+id:\s*agent-default-model\s*\n(?:\s+.*\n){0,6}?\s+provider:\s*([a-z][a-z0-9_-]{0,63})\s*$",
+                      base, re.MULTILINE)
+    source = _package_text(packages / "dsh-llm-deepseek/lib/index.js")
+    catalog = re.search(r"const DEFAULT_MODELS = \[(.{0,4000}?)\];", source, re.DOTALL)
+    if found is None or catalog is None:
+        return []
+    models = re.findall(r'\bid:\s*"([A-Za-z0-9][A-Za-z0-9._-]{0,63})"', catalog.group(1))
+    return [f"{found.group(1)}/{m}" for m in dict.fromkeys(models)][:12]
+
+
 # --- MCP servers ------------------------------------------------------------------------------------
 
 def mcp_servers(text: str) -> dict:

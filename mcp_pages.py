@@ -49,26 +49,8 @@ class McpPages:
     def build_mcp_page(self) -> Gtk.Widget:
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         page.add_css_class("am-add-page")       # one text scale (see the CSS)
-        header = Gtk.Box(spacing=8)
-        back = Gtk.Button()
-        back.add_css_class("flat")
-        back.add_css_class("am-header-btn")
-        back.add_css_class("am-back-bordered")
-        back_box = Gtk.Box(spacing=6)
-        back_box.append(Gtk.Image.new_from_icon_name("go-previous-symbolic"))
-        back_box.append(Gtk.Label(label=_("Back")))
-        back_box.append(Gtk.Label(label="· ⌫"))
-        back.set_child(back_box)
-        back.set_tooltip_text(_("Back (Backspace, Esc)"))
-        back.connect("clicked", lambda *_: self.close_mcp_details())
-        header.append(back)
-        self.mcp_title = Gtk.Label(xalign=0, hexpand=True)
-        self.mcp_title.add_css_class("am-section-title")
-        header.append(self.mcp_title)
-        page.append(header)
-        rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-        rule.add_css_class("am-settings-rule")
-        page.append(rule)
+        self.mcp_title = Gtk.Label()
+        page.append(self.page_header(self.mcp_title, self.close_mcp_details, _("Back (Backspace, Esc)")))
         self.mcp_body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         self.mcp_body.add_css_class("am-settings")
         page.append(self.page_scroller(self.mcp_body))
@@ -393,22 +375,6 @@ class McpPages:
         how it runs, what it needs, the agents that get it), Test and Add in the bar below."""
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         page.add_css_class("am-add-page")       # one text scale (see the CSS)
-        header = Gtk.Box(spacing=8)
-        back = Gtk.Button()
-        back.add_css_class("flat")
-        back.add_css_class("am-header-btn")
-        back.add_css_class("am-back-bordered")
-        back_box = Gtk.Box(spacing=6)
-        back_box.append(Gtk.Image.new_from_icon_name("go-previous-symbolic"))
-        back_box.append(Gtk.Label(label=_("Back")))
-        back_box.append(Gtk.Label(label="· ⌫"))
-        back.set_child(back_box)
-        back.set_tooltip_text(_("Back without changing anything (Backspace, Esc)"))
-        back.connect("clicked", lambda *_: self.close_add_mcp())
-        header.append(back)
-        title = Gtk.Label(label=_("MCP servers").upper(), xalign=0)
-        title.add_css_class("am-section-title")
-        header.append(title)
         # One line, as the models page's model folder; the whole explanation on hover.
         about = Gtk.Label(label=_("New tools for your agents: files, web pages, a browser, GitHub…"), xalign=0,
                           hexpand=True, ellipsize=Pango.EllipsizeMode.END)
@@ -418,11 +384,8 @@ class McpPages:
               "program on this PC or a service on the web; the agents start or call it when a task needs it."),
             _("Pick a server, fill in what it needs (a folder, a key), tick the agents, then Test and Add. "
               "To give it to more agents later, draw a line on the map from the agent to the server.")]))
-        header.append(about)
-        page.append(header)
-        rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-        rule.add_css_class("am-settings-rule")
-        page.append(rule)
+        page.append(self.page_header(Gtk.Label(label=_("MCP servers").upper()), self.close_add_mcp,
+                                     _("Back without changing anything (Backspace, Esc)"), end=(about,)))
 
         switch = Gtk.Box(spacing=0, halign=Gtk.Align.START)
         switch.add_css_class("am-segmented")
@@ -441,7 +404,7 @@ class McpPages:
         self.add_details = {}
 
         def two_panes(key, left):
-            pane = Gtk.Box(spacing=18)
+            pane = Gtk.Box(spacing=ai_core.GAP)
             left.set_size_request(MODEL_LIST_WIDTH, -1)
             pane.append(Adw.Clamp(maximum_size=MODEL_LIST_WIDTH, child=left, unit=Adw.LengthUnit.PX,
                                   halign=Gtk.Align.START, hexpand=False))
@@ -1365,17 +1328,24 @@ class McpPages:
         import ai_helper
         box = self.mcp_ask_box
         self.clear_box(box)
+        import local_helper
         installed = set(self.installed_commands())
         helpers = ai_helper.helpers(installed)
-        box.set_visible(bool(helpers))
-        if not helpers:
+        local = self.local_ai_helper()          # works without the web: the local helper first
+        box.set_visible(bool(helpers) or local is not None)
+        if not helpers and local is None:
             return
-        agent = ai_helper.chosen(installed)
-        name = ai_helper.name_of(agent)
+        agent = local.agent if local is not None else ai_helper.chosen(installed)
+        name = local_helper.label(local) if local is not None else ai_helper.name_of(agent)
         state = self.mcp_ask_state
         group = self.group_card(box, "mcp-ask", _("Ask an agent"), "am-smartcheck-symbolic",
                                 _("Not sure which server? Ask {0}").format(name))
-        line = self.ai_agent_picker(helpers, agent, self.fill_mcp_ask) if len(helpers) > 1 else Gtk.Box(spacing=8)
+        line = self.ai_agent_picker(helpers, agent, self.fill_mcp_ask) if len(helpers) > 1 and local is None \
+            else Gtk.Box(spacing=8)
+        if local is not None:
+            note = Gtk.Label(label=_("The local helper answers (Settings › Local helper)"), xalign=0)
+            note.add_css_class("am-agent-detail")
+            line.append(note)
         line.add_css_class("am-line")
         line.append(Gtk.Box(hexpand=True))
         line.append(self.count_picker("mcp_advice_count", mcp_advice.SERVER_COUNTS, mcp_advice.MAX_SERVERS,
@@ -1451,25 +1421,35 @@ class McpPages:
         self.fill_mcp_ask()
         most = ai_core.setting("mcp_advice_count")
 
-        def work():
-            try:
-                result = mcp_advice.ask(agent, question, most, phase=lambda p: state.__setitem__("phase", p))
-            except Exception as error:          # the agent, its sign-in, an answer that did not hold up
-                result = error
-            GLib.idle_add(done, result)
+        local = self.local_ai_helper()
+        if local is not None and local.agent != agent:
+            local = None                       # the card was filled for an online agent
+        name = ai_helper.name_of(agent)
+
+        def work(step):
+            def phase(p):
+                state["phase"] = p
+                step(p)
+            if local is None:
+                return mcp_advice.ask(agent, question, most, phase=phase)
+            step("load")
+            self.ready_helper_model(local)
+            return mcp_advice.ask(agent, question, most, phase=phase, look_up=ai_helper.advise_as_look_up(local))
 
         def done(result):
             state.update(asking=False, phase="")
-            if isinstance(result, Exception):
-                self.show_error(_("{0} could not answer: {1}").format(ai_helper.name_of(agent), str(result)[:2000]))
-            else:
+            if not isinstance(result, Exception):
                 state["advice"] = result
             self.fill_mcp_ask()
             if not isinstance(result, Exception):
                 self.show_mcp_suggestions()
-            return False
 
-        threading.Thread(target=work, daemon=True).start()
+        steps = [("terms", _("{0} turns your question into search words").format(name)),
+                 ("picking", _("{0} picks the servers that fit from the registry").format(name))]
+        if local is not None:
+            steps.insert(0, ("load", _("Loading {0}").format(local.model)))
+        self.run_ai_help(_("MCP server advice"), agent, steps, work, done,
+                         model=local.model if local is not None else None)
 
     def show_mcp_suggestions(self):
         """The agent's picks in the registry list, why each fits below its name, as many as

@@ -11,10 +11,12 @@ checks. Nothing an agent answers is ever run by the app.
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import json
 import os
 import shutil
+import threading
 
 import plugin_ai
 from plugin_ai import Usage, parse_output  # noqa: F401  (the app's modules use them from here)
@@ -56,10 +58,31 @@ def name_of(command: str) -> str:
 
 # --- one look-up -----------------------------------------------------------------------------------
 
+_watch = threading.local()          # this thread's AI help run (watched): its Cancel
+
+
+@contextlib.contextmanager
+def watched(cancel, entry=None):
+    """Look-ups this thread makes inside the block end as soon as `cancel` (an Event) is set: the
+    progress box's Cancel (ai_progress); each one's prompt and answer go into `entry` (ai_protocol)."""
+    before = getattr(_watch, "cancel", None), getattr(_watch, "entry", None)
+    _watch.cancel, _watch.entry = cancel, entry
+    try:
+        yield
+    finally:
+        _watch.cancel, _watch.entry = before
+
+
+def cancelled() -> bool:
+    cancel = getattr(_watch, "cancel", None)
+    return cancel is not None and cancel.is_set()
+
+
 def _bounded(argv, **kwargs):
     import ai_core
     # Our own look-up run: the provider watcher does not start the agent's local LLMs for it.
     kwargs.setdefault("env", {**os.environ, "AI_AGENTS_MAP_NO_PROVIDERS": "1"})
+    kwargs.setdefault("cancel", getattr(_watch, "cancel", None))
     return ai_core.read_bounded_output(argv, **kwargs)
 
 
@@ -77,9 +100,49 @@ def look_up(command: str, task: str, prompt: str, schema: dict, run=_bounded, re
     stdin = agent_profiles.research_input(command, prompt)        # the question on stdin, not in argv
     if stdin is not None:
         run = functools.partial(run, stdin=stdin)
-    return plugin_ai.look_up_argv(agent_profiles.research_command(command, prompt, schema_file),
-                                  harness.research_output if harness else "text", plugin=plugin_id(), task=task,
-                                  agent=command, run=run, cwd=str(work), result_of=result_of)
+    argv = agent_profiles.research_command(command, prompt, schema_file)
+    entry = getattr(_watch, "entry", None)
+    try:
+        answer = plugin_ai.look_up_argv(argv, harness.research_output if harness else "text", plugin=plugin_id(),
+                                        task=task, agent=command, run=run, cwd=str(work), result_of=result_of)
+    except Exception as error:
+        if entry is not None:
+            entry.look_up(task, prompt, error=str(error), argv=argv)
+        raise
+    if entry is not None:
+        entry.look_up(task, prompt, answer, argv=argv)
+    return answer
+
+
+def advise(candidate, task: str, prompt: str, schema: dict | None = None, result_of=None, run=_bounded) -> str:
+    """One question to the local helper (local_helper.Candidate): its model answers offline, the
+    prompt on stdin; the run goes into the shared log and the protocol like a look-up. `schema` is not
+    given to it (no agent takes one offline): the prompts say which JSON to answer with."""
+    import agent_profiles
+    import local_helper
+    argv, output = local_helper.advise_argv(candidate)
+    work = agent_profiles.WORK_DIR                 # an empty folder of ours: no project files around it
+    work.mkdir(parents=True, exist_ok=True, mode=0o700)
+    entry = getattr(_watch, "entry", None)
+    try:
+        answer = plugin_ai.look_up_argv(argv, output, plugin=plugin_id(), task=task, agent=candidate.agent,
+                                        run=functools.partial(run, stdin=prompt.encode("utf-8")), cwd=str(work),
+                                        result_of=result_of)
+    except Exception as error:
+        if entry is not None:
+            entry.look_up(task, prompt, error=str(error), argv=argv)
+        raise
+    if entry is not None:
+        entry.look_up(task, prompt, answer, argv=argv)
+    return answer
+
+
+def advise_as_look_up(candidate):
+    """advise() with look_up()'s arguments (agent, task, prompt, schema, result_of=…), for the modules
+    that take a look_up function (smart_check.analyze, mcp_advice.ask)."""
+    def look_up(_agent, task, prompt, schema=None, result_of=None, **_kwargs):
+        return advise(candidate, task, prompt, schema, result_of=result_of)
+    return look_up
 
 
 def billing(command: str, environ=None) -> tuple[str, str]:
@@ -110,20 +173,24 @@ def totals(command: str, days: int = 30) -> plugin_ai.Totals:
 # --- a task in a terminal tab ----------------------------------------------------------------------
 
 def task_argv(command: str, prompt: str) -> list[str] | None:
-    """The agent started with `prompt` as its first message (its task fact); None when it has none."""
+    """The agent started with `prompt` as its first message (its task fact), closed in so it asks
+    before each change (agent_guard.task; raises agent_guard.Refused); None when it has none."""
+    import agent_guard
     import harnesses
     harness = harnesses.get(command)
     if harness is None or not harness.task:
         return None
     facts = {command: plugin_ai.AgentFacts(name_of(command), harness.research, harness.research_output,
                                            harness.task)}
-    return plugin_ai.task_argv(command, prompt, facts=facts)
+    argv = plugin_ai.task_argv(command, prompt, facts=facts)
+    return agent_guard.task(command, argv) if argv else argv
 
 
 def task_agents(installed) -> list[str]:
     """Installed agents that can take a task in a tab, the chosen AI-check agent first."""
     import harnesses
-    able: list[str] = [h.command for h in harnesses.all_harnesses() if h.task and h.command in installed
+    able: list[str] = [h.command for h in harnesses.all_harnesses() if h.task and h.closed and h.closed[1]
+                       and h.command in installed
             and shutil.which(h.command)]
     first = chosen(installed)
     return ([first] if first in able else []) + [c for c in able if c != first]

@@ -18,8 +18,9 @@ on_relink(agent, old, new), onto empty space on_relink(agent, old, None).
 A local LLM's line to a model that agents use (drawn in the accent colour) can be
 selected the same way: dragging its end onto another model of that local LLM calls
 on_remodel(runtime, old model, new model), onto empty space on_remodel(runtime, old, None).
-Drawing from a local LLM to one of its models calls on_attach(runtime, model): agents are
-given that model (the window asks which).
+Drawing from a local LLM or an online provider to one of its models calls on_attach(provider,
+model): agents are given that model (the window asks which). Drawing from an agent to a model of a
+provider it is connected to (or from the model to the agent) calls on_pick_model, as a click does.
 Selecting a box shows a hook (orange: the theme's signal colour, apart from the lines' own) on
 every line of it that can be moved or removed, so what can be done is in view; a hook is grabbed
 at once, without clicking its line first, and hovering it says what dragging it does.
@@ -100,7 +101,7 @@ TILE_GLYPHS = {"cloud": "cloud", "runtime": "chip", "model": "model", "more": "f
 TILE_TONES = {"mcp": "yellow", "skills": "green", "model": "muted", "more": "muted"}
 # "available": set up but not in use (dotted), in the alert colour of the header's ! (the legend too).
 # "loaded": a provider → model line while that model is loaded but no agent uses it (solid, light).
-EDGE_COLORS = {"uses": "accent", "available": "red", "serves": "muted", "mcp": "yellow", "skills": "green",
+EDGE_COLORS = {"uses": "accent", "available": "red", "offer": "muted", "serves": "muted", "mcp": "yellow", "skills": "green",
                "loaded": "fg", "models": "magenta",   # models: agents on different models of one local LLM
                "subagent": "accent"}                  # subagent: an agent → a subagent it works with
 
@@ -136,6 +137,7 @@ class MapView(Gtk.DrawingArea):
         self.selected = []       # node ids picked by clicking, in click order
         self.on_selection = None # callback(list of selected nodes)
         self.on_link = None      # callback(agent node id, runtime node id) after a drawn line
+        self.offer_tip = ""      # tooltip of an "offer" line ("{0}" agent, "{1}" provider)
         self.link = None         # while drawing: {"from": id, "x": .., "y": .., "target": id or None}
         self.on_relink = None    # callback(agent id, old runtime id, new runtime id)
         self.on_remodel = None   # callback(runtime id, old model id, new model id or None): a model line moved
@@ -911,6 +913,18 @@ class MapView(Gtk.DrawingArea):
             best = min(best, math.hypot(px - x, py - y))
         return best
 
+    def offer_at(self, x, y, reach: float = 6):
+        """(agent name, provider name) of a shown "offer" line under the pointer, or None."""
+        lit = self.highlighted()[1]
+        for index, edge in enumerate(self.graph.edges if self.graph else []):
+            if edge.kind != "offer" or lit is None or index not in lit or edge.source not in self.boxes \
+                    or edge.target not in self.boxes:
+                continue
+            if self.edge_distance(edge, x, y) < reach:
+                names = {n.id: n.label for n in self.graph.nodes}
+                return names.get(edge.source, edge.source), names.get(edge.target, edge.target)
+        return None
+
     def edge_at(self, x, y, reach: float = 6):
         best, best_dist = None, reach
         for edge in self.graph.edges if self.graph else []:
@@ -977,9 +991,13 @@ class MapView(Gtk.DrawingArea):
         kinds = {self.kind_of(source), self.kind_of(target)}
         if kinds in ({"agent", "mcp"}, {"agent", "skills"}):
             return True
-        if self.kind_of(source) == "runtime" and self.kind_of(target) == "model":
-            # From a local LLM to one of its models: agents get that model.
+        if self.kind_of(source) in ("runtime", "cloud") and self.kind_of(target) == "model":
+            # From a local LLM or an online provider to one of its models: agents get that model.
             return any(e.kind == "serves" and e.source == source and e.target == target for e in self.graph.edges)
+        if kinds == {"agent", "model"}:
+            # An agent and a model of a provider it is connected to: it uses that model.
+            agent, model = (source, target) if self.kind_of(source) == "agent" else (target, source)
+            return self.pick_for(agent, model) is not None
         if kinds == {"agent", "cloud"}:
             return True                 # an agent to an online provider: its sign-in
         if kinds != {"agent", "runtime"}:
@@ -1002,7 +1020,7 @@ class MapView(Gtk.DrawingArea):
             return
         if hook is not None or self.near_selected_edge(x, y):
             source, target = self.selected_edge
-            if self.kind_of(source) == "runtime":       # a model line: its model end moves
+            if self.kind_of(source) in ("runtime", "cloud"):   # a model line (local or online): its model end moves
                 self.link = {"from": source, "remodel": target, "start": (x, y), "x": x, "y": y, "target": None,
                              "drawing": False}
                 return
@@ -1020,7 +1038,7 @@ class MapView(Gtk.DrawingArea):
             self.link = None
             return
         # Every box can be moved inside its card (a new place in its order); some also draw lines.
-        only = self.kind_of(node_id) not in ("agent", "runtime", "mcp", "skills")
+        only = self.kind_of(node_id) not in ("agent", "runtime", "cloud", "mcp", "skills", "model")
         self.link = {"from": node_id, "start": (x, y), "x": x, "y": y, "target": None, "drawing": False,
                      "order_only": only}
 
@@ -1098,10 +1116,18 @@ class MapView(Gtk.DrawingArea):
             elif self.node_at(link["x"], link["y"]) is None:
                 self.on_relink(link["from"], link["relink"], None)
             return
-        if link and link["drawing"] and link["target"] and self.kind_of(link["from"]) == "runtime" \
+        if link and link["drawing"] and link["target"] and self.kind_of(link["from"]) in ("runtime", "cloud") \
                 and self.kind_of(link["target"]) == "model":
             if self.on_attach is not None:
                 self.on_attach(link["from"], link["target"])
+            return
+        if link and link["drawing"] and link["target"] and {self.kind_of(link["from"]), self.kind_of(link["target"])} \
+                == {"agent", "model"}:
+            a, b = link["from"], link["target"]
+            agent, model = (a, b) if self.kind_of(a) == "agent" else (b, a)
+            pick = self.pick_for(agent, model)
+            if pick is not None and self.on_pick_model is not None:
+                self.on_pick_model(*pick)
             return
         if link and link["drawing"] and link["target"] and self.on_link is not None:
             a, b = link["from"], link["target"]
@@ -1285,6 +1311,8 @@ class MapView(Gtk.DrawingArea):
             # A subagent's box: its whole task (the box cuts it short) and what it is.
             node = next(n for n in self.graph.nodes if n.id == found)
             self.set_tooltip_text("\n".join(p for p in (node.label, node.detail) if p))
+        elif pin is None and found is None and self.offer_tip and (offer := self.offer_at(x, y)) is not None:
+            self.set_tooltip_text(self.offer_tip.format(*offer))
         elif pin is None and ((edge := self.hook_at(x, y)) is not None
                               or (found is None and (edge := self.edge_at(x, y)) is not None)):
             # A hook, or a line that can be moved: what to do with it (the cursor says it can be grabbed).
@@ -1514,11 +1542,17 @@ class MapView(Gtk.DrawingArea):
         agents = [i for i in self.selected if i.startswith("agent:")]
         if self.graph is None or len(agents) != 1 or self.kind_of(node_id) != "model":
             return None
-        agent = agents[0]
+        return self.pick_for(agents[0], node_id)
+
+    def pick_for(self, agent, node_id):
+        """(agent id, provider id, model name) when node_id is a model of a provider (a local LLM or
+        an online one) the agent is connected to; else None."""
+        if self.graph is None or self.kind_of(node_id) != "model":
+            return None
         node = next(n for n in self.graph.nodes if n.id == node_id)
         for edge in self.graph.edges:
             if edge.target == node_id and edge.kind == "serves" and edge.source.startswith(("runtime:", "cloud:")) \
-                    and any(e.source == agent and e.target == edge.source and e.kind in ("uses", "available")
+                    and any(e.source == agent and e.target == edge.source and e.kind in ("uses", "available", "offer")
                             for e in self.graph.edges):
                 return agent, edge.source, node.label
         return None
@@ -1879,6 +1913,8 @@ class MapView(Gtk.DrawingArea):
             edge = self.graph.edges[index]
             if edge.kind == "default" or edge.source not in self.boxes or edge.target not in self.boxes:
                 continue
+            if edge.kind == "offer" and (lit_edges is None or index not in lit_edges):
+                continue                     # what an agent could switch to: only while it is in view
             x1, y1, x2, y2 = self.edge_points(edge)
             bend = (x2 - x1) * 0.5
             picked = (edge.source, edge.target) == self.selected_edge
@@ -1915,7 +1951,7 @@ class MapView(Gtk.DrawingArea):
                 cr.set_line_width(3.2 if picked else 2.8 if active or outside else 2.2 if loaded else
                                   2.0 if lit_edges is not None and index in lit_edges else 1.4)
                 # Dashed: set up but not in use (an agent's second provider).
-                cr.set_dash([5, 4] if edge.kind == "available" else [])
+                cr.set_dash([5, 4] if edge.kind == "available" else [1.5, 4] if edge.kind == "offer" else [])
             cr.move_to(x1, y1)
             cr.curve_to(x1 + bend, y1, x2 - bend, y2, x2, y2)
             cr.stroke()

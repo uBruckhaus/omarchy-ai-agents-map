@@ -1,0 +1,96 @@
+{
+ "about": "The first-agent guide's routes and starter models (first_agent.py). Checked 2026-10-27 against the agents' own docs and Hugging Face (repos, files, sizes, licenses). A signed catalog add-on may replace this file; the app reads the add-on's first.",
+ "routes": [
+  {
+   "id": "claude",
+   "kind": "online",
+   "agent": "claude",
+   "needs": [
+    "mise"
+   ],
+   "title": "Claude Code",
+   "access": "A Claude plan (Pro, Max, Team) or an API key from console.anthropic.com. The free plan does not include Claude Code.",
+   "pricing": "https://claude.com/pricing",
+   "name": "Claude Code"
+  },
+  {
+   "id": "codex",
+   "kind": "online",
+   "agent": "codex",
+   "needs": [
+    "mise"
+   ],
+   "title": "Codex",
+   "access": "A ChatGPT plan (Plus, Pro, Business) or an API key from platform.openai.com.",
+   "pricing": "https://chatgpt.com/pricing",
+   "name": "Codex"
+  },
+  {
+   "id": "llamacpp-pi",
+   "kind": "local",
+   "agent": "pi",
+   "runtime": "llamacpp",
+   "needs": [
+    "mise",
+    "node"
+   ],
+   "title": "Pi with llama.cpp",
+   "access": "Runs on this PC: llama.cpp serves a model, Pi talks to it. Downloads need the internet once; then nothing leaves the PC.",
+   "name": "Pi"
+  },
+  {
+   "id": "ollama-opencode",
+   "kind": "local",
+   "agent": "opencode",
+   "runtime": "ollama",
+   "needs": [
+    "mise"
+   ],
+   "title": "OpenCode with Ollama",
+   "access": "Runs on this PC: Ollama serves a model, OpenCode talks to it. Downloads need the internet once; then nothing leaves the PC.",
+   "name": "OpenCode"
+  }
+ ],
+ "models": [
+  {
+   "id": "gemma-4-e2b",
+   "title": "Gemma 4 E2B (small, fast)",
+   "repo": "lmstudio-community/gemma-4-E2B-it-GGUF",
+   "file": "gemma-4-E2B-it-Q4_K_M.gguf",
+   "bytes": 3430000000,
+   "min_vram": 6000000000,
+   "license": "Apache-2.0",
+   "context": 32768
+  },
+  {
+   "id": "gemma-4-12b",
+   "title": "Gemma 4 12B (good for most PCs)",
+   "repo": "lmstudio-community/gemma-4-12B-it-QAT-GGUF",
+   "file": "gemma-4-12B-it-QAT-Q4_0.gguf",
+   "bytes": 6980000000,
+   "min_vram": 11000000000,
+   "license": "Apache-2.0",
+   "context": 32768
+  },
+  {
+   "id": "gemma-4-26b-a4b",
+   "title": "Gemma 4 26B A4B (large, still fast)",
+   "repo": "unsloth/gemma-4-26B-A4B-it-GGUF",
+   "file": "gemma-4-26B-A4B-it-UD-Q4_K_M.gguf",
+   "bytes": 16950000000,
+   "min_vram": 20000000000,
+   "license": "Apache-2.0",
+   "context": 65536
+  },
+  {
+   "id": "qwen3-8-27b",
+   "title": "Qwen 3.8 27B (large, strong at code)",
+   "repo": "lmstudio-community/Qwen3.8-27B-GGUF",
+   "file": "Qwen3.8-27B-Q4_K_M.gguf",
+   "bytes": 16810000000,
+   "min_vram": 20000000000,
+   "license": "Apache-2.0",
+   "context": 65536
+  }
+ ]
+}

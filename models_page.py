@@ -53,30 +53,12 @@ class ModelsPage:
         Get from Hugging Face (search, model page, download options), On this PC (GGUF files
         other local LLMs or Downloads have)."""
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
-        header = Gtk.Box(spacing=8)
-        back = Gtk.Button()
-        back.add_css_class("flat")
-        back.add_css_class("am-header-btn")
-        back.add_css_class("am-back-bordered")
-        back_box = Gtk.Box(spacing=6)
-        back_box.append(Gtk.Image.new_from_icon_name("go-previous-symbolic"))
-        back_box.append(Gtk.Label(label=_("Back")))
-        back_box.append(Gtk.Label(label="· ⌫"))
-        back.set_child(back_box)
-        back.set_tooltip_text(_("Back (Backspace, Esc)"))
-        back.connect("clicked", lambda *_: self.close_models())
-        header.append(back)
-        self.models_title = Gtk.Label(xalign=0)
-        self.models_title.add_css_class("am-section-title")
-        header.append(self.models_title)
+        self.models_title = Gtk.Label()
         self.models_folder_label = Gtk.Label(xalign=0, hexpand=True)
         self.models_folder_label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
         self.models_folder_label.add_css_class("am-agent-detail")
-        header.append(self.models_folder_label)
-        page.append(header)
-        rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-        rule.add_css_class("am-settings-rule")
-        page.append(rule)
+        page.append(self.page_header(self.models_title, self.close_models, _("Back (Backspace, Esc)"),
+                                     end=(self.models_folder_label,)))
 
         # The tabs (the choice is kept, as on the other Add pages).
         switch = Gtk.Box(spacing=0, halign=Gtk.Align.START)
@@ -96,7 +78,7 @@ class ModelsPage:
         page.append(self.models_stack)
 
         # Installed: the list, and the chosen model's page.
-        installed = Gtk.Box(spacing=18)
+        installed = Gtk.Box(spacing=ai_core.GAP)
         left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         left.set_size_request(MODEL_LIST_WIDTH, -1)
         self.models_have_heading = Gtk.Label(xalign=0)
@@ -389,9 +371,7 @@ class ModelsPage:
         return False
 
     def detail_heading(self, box, text: str):
-        label = Gtk.Label(label=text, xalign=0)
-        label.add_css_class("am-group-heading")
-        box.append(label)
+        return self.section_heading(box, text)
 
     def name_meaning(self, box, *names: str):
         """What the name means: each recognised part with one line about it."""
@@ -886,41 +866,41 @@ class ModelsPage:
 
         base = state.get("base") or web_sources.chosen("models")
 
-        def work():
-            found, missing = [], []
-            try:
-                gpu = install_ctl.detect_gpu()
-                result = model_advice.ask(agent, question, rt.name, gpu.name or gpu.vendor, state["vram"],
-                                          state["ram"], installed, most=most)
-                state["phase"] = "finding"       # the progress row says so
-                for item in result.models:      # each as the repo a search for it finds first
-                    try:
-                        hits = models_ctl.search(item.search, limit=3, base=base)
-                    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
-                        hits = []
-                    repo = next((h for h in hits if h.id not in {r.id for r, _item in found}), None)
-                    if repo is not None:
-                        found.append((repo, item))
-                    else:
-                        missing.append(item.name)
-            except Exception as error:          # the agent, its sign-in, the web, an answer that did not hold up
-                result = error
-            GLib.idle_add(done, result, found, missing)
+        found, missing = [], []
+        name = ai_helper.name_of(agent)
 
-        def done(result, found, missing):
+        def work(step):
+            gpu = install_ctl.detect_gpu()
+            result = model_advice.ask(agent, question, rt.name, gpu.name or gpu.vendor, state["vram"],
+                                      state["ram"], installed, most=most)
+            state["phase"] = "finding"           # the progress row says so
+            step("find")
+            for item in result.models:          # each as the repo a search for it finds first
+                try:
+                    hits = models_ctl.search(item.search, limit=3, base=base)
+                except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+                    hits = []
+                repo = next((h for h in hits if h.id not in {r.id for r, _item in found}), None)
+                if repo is not None:
+                    found.append((repo, item))
+                else:
+                    missing.append(item.name)
+            step.done("find", _("{0} found").format(len(found)))
+            return result
+
+        def done(result):
             state["asking"], state["phase"] = False, ""
-            if isinstance(result, Exception):
-                self.show_error(_("{0} could not answer: {1}").format(ai_helper.name_of(agent), str(result)[:2000]))
-            else:
+            if not isinstance(result, Exception):
                 # kept with its own page, shown when that page is the one open
                 state["advice"], state["advice_found"], state["advice_missing"] = result, found, missing
             if self.models_state is state:
                 self.fill_model_ask()
                 if not isinstance(result, Exception):
                     self.show_model_suggestions(state)
-            return False
 
-        threading.Thread(target=work, daemon=True).start()
+        self.run_ai_help(_("Model advice"), agent,
+                         [("ask", _("{0} looks on the web for models that fit").format(name)),
+                          ("find", _("Finding them on Hugging Face"))], work, done)
 
     def search_models(self):
         """Search (or, with nothing typed, the trending GGUF models) on the chosen site."""

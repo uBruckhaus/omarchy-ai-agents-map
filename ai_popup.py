@@ -117,6 +117,8 @@ from configure_menu import ConfigureMenu
 from subagents_page import SubagentsPage
 from traffic_page import TrafficPage
 from smart_check_page import SmartCheckPage
+from llm_help_page import LlmHelpPage
+from first_agent_page import FirstAgentPage
 from skills_page import SkillsPage
 from mcp_pages import McpPages
 from details_pages import DetailsPages
@@ -177,7 +179,7 @@ class AppWindow(Adw.ApplicationWindow):
 
 
 class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, DetailsPages, InfoPage, McpPages, SkillsPage, ConnectPage, ConfigureMenu, TrafficPage, SubagentsPage, ModelsPage, SmartCheckPage,
-                Adw.Application):
+                LlmHelpPage, FirstAgentPage, Adw.Application):
     def __init__(self):
         super().__init__(application_id=desktop.app_id())
         self.window = None
@@ -449,6 +451,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         right.add_named(self.build_traffic_page(), "traffic")
         right.add_named(self.build_subagents_page(), "subagents")
         right.add_named(self.build_smart_check_page(), "smartcheck")
+        right.add_named(self.build_first_agent_page(), "firstagent")
         right.connect("notify::visible-child-name", lambda *_: self.update_header())
         self.guard_text_fields_in(window)
         stack.connect("notify::visible-child-name", lambda *_: (self.update_header(), self.on_setup_shown()))
@@ -479,7 +482,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             icon.set_pixel_size(22)
             icon.set_valign(Gtk.Align.CENTER)
             header.append(icon)
-        title = Gtk.Label(label=_("My AI Agents Map"), xalign=0)
+        title = Gtk.Label(label=desktop.app_name(), xalign=0)     # the app's own name (Asterism, AI Agents Map)
         title.add_css_class("am-title")
         title.set_ellipsize(Pango.EllipsizeMode.END)
         title.set_max_width_chars(30)
@@ -886,6 +889,9 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         # the numbers: "1.5 of 24.0 GB in use · 18 %").
         self.gpu_card = self.group_card(side, "map-gpu", _("GPU"), default_open=True)
         self.gpu_card.append(self.gpu_line)
+        # The software that drives it (ROCm, Vulkan, CUDA, PyTorch), with optional installs (gpu_stack).
+        self.gpu_software = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP_TIGHT)
+        self.gpu_card.append(self.gpu_software)
         self.gpu_line.set_visible(True)                    # the card shows or hides now
         self.gpu_card.group_card.set_visible(False)        # until the first reading has a card
         side.append(self.build_layer_toggles())
@@ -949,6 +955,8 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.side_map.on_pick_model = self.on_map_pick_model
         self.side_map.on_remodel = self.on_map_remodel
         self.side_map.on_attach = self.on_map_attach
+        self.side_map.offer_tip = _("{0} can also use {1}'s models: not a connection, nothing to remove. "
+                                    "Click one of the models, or draw a line to it, to switch {0} to it.")
         self.side_map.edge_tips = (
             _("Drag its orange hook to another local LLM, or onto empty space to remove it (click the line or "
               "its box to show the hook)"),
@@ -1281,7 +1289,9 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                 self.refresh_map()
                 self.run_health()
             if running != self.running and self.window.is_visible():
-                # An agent was opened or closed: its dot, its model and its card change.
+                # An agent was opened or closed: its dot, its model and its card change; a local LLM
+                # none of whose agents runs now may give its GPU memory back (asked in a toast).
+                self.offer_gpu_cleanup(self.running, running, usage)
                 self.running = running
                 self.refresh_overview()
                 self.refresh_map()
@@ -1289,6 +1299,46 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
 
         threading.Thread(target=work, daemon=True).start()
         return True
+
+    def refresh_gpu_software(self):
+        """The GPU card's software line, looked at on a thread (llama.cpp's devices take a few
+        seconds); again after an install of one of them (watch_install)."""
+        import gpu_stack
+        self.gpu_software_done = True
+
+        def work():
+            try:
+                gpu = install_ctl.detect_gpu()
+                # A local LLM that runs on ROCm counts it as there, wherever that ROCm lives.
+                on_rocm = any(llm_engine.of(r).build_now(r) == "rocm" for r in self.inventory.runtimes
+                              if r.installed and llm_engine.of(r).builds)
+                stack = gpu_stack.look(gpu.vendor, rocm_in_use=on_rocm)
+            except Exception:
+                stack = None
+            GLib.idle_add(done, stack)
+
+        def done(stack):
+            box = self.gpu_software
+            self.clear_box(box)
+            if stack is None:
+                return False
+            parts = stack.summary() + [_("PyTorch {0} ({1})").format(t.version, t.backend) for t in stack.torches[:3]]
+            line = Gtk.Label(label=_("Software: {0}").format(" · ".join(parts) if parts else _("none found")),
+                             xalign=0, wrap=True, max_width_chars=1)
+            line.add_css_class("am-agent-detail")
+            box.append(line)
+            wanted = gpu_stack.wanted(stack)
+            if wanted:
+                row = Gtk.Box(spacing=ai_core.GAP_INLINE)
+                hint = Gtk.Label(label=_("Optional:"), xalign=0)
+                hint.add_css_class("am-agent-detail")
+                row.append(hint)
+                for key in wanted:
+                    row.append(self.action_button(_("Install {0}…").format(gpu_stack.PACKAGES[key][0]),
+                                                  on_click=lambda k=key: self.offer_install("tool", k)))
+                box.append(row)
+            return False
+        threading.Thread(target=work, daemon=True).start()
 
     def show_gpu(self, usage, runtimes):
         gib = gpu_usage.gib
@@ -1487,21 +1537,29 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             and hasattr(self, "adapter_addons") and bool(self.adapter_addons())
         while (child := self.empty_area.get_first_child()) is not None:
             self.empty_area.remove(child)
-        self.empty_area.set_visible(self.map_empty)
+        guide = not self.map_empty and self.first_agent_wanted()
+        on_guide = getattr(self, "stack", None) is not None and self.page_name() == "firstagent"
+        self.empty_area.set_visible((self.map_empty or guide) and not on_guide)
+        if guide:
+            # Add-ons on, but no agent works yet: the first-agent guide (first_agent_page).
+            self.first_agent_card(self.empty_area)
         if self.map_empty:
             # An empty Asterism: nothing switched on yet (above the empty map).
             empty = self.empty_state("application-x-addon-symbolic", _("Nothing on the map yet"),
                                      _("Asterism shows the agents and local LLMs you switch on. Set up switches on "
                                        "the ones found on this PC with one click."))
-            row = Gtk.Box(spacing=8, halign=Gtk.Align.CENTER, margin_top=12)
-            for label, run, main in ((_("Set up Asterism"), self.open_setup, True), (_("Add-ons"), self.open_addons, False)):
-                button = Gtk.Button(label=label)
-                if main:
-                    button.add_css_class("suggested-action")
-                button.connect("clicked", lambda *_a, r=run: r())
-                row.append(button)
+            row = Gtk.Box(spacing=ai_core.GAP_INLINE, halign=Gtk.Align.CENTER, margin_top=12)
+            # No agent works yet: the first-agent guide is the main way in; Setup and Add-ons beside it.
+            first = self.first_agent_wanted()
+            choices = ([(_("Set up your first agent"), self.open_first_agent)] if first else []) + \
+                [(_("Set up Asterism"), self.open_setup), (_("Add-ons"), self.open_addons)]
+            for index, (label, run) in enumerate(choices):
+                row.append(self.action_button(label, role="primary" if index == 0 else "secondary", size="page",
+                                              on_click=run))
             empty.append(row)
             self.empty_area.append(empty)
+        if not getattr(self, "gpu_software_done", False):
+            self.refresh_gpu_software()
         self.overview_hints(*self.new_found())
         self.update_problem_button()
         self.update_smart_check_button()            # problems and hints: the header's !
@@ -1570,7 +1628,8 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         if agent:
             buttons.append((_("Do it with {0}…").format(ai_helper.name_of(agent)),
                             lambda: self.do_with_agent(f"mcp-update:{update.name}", _("Update {0}").format(update.name),
-                                                       mcp_updates.task_prompt(update), on_end=self.after_mcp_task)))
+                                                       mcp_updates.task_prompt(update), on_end=self.after_mcp_task,
+                                                       agent=agent)))
         return buttons
 
     def after_mcp_task(self):
@@ -1721,6 +1780,8 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             GLib.idle_add(done, found)
 
         def done(found):
+            if isinstance(found, Exception):
+                found = []
             self.ai_checking_mcp = False
             if (ai_core.setting("ai_checks") or force) and [vars(f) for f in found] != [vars(f) for f in self.ai_mcp_updates]:
                 self.ai_mcp_updates = found
@@ -1729,7 +1790,14 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                 self.fill_smart_check()
             return False
 
-        threading.Thread(target=work, daemon=True).start()
+        agent = ai_helper.chosen(installed) if force else None
+        if agent is None:                       # the daily check: quietly in the background
+            threading.Thread(target=work, daemon=True).start()
+            return
+        self.run_ai_help(_("MCP server updates"), agent,
+                         [("ask", _("{0} looks for newer versions of your MCP servers").format(
+                             ai_helper.name_of(agent)))],
+                         lambda _step: mcp_updates.check(installed, force=True), done)
 
     def research_new_agents(self):
         """Once per new installed agent (setting "look_up_new_agents", on by default)."""
@@ -2726,17 +2794,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
     def build_health_page(self) -> Gtk.Widget:
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         header = Gtk.Box(spacing=8)
-        back = Gtk.Button()
-        back.add_css_class("flat")
-        back.add_css_class("am-header-btn")
-        back.add_css_class("am-back-bordered")
-        back_box = Gtk.Box(spacing=6)
-        back_box.append(Gtk.Image.new_from_icon_name("go-previous-symbolic"))
-        back_box.append(Gtk.Label(label=_("Back")))
-        back_box.append(Gtk.Label(label="· ⌫"))
-        back.set_child(back_box)
-        back.set_tooltip_text(_("Back (Backspace, Esc)"))
-        back.connect("clicked", lambda *_: self.close_health())
+        back = self.back_button(lambda: self.close_health(), _("Back (Backspace, Esc)"))
         header.append(back)
         title = Gtk.Label(label=_("Open problems").upper(), xalign=0, hexpand=True)   # and updates, suggestions
         title.add_css_class("am-section-title")
@@ -2871,6 +2929,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         problems = [f for area in report.areas for f in area.findings if f.level == "warn"]
         if not problems:
             body.append(self.status_hero("ok", _("Nothing to fix."), _("Everything set up and working")))
+            self.ai_help_row(body)
             return
         body.append(self.status_hero("missing", ngettext("1 open problem", "{0} open problems",
                                                          len(problems)).format(len(problems)),
@@ -2879,6 +2938,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         for finding in problems:
             listbox.append(self.finding_list_row(finding))
         body.append(listbox)
+        self.ai_help_row(body)
 
     def section_in(self, body, title: str):
         self.settings_heading(body, title)
@@ -2959,13 +3019,16 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             if rt is None or (kind == "install" and rt.installed) or (kind == "models" and not rt.installed):
                 return ""
         return {"details": _("Details"), "runtime": _("Details"), "models": _("Models…"), "install": _("Install…"),
-                "setup": _("Setup"), "link": _("Map"),
+                "setup": _("Setup"), "link": _("Map"), "firstagent": _("Get started"),
                 "addmcp": _("Add MCP server"), "addskills": _("Add skills"), "reorganize": _("Tidy up…")}.get(kind, "")
 
     def health_action(self, action):
         kind = action[0]
         if kind == "setup":
             self.open_my_setup()
+            return
+        if kind == "firstagent":
+            self.open_first_agent()
             return
         if kind == "link":                       # the map, its broken line lit (both ends selected)
             self.close_setup()
@@ -3128,17 +3191,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
     def build_install_page(self) -> Gtk.Widget:
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         header = Gtk.Box(spacing=8)
-        back = Gtk.Button()
-        back.add_css_class("flat")
-        back.add_css_class("am-header-btn")
-        back.add_css_class("am-back-bordered")
-        back_box = Gtk.Box(spacing=6)
-        back_box.append(Gtk.Image.new_from_icon_name("go-previous-symbolic"))
-        back_box.append(Gtk.Label(label=_("Back")))
-        back_box.append(Gtk.Label(label="· ⌫"))
-        back.set_child(back_box)
-        back.set_tooltip_text(_("Back without changing anything (Backspace, Esc)"))
-        back.connect("clicked", lambda *_: self.close_install())
+        back = self.back_button(lambda: self.close_install(), _("Back without changing anything (Backspace, Esc)"))
         header.append(back)
         self.install_title = Gtk.Label(xalign=0, hexpand=True)
         self.install_title.add_css_class("am-section-title")
@@ -3160,7 +3213,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.install_status.add_css_class("am-agent-detail")
         page.append(self.install_status)
         # The choices right under the progress, on the right: Cancel (Stop while it runs), then the action.
-        buttons = Gtk.Box(spacing=10, halign=Gtk.Align.END, margin_top=4)
+        buttons = Gtk.Box(spacing=ai_core.GAP_INLINE, halign=Gtk.Align.END)
         self.install_cancel = Gtk.Button(label=_("Cancel"))
         self.install_cancel.add_css_class("am-action-btn")
         self.install_cancel.connect("clicked", lambda *_: self.cancel_install())
@@ -4104,6 +4157,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                 "connect": self.close_connect, "install": self.close_install,   # an install goes on
                 "models": self.close_models, "mcp": self.close_mcp_details, "status": self.close_status,
                 "health": self.close_health, "traffic": self.close_traffic, "smartcheck": self.close_smart_check,
+                "firstagent": self.close_first_agent,
                 "subagents": self.close_subagents,
                 "addmcp": self.close_add_mcp, "addskills": self.close_add_skills}
 
@@ -4263,6 +4317,8 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             GLib.idle_add(lambda: self.open_health() and False)
         elif page == "smartcheck":
             GLib.idle_add(lambda: self.open_smart_check() and False)
+        elif page == "firstagent":
+            GLib.idle_add(lambda: self.open_first_agent() and False)
         elif page == "help":
             GLib.idle_add(lambda: self.open_help() and False)
         elif page.startswith("connect:"):

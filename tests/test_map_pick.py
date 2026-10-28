@@ -27,6 +27,9 @@ class SelectionOnly:
     """MapView's selection logic without the widget."""
     kind_of = map_view.MapView.kind_of
     model_pick = map_view.MapView.model_pick
+    pick_for = map_view.MapView.pick_for
+    link = None
+    link_target_ok = map_view.MapView.link_target_ok
 
 
 class ModelPickTest(unittest.TestCase):
@@ -66,6 +69,13 @@ class ActivePathTest(unittest.TestCase):
             "agent:hermes": {("agent:hermes", "cloud:nous"), ("cloud:nous", "model:cloud:nous:hermes-4")},
             "agent:pi": {("agent:pi", "runtime:ollama"), ("runtime:ollama", "model:runtime:ollama:gemma3")},
         })
+
+    def test_a_line_drawn_from_an_agent_to_a_model_picks_it(self):
+        view = SelectionOnly()
+        view.graph = sample()
+        self.assertTrue(view.link_target_ok("agent:hermes", "model:runtime:llamacpp:qwen3-coder"))
+        self.assertTrue(view.link_target_ok("model:runtime:llamacpp:qwen3-coder", "agent:hermes"))
+        self.assertFalse(view.link_target_ok("agent:hermes", "model:runtime:ollama:gemma3"))  # not connected
 
 
 if __name__ == "__main__":

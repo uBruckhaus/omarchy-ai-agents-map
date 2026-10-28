@@ -7,7 +7,7 @@ Where it looks:
   ~/Applications);
 - AppImages in ~/Applications and ~/.local/bin: never run by the scan.
   Only when the user clicks "Look inside" (look_inside) is each one's
-  usr/bin unpacked (the AppImage's own --appimage-extract) into a private
+  usr/bin unpacked (the AppImage's own --appimage-extract, closed in by bubblewrap) into a private
   temporary folder, read, and deleted again; what was found is kept per
   file (path, size, time) in the scan cache. Downloads are not looked at;
 - anything on PATH with "mcp" in its name.
@@ -381,6 +381,21 @@ def _folder_size(folder: Path) -> int:
     return total
 
 
+def extract_argv(appimage: Path, work: Path, *pattern: str) -> list[str]:
+    """--appimage-extract runs the AppImage's own program, so it runs closed in (bubblewrap): no
+    network, no home folder, the system's /usr read-only, the AppImage read-only and only the work
+    folder writable. Without bwrap nothing is unpacked."""
+    bwrap = shutil.which("bwrap")
+    if bwrap is None:
+        raise RuntimeError("unpacking an AppImage needs bubblewrap (bwrap), which keeps it from touching "
+                           "anything else; install bubblewrap")
+    return [bwrap, "--unshare-all", "--die-with-parent", "--new-session", "--clearenv",
+            "--ro-bind", "/usr", "/usr", "--symlink", "usr/lib", "/lib", "--symlink", "usr/lib64", "/lib64",
+            "--symlink", "usr/bin", "/bin", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp",
+            "--ro-bind", str(appimage), "/in/app.AppImage", "--bind", str(work), "/out", "--chdir", "/out",
+            "--", "/in/app.AppImage", "--appimage-extract", *pattern]
+
+
 def unpack_bin(path: Path) -> tuple[Path, Path]:
     """usr/bin of an AppImage unpacked into a new private temporary folder:
     (that folder, its usr/bin). The caller removes the folder (shutil.rmtree)."""
@@ -389,7 +404,7 @@ def unpack_bin(path: Path) -> tuple[Path, Path]:
     TEMP.mkdir(parents=True, exist_ok=True, mode=0o700)
     work = Path(tempfile.mkdtemp(prefix="appimage-", dir=str(TEMP)))
     try:
-        ok = ai_core.run_with_disk_budget([str(path), "--appimage-extract", "usr/bin/*"], str(work),
+        ok = ai_core.run_with_disk_budget(extract_argv(path, work, "usr/bin/*"), str(work),
                                           MAX_BIN_BYTES, timeout=60)          # stopped as soon as it gets larger
         folder = work / "squashfs-root/usr/bin"
         if not ok or not folder.is_dir() or _folder_size(work) > MAX_BIN_BYTES:
@@ -571,7 +586,7 @@ def unpack(appimage: Path, into: Path | None = None) -> Path:
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True, mode=0o700)
     try:
-        ok = ai_core.run_with_disk_budget([str(appimage), "--appimage-extract"], str(work), MAX_APP_BYTES,
+        ok = ai_core.run_with_disk_budget(extract_argv(appimage, work), str(work), MAX_APP_BYTES,
                                           timeout=600)                        # stopped as soon as it gets larger
         if not ok or not (work / "squashfs-root").is_dir():
             raise RuntimeError(f"could not unpack {appimage.name}")

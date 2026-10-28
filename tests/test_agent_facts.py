@@ -45,7 +45,7 @@ class FactsTest(unittest.TestCase):
         self.assertEqual(self.facts("logout"), {"claude": ("claude", "auth", "logout"), "codex": ("codex", "logout")})
         self.assertEqual(set(self.facts("research")), {"claude", "codex"})
         self.assertEqual(set(self.facts("rewrite")), {"claude", "codex"})
-        self.assertEqual(set(self.facts("models")), {"claude", "codex"})
+        self.assertEqual(set(self.facts("models")), {"claude", "codex", "dsh", "hermes", "opencode", "pi"})
         self.assertEqual(self.facts("sandbox_setting"), {"claude": "sandbox.enabled", "codex": "sandbox_mode",
                                                          "cursor-agent": "sandbox.mode"})
         self.assertEqual(self.facts("asks_setting"), {
@@ -61,8 +61,14 @@ class FactsTest(unittest.TestCase):
     def test_commands_hold_the_placeholders(self):
         import agent_profiles
         import skill_update
-        argv = agent_profiles.research_command("codex", "PROMPT", Path("/s.json"))
-        self.assertEqual(argv[1:], ["--search", "exec", "--sandbox", "read-only", "--skip-git-repo-check",
+        from unittest import mock
+        with mock.patch("agent_guard.servers", lambda c, *_a: ["figcraft", "pdf-craft"]):
+            argv = agent_profiles.research_command("codex", "PROMPT", Path("/s.json"))
+        # Closed in first (no connectors, plugins, hooks, each MCP server off), then its own argv.
+        self.assertEqual(argv[1:], ["--disable", "apps", "--disable", "plugins", "--disable", "hooks",
+                                    "-c", "mcp_servers.figcraft.enabled=false",
+                                    "-c", "mcp_servers.pdf-craft.enabled=false",
+                                    "--search", "exec", "--sandbox", "read-only", "--skip-git-repo-check",
                                     "--json", "--output-schema", "/s.json", "-"])
         for agent in ("codex", "claude"):                 # the question on stdin, never in the process list
             self.assertNotIn("PROMPT", agent_profiles.research_command(agent, "PROMPT", Path("/s.json")))

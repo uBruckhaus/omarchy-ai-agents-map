@@ -157,15 +157,16 @@ def writers(installed) -> list[str]:
     """Installed agents that can rewrite a skill with no tools at all (their adapter's rewrite fact)."""
     import harnesses
     return [h.command for h in harnesses.all_harnesses()
-            if h.rewrite and h.command in installed and shutil.which(h.command)]
+            if h.rewrite and h.closed and h.command in installed and shutil.which(h.command)]
 
 
 def writer_command(writer: str, answer_file: Path) -> list[str]:
     """The prompt goes on stdin; "{answer}": the file it writes its answer to."""
     import harnesses
     argv = harnesses.get(writer).rewrite
+    import agent_guard
     binary = shutil.which(writer) or writer
-    return [binary] + [str(answer_file) if a == "{answer}" else a for a in argv[1:]]
+    return agent_guard.background(writer, [binary] + [str(answer_file) if a == "{answer}" else a for a in argv[1:]])
 
 
 def answers_in_file(writer: str) -> bool:

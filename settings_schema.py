@@ -121,6 +121,8 @@ SCHEMA: dict[str, Setting] = {
     "mcp_advice_count": Setting(10, lambda v: v in (5, 10, 15, 20) and not isinstance(v, bool),
                                 "Add MCP server › Ask an agent: how many servers it suggests (mcp_advice.SERVER_COUNTS)"),
     "ai_checks_agent": Setting("", _text, "Settings › Agent for AI checks (its command; \"\": the first that can)"),
+    "first_agent": Setting({}, _mapping, "the first-agent guide: {\"later\": true when put off, \"verified\": [agents whose test answered]} (first_agent.py)"),
+    "ai_local_helper": Setting({}, _mapping, "Settings › Local helper: {agent, provider, model} confirmed by the user; {}: none (local_helper.py)"),
     "mcp_list": Setting(True, _bool, "Settings › Keep the MCP server list (mcp_registry.refresh_list on start)"),
     # Add-ons (Asterism)
     "addons_enabled": Setting([], _texts, "the add-ons switched on"),

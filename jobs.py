@@ -69,6 +69,9 @@ class Jobs:
         self.state_file = state_file
         self.sleep = sleep
         self.lock = threading.Lock()
+        # One save at a time, from its snapshot to its write: a save that took an older snapshot can
+        # neither overwrite a newer one nor remove a file a newer one wrote (taken before self.lock).
+        self.save_lock = threading.Lock()
         self.jobs: list[Job] = []
         # Jobs a previous run left unfinished: shown as interrupted.
         for entry in self.load():
@@ -96,6 +99,10 @@ class Jobs:
 
     def save(self):
         """Resumable jobs that have not ended (running, waiting, interrupted)."""
+        with self.save_lock:
+            self._save()
+
+    def _save(self):
         with self.lock:
             keep = [{"id": j.id, "kind": j.kind, "title": j.title, "target": j.target, "spec": j.spec,
                      "fraction": round(j.fraction, 4)}
