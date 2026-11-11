@@ -1,6 +1,6 @@
 [Icon Theme]
-Name=Asterism
-Comment=The icons AI Agents Map and Asterism bring along (the rest comes from Adwaita)
+Name=AiAgentsMap
+Comment=The icons Maprisma brings along (the rest comes from Adwaita)
 Inherits=Adwaita,hicolor
 Directories=symbolic/actions
 
