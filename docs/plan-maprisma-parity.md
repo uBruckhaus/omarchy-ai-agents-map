@@ -60,7 +60,9 @@ changes, one commit per step, Uwe looks at it before the next phase.
    identity paths, add-ons unless decided). GTK pages adjusted to the new data. Covers 052–064's core.
 2. **Map and header look.** Progress: 2a header + row above the map, 2b column cards + Expand (column focus),
    2c boxes (Maprisma's rows, ⋮ menu, ↑ update badge, Update with AI… / Update now; a small icon before
-   the name instead of the drag handle, Uwe 2026-11-11). Header order and symbols; group cards with counts and Expand; boxes with ⋮ menu
+   the name instead of the drag handle, Uwe 2026-11-11), 2d accent lines + line colours, selection grays
+   the rest, card filter; 2e Online/Local agents cards, + cards, Slightly rounded. Still open in phase 2:
+   programs to install as rows on the map (Maprisma's MapMissingCard), the legend as a window. Header order and symbols; group cards with counts and Expand; boxes with ⋮ menu
    (Connect, Details, Actions, update items), badges incl. the update badge; line colours per kind, used-only
    filter, selection grays the rest; + cards, programs to install, online / local agent cards; legend dialog;
    corners incl. slight.
