@@ -71,6 +71,35 @@ class TrustTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):               # the program folder itself a link
             ic.check_trusted(shared / "via")
 
+    def test_every_link_on_the_way_is_checked(self):
+        real = self.root / "real"
+        (real / "prog").mkdir(parents=True)
+        (self.root / "theirs").symlink_to(real)               # "another account's" link
+        (self.root / "mine").symlink_to(self.root / "theirs")
+        ic.check_trusted(self.root / "mine" / "prog")         # all ours: fine
+        real_lstat = os.lstat
+
+        def lstat(path, *a, **k):
+            st = real_lstat(path, *a, **k)
+            if str(path) == str(self.root / "theirs"):
+                values = list(st)
+                values[4] = os.getuid() + 12345
+                return os.stat_result(values)
+            return st
+        with mock.patch.object(ic.os, "lstat", lstat):
+            with self.assertRaises(RuntimeError):            # met only while resolving "mine"
+                ic.check_trusted(self.root / "mine" / "prog")
+
+    def test_relative_links_and_dot_dot_inside_a_target(self):
+        (self.root / "a" / "prog").mkdir(parents=True)
+        (self.root / "b").mkdir()
+        (self.root / "b" / "up").symlink_to("../a")
+        ic.check_trusted(self.root / "b" / "up" / "prog")
+        (self.root / "a").chmod(0o777)
+        with self.assertRaises(RuntimeError):
+            ic.check_trusted(self.root / "b" / "up" / "prog")
+        (self.root / "a").chmod(0o755)
+
     def test_dot_dot_refused(self):
         with self.assertRaises(RuntimeError):
             ic.check_trusted(self.root / "a" / ".." / "b")

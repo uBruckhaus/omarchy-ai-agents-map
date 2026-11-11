@@ -169,52 +169,67 @@ def check_folder(text: str) -> Path:
 
 
 def check_trusted(path: Path) -> None:
-    """The program folder and every folder above it must be safe from other accounts, both along
-    the path as written and along where it really leads (its links resolved): each folder and link
-    on the way belongs to this account or root; the program folder itself is writable only by this
-    account; a folder above it that others may write must have the sticky bit (as /tmp), so they
-    cannot rename or replace what is in it. So nobody else can swap a part of the path while it is
-    used. Raises RuntimeError (nothing is installed)."""
-    written = Path(os.path.abspath(os.path.expanduser(str(path))))
-    if ".." in Path(os.path.expanduser(str(path))).parts:
+    """The program folder must be safe from other accounts all the way: the path is resolved here
+    one part at a time, as the kernel would, and every folder and every link met on the way
+    (also links inside a link's target) must belong to this account or root; a folder others may
+    write must have the sticky bit (as /tmp) so they cannot rename or replace what is in it, and
+    the program folder itself must be writable only by this account (and not be a link itself).
+    So nobody else can swap a part of the path while it is used. Parts not there yet are created
+    by claim() inside the last checked folder, which checks again afterwards. Raises RuntimeError."""
+    written = os.path.expanduser(str(path))
+    if not os.path.isabs(written):
+        raise RuntimeError(f"{path}: the program folder must be an absolute path")
+    if ".." in Path(written).parts:
         raise RuntimeError(f"{path}: no '..' in the program folder's path")
-    try:
-        real = Path(os.path.realpath(written))
-    except OSError as error:
-        raise RuntimeError(f"{path}: {error}") from error
-    _check_chain(written, leaf_links_ok=False)
-    _check_chain(real, leaf_links_ok=False)
-
-
-def _check_chain(leaf: Path, leaf_links_ok: bool) -> None:
     me = os.getuid()
-    current, first = leaf, True
-    while True:
-        try:
-            st = os.lstat(current)
-        except FileNotFoundError:
-            if first and current != current.parent:   # not there yet: claim() creates it, checks again
-                current = current.parent
-                continue
-            raise RuntimeError(f"{current} is missing; nothing was installed") from None
-        except OSError as error:
-            raise RuntimeError(f"{current}: {error}") from error
+
+    def owned(where: Path, st) -> None:
         if st.st_uid not in (0, me):
-            raise RuntimeError(f"{current} belongs to another account; choose a folder of your own")
+            raise RuntimeError(f"{where} belongs to another account; choose a folder of your own")
+
+    def folder_ok(where: Path, st, leaf: bool) -> None:
+        if not stat.S_ISDIR(st.st_mode):
+            raise RuntimeError(f"{where} is not a folder; nothing was installed")
+        others_write = st.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+        if others_write and (leaf or not st.st_mode & stat.S_ISVTX):
+            raise RuntimeError(f"other accounts can change {where}; choose a folder only you can write")
+
+    current = Path("/")
+    st = os.lstat(current)
+    owned(current, st)
+    folder_ok(current, st, leaf=False)
+    # (name, the last part as written?) — the program folder itself may not be a link.
+    names = list(Path(written).parts[1:])
+    parts = [(name, i == len(names) - 1) for i, name in enumerate(names)]
+    hops = 0
+    while parts:
+        name, last_written = parts.pop(0)
+        if name in ("", "."):
+            continue
+        if name == "..":                     # only from a link's target: current is a checked folder
+            current = current.parent
+            continue
+        nxt = current / name
+        try:
+            st = os.lstat(nxt)
+        except FileNotFoundError:
+            return                           # the rest is created by claim() in `current` (checked)
+        except OSError as error:
+            raise RuntimeError(f"{nxt}: {error}") from error
+        owned(nxt, st)
         if stat.S_ISLNK(st.st_mode):
-            if current == leaf and not leaf_links_ok:
-                raise RuntimeError(f"{current} is a link; choose the folder itself")
-            # A link of this account or root: only its folder could swap it (checked next).
-        elif not stat.S_ISDIR(st.st_mode):
-            raise RuntimeError(f"{current} is not a folder; nothing was installed")
-        else:
-            others_write = st.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
-            if others_write and (current == leaf or not st.st_mode & stat.S_ISVTX):
-                raise RuntimeError(f"other accounts can change {current}; choose a folder only you can write")
-        first = False
-        if current == current.parent:
-            return
-        current = current.parent
+            if last_written:
+                raise RuntimeError(f"{nxt} is a link; choose the folder itself")
+            hops += 1
+            if hops > 40:
+                raise RuntimeError(f"{path}: too many links")
+            target = os.readlink(nxt)
+            if os.path.isabs(target):
+                current = Path("/")
+            parts = [(p, False) for p in Path(target).parts if p != "/"] + parts
+            continue
+        folder_ok(nxt, st, leaf=not parts)
+        current = nxt
 
 
 class VerifiedFile(type(Path())):
