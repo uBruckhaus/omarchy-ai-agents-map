@@ -34,6 +34,7 @@ class Engine(llm_engine.LlamaRouter):
     removable = "file"
     context_settable = True
     context_effect = "restart"
+    measure = True              # Measure and tune: llama-bench next to the llama-server that runs
 
     def context_now(self, rt, folder, name):
         import context_ctl

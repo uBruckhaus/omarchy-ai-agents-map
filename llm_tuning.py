@@ -31,6 +31,7 @@ class ModelFacts:
     best: int = 0                 # the context the card holds for it (0: not known)
     trained: int = 0              # the context it was trained for
     per_token: int = 0            # KV-cache bytes per token of context
+    file: str = ""                # its file (what Measure and tune measures, where the engine can)
 
 
 @dataclass
@@ -114,6 +115,7 @@ def collect(rt, engine, gpu, usage=None) -> Facts:
         if found:
             now, cache, model_file = found
             model.context = int(now or 0)
+            model.file = str(model_file) if model_file is not None else ""
             if model_file is not None and gpu.vram:
                 try:
                     fit = context_ctl.fit(model_file, gpu.vram, cache or "f16")

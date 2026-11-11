@@ -3489,5 +3489,9 @@
  "Choose an action and a category to test.": "Kies een actie en een categorie om te testen.",
  "Choose a category for an item.": "Kies een categorie voor een item.",
  "Could not start dictation: {0}": "Dicteren kon niet starten: {0}",
- "Omarchy dictation": "Omarchy-dicteren"
+ "Omarchy dictation": "Omarchy-dicteren",
+ "{0} was not measured: {1}": "{0} is niet gemeten: {1}",
+ "llama-bench tries three batch sizes on this graphics card; the fastest wins, and the context is what the card leaves. Takes a few minutes.": "llama-bench probeert drie batchgroottes op deze grafische kaart; de snelste wint, en de context is wat de kaart overlaat. Duurt een paar minuten.",
+ "Measured: {0} t/s prompt · {1} t/s generation · context {2} · batch {3}": "Gemeten: {0} t/s prompt · {1} t/s generatie · context {2} · batch {3}",
+ "{0}: tuned for this card": "{0}: afgestemd op deze kaart"
 }

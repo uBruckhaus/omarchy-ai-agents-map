@@ -313,6 +313,7 @@ class Engine:
 
     context_settable = False    # the page sets a model's context for it
     context_effect = ""         # when a new context counts: "restart", "next-load", "" (at once)
+    measure = False             # Measure and tune (llama_tune: llama-bench next to its server, models.ini)
 
     def models_page_note(self, rt) -> str:
         """A line above its model lists (where its models come from, what happens on a download)."""

@@ -94,9 +94,63 @@ class LlmHelpPage:
                 button.connect("clicked", lambda _b, m=model.name, n=model.best:
                                self.apply_tuning(rt, m, "ctx-size", str(n)))
                 row.add_suffix(button)
+            if engine.measure and model.file and model.per_token:
+                # Maprisma task 029: measured on this card with the build that runs, then a reviewed change.
+                measure = self.action_button(_("Measure and tune"))
+                measure.set_tooltip_text(_("llama-bench tries three batch sizes on this graphics card; the fastest "
+                                           "wins, and the context is what the card leaves. Takes a few minutes."))
+                measure.connect("clicked", lambda b, m=model, r=row: self.measure_model(rt, m, r, b))
+                row.add_suffix(measure)
             rows.append(row)
         slot.append(rows)
         self.fill_tuning_ask(slot, rt, engine, facts)
+
+    def measure_model(self, rt, model, row, button):
+        """Measure and tune one llama.cpp model: llama-bench in the background, then what it found with Apply
+        (models.ini: ctx-size and the batch sizes, a backup and Undo)."""
+        import connect
+        import context_ctl
+        import llama_tune
+        if not self.rule_allows("update", "models", model.name):
+            return
+        button.set_sensitive(False)
+        button.set_label(_("Measuring…"))
+
+        def work():
+            try:
+                before = connect._read(context_ctl.MODELS_INI)
+            except OSError:
+                before = ""
+            return llama_tune.measure(model.name, model.file, before), before
+
+        def done(found):
+            result, before = found
+            if row.get_parent() is None:
+                return False
+            if "reason" in result:
+                button.set_label(_("Measure and tune"))
+                button.set_sensitive(True)
+                self.toast(_("{0} was not measured: {1}").format(model.name, _(result["reason"])), 10)
+                return False
+            row.set_subtitle(_("Measured: {0} t/s prompt · {1} t/s generation · context {2} · batch {3}").format(
+                result["pp"], result["tg"], short_number(result["ctx"]), result["ubatch"]))
+            row.remove(button)                       # its own Apply in its place (Measure's click stays Measure's)
+            apply_button = self.action_button(_("Apply"))
+            row.add_suffix(apply_button)
+
+            def apply(_b):
+                apply_button.set_sensitive(False)
+                try:
+                    changes = [connect.Change(context_ctl.MODELS_INI, before, llama_tune.tuned_ini(before, result))]
+                    backup = connect.apply(connect.Plan(rt.name, rt.key, "", changes))
+                except (OSError, ValueError, RuntimeError) as error:
+                    self.show_error(_("Not changed: {0}").format(error))
+                    return
+                self.show_undo(_("{0}: tuned for this card").format(model.name), backup)
+            apply_button.connect("clicked", apply)
+            return False
+
+        threading.Thread(target=lambda: GLib.idle_add(done, work()), daemon=True).start()
 
     def fill_gpu_software(self, slot, facts):
         """ROCm, Vulkan, CUDA and the PyTorch builds here (gpu_stack), with Install… for what an AMD

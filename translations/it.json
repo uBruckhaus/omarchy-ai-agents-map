@@ -3489,5 +3489,9 @@
  "Choose an action and a category to test.": "Scegli un’azione e una categoria da provare.",
  "Choose a category for an item.": "Scegli una categoria per un elemento.",
  "Could not start dictation: {0}": "Impossibile avviare la dettatura: {0}",
- "Omarchy dictation": "Dettatura di Omarchy"
+ "Omarchy dictation": "Dettatura di Omarchy",
+ "{0} was not measured: {1}": "{0} non è stato misurato: {1}",
+ "llama-bench tries three batch sizes on this graphics card; the fastest wins, and the context is what the card leaves. Takes a few minutes.": "llama-bench prova tre dimensioni di batch su questa scheda grafica; vince la più veloce, e il contesto è ciò che la scheda lascia. Richiede alcuni minuti.",
+ "Measured: {0} t/s prompt · {1} t/s generation · context {2} · batch {3}": "Misurato: {0} t/s prompt · {1} t/s generazione · contesto {2} · batch {3}",
+ "{0}: tuned for this card": "{0}: regolato per questa scheda"
 }
