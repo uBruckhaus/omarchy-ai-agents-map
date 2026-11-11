@@ -62,8 +62,8 @@ class FactsTest(unittest.TestCase):
     def test_same_as_the_old_lists(self):
         self.assertEqual(self.keys("gguf_folder"), {"llamacpp", "lmstudio", "koboldcpp"})     # GGUF_RUNTIMES, MOVABLE
         self.assertEqual(self.keys("reorganize"), {"llamacpp", "lmstudio", "ollama", "koboldcpp"})
-        self.assertEqual({p.key for p in providers.built_in_local()} - self.keys("models_page"), {"vllm"})
-        self.assertEqual({p.key for p in providers.built_in_local()} - self.keys("own_model_folder"), {"jan"})
+        self.assertEqual({p.key for p in providers.built_in_local()} - self.keys("models_page"), {"vllm", "strata"})
+        self.assertEqual({p.key for p in providers.built_in_local()} - self.keys("own_model_folder"), {"jan", "strata"})
         self.assertEqual(self.keys("stop_to_move"), {"ollama"})
         self.assertEqual(self.keys("app_without_server"), {"lmstudio"})
         self.assertEqual(llm_engine.of("lmstudio").gguf_layout, "publisher")

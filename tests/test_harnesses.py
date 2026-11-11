@@ -109,7 +109,26 @@ class HermesTest(unittest.TestCase):
         self.assertEqual(h1.active, 200)
         self.assertEqual(h1.replies, 3)
         self.assertAlmostEqual(h1.cost, 0.2)
+        self.assertTrue(h1.estimated)                       # estimated_cost_usd only: an API value, no bill
         self.assertEqual(h1.subagents["?"][0], 1)            # Hermes names no type for child sessions
+
+    def test_only_an_actual_cost_is_billed(self):
+        import datetime as dt
+        import agent_status
+        from unittest import mock
+        from types import SimpleNamespace
+        db = sqlite3.connect(self.db)
+        db.execute("INSERT INTO sessions VALUES ('h3', NULL, '/srv/b', NULL, ?, NULL, ?, 'claude-opus-5-5', 1, 1, 0, 0, 0,"
+                   " 0.4, 0.3)", (T0, T0 + 5))
+        db.commit()
+        db.close()
+        sessions = harness_hermes.sessions(self.db)
+        self.assertFalse(sessions["h3"].estimated)
+        self.assertAlmostEqual(sessions["h3"].cost, 0.3)
+        harness = SimpleNamespace(sessions=SimpleNamespace(collect=lambda: sessions))
+        with mock.patch.object(agent_status.harnesses, "get", return_value=harness):
+            spent = agent_status.costs("hermes", dt.date.fromtimestamp(T0))
+        self.assertAlmostEqual(spent.billed, 0.3)            # h1's estimated 0.2 is not a bill
 
     def test_without_messages_the_session_times_count(self):
         db = sqlite3.connect(self.db)
@@ -154,11 +173,12 @@ class AgentTablesTest(unittest.TestCase):
                           "omp", "openclaw", "opencode", "pi", "goose"])
         self.assertEqual([c for c, *_r in agents.EXTRA], ["dsh", "bionic", "agy"])
         self.assertEqual(agents.NAMES, {"claude": "Claude Code", "copilot": "GitHub Copilot", "gemini": "Gemini CLI",
-                                        "omp": "Oh My Pi", "pi": "Pi"})
+                                        "omp": "Oh My Pi", "pi": "Pi", "agy": "Antigravity CLI"})
         self.assertEqual(agents.SPECS, {
             "omp": "github:can1357/oh-my-pi", "grok": "npm:@xai-official/grok",
             "muse": "http:muse[url=https://api.meta.ai/muse-launcher.sh,bin=muse]",
-            "hermes": "pipx:hermes-agent[extras=all]", "goose": "github:aaif-goose/goose"})
+            "hermes": "pipx:hermes-agent[extras=all]", "goose": "github:aaif-goose/goose",
+        "agy": "antigravity-cli"})
         self.assertEqual(agents.FALLBACK[0], ("claude", "Claude", "\U000f06c4", ""))
         self.assertEqual(agents.FALLBACK[1], ("codex", "Codex", "\ue905", "omarchy"))
 
@@ -180,13 +200,13 @@ class CapabilityTablesTest(unittest.TestCase):
         import agent_status
         import connect
         self.assertEqual(set(agent_security.READERS),
-                         {"claude", "codex", "copilot", "cursor-agent", "hermes", "opencode", "pi"})
+                         {"claude", "codex", "copilot", "cursor-agent", "hermes", "opencode", "pi", "agy"})
         self.assertEqual(set(agent_status.READERS), {"hermes", "opencode", "pi"})
         self.assertEqual(agent_status.STATUS_COMMANDS,
                          {"cursor-agent": (("cursor-agent", "status"), "not logged in", "logged in")})
         self.assertEqual(set(agent_status.access_table()), {
             "claude", "codex", "gemini", "copilot", "cursor-agent", "opencode", "hermes", "pi", "dsh", "grok",
-            "crush", "bionic", "goose"})
+            "crush", "bionic", "goose", "agy"})
         self.assertEqual(set(connect.SUPPORTED), {"hermes", "pi", "opencode", "dsh", "openclaw", "omp"})
         self.assertEqual(connect.FIXED, {"bionic": "lmstudio"})
 
@@ -196,19 +216,19 @@ class CapabilityTablesTest(unittest.TestCase):
         self.assertEqual(skills_ctl.NATIVE["codex"], ["~/.agents/skills", "~/.codex/skills"])
         self.assertEqual(skills_ctl.NATIVE["bionic"], ["~/.lmstudio/skills"])
         self.assertEqual(set(skills_ctl.SETTINGS_LIST), {"pi", "hermes"})
-        self.assertEqual(len(skills_ctl.NATIVE), 16)
+        self.assertEqual(len(skills_ctl.NATIVE), 17)
 
     def test_mcp(self):
         import mcp_ctl
         self.assertEqual(mcp_ctl.SUPPORTED, ("claude", "codex", "copilot", "crush", "cursor-agent", "gemini", "grok",
-                                             "hermes", "muse", "omp", "openclaw", "opencode", "pi", "dsh", "goose"))
+                                             "hermes", "muse", "omp", "openclaw", "opencode", "pi", "dsh", "agy", "goose"))
         self.assertEqual(mcp_ctl.IN_APP, {"bionic": "Settings › Connected apps"})
         self.assertEqual(mcp_ctl.paths_for("claude"), [])
         self.assertEqual(mcp_ctl.paths_for("codex"), [Path.home() / ".codex/config.toml"])
         self.assertEqual(mcp_ctl.paths_for("lmstudio"), [Path.home() / ".lmstudio/mcp.json"])
         shapes = {h.mcp.shape for h in harnesses.all_harnesses() if h.mcp and not h.mcp.in_app}
         self.assertEqual(shapes, {"plain", "claude", "codex", "copilot", "crush", "gemini", "muse", "omp",
-                                  "openclaw", "opencode", "goose"})
+                                  "openclaw", "opencode", "goose", "antigravity"})
         own = {h.command for h in harnesses.all_harnesses() if h.mcp and (h.mcp.read or h.mcp.write or h.mcp.native)}
         self.assertEqual(own, {"dsh", "muse", "openclaw"})
 

@@ -1,0 +1,982 @@
+{
+  "cases": [
+    {
+      "name": "adapter files and field validation",
+      "environment": {
+        "MAPRISMA_DIFF_COMPONENT": "adapters"
+      },
+      "files": [
+        {
+          "path": "adapters/agy.toml",
+          "content": "# Google's Antigravity CLI (docs/adapter-format.md): facts only, nothing in this file runs. Its own\n# settings are ~/.gemini/antigravity-cli/settings.json (model, agentMode, toolPermission, sandbox,\n# permissions); MCP servers ~/.gemini/config/mcp_config.json (shared with the Antigravity IDE:\n# command/args/env, or serverUrl for Streamable HTTP; no httpUrl, no SSE); skills\n# ~/.gemini/antigravity-cli/skills (and .agents/skills in a project). Sources:\n# antigravity.google/docs/settings?tab=cli, /docs/mcp, /docs/skills, /docs/getting-started?tab=cli.\ncommand = \"agy\"\nname = \"Antigravity CLI\"\nlabel = \"Antigravity\"\nfull_name = \"Antigravity CLI\"\nicon = \"U+F02AD\"\ninstaller = \"agy\"\noffered = false                        # not in Omarchy's agent menu (only this app offers it)\nspec = \"antigravity-cli\"\nhomepage = \"https://antigravity.google\"\ndata = [\"~/.gemini/antigravity-cli\", \"~/.gemini/config\", \"~/.gemini/antigravity\"]\nhome = \"~/.gemini/antigravity-cli\"\nactivity = [\"~/.gemini/antigravity-cli\"]\nweb_search = true                      # searches the web itself (Google Search grounding)\n\n[[install]]                            # its release through mise (aqua, checksummed)\nkind = \"mise\"\nspec = \"antigravity-cli\"\n\n[[install]]\nkind = \"installer\"\n\n[skills]                               # its own folder (and .agents/skills in a project)\ndirs = [\"~/.gemini/antigravity-cli/skills\"]\nown = \"~/.gemini/antigravity-cli/skills\"\n\n[mcp]\npath = \"~/.gemini/config/mcp_config.json\"\nshape = \"antigravity\"\n\n[access]\nhow = \"A Google account (free tier or Google AI plan), or a Gemini API key from aistudio.google.com\"\nlogin = \"agy\"\nenv = [\"GEMINI_API_KEY\"]\n\n[[access.logins]]\nlabel = \"Google account\"\nargv = [\"agy\"]\nnote = \"Choose “Sign in with Google” when it asks.\"\n\n[security]\nsandbox = \"enableTerminalSandbox\"      # the setting that is its sandbox\nasks = \"toolPermission\"                # the setting that says when it asks first\nfile = \"~/.gemini/antigravity-cli/settings.json\"\nformat = \"json\"\n\n[[security.settings]]\nkey = \"toolPermission\"\ntitle = \"When Antigravity asks\"\nexplain = \"Whether Antigravity asks before it runs a tool, such as a command or a file change.\"\ndefault = \"request-review\"\nrecommended = \"request-review\"\nterms = [\"approval\", \"sandbox\"]\nchoices = [\n  { value = \"strict\", label = \"Strict\", explain = \"Asks before every tool, even reading.\", risk = 0 },\n  { value = \"request-review\", label = \"Ask first\", explain = \"Asks before it runs a command or changes a file.\", risk = 1 },\n  { value = \"proceed-in-sandbox\", label = \"Go ahead in the sandbox\", explain = \"Runs commands in its sandbox without asking.\", risk = 2 },\n  { value = \"always-proceed\", label = \"Never ask\", explain = \"Runs every tool without asking. Only for a throwaway machine.\", risk = 3 },\n]\n\n[[security.settings]]\nkey = \"agentMode\"\ntitle = \"Agent mode\"\nexplain = \"How much Antigravity may do on its own. It can be changed for one session in the CLI.\"\ndefault = \"default\"\nrecommended = \"default\"\nterms = [\"approval\"]\nchoices = [\n  { value = \"default\", label = \"Normal\", explain = \"Follows “When Antigravity asks”.\", risk = 1 },\n  { value = \"plan\", label = \"Plan only\", explain = \"Reads and plans; changes nothing until you agree.\", risk = 0 },\n  { value = \"accept-edits\", label = \"Edit without asking\", explain = \"Edits files on its own, asks before commands.\", risk = 2 },\n  { value = \"auto\", label = \"Automatic (preview)\", explain = \"Decides on its own which actions need your OK.\", risk = 2 },\n]\n\n[[security.settings]]\nkey = \"enableTerminalSandbox\"\ntitle = \"Sandbox for commands\"\nexplain = \"Runs terminal commands in a sandbox.\"\ndefault = \"off\"\nrecommended = \"on\"\nterms = [\"sandbox\"]\nchoices = [\n  { value = \"on\", label = \"On\", explain = \"Commands are fenced in.\", risk = 0 },\n  { value = \"off\", label = \"Off\", explain = \"Commands run with all your rights.\", risk = 1 },\n]\n\n[[security.settings]]\nkey = \"allowNonWorkspaceAccess\"\ntitle = \"Files outside the project\"\nexplain = \"Whether Antigravity may read and write files outside the project folder.\"\ndefault = \"off\"\nrecommended = \"off\"\nterms = [\"sandbox\"]\nchoices = [\n  { value = \"off\", label = \"Project only\", explain = \"Stays inside the project folder.\", risk = 0 },\n  { value = \"on\", label = \"Anywhere\", explain = \"May touch any file you can.\", risk = 2 },\n]\n\n[[security.rules]]\nkey = \"permissions.allow\"\ntitle = \"Allowed without asking\"\n\n[[security.rules]]\nkey = \"permissions.ask\"\ntitle = \"Always ask\"\n\n[[security.rules]]\nkey = \"permissions.deny\"\ntitle = \"Never allowed\"\n\n[[security.rules]]\nkey = \"trustedWorkspaces\"\ntitle = \"Trusted folders\"\n"
+        },
+        {
+          "path": "adapters/bionic.toml",
+          "content": "# LM Studio Bionic (docs/adapter-format.md): facts only, nothing in this file runs. The app installs it\n# with an installer of its own (install_ctl.Bionic); it always runs LM Studio's engine and models.\ncommand = \"bionic\"\nname = \"LM Studio Bionic\"\nlabel = \"LM Studio Bionic\"\nicon = \"U+F09D1\"\ninstaller = \"bionic\"\nshort_version = true\noffered = false\nfixed_provider = \"lmstudio\"\nself_served = true\nhomepage = \"https://lmstudio.ai\"\ndata = [\"~/.lmstudio/apps/bionic\"]\nhome = \"~/.lmstudio/apps/bionic\"\nactivity = [\"~/.lmstudio/apps/bionic/conversations\", \"~/.lmstudio/apps/bionic/.internal/ng-sessions.sqlite\"]\nchat_app = true\n\n[[install]]\nkind = \"installer\"\n\n[skills]\ndirs = [\"~/.lmstudio/skills\"]\nown = \"~/.lmstudio/skills\"\n\n[mcp]\nin_app = \"Settings › Connected apps\"\n\n[access]\nhow = \"Nothing: it runs models on this computer\"\nlocal_ok = true\n\n[details]                              # always LM Studio's engine and models\nreader = \"lmstudio-app\"\n"
+        },
+        {
+          "path": "adapters/claude.toml",
+          "content": "# Claude Code (docs/adapter-format.md): facts only, nothing in this file runs.\ncommand = \"claude\"\nname = \"Claude Code\"\nlabel = \"Claude\"\nfull_name = \"Claude Code\"\nicon = \"U+F06C4\"                      # Nerd Font glyph (the app draws its own SVG of it)\nhomepage = \"https://github.com/anthropics/claude-code\"\ndata = [\"~/.claude\", \"~/.claude.json\"] # its settings and sessions: never removed by the app\nhome = \"~/.claude\"\nactivity = [\"~/.claude/history.jsonl\", \"~/.claude/projects\"]\nweb_search = true                      # searches the web itself (no MCP server needed)\n\n[[install]]                            # ways to install it, best first\nkind = \"mise\"\nspec = \"claude\"\n\n[update]\nself = [\"claude\", \"update\"]            # its own updater\nlatest = \"claude-channel\"              # a reader the app has: the newest version of its channel\n\n[sessions]\nreader = \"claude-files\"                # a reader the app has (~/.claude/projects)\nnote = \"Numbers from Claude Code's session files (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs.\"\n\n[replies]                              # its session files: the map's usage statistics box\nfolder = \"~/.claude/projects\"\ndepth = 1\nformat = \"claude-jsonl\"\ncontexts = { \"claude-opus-5\" = 1000000, \"\" = 200000 }   # context size by model name beginning\n\n[subagents]                            # its subagents (Task/Agent tool): the map's subagents page\nformat = \"claude-projects\"\npath = \"~/.claude/projects\"\n\n[skills]\ndirs = [\"~/.claude/skills\"]            # read by the agent itself\nown = \"~/.claude/skills\"               # where the app's links go\n\n[mcp]\npath = \"~/.claude.json\"\nformat = \"claude\"\nshape = \"claude\"\n\n[ask]                                  # one prompt, one answer, no tools (the chess page)\nargv = [\"claude\", \"-p\", \"--tools\", \"\", \"--strict-mcp-config\", \"--no-session-persistence\", \"{prompt}\"]\ngames = [\"chess\"]                      # its menu offers Play chess\neffort = { quick = [\"--effort\", \"low\"], normal = [\"--effort\", \"medium\"], deep = [\"--effort\", \"high\"], max = [\"--effort\", \"max\"] }   # Thinking time\nnote = \"no tools, no MCP servers, no session kept\"\n\n[access]\nlogout = [\"claude\", \"auth\", \"logout\"]     # its own sign-out, in a terminal\nhow = \"A Claude Pro or Max subscription (claude.ai), or an API key from console.anthropic.com\"\nlogin = \"claude auth login\"\nfiles = [\".claude/.credentials.json\"]  # only whether one exists is checked, never read\nenv = [\"ANTHROPIC_API_KEY\"]\n\n[[access.logins]]\nlabel = \"Claude subscription\"\nargv = [\"claude\", \"auth\", \"login\", \"--claudeai\"]\n\n[[access.logins]]\nlabel = \"API billing (Anthropic Console)\"\nargv = [\"claude\", \"auth\", \"login\", \"--console\"]\n\n[security]\nsandbox = \"sandbox.enabled\"                  # the setting that is its sandbox\nasks = \"permissions.defaultMode\"     # the setting that says when it asks first\nfile = \"~/.claude/settings.json\"\nformat = \"json\"\n\n[[security.settings]]\nkey = \"permissions.defaultMode\"\ntitle = \"Permission mode\"\nexplain = \"How much Claude Code may do without asking. It can be changed for one session with Shift+Tab.\"\ndefault = \"default\"\nrecommended = \"default\"\nterms = [\"approval\", \"classifier\", \"bypass\"]\nchoices = [\n  { value = \"default\", label = \"Ask first\", explain = \"Asks before it edits a file or runs a command.\", risk = 1 },\n  { value = \"plan\", label = \"Plan only\", explain = \"Reads and plans; changes nothing until you agree.\", risk = 0 },\n  { value = \"dontAsk\", label = \"Only what is allowed\", explain = \"Never asks: does only what your allow rules permit and refuses the rest.\", risk = 0 },\n  { value = \"acceptEdits\", label = \"Edit without asking\", explain = \"Edits files in the project on its own, asks before commands.\", risk = 2 },\n  { value = \"auto\", label = \"Automatic review\", explain = \"A classifier lets safe actions through and asks about the rest.\", risk = 2 },\n  { value = \"bypassPermissions\", label = \"Bypass all checks\", explain = \"Does everything without asking. Only for a throwaway machine.\", risk = 3 },\n]\n\n[[security.settings]]\nkey = \"sandbox.enabled\"\ntitle = \"Sandbox for commands\"\nexplain = \"Runs shell commands in a sandbox (bubblewrap on Linux): writes only in the project, network only to allowed sites.\"\ndefault = false\nrecommended = true\nterms = [\"sandbox\", \"network\"]\nchoices = [\n  { value = true, label = \"On\", explain = \"Commands are fenced in.\", risk = 0 },\n  { value = false, label = \"Off\", explain = \"Commands run with all your rights.\", risk = 1 },\n]\n\n[[security.settings]]\nkey = \"permissions.disableBypassPermissionsMode\"\nwarn = { title = \"Bypass mode can be switched on\", explain = \"Starting it with --dangerously-skip-permissions switches every check off.\", fix = \"Block bypass mode.\" }\ntitle = \"Block bypass mode\"\nexplain = \"Makes it impossible to start Claude Code with --dangerously-skip-permissions, even by mistake.\"\nrecommended = \"disable\"\nterms = [\"bypass\"]\nchoices = [\n  { value = \"disable\", label = \"Blocked\", explain = \"Bypass mode cannot be switched on.\", risk = 0 },\n  { unset = true, label = \"Allowed\", explain = \"Bypass mode can be switched on with a flag.\", risk = 1 },\n]\n\n[[security.rules]]                     # lists shown under the settings, one entry per line\nkey = \"permissions.allow\"\ntitle = \"Allowed without asking\"\n\n[[security.rules]]\nkey = \"permissions.ask\"\ntitle = \"Always ask\"\n\n[[security.rules]]\nkey = \"permissions.deny\"\ntitle = \"Never allowed\"\n\n# Its own setup commands, in a terminal tab (Configure… on the map)\n[[configure]]\nlabel = \"Check its setup\"\nargv = [\"claude\", \"doctor\"]\n\n[details]                              # its model and providers (the agent's card)\nreader = \"claude\"\n\n[models]                               # the online models the map can switch it to\nreader = \"claude\"\n\n[research]                             # a web look-up (Add skills, MCP, AI checks): only the two web tools, no session kept, the prompt on stdin\nargv = [\"claude\", \"-p\", \"--tools\", \"WebSearch\", \"WebFetch\", \"--allowedTools\", \"WebSearch\", \"WebFetch\",\n        \"--strict-mcp-config\", \"--no-session-persistence\", \"--disable-slash-commands\", \"--output-format\", \"json\"]\noutput = \"claude-json\"                 # the answer and its token use\n\n[task]                                 # Do it with Claude…: in a terminal tab, it asks before each step\nargv = [\"claude\", \"{prompt}\"]\n\n[rewrite]                              # a skill rewritten for an MCP server: no tools at all, the prompt on stdin\nargv = [\"claude\", \"-p\", \"--tools\", \"\", \"--strict-mcp-config\", \"--no-session-persistence\",\n        \"--disable-slash-commands\", \"--output-format\", \"text\"]\n\n[closed]                               # what closes it in when the map starts it (agent_guard)\nbackground = [\"--strict-mcp-config\", \"--settings\", \"{\\\"disableAllHooks\\\": true}\"]   # look-ups, rewrites: their tools are in their argv; no hooks\n# Task tabs: \"ask\" rules win over the user's own allow-list, so every command and edit is asked first; no hooks.\ntask = [\"--permission-mode\", \"manual\", \"--strict-mcp-config\", \"--settings\",\n        \"{\\\"disableAllHooks\\\": true, \\\"permissions\\\": {\\\"ask\\\": [\\\"Bash\\\", \\\"Edit\\\", \\\"Write\\\", \\\"MultiEdit\\\", \\\"NotebookEdit\\\"]}}\"]\n"
+        },
+        {
+          "path": "adapters/codex.toml",
+          "content": "# OpenAI's Codex CLI (docs/adapter-format.md): facts only, nothing in this file runs.\ncommand = \"codex\"\nname = \"Codex\"\nlabel = \"Codex\"\nicon = \"U+E905\"\nicon_font = \"omarchy\"\nshort_model_flag = true\nhomepage = \"https://github.com/openai/codex\"\ndata = [\"~/.codex\"]\nhome = \"~/.codex\"\nactivity = [\"~/.codex/history.jsonl\", \"~/.codex/sessions\", \"~/.codex/state_5.sqlite\"]\nweb_search = true                      # searches the web itself (no MCP server needed)\n\n[replies]                              # its session files: the map's usage statistics box\nfolder = \"~/.codex/sessions\"\ndepth = 3\nformat = \"codex-jsonl\"\n\n[[install]]\nkind = \"mise\"\nspec = \"codex\"\n\n[subagents]\nformat = \"codex-rollouts\"\npath = \"~/.codex/sessions\"\n\n[sessions]\nreader = \"codex-files\"            # a reader the app has (~/.codex/sessions)\nnote = \"Numbers from {0}'s session files (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs.\"\nnote_args = [\"Codex\"]\n\n[skills]\ndirs = [\"~/.agents/skills\", \"~/.codex/skills\"]\nown = \"~/.codex/skills\"\n\n[mcp]\npath = \"~/.codex/config.toml\"\nformat = \"toml\"\nkey = \"mcp_servers\"\nshape = \"codex\"\n\n[ask]                                  # one prompt, one answer, no tools (the chess page)\nargv = [\"codex\", \"exec\", \"--sandbox\", \"read-only\", \"--skip-git-repo-check\", \"--ephemeral\", \"--color\", \"never\", \"{prompt}\"]\ngames = [\"chess\"]                      # its menu offers Play chess\neffort = { quick = [\"-c\", \"model_reasoning_effort=low\"], normal = [\"-c\", \"model_reasoning_effort=medium\"], deep = [\"-c\", \"model_reasoning_effort=high\"], max = [\"-c\", \"model_reasoning_effort=high\"] }   # Thinking time\nnote = \"read-only sandbox, no session kept\"\n\n[access]\nlogout = [\"codex\", \"logout\"]     # its own sign-out, in a terminal\nhow = \"A ChatGPT plan (Plus, Pro, Business), or an API key from platform.openai.com\"\nlogin = \"codex login\"\nfiles = [\".codex/auth.json\"]\nenv = [\"OPENAI_API_KEY\"]\nlocal_ok = true\n\n[[access.logins]]\nlabel = \"ChatGPT plan\"\nargv = [\"codex\", \"login\"]\n\n[access.key]\nvar = \"OPENAI_API_KEY\"\nurl = \"https://platform.openai.com/api-keys\"\nstdin = [\"codex\", \"login\", \"--with-api-key\"]\n\n[security]\nsandbox = \"sandbox_mode\"                  # the setting that is its sandbox\nasks = \"approval_policy\"     # the setting that says when it asks first\nfile = \"~/.codex/config.toml\"\nformat = \"toml\"\n\n[[security.settings]]\nkey = \"approval_policy\"\ntitle = \"When Codex asks\"\nexplain = \"When Codex stops and asks before running a command.\"\ndefault = \"on-request\"\nrecommended = \"on-request\"\nterms = [\"approval\"]\nchoices = [\n  { value = \"untrusted\", label = \"Ask for everything but safe reads\", explain = \"Asks before every command that is not a known read-only one.\", risk = 0 },\n  { value = \"on-request\", label = \"When it needs more\", explain = \"Works inside the sandbox on its own and asks when it needs to leave it.\", risk = 1 },\n  { value = \"on-failure\", label = \"After a failure (old)\", explain = \"Asks only when a sandboxed command failed. Replaced by “When it needs more”.\", risk = 1 },\n  { value = \"never\", label = \"Never\", explain = \"Never asks; what the sandbox allows simply happens.\", risk = 2 },\n]\n\n[[security.settings]]\nkey = \"sandbox_mode\"\ntitle = \"Sandbox\"\nexplain = \"What commands Codex runs may touch.\"\ndefault = \"workspace-write\"\nrecommended = \"workspace-write\"\nterms = [\"sandbox\"]\nchoices = [\n  { value = \"read-only\", label = \"Read only\", explain = \"Commands may read, not write or go online.\", risk = 0 },\n  { value = \"workspace-write\", label = \"Project folder\", explain = \"Commands may write in the project folder (and temp), nowhere else.\", risk = 1 },\n  { value = \"danger-full-access\", label = \"No sandbox\", explain = \"Commands may do anything you can do.\", risk = 3 },\n]\n\n[[security.settings]]\nkey = \"sandbox_workspace_write.network_access\"\ntitle = \"Network in the sandbox\"\nexplain = \"Whether commands in the project-folder sandbox may reach the internet.\"\ndefault = false\nrecommended = false\nterms = [\"network\"]\nchoices = [\n  { value = false, label = \"Off\", explain = \"No internet for commands (web search of Codex itself still works).\", risk = 0 },\n  { value = true, label = \"On\", explain = \"Commands may download and upload.\", risk = 2 },\n]\n\n[[security.rules]]\nkey = \"projects\"\ntitle = \"Trusted folders\"\nkeys_where = { trust_level = \"trusted\" }\n\n# Its own setup commands, in a terminal tab (Configure… on the map)\n[[configure]]\nlabel = \"Check its setup\"\nargv = [\"codex\", \"doctor\"]\n\n[details]                              # its model and providers (the agent's card)\nreader = \"codex\"\n\n[models]                               # the online models the map can switch it to\nreader = \"codex\"\n\n[research]                             # a web look-up (Add skills, MCP, AI checks): read-only sandbox, the answer as JSON\nargv = [\"codex\", \"--search\", \"exec\", \"--sandbox\", \"read-only\", \"--skip-git-repo-check\", \"--json\", \"--output-schema\",\n        \"{schema}\", \"-\"]                 # \"-\": the prompt on stdin, never in the process list\noutput = \"codex-jsonl\"                 # events: the answer and its token use\n\n[task]                                 # Do it with Codex…: in a terminal tab, it asks before each step\nargv = [\"codex\", \"{prompt}\"]\n\n[rewrite]                              # a skill rewritten for an MCP server: read-only, the prompt on stdin\nargv = [\"codex\", \"exec\", \"--sandbox\", \"read-only\", \"--skip-git-repo-check\", \"--output-last-message\", \"{answer}\", \"-\"]\n\n[closed]                               # what closes it in when the map starts it (agent_guard)\nbackground = [\"--disable\", \"apps\", \"--disable\", \"plugins\", \"--disable\", \"hooks\"]   # look-ups, rewrites: no connectors, plugins, hooks\ntask = [\"--sandbox\", \"read-only\", \"--ask-for-approval\", \"on-request\", \"--disable\", \"apps\", \"--disable\", \"plugins\",\n        \"--disable\", \"hooks\"]           # task tabs: every change leaves the sandbox, so it asks first\nmcp_off = [\"-c\", \"mcp_servers.{name}.enabled=false\"]   # each MCP server of its [mcp] file, off for the run\nhome_env = \"CODEX_HOME\"                # where its [mcp] file is when this variable moves its home\n"
+        },
+        {
+          "path": "adapters/copilot.toml",
+          "content": "# GitHub Copilot CLI (docs/adapter-format.md): facts only, nothing in this file runs.\ncommand = \"copilot\"\nname = \"GitHub Copilot\"\nlabel = \"Copilot\"\nfull_name = \"GitHub Copilot\"\nicon = \"U+F4B8\"\nhomepage = \"https://github.com/github/copilot-cli\"\ndata = [\"~/.copilot\"]\nhome = \"~/.copilot\"\nactivity = [\"~/.copilot/session-state\"]\nweb_search = true                      # searches the web itself (no MCP server needed)\n\n[[install]]\nkind = \"mise\"\nspec = \"copilot\"\n\n[subagents]\nformat = \"copilot-events\"\npath = \"~/.copilot/session-state\"\n\n[skills]\ndirs = [\"~/.copilot/skills\", \"~/.agents/skills\"]\nown = \"~/.copilot/skills\"\n\n[mcp]\npath = \"~/.copilot/mcp-config.json\"\nshape = \"copilot\"\n\n[access]\nhow = \"A GitHub Copilot subscription (github.com/features/copilot)\"\nlogin = \"copilot  →  /login\"\nfiles = [\".copilot/config.json\"]\nenv = [\"COPILOT_GITHUB_TOKEN\", \"GH_TOKEN\"]\n\n[[access.logins]]\nlabel = \"GitHub account\"\nargv = [\"copilot\"]\nnote = \"Type /login in it.\"\n\n[security]\nasks = \"defaultPermissionMode\"     # the setting that says when it asks first\nfile = \"~/.copilot/settings.json\"\nformat = \"json\"\n\n[[security.settings]]\nkey = \"defaultPermissionMode\"\ntitle = \"Permission mode\"\nexplain = \"How new interactive Copilot sessions start.\"\ndefault = \"manual\"\nrecommended = \"manual\"\nterms = [\"approval\", \"classifier\", \"bypass\"]\nchoices = [\n  { value = \"manual\", label = \"Ask first\", explain = \"Asks before writes and commands; reading is allowed.\", risk = 1 },\n  { value = \"assisted\", label = \"Automatic review\", explain = \"An AI review approves what it judges safe and asks about the rest.\", risk = 2 },\n  { value = \"allow-all\", label = \"Allow everything\", explain = \"Approves everything, like --allow-all.\", risk = 3 },\n]\n\n[[security.rules]]\nkey = \"trustedFolders\"\ntitle = \"Trusted folders\"\nalso = \"~/.copilot/config.json\"        # Copilot's managed file holds the list when the settings do not\n\n[[security.rules]]\nkey = \"allowedUrls\"\ntitle = \"Sites without asking\"\nalso = \"~/.copilot/config.json\"\n\n[details]                              # its model (the agent's card)\nreader = \"copilot\"\n"
+        },
+        {
+          "path": "adapters/crush.toml",
+          "content": "# Charm's Crush (docs/adapter-format.md): facts only, nothing in this file runs.\ncommand = \"crush\"\nname = \"Crush\"\nlabel = \"Crush\"\nicon = \"U+F02D1\"\nshort_model_flag = true\nhomepage = \"https://github.com/charmbracelet/crush\"\ndata = [\"~/.config/crush\", \"~/.local/share/crush\"]\nhome = \"~/.config/crush\"\nactivity = [\"~/.local/share/crush\"]\n\n[[install]]\nkind = \"mise\"\nspec = \"crush\"\n\n[sessions]\nreader = \"crush-db\"                    # a reader the app has (each project's .crush/crush.db)\nnote = \"The cost {0} itself reports for each session (it keeps no token counts that add up).\"\nnote_args = [\"Crush\"]\n\n[skills]\ndirs = [\"~/.config/crush/skills\", \"~/.config/agents/skills\", \"~/.agents/skills\", \"~/.claude/skills\"]\nown = \"~/.config/crush/skills\"\nlisted = { file = \"~/.config/crush/crush.json\", format = \"json\", key = \"options.skills_paths\" }\n\n[mcp]\npath = \"~/.config/crush/crush.json\"\nkey = \"mcp\"\nshape = \"crush\"\n\n[access]\nhow = \"An API key for a provider, or a local LLM from the map\"\nlogin = \"crush\"\nfiles = [\".local/share/crush/crush.json\"]\nenv = [\"ANTHROPIC_API_KEY\", \"OPENAI_API_KEY\"]\nlocal_ok = true\nper_token = true                       # API keys only (its flat-rate models report no cost)\n\n[[access.logins]]\nlabel = \"Inside Crush (it asks for a key)\"\nargv = [\"crush\"]\n"
+        },
+        {
+          "path": "adapters/cursor-agent.toml",
+          "content": "# Cursor CLI (docs/adapter-format.md): facts only, nothing in this file runs.\ncommand = \"cursor-agent\"\nname = \"Cursor CLI\"\nlabel = \"Cursor CLI\"\nicon = \"U+E90D\"\nicon_font = \"omarchy\"\nhomepage = \"https://cursor.com/cli\"\ndata = [\"~/.cursor\", \"~/.config/cursor\"]\nlogin_status = { argv = [\"cursor-agent\", \"status\"], no = \"not logged in\", yes = \"logged in\" }\nhome = \"~/.cursor\"\nactivity = [\"~/.cursor/projects\"]\nweb_search = true                      # searches the web itself (no MCP server needed)\nherdr = \"cursor\"\n\n[[install]]\nkind = \"mise\"\nspec = \"cursor-agent\"\n\n[skills]\ndirs = [\"~/.cursor/skills\", \"~/.agents/skills\", \"~/.claude/skills\", \"~/.codex/skills\"]\nown = \"~/.cursor/skills\"\n\n[mcp]\npath = \"~/.cursor/mcp.json\"\n\n[access]\nhow = \"A Cursor account (cursor.com)\"\nlogin = \"cursor-agent login\"\nfiles = [\".config/cursor/auth.json\"]\nenv = [\"CURSOR_API_KEY\"]\n\n[[access.logins]]\nlabel = \"Cursor account\"\nargv = [\"cursor-agent\", \"login\"]\n\n[security]\nsandbox = \"sandbox.mode\"                  # the setting that is its sandbox\nasks = \"approvalMode\"     # the setting that says when it asks first\nfile = \"~/.config/cursor/cli-config.json\"\nformat = \"json\"\n\n[[security.settings]]\nkey = \"approvalMode\"\ntitle = \"Approval\"\nexplain = \"When Cursor CLI asks before running a command.\"\ndefault = \"allowlist\"\nrecommended = \"allowlist\"\nterms = [\"approval\", \"classifier\", \"bypass\"]\nchoices = [\n  { value = \"allowlist\", label = \"Ask unless allowed\", explain = \"Asks unless the command is in your allow list.\", risk = 1 },\n  { value = \"auto-review\", label = \"Automatic review\", explain = \"A classifier on Cursor's servers runs safe calls and asks about the rest.\", risk = 2 },\n  { value = \"unrestricted\", label = \"Run everything\", explain = \"Runs every command without asking.\", risk = 3 },\n]\n\n[[security.settings]]\nkey = \"sandbox.mode\"\ntitle = \"Sandbox\"\nexplain = \"Runs commands fenced in to the workspace.\"\ndefault = \"disabled\"\nrecommended = \"enabled\"\nterms = [\"sandbox\"]\nchoices = [\n  { value = \"enabled\", label = \"On\", explain = \"Commands are fenced in.\", risk = 0 },\n  { value = \"disabled\", label = \"Off\", explain = \"Commands run with all your rights.\", risk = 1 },\n]\n\n[[security.settings]]\nkey = \"sandbox.networkAccess\"\ntitle = \"Network in the sandbox\"\nexplain = \"Which sites commands in the sandbox may reach.\"\ndefault = \"user_config_with_defaults\"\nrecommended = \"user_config_with_defaults\"\nterms = [\"network\"]\nchoices = [\n  { value = \"user_config_only\", label = \"Only your list\", explain = \"Only the sites you listed.\", risk = 0 },\n  { value = \"user_config_with_defaults\", label = \"Your list + common sites\", explain = \"Your sites plus package registries and similar.\", risk = 1 },\n  { value = \"allow_all\", label = \"Everything\", explain = \"Any site.\", risk = 2 },\n]\n\n[[security.settings]]\nkey = \"autoAcceptWebSearch\"\ntitle = \"Web search without asking\"\nexplain = \"Whether the agent may search the web without asking each time.\"\ndefault = false\nrecommended = false\nterms = [\"injection\"]\nchoices = [\n  { value = false, label = \"Ask\", explain = \"Asks before searching.\", risk = 0 },\n  { value = true, label = \"Allowed\", explain = \"Searches on its own; web pages can carry hidden instructions.\", risk = 1 },\n]\n\n[[security.rules]]\nkey = \"permissions.allow\"\ntitle = \"Allowed without asking\"\n\n[[security.rules]]\nkey = \"permissions.deny\"\ntitle = \"Never allowed\"\n\n[details]                              # its model (the agent's card)\nreader = \"cursor\"\n"
+        },
+        {
+          "path": "adapters/dsh.toml",
+          "content": "# DeepSeek Harness (docs/adapter-format.md), installed by the app (install_ctl.Dsh). Connecting a local\n# LLM and its MCP servers (a YAML profile) are hooks (dsh.py) over dsh_ctl.\ncommand = \"dsh\"\nname = \"DeepSeek Harness\"\nlabel = \"DeepSeek Harness\"\nicon = \"U+F0E7B\"\ninstaller = \"dsh\"\noffered = false\nhomepage = \"https://www.npmjs.com/package/@deepseek-ai/dsh\"\ndata = [\"~/.dsh\"]\nhome = \"~/.dsh\"\nactivity = [\"~/.dsh/sessions\"]\nstart = [\"--profile\", \"web\"]           # dsh alone only asks for a profile: the one the map sets up\n\n[[install]]\nkind = \"installer\"\n\n[sessions]\nreader = \"dsh-files\"              # a reader the app has (~/.dsh/sessions)\nnote = \"Numbers from {0}'s session files (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs.\"\nnote_args = [\"DeepSeek Harness\"]\n\n[skills]\ndirs = [\"~/.dsh/skills\", \"~/.agents/skills\"]\nown = \"~/.dsh/skills\"\n\n[mcp]\npath = \"~/.dsh/profiles/web/cordis.patch.yml\"\nformat = \"yaml\"\nkey = \"\"\nread = \"hook\"\nwrite = \"hook\"\nnative = \"hook\"\n\n[local_llm]\nfiles = [\"~/.dsh/profiles/web/cordis.patch.yml\"]\nhooks = true\n\n[access]\nhow = \"An API key from platform.deepseek.com, or a local LLM from the map\"\nlogin = \"dsh web\"\nfiles = [\".dsh/.credentials.yaml\"]\nenv = [\"DEEPSEEK_API_KEY\"]\nlocal_ok = true\nper_token = true                       # DeepSeek has no plans: an API key, paid per token\n\n[details]                              # its model and providers (the agent's card)\nreader = \"dsh\"\n\n[models]                               # its online models on the map: \"provider/model\" (its hooks)\nhook = true\n"
+        },
+        {
+          "path": "adapters/gemini.toml",
+          "content": "# Google's Gemini CLI (docs/adapter-format.md): facts only, nothing in this file runs.\ncommand = \"gemini\"\nname = \"Gemini CLI\"\nlabel = \"Gemini\"\nfull_name = \"Gemini CLI\"\nicon = \"U+F0AE2\"\nhomepage = \"https://github.com/google-gemini/gemini-cli\"\ndata = [\"~/.gemini\"]\nhome = \"~/.gemini\"\nactivity = [\"~/.gemini/tmp\"]\nweb_search = true                      # searches the web itself (no MCP server needed)\n\n[[install]]\nkind = \"mise\"\nspec = \"gemini\"\n\n[sessions]\nreader = \"gemini-files\"           # a reader the app has (~/.gemini/tmp/<project>/chats)\nnote = \"Numbers from {0}'s session files (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs.\"\nnote_args = [\"Gemini CLI\"]\n\n[skills]\ndirs = [\"~/.gemini/skills\", \"~/.agents/skills\"]\nown = \"~/.gemini/skills\"\n\n[mcp]\npath = \"~/.gemini/settings.json\"\nshape = \"gemini\"\n\n[access]\nhow = \"A Google account (free tier), or an API key from aistudio.google.com\"\nlogin = \"gemini\"\nfiles = [\".gemini/oauth_creds.json\", \".gemini/.env\"]\nenv = [\"GEMINI_API_KEY\", \"GOOGLE_API_KEY\"]\n\n[[access.logins]]\nlabel = \"Google account\"\nargv = [\"gemini\"]\nnote = \"Choose “Sign in with Google” when it asks.\"\n\n[access.key]\nvar = \"GEMINI_API_KEY\"\nurl = \"https://aistudio.google.com/apikey\"\nenv_file = \"~/.gemini/.env\"\n"
+        },
+        {
+          "path": "adapters/goose.toml",
+          "content": "# Goose (aaif-goose/goose, formerly block/goose) (docs/adapter-format.md): facts only, nothing in this\n# file runs. Its settings are ~/.config/goose/config.yaml (provider, model, extensions = MCP servers);\n# API keys are in the system keyring or ~/.config/goose/secrets.yaml (never read). Sources:\n# goose-docs.ai/docs/guides/config-files, .../getting-started/installation, .../using-skills.\ncommand = \"goose\"\nname = \"Goose\"\nlabel = \"Goose\"\nicon = \"U+F01E5\"\nspec = \"github:aaif-goose/goose\"\nhomepage = \"https://github.com/aaif-goose/goose\"\ndata = [\"~/.config/goose\", \"~/.local/share/goose\"]\nhome = \"~/.config/goose\"\nactivity = [\"~/.local/share/goose/sessions\"]\n\n[[install]]                            # its GitHub release through mise (no install script piped to a shell)\nkind = \"mise\"\nspec = \"github:aaif-goose/goose\"\n\n[subagents]\nformat = \"goose-db\"\npath = \"~/.local/share/goose/sessions/sessions.db\"\n\n[sessions]\nreader = \"goose-db\"                    # a reader the app has (~/.local/share/goose/sessions/sessions.db)\nnote = \"Numbers from {0}'s session database (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs.\"\nnote_args = [\"Goose\"]\n\n[skills]                               # its own folder, and the shared ones it reads itself (and .agents/skills in a project)\ndirs = [\"~/.config/goose/skills\", \"~/.agents/skills\", \"~/.claude/skills\"]\nown = \"~/.config/goose/skills\"\n\n[mcp]                                  # its extensions: stdio or streamable_http entries with their name inside\npath = \"~/.config/goose/config.yaml\"\nformat = \"yaml\"\nkey = \"extensions\"\nshape = \"goose\"\n\n[access]\nhow = \"An API key or sign-in for a provider (OpenRouter, Anthropic, OpenAI, Google …), or a local LLM from the map\"\nlogin = \"goose configure\"\nfiles = [\".config/goose/secrets.yaml\"]  # only whether it is there; the keyring otherwise\nenv = [\"ANTHROPIC_API_KEY\", \"OPENAI_API_KEY\", \"GOOGLE_API_KEY\", \"OPENROUTER_API_KEY\"]\nlocal_ok = true\n\n[[access.logins]]\nlabel = \"Choose a provider (goose configure)\"\nargv = [\"goose\", \"configure\"]\n\n# Its own setup command, in a terminal tab (Configure… on the map)\n[[configure]]\nlabel = \"Configure\"\nargv = [\"goose\", \"configure\"]\n\n[details]                              # its model and providers (the agent's card)\nreader = \"goose\"\n"
+        },
+        {
+          "path": "adapters/grok.toml",
+          "content": "# xAI's Grok CLI (docs/adapter-format.md): facts only, nothing in this file runs.\ncommand = \"grok\"\nname = \"Grok\"\nlabel = \"Grok\"\nicon = \"U+E904\"\nicon_font = \"omarchy\"\nspec = \"npm:@xai-official/grok\"\nhomepage = \"https://www.npmjs.com/package/@xai-official/grok\"\ndata = [\"~/.grok\"]\nhome = \"~/.grok\"\nweb_search = true                      # searches the web itself (no MCP server needed)\n\n[[install]]\nkind = \"mise\"\nspec = \"npm:@xai-official/grok\"\n\n[skills]\ndirs = [\"~/.grok/skills\"]\nown = \"~/.grok/skills\"\nlisted = { file = \"~/.grok/config.toml\", format = \"toml\", key = \"skills.paths\" }\n\n[mcp]\npath = \"~/.grok/config.toml\"\nformat = \"toml\"\nkey = \"mcp_servers\"\n\n[access]\nhow = \"An API key from console.x.ai\"\nlogin = \"grok\"\nenv = [\"XAI_API_KEY\"]\n"
+        },
+        {
+          "path": "adapters/hermes.toml",
+          "content": "# Hermes (docs/adapter-format.md). Its session database, connecting a local LLM and its skill folder\n# list (YAML text) are hooks (hermes.py); its security settings are facts.\ncommand = \"hermes\"\nname = \"Hermes\"\nlabel = \"Hermes\"\nicon = \"U+E90A\"\nicon_font = \"omarchy\"\nspec = \"pipx:hermes-agent[extras=all]\"\npackage = \"hermes-desktop\"\nown_install_counts = false\nshort_model_flag = true\nusage = \"hermes\"\nhomepage = \"https://github.com/NousResearch/hermes-agent\"\ndata = [\"~/.hermes\"]\nhome = \"~/.hermes\"\nactivity = [\"~/.hermes/state.db\", \"~/.hermes/sessions\"]\nprogram_dir = \"~/.hermes/hermes-agent\"\n\n[[install]]\nkind = \"command\"\nargv = [\"omarchy-install-hermes-cli\", \"--now\"]\nsudo = true\n\n[[install]]\nkind = \"package\"\npackages = [[\"pacman\", \"hermes-desktop\"]]\n\n[[install]]\nkind = \"manual\"\nurl = \"https://github.com/NousResearch/hermes-agent\"\n\n[sessions]\nhook = true\nnote = \"Numbers from {0}'s session database (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs.\"\nnote_args = [\"Hermes\"]\n\n[local_llm]\nfiles = [\"~/.hermes/config.yaml\"]\nhooks = true\n\n[skills]\ndirs = [\"~/.hermes/skills\"]\nown = \"~/.hermes/skills\"\nsettings_list = true\nsettings_file = \"~/.hermes/config.yaml\"\nlisted = \"hook\"\nwrite = \"hook\"\n\n[mcp]\npath = \"~/.hermes/config.yaml\"\nformat = \"yaml\"\nkey = \"mcp_servers\"\n\n[ask]                                  # one prompt, one answer, no tools (the chess page)\nargv = [\"hermes\", \"{effort}\", \"-t\", \"todo\", \"--ignore-rules\", \"-z\", \"{prompt}\"]\ngames = [\"chess\"]                      # its menu offers Play chess\neffort = { quick = [\"--reasoning\", \"low\"], normal = [\"--reasoning\", \"medium\"], deep = [\"--reasoning\", \"high\"], max = [\"--reasoning\", \"max\"] }   # Thinking time\nnote = \"only its in-memory task list (no files, terminal, web or MCP), no project rules or memory\"\n\n[access]\nhow = \"A provider key (hermes setup), or a local LLM from the map\"\nlogin = \"hermes setup\"\nfiles = [\".hermes/auth.json\", \".hermes/.env\"]\nlocal_ok = true\n\n[[access.logins]]\nlabel = \"Setup wizard (account or key)\"\nargv = [\"hermes\", \"setup\"]\n\n[security]\nasks = \"approvals.mode\"     # the setting that says when it asks first\nfile = \"~/.hermes/config.yaml\"\nformat = \"yaml\"\n\n[[security.settings]]\nkey = \"approvals.mode\"\ntitle = \"Dangerous commands\"\nexplain = \"What Hermes does before a command it considers dangerous (deleting, overwriting, system changes).\"\ndefault = \"smart\"\nrecommended = \"manual\"\nterms = [\"approval\", \"classifier\", \"bypass\"]\nchoices = [\n  { value = \"manual\", label = \"Always ask\", explain = \"Asks you every time.\", risk = 0 },\n  { value = \"smart\", label = \"Automatic review\", explain = \"A guardian model approves what it judges safe and asks about the rest.\", risk = 1 },\n  { value = \"off\", label = \"Never ask\", explain = \"Runs dangerous commands without asking (like --yolo).\", risk = 3 },\n]\n\n[[security.settings]]\nkey = \"security.redact_secrets\"\ntitle = \"Hide secrets\"\nexplain = \"Masks passwords, tokens and keys in tool output and logs.\"\ndefault = true\nrecommended = true\nterms = [\"redaction\"]\nchoices = [\n  { value = true, label = \"On\", explain = \"Secrets are masked.\", risk = 0 },\n  { value = false, label = \"Off\", explain = \"Secrets can reach the model and the logs.\", risk = 2 },\n]\n\n[[security.settings]]\nkey = \"terminal.backend\"\ntitle = \"Where commands run\"\nexplain = \"local runs commands on this PC as you; docker, ssh or a cloud backend runs them elsewhere. Change it with “hermes config” (it needs that backend set up).\"\ndefault = \"local\"\neditable = false\nterms = [\"sandbox\"]\nchoices = [\n  { value = \"local\", label = \"This PC\", explain = \"Commands run here with your rights.\", risk = 1 },\n  { value = \"docker\", label = \"Docker container\", explain = \"Commands run in a container.\", risk = 0 },\n]\n\n# Its own setup commands, in a terminal tab (Configure… on the map)\n[[configure]]\nlabel = \"Setup wizard\"\nargv = [\"hermes\", \"setup\"]\n\n[[configure]]\nlabel = \"Model and provider\"\nargv = [\"hermes\", \"model\"]\n\n[[configure]]\nlabel = \"Check its setup\"\nargv = [\"hermes\", \"doctor\"]\n\n[details]                              # its model and providers (the agent's card)\nreader = \"hermes\"\n\n[models]                               # its online models on the map: \"provider/model\" (its hooks)\nhook = true\n"
+        },
+        {
+          "path": "adapters/muse.toml",
+          "content": "# Meta's Muse Code (docs/adapter-format.md): facts only, nothing in this file runs.\ncommand = \"muse\"\nname = \"Muse Code\"\nlabel = \"Muse Code\"\nicon = \"U+F06E4\"\nspec = \"http:muse[url=https://api.meta.ai/muse-launcher.sh,bin=muse]\"\ndata = [\"~/.config/muse\"]\nhome = \"~/.config/muse\"\n\n[[install]]\nkind = \"mise\"\nspec = \"http:muse[url=https://api.meta.ai/muse-launcher.sh,bin=muse]\"\n\n[skills]\ndirs = [\"~/.config/muse/skills\", \"~/.agents/skills\", \"~/.claude/skills\", \"~/.codex/skills\"]\nown = \"~/.config/muse/skills\"\n\n[mcp]\npath = \"~/.config/muse/settings.json\"\nkey = \"mcp_servers\"\nshape = \"muse\"\ndefaults = { schema_version = 1 }      # Muse refuses a settings file without it\n"
+        },
+        {
+          "path": "adapters/omp.toml",
+          "content": "# Oh My Pi (docs/adapter-format.md). Connecting a local LLM (YAML text) is a hook (omp.py).\ncommand = \"omp\"\nname = \"Oh My Pi\"\nlabel = \"omp\"\nfull_name = \"Oh My Pi\"\nicon = \"U+E903\"\nicon_font = \"omarchy\"\nspec = \"github:can1357/oh-my-pi\"\nhomepage = \"https://github.com/can1357/oh-my-pi\"\ndata = [\"~/.omp\"]\nhome = \"~/.omp\"\nactivity = [\"~/.omp/agent/sessions\"]\n\n[[install]]\nkind = \"mise\"\nspec = \"github:can1357/oh-my-pi\"\n\n[local_llm]\nfiles = [\"~/.omp/agent/models.yml\", \"~/.omp/agent/config.yml\"]\nhooks = true\n\n[sessions]\nreader = \"omp-db\"                      # a reader the app has (~/.omp/agent/agent.db, client_usage)\nnote = \"Numbers from {0}'s session database (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs.\"\nnote_args = [\"Oh My Pi\"]\n\n[skills]\ndirs = [\"~/.omp/agent/skills\"]\nown = \"~/.omp/agent/skills\"\nlisted = { file = \"~/.omp/agent/settings.json\", format = \"json\", key = \"skills\" }\n\n[mcp]\npath = \"~/.omp/agent/mcp.json\"\nshape = \"omp\"\n\n# Its own setup commands, in a terminal tab (Configure… on the map)\n[[configure]]\nlabel = \"Setup wizard\"\nargv = [\"omp\", \"setup\"]\n\n[details]                              # its model and providers (the agent's card)\nreader = \"pi\"\ndir = \"~/.omp/agent\"\n\n[tools]                                # the tools it is given\nfile = \"~/.omp/agent/settings.json\"\nkey = \"defaultTools\"\n"
+        },
+        {
+          "path": "adapters/openclaw.toml",
+          "content": "# OpenClaw, the openclaw pacman package (docs/adapter-format.md). Its MCP entries are written by a\n# hook (openclaw.py): the file may be JSON5, which is then left alone.\ncommand = \"openclaw\"\nname = \"OpenClaw\"\nlabel = \"OpenClaw\"\nicon = \"U+E90C\"\nicon_font = \"omarchy\"\npackage = \"openclaw\"\npackage_only = true\nhomepage = \"https://github.com/openclaw/openclaw\"\ndata = [\"~/.openclaw\"]\nhome = \"~/.openclaw\"\n\n[[install]]\nkind = \"command\"\nargv = [\"omarchy-install-openclaw-cli\", \"--now\"]\nsudo = true\n\n[[install]]\nkind = \"package\"\npackages = [[\"pacman\", \"openclaw\"]]\n\n[local_llm]                            # models.providers.<key> and agents.defaults.model.primary (openclaw.py)\nfiles = [\"~/.openclaw/openclaw.json\"]\nhooks = true\n\n[sessions]\nreader = \"openclaw-db\"            # a reader the app has (~/.openclaw/agents)\nnote = \"Numbers from {0}'s session database (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs.\"\nnote_args = [\"OpenClaw\"]\n\n[skills]\ndirs = [\"~/.openclaw/skills\", \"~/.agents/skills\"]\nown = \"~/.openclaw/skills\"\nlisted = { file = \"~/.openclaw/openclaw.json\", format = \"json\", key = \"skills.load.extraDirs\" }\n\n[mcp]\npath = \"~/.openclaw/openclaw.json\"\nkey = \"mcp.servers\"\nshape = \"openclaw\"\nwrite = \"hook\"\n\n# Its own setup commands, in a terminal tab (Configure… on the map)\n[[configure]]\nlabel = \"Configure\"\nargv = [\"openclaw\", \"configure\"]\n\n[[configure]]\nlabel = \"Guided setup\"\nargv = [\"openclaw\", \"onboard\"]\n\n[[configure]]\nlabel = \"Check its setup\"\nargv = [\"openclaw\", \"doctor\"]\n\n[details]                              # its model and providers (the agent's card)\nreader = \"openclaw\"\n"
+        },
+        {
+          "path": "adapters/opencode.toml",
+          "content": "# OpenCode (docs/adapter-format.md). Its session database, connecting a local LLM and its security\n# settings are hooks (opencode.py); everything else is facts.\ncommand = \"opencode\"\nname = \"OpenCode\"\nlabel = \"OpenCode\"\nicon = \"U+E902\"\nicon_font = \"omarchy\"\nshort_model_flag = true\nusage = \"opencode\"\nhomepage = \"https://opencode.ai\"\ndata = [\"~/.local/share/opencode\", \"~/.config/opencode\"]\nhome = \"~/.config/opencode\"\nactivity = [\"~/.local/share/opencode/opencode.db\"]\n\n[[install]]\nkind = \"mise\"\nspec = \"opencode\"\n\n[sessions]\nhook = true\nnote = \"Numbers from {0}'s session database (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs.\"\nnote_args = [\"OpenCode\"]\n\n[local_llm]\nfiles = [\"~/.config/opencode/opencode.json\"]\nhooks = true\n\n[subagents]                            # its subagents (task tool): the map's subagents page\nformat = \"opencode-db\"\npath = \"~/.local/share/opencode/opencode.db\"\n\n[skills]\ndirs = [\"~/.config/opencode/skills\", \"~/.claude/skills\", \"~/.agents/skills\"]\nown = \"~/.config/opencode/skills\"\n\n[mcp]\npath = \"~/.config/opencode/opencode.json\"\nkey = \"mcp\"\nshape = \"opencode\"\n\n[access]\nhow = \"An account or API key for any provider, or a local LLM from the map\"\nlogin = \"opencode auth login\"\nfiles = [\".local/share/opencode/auth.json\"]\nlocal_ok = true\n\n[[access.logins]]\nlabel = \"A provider (account or key)\"\nargv = [\"opencode\", \"auth\", \"login\"]\n\n[security]\nasks = \"permission.bash\"     # the setting that says when it asks first\nhook = true\n\n[details]                              # its model and providers (the agent's card)\nreader = \"opencode\"\n\n[models]                               # its online models on the map: \"provider/model\" (its hooks)\nhook = true\n\n[ask]                                  # one prompt, one answer (the first-agent guide's test)\nargv = [\"opencode\", \"run\", \"{prompt}\"]\nnote = \"tools are not switched off, but it asks before using one (no --auto); the test's question needs none\"\n"
+        },
+        {
+          "path": "adapters/pi.toml",
+          "content": "# Pi (docs/adapter-format.md). Connecting a local LLM (two files) and writing its skill folder list are\n# hooks (pi.py); everything else is facts.\ncommand = \"pi\"\nname = \"Pi\"\nlabel = \"Pi\"\nfull_name = \"Pi\"\nicon = \"U+E901\"\nicon_font = \"omarchy\"\nusage = \"pi\"\nhomepage = \"https://github.com/badlogic/pi-mono\"\ndata = [\"~/.pi\"]\nhome = \"~/.pi/agent\"\nactivity = [\"~/.pi/agent/sessions\"]\n\n[replies]                              # its session files: the map's usage statistics box\nfolder = \"~/.pi/agent/sessions\"\ndepth = 1\nformat = \"pi-jsonl\"\n\n[[install]]\nkind = \"mise\"\nspec = \"pi\"\n\n[local_llm]\nfiles = [\"~/.pi/agent/models.json\", \"~/.pi/agent/settings.json\"]\nhooks = true\n\n[sessions]\nreader = \"pi-files\"               # a reader the app has (~/.pi/agent/sessions)\nnote = \"Numbers from {0}'s session files (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs.\"\nnote_args = [\"Pi\"]\n\n[skills]\ndirs = [\"~/.pi/agent/skills\", \"~/.agents/skills\"]\nown = \"~/.pi/agent/skills\"\nsettings_list = true\nsettings_file = \"~/.pi/agent/settings.json\"\nlisted = { file = \"~/.pi/agent/settings.json\", format = \"json\", key = \"skills\" }\nwrite = \"hook\"\n\n[mcp]\npath = \"~/.pi/agent/mcp.json\"\n\n[ask]                                  # one prompt, one answer, no tools (the chess page)\nargv = [\"pi\", \"-p\", \"--no-tools\", \"--no-approve\", \"{prompt}\"]\ngames = [\"chess\"]                      # its menu offers Play chess\neffort = { quick = [\"--thinking\", \"low\"], normal = [\"--thinking\", \"medium\"], deep = [\"--thinking\", \"high\"], max = [\"--thinking\", \"max\"] }   # Thinking time\nnote = \"no tools, project files ignored\"\n\n[access]\nhow = \"Sign in inside Pi (/login: Claude, ChatGPT, Copilot …), an API key, or a local LLM from the map\"\nlogin = \"pi  →  /login\"\nfiles = [\".pi/agent/auth.json\"]\nenv = [\"ANTHROPIC_API_KEY\", \"OPENAI_API_KEY\"]\nlocal_ok = true\n\n[[access.logins]]\nlabel = \"Inside Pi\"\nargv = [\"pi\"]\nnote = \"Type /login in it.\"\n\n[security]\nasks = \"defaultTools\"     # the setting that says when it asks first\nfile = \"~/.pi/agent/settings.json\"\nformat = \"json\"\nnote = \"Pi never asks before it acts, by design: the tools it has are its permissions. Run it in a container or VM, or give it read-only tools, when it works on something you do not trust.\"\n\n[[security.settings]]\nkey = \"defaultTools\"\ntitle = \"Tools\"\nexplain = \"What Pi can do at all.\"\ncurrent_if = \"list\"\nrecommended = [\"read\", \"grep\", \"find\", \"ls\"]\nterms = [\"tools\", \"approval\"]\nchoices = [\n  { value = [\"read\", \"bash\", \"edit\", \"write\", \"grep\", \"find\", \"ls\"], label = \"Read, write and run commands\", explain = \"Edits files and runs any shell command, without asking.\", risk = 3 },\n  { value = [\"read\", \"grep\", \"find\", \"ls\"], label = \"Read only\", explain = \"Reads and searches files; changes nothing, runs nothing.\", risk = 0 },\n  { unset = true, label = \"Pi's default\", explain = \"read, bash, edit, write: changes files and runs commands.\", risk = 3 },\n]\n\n[details]                              # its model and providers (the agent's card)\nreader = \"pi\"\ndir = \"~/.pi/agent\"\n\n[tools]                                # the tools it is given\nfile = \"~/.pi/agent/settings.json\"\nkey = \"defaultTools\"\n\n[advise]                               # the local helper: one question, answered offline by the model it is given\nargv = [\"pi\", \"-p\", \"--no-session\", \"--no-tools\", \"--no-mcp\", \"--no-extensions\", \"--no-context-files\",\n        \"--no-approve\", \"--offline\"]   # no tools, MCP servers, extensions or project files; the prompt on stdin\nmodel = [\"--provider\", \"{provider}\", \"--model\", \"{model}\"]\n\n[closed]                               # what closes it in when the map starts it (agent_guard)\nbackground = []                        # its advise argv says it already\n\n[models]                               # its online models on the map: \"provider/model\" (its hooks)\nhook = true\n"
+        }
+      ],
+      "requests": [
+        {
+          "method": "adapter.validate",
+          "params": {
+            "file": "adapters/agy.toml"
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "file": "adapters/bionic.toml"
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "file": "adapters/claude.toml"
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "file": "adapters/codex.toml"
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "file": "adapters/copilot.toml"
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "file": "adapters/crush.toml"
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "file": "adapters/cursor-agent.toml"
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "file": "adapters/dsh.toml"
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "file": "adapters/gemini.toml"
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "file": "adapters/goose.toml"
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "file": "adapters/grok.toml"
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "file": "adapters/hermes.toml"
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "file": "adapters/muse.toml"
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "file": "adapters/omp.toml"
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "file": "adapters/openclaw.toml"
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "file": "adapters/opencode.toml"
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "file": "adapters/pi.toml"
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent"
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {}
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": 1,
+              "name": "a"
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "extra": 1
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "start": [
+                ";"
+              ]
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "start": [
+                "\n"
+              ]
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "sessions": {
+                "reader": "unknown"
+              }
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "mcp": {
+                "extra": 1
+              }
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "mcp": {
+                "write": "exec"
+              }
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "skills": {
+                "dirs": []
+              }
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "details": {
+                "reader": "unknown"
+              }
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "security": {
+                "file": "x",
+                "format": "bad"
+              }
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "ask": {
+                "argv": [
+                  "sh",
+                  "{prompt}"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "ask": {
+                "argv": [
+                  "test-agent",
+                  "prefix{prompt}"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "research": {
+                "argv": [
+                  "test-agent",
+                  "{wrong}"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "configure": [
+                {
+                  "label": "x",
+                  "argv": [
+                    "sh"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "replies": {
+                "folder": "~/x",
+                "format": "claude-jsonl",
+                "depth": true
+              }
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "subagents": {
+                "path": "/tmp",
+                "format": "claude-projects"
+              }
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": true,
+              "name": "Test Agent"
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": true
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "label": true
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "full_name": true
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "icon": true
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "icon_font": true
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "spec": true
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "package": true
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "package_only": "yes"
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "own_install_counts": "yes"
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "short_version": "yes"
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "offered": "yes"
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "short_model_flag": "yes"
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "fixed_provider": true
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "self_served": "yes"
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "homepage": true
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "data": [
+                1
+              ]
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "install": [
+                1
+              ]
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "update": []
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "sessions": []
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "skills": []
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "mcp": []
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "access": []
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "security": []
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "login_status": []
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "installer": true
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "usage": true
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "local_llm": []
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "ask": []
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "configure": [
+                1
+              ]
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "home": true
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "activity": [
+                1
+              ]
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "details": []
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "program_dir": true
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "start": [
+                1
+              ]
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "web_search": "yes"
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "chat_app": "yes"
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "herdr": true
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "research": []
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "rewrite": []
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "task": []
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "closed": []
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "advise": []
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "models": []
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "tools": []
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "replies": []
+            }
+          }
+        },
+        {
+          "method": "adapter.validate",
+          "params": {
+            "facts": {
+              "command": "test-agent",
+              "name": "Test Agent",
+              "subagents": []
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "adapter symlink",
+      "environment": {
+        "MAPRISMA_DIFF_COMPONENT": "adapters"
+      },
+      "files": [
+        {
+          "path": "target.toml",
+          "content": "command=\"x\"\nname=\"X\""
+        },
+        {
+          "path": "test.toml",
+          "type": "symlink",
+          "target": "$HOME/target.toml"
+        }
+      ],
+      "requests": [
+        {
+          "method": "adapter.validate",
+          "params": {
+            "file": "test.toml"
+          }
+        }
+      ]
+    },
+    {
+      "name": "adapter fifo",
+      "environment": {
+        "MAPRISMA_DIFF_COMPONENT": "adapters"
+      },
+      "files": [
+        {
+          "path": "target.toml",
+          "content": "command=\"x\"\nname=\"X\""
+        },
+        {
+          "path": "test.toml",
+          "type": "fifo"
+        }
+      ],
+      "requests": [
+        {
+          "method": "adapter.validate",
+          "params": {
+            "file": "test.toml"
+          }
+        }
+      ]
+    },
+    {
+      "name": "adapter oversized",
+      "environment": {
+        "MAPRISMA_DIFF_COMPONENT": "adapters"
+      },
+      "files": [
+        {
+          "path": "target.toml",
+          "content": "command=\"x\"\nname=\"X\""
+        },
+        {
+          "path": "test.toml",
+          "content_repeat": [
+            "x",
+            262145
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "adapter.validate",
+          "params": {
+            "file": "test.toml"
+          }
+        }
+      ]
+    },
+    {
+      "name": "adapter malformed",
+      "environment": {
+        "MAPRISMA_DIFF_COMPONENT": "adapters"
+      },
+      "files": [
+        {
+          "path": "target.toml",
+          "content": "command=\"x\"\nname=\"X\""
+        },
+        {
+          "path": "test.toml",
+          "content": "command = ["
+        }
+      ],
+      "requests": [
+        {
+          "method": "adapter.validate",
+          "params": {
+            "file": "test.toml"
+          }
+        }
+      ]
+    }
+  ]
+}

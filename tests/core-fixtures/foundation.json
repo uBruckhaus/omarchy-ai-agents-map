@@ -1,0 +1,1647 @@
+{
+  "cases": [
+    {
+      "name": "defaults and identity",
+      "requests": [
+        {
+          "method": "settings.get",
+          "params": {}
+        },
+        {
+          "method": "app.identity",
+          "params": {}
+        },
+        {
+          "method": "desktop.snapshot",
+          "params": {}
+        },
+        {
+          "method": "app.theme",
+          "params": {}
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "Settings"
+          }
+        }
+      ],
+      "files": [],
+      "environment": {}
+    },
+    {
+      "name": "settings all UI fields and preservation",
+      "requests": [
+        {
+          "method": "settings.get",
+          "params": {}
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "language": "de",
+              "flutter_theme_mode": "dark",
+              "map_light_fps": 60,
+              "map_layers": [
+                "agents",
+                "skills"
+              ],
+              "system_map_columns": [
+                "pc",
+                "folders"
+              ],
+              "map_scan_targets": [
+                "activity"
+              ],
+              "map_scan_interval": 15,
+              "map_scan_pause_unfocused": false,
+              "subagents_minutes": 60.0,
+              "subagents_kept": 20,
+              "addons_online": false,
+              "map_animations": "agents",
+              "look": "adwaita",
+              "flutter_map_layout": {
+                "cards": {
+                  "a": [
+                    2,
+                    3.5
+                  ]
+                },
+                "pins": [
+                  "a"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "method": "settings.get",
+          "params": {}
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "Settings"
+          }
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "addons_online": null
+            }
+          }
+        }
+      ],
+      "files": [
+        {
+          "path": ".config/maprisma/settings.json",
+          "content": "{\"unknown\": \"\\u00fc\\u00f1icode \\ud83d\\ude00\", \"agent_project_history\": {\"x\": [\"0\", \"1\", \"2\", \"3\", \"4\", \"5\", \"6\", \"7\", \"8\", \"9\", \"10\", \"11\", \"12\", \"13\", \"14\", \"15\", \"16\", \"17\", \"18\", \"19\", \"20\", \"21\", \"22\", \"23\", \"24\", \"25\", \"26\", \"27\", \"28\", \"29\", \"30\", \"31\", \"32\", \"33\", \"34\", \"35\", \"36\", \"37\", \"38\", \"39\", \"40\", \"41\", \"42\", \"43\", \"44\", \"45\", \"46\", \"47\", \"48\", \"49\", \"50\", \"51\", \"52\", \"53\", \"54\", \"55\", \"56\", \"57\", \"58\", \"59\"], \"bad\": \"drop\"}}",
+          "mode": "0644"
+        }
+      ],
+      "environment": {}
+    },
+    {
+      "name": "atomic invalid settings",
+      "requests": [
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "bogus": 1
+            }
+          }
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "language": null
+            }
+          }
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "language": "xx"
+            }
+          }
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "map_light_fps": true
+            }
+          }
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "map_light_fps": 20.0
+            }
+          }
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "map_light_fps": null
+            }
+          }
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "map_light_fps": "20"
+            }
+          }
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "flutter_theme_mode": null
+            }
+          }
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "flutter_theme_mode": "black"
+            }
+          }
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "map_layers": null
+            }
+          }
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "map_layers": [
+                "bad"
+              ]
+            }
+          }
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "system_map_columns": null
+            }
+          }
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "system_map_columns": [
+                "bad"
+              ]
+            }
+          }
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "map_scan_interval": true
+            }
+          }
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "map_scan_interval": 6.0
+            }
+          }
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "map_scan_targets": [
+                "bad"
+              ]
+            }
+          }
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "map_animations": null
+            }
+          }
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "flutter_map_layout": {
+                "cards": null
+              }
+            }
+          }
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "flutter_map_layout": {
+                "pins": [
+                  "a",
+                  "a"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "flutter_map_layout": {
+                "cards": {
+                  "a": [
+                    true,
+                    1
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "agent_folder": "relative"
+            }
+          }
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "agent_folder": "/does-not-exist"
+            }
+          }
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "map_light_fps": 30,
+              "language": "xx"
+            }
+          }
+        },
+        {
+          "method": "settings.get",
+          "params": {}
+        }
+      ],
+      "files": [
+        {
+          "path": ".config/maprisma/settings.json",
+          "content": "{\"language\":\"pl\"}\n",
+          "mode": "0600"
+        }
+      ],
+      "environment": {}
+    },
+    {
+      "name": "malformed protocol recovery",
+      "requests": [
+        {
+          "raw": "[]"
+        },
+        {
+          "raw": "{"
+        },
+        {
+          "raw": "{\"id\":true}"
+        },
+        {
+          "raw": "{\"id\":2,\"protocol\":true,\"method\":\"settings.get\"}"
+        },
+        {
+          "raw": "{\"id\":3,\"protocol\":2,\"method\":\"settings.get\",\"params\":[]}"
+        },
+        {
+          "raw_repeat": [
+            "x",
+            65536
+          ]
+        },
+        {
+          "method": "settings.get",
+          "params": {}
+        },
+        {
+          "method": "settings.get",
+          "params": {
+            "extra": 1
+          }
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "extra": {}
+          }
+        }
+      ],
+      "files": [],
+      "environment": {}
+    },
+    {
+      "name": "settings symlink",
+      "requests": [
+        {
+          "method": "settings.get",
+          "params": {}
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "map_light_fps": 30
+            }
+          }
+        },
+        {
+          "method": "settings.get",
+          "params": {}
+        }
+      ],
+      "files": [
+        {
+          "path": "other",
+          "content": "{\"language\":\"nl\"}"
+        },
+        {
+          "path": ".config/maprisma/settings.json",
+          "type": "symlink",
+          "target": "$HOME/other"
+        }
+      ],
+      "environment": {}
+    },
+    {
+      "name": "settings fifo",
+      "requests": [
+        {
+          "method": "settings.get",
+          "params": {}
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "map_light_fps": 30
+            }
+          }
+        },
+        {
+          "method": "settings.get",
+          "params": {}
+        }
+      ],
+      "files": [
+        {
+          "path": "other",
+          "content": "{\"language\":\"nl\"}"
+        },
+        {
+          "path": ".config/maprisma/settings.json",
+          "type": "fifo"
+        }
+      ],
+      "environment": {}
+    },
+    {
+      "name": "settings malformed",
+      "requests": [
+        {
+          "method": "settings.get",
+          "params": {}
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "map_light_fps": 30
+            }
+          }
+        },
+        {
+          "method": "settings.get",
+          "params": {}
+        }
+      ],
+      "files": [
+        {
+          "path": "other",
+          "content": "{\"language\":\"nl\"}"
+        },
+        {
+          "path": ".config/maprisma/settings.json",
+          "content": "{invalid"
+        }
+      ],
+      "environment": {}
+    },
+    {
+      "name": "settings array",
+      "requests": [
+        {
+          "method": "settings.get",
+          "params": {}
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "map_light_fps": 30
+            }
+          }
+        },
+        {
+          "method": "settings.get",
+          "params": {}
+        }
+      ],
+      "files": [
+        {
+          "path": "other",
+          "content": "{\"language\":\"nl\"}"
+        },
+        {
+          "path": ".config/maprisma/settings.json",
+          "content": "[]"
+        }
+      ],
+      "environment": {}
+    },
+    {
+      "name": "settings oversized",
+      "requests": [
+        {
+          "method": "settings.get",
+          "params": {}
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "map_light_fps": 30
+            }
+          }
+        },
+        {
+          "method": "settings.get",
+          "params": {}
+        }
+      ],
+      "files": [
+        {
+          "path": "other",
+          "content": "{\"language\":\"nl\"}"
+        },
+        {
+          "path": ".config/maprisma/settings.json",
+          "content_repeat": [
+            "x",
+            262145
+          ]
+        }
+      ],
+      "environment": {}
+    },
+    {
+      "name": "absolute XDG and project canonicalization",
+      "requests": [
+        {
+          "method": "app.identity",
+          "params": {}
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "agent_folder": "~/project-link"
+            }
+          }
+        },
+        {
+          "method": "settings.get",
+          "params": {}
+        }
+      ],
+      "files": [
+        {
+          "path": "project",
+          "type": "directory"
+        },
+        {
+          "path": "project-link",
+          "type": "symlink",
+          "target": "$HOME/project"
+        }
+      ],
+      "environment": {
+        "XDG_CONFIG_HOME": "$HOME/config space",
+        "XDG_CACHE_HOME": "relative"
+      }
+    },
+    {
+      "name": "translations en",
+      "requests": [
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "language": "en"
+            }
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "Settings"
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "Maprisma"
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "unknown key"
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 0
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 1
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 2
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 5
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 12
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 22
+          }
+        }
+      ],
+      "files": [],
+      "environment": {}
+    },
+    {
+      "name": "translations de",
+      "requests": [
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "language": "de"
+            }
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "Settings"
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "Maprisma"
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "unknown key"
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 0
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 1
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 2
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 5
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 12
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 22
+          }
+        }
+      ],
+      "files": [],
+      "environment": {}
+    },
+    {
+      "name": "translations fr",
+      "requests": [
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "language": "fr"
+            }
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "Settings"
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "Maprisma"
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "unknown key"
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 0
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 1
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 2
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 5
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 12
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 22
+          }
+        }
+      ],
+      "files": [],
+      "environment": {}
+    },
+    {
+      "name": "translations es",
+      "requests": [
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "language": "es"
+            }
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "Settings"
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "Maprisma"
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "unknown key"
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 0
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 1
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 2
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 5
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 12
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 22
+          }
+        }
+      ],
+      "files": [],
+      "environment": {}
+    },
+    {
+      "name": "translations it",
+      "requests": [
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "language": "it"
+            }
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "Settings"
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "Maprisma"
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "unknown key"
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 0
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 1
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 2
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 5
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 12
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 22
+          }
+        }
+      ],
+      "files": [],
+      "environment": {}
+    },
+    {
+      "name": "translations pt",
+      "requests": [
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "language": "pt"
+            }
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "Settings"
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "Maprisma"
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "unknown key"
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 0
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 1
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 2
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 5
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 12
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 22
+          }
+        }
+      ],
+      "files": [],
+      "environment": {}
+    },
+    {
+      "name": "translations nl",
+      "requests": [
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "language": "nl"
+            }
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "Settings"
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "Maprisma"
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "unknown key"
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 0
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 1
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 2
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 5
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 12
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 22
+          }
+        }
+      ],
+      "files": [],
+      "environment": {}
+    },
+    {
+      "name": "translations pl",
+      "requests": [
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "language": "pl"
+            }
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "Settings"
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "Maprisma"
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "unknown key"
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 0
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 1
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 2
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 5
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 12
+          }
+        },
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "1 skill",
+            "other": "{0} skills",
+            "n": 22
+          }
+        }
+      ],
+      "files": [],
+      "environment": {}
+    },
+    {
+      "name": "locale C",
+      "requests": [
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "Settings"
+          }
+        }
+      ],
+      "files": [],
+      "environment": {
+        "LC_ALL": "C",
+        "LC_MESSAGES": "fr_FR.UTF-8",
+        "LANG": "de_DE"
+      }
+    },
+    {
+      "name": "locale xx_XX",
+      "requests": [
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "Settings"
+          }
+        }
+      ],
+      "files": [],
+      "environment": {
+        "LC_ALL": "xx_XX",
+        "LC_MESSAGES": "fr_FR.UTF-8",
+        "LANG": "de_DE"
+      }
+    },
+    {
+      "name": "locale pt-BR.UTF-8",
+      "requests": [
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "Settings"
+          }
+        }
+      ],
+      "files": [],
+      "environment": {
+        "LC_ALL": "pt-BR.UTF-8",
+        "LC_MESSAGES": "fr_FR.UTF-8",
+        "LANG": "de_DE"
+      }
+    },
+    {
+      "name": "locale POSIX",
+      "requests": [
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "Settings"
+          }
+        }
+      ],
+      "files": [],
+      "environment": {
+        "LC_ALL": "POSIX",
+        "LC_MESSAGES": "fr_FR.UTF-8",
+        "LANG": "de_DE"
+      }
+    },
+    {
+      "name": "locale pl_PL.UTF-8",
+      "requests": [
+        {
+          "method": "i18n.lookup",
+          "params": {
+            "text": "Settings"
+          }
+        }
+      ],
+      "files": [],
+      "environment": {
+        "LC_ALL": "pl_PL.UTF-8",
+        "LC_MESSAGES": "fr_FR.UTF-8",
+        "LANG": "de_DE"
+      }
+    },
+    {
+      "name": "theme colors",
+      "requests": [
+        {
+          "method": "desktop.snapshot",
+          "params": {}
+        },
+        {
+          "method": "app.theme",
+          "params": {}
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "look": "adwaita"
+            }
+          }
+        },
+        {
+          "method": "app.theme",
+          "params": {}
+        }
+      ],
+      "files": [
+        {
+          "path": ".local/state/omarchy/current/theme/colors.toml",
+          "content": "background = \"#112233\"\nforeground = \"#aBcDeF\"\naccent = \"#123456\"\nbad = \"red\"\nnumber = 7\n[nested]\na = \"#ffffff\"\n"
+        }
+      ],
+      "environment": {
+        "MAPRISMA_DESKTOP": "omarchy"
+      }
+    },
+    {
+      "name": "theme invalid",
+      "requests": [
+        {
+          "method": "desktop.snapshot",
+          "params": {}
+        },
+        {
+          "method": "app.theme",
+          "params": {}
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "look": "adwaita"
+            }
+          }
+        },
+        {
+          "method": "app.theme",
+          "params": {}
+        }
+      ],
+      "files": [
+        {
+          "path": ".local/state/omarchy/current/theme/colors.toml",
+          "content": "not valid ["
+        }
+      ],
+      "environment": {
+        "MAPRISMA_DESKTOP": "omarchy"
+      }
+    },
+    {
+      "name": "theme large",
+      "requests": [
+        {
+          "method": "desktop.snapshot",
+          "params": {}
+        },
+        {
+          "method": "app.theme",
+          "params": {}
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "look": "adwaita"
+            }
+          }
+        },
+        {
+          "method": "app.theme",
+          "params": {}
+        }
+      ],
+      "files": [
+        {
+          "path": ".local/state/omarchy/current/theme/colors.toml",
+          "content_repeat": [
+            "x",
+            262145
+          ]
+        }
+      ],
+      "environment": {
+        "MAPRISMA_DESKTOP": "omarchy"
+      }
+    },
+    {
+      "name": "trusted symlinked config accepts write",
+      "files": [
+        {
+          "path": "outside",
+          "type": "directory"
+        },
+        {
+          "path": ".config",
+          "type": "symlink",
+          "target": "$HOME/outside"
+        }
+      ],
+      "requests": [
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "language": "de"
+            }
+          }
+        },
+        {
+          "method": "settings.get",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "name": "theme FIFO is nonblocking",
+      "environment": {
+        "MAPRISMA_DESKTOP": "omarchy"
+      },
+      "files": [
+        {
+          "path": ".local/state/omarchy/current/theme/colors.toml",
+          "type": "fifo"
+        }
+      ],
+      "requests": [
+        {
+          "method": "app.theme",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "name": "legacy settings migration",
+      "files": [
+        {
+          "path": ".config/maprisma/settings.json",
+          "content": "{\"animate_lines\": false, \"widen\": true, \"unknown\":\"keep\"}"
+        }
+      ],
+      "requests": [
+        {
+          "method": "settings.get",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "name": "migration retains explicit animation",
+      "files": [
+        {
+          "path": ".config/maprisma/settings.json",
+          "content": "{\"animate_lines\": false, \"map_animations\":\"agents\", \"sidebar\":true}"
+        }
+      ],
+      "requests": [
+        {
+          "method": "settings.get",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "name": "valid oversized prefix is refused",
+      "files": [
+        {
+          "path": ".config/maprisma/settings.json",
+          "content_prefix": "{\"language\":\"pl\"}",
+          "content_repeat": [
+            " ",
+            262144
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "settings.get",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "name": "layout floating point JSON bytes",
+      "requests": [
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "flutter_map_layout": {
+                "cards": {
+                  "a": [
+                    1e-07,
+                    1e-05
+                  ],
+                  "b": [
+                    -0.0,
+                    30000.0
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "unknown large integers preserved exactly",
+      "files": [
+        {
+          "path": ".config/maprisma/settings.json",
+          "content": "{\"future_integer\": 100000000000000000000000000000000000000000000000000000000000000000000000000000000, \"future_negative\": -1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000, \"quoted\": \"123456789012345678901234567890\", \"map_light_fps\": 1000000000000000000000000000000000000000000000000000000000000}"
+        }
+      ],
+      "requests": [
+        {
+          "method": "settings.get",
+          "params": {}
+        },
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "map_light_fps": 30
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "settings write overflow preserves bytes",
+      "files": [
+        {
+          "path": ".config/maprisma/settings.json",
+          "content_prefix": "{\"unknown\":\"",
+          "content_suffix": "\"}",
+          "content_repeat": [
+            "é",
+            131065
+          ],
+          "mode": "0600"
+        }
+      ],
+      "requests": [
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "language": "pl"
+            }
+          }
+        },
+        {
+          "method": "settings.get",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "name": "symlinked home-like ancestor",
+      "environment": {
+        "XDG_CONFIG_HOME": "$HOME/home/user/.config"
+      },
+      "files": [
+        {
+          "path": "var/home/user",
+          "type": "directory"
+        },
+        {
+          "path": "home",
+          "type": "symlink",
+          "target": "$HOME/var/home"
+        }
+      ],
+      "requests": [
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "language": "de"
+            }
+          }
+        },
+        {
+          "method": "settings.get",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "name": "writable ancestor symlink refuses write",
+      "files": [
+        {
+          "path": "outside",
+          "type": "directory"
+        },
+        {
+          "path": "unsafe",
+          "type": "directory",
+          "mode": "0777"
+        },
+        {
+          "path": "unsafe/link",
+          "type": "symlink",
+          "target": "$HOME/outside"
+        },
+        {
+          "path": ".config",
+          "type": "symlink",
+          "target": "$HOME/unsafe/link"
+        }
+      ],
+      "requests": [
+        {
+          "method": "settings.update",
+          "params": {
+            "values": {
+              "language": "de"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

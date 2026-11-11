@@ -9,6 +9,7 @@
  "package": "",
  "package_only": false,
  "own_install_counts": true,
+ "install_marks": [],
  "download": null,
  "short_version": true,
  "offered": false,
@@ -69,7 +70,10 @@
   "local_ok": true,
   "per_token": false,
   "logins": [],
-  "key": null
+  "key": null,
+  "extra_file": "",
+  "extra_key": "",
+  "extra_url": ""
  },
  "security": null,
  "sessions": null,

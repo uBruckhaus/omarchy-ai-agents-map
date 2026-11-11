@@ -1,6 +1,7 @@
 import json
 import sys
 import tempfile
+import os
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -58,11 +59,26 @@ class AiHelperTest(unittest.TestCase):
             self.assertEqual(ai_helper.billing("claude", {"ANTHROPIC_API_KEY": "sk-x"}), ("key", ""))   # the key wins
             self.assertEqual(ai_helper.billing("codex", {}), ("unknown", ""))
 
-    def test_task_argv_puts_the_prompt_in_as_one_argument(self):
+    def test_task_argv_points_to_the_task_file_not_the_prompt(self):
         argv = ai_helper.task_argv("claude", "do; rm -rf x")
         self.assertEqual((argv[0], argv[1:4], argv[-1]),
-                         ("/usr/bin/claude", ["--permission-mode", "manual", "--strict-mcp-config"], "do; rm -rf x"))
+                         ("/usr/bin/claude", ["--permission-mode", "manual", "--strict-mcp-config"],
+                          ai_helper.task_instruction("do; rm -rf x")))
+        # Other accounts can read command lines: the task itself is not on it.
+        self.assertFalse(any("rm -rf" in a for a in argv))
         self.assertIsNone(ai_helper.task_argv("pi", "x"))         # no task fact
+
+    def test_the_task_file_is_private(self):
+        import stat
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"XDG_CACHE_HOME": tmp}):
+            ai_helper.write_task_prompt("secret task")
+            path = ai_helper.task_prompt_path("secret task")
+            self.assertTrue(str(path).startswith(tmp + "/ai-agents-map/tasks/"))
+            self.assertEqual(path.read_text(), "secret task")
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+            self.assertEqual(stat.S_IMODE(path.parent.stat().st_mode), 0o700)
+            self.assertIn(str(path), ai_helper.task_instruction("secret task"))
 
 
 if __name__ == "__main__":

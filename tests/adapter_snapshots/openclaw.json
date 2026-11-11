@@ -9,6 +9,10 @@
  "package": "openclaw",
  "package_only": true,
  "own_install_counts": true,
+ "install_marks": [
+  "~/.openclaw/",
+  "/node_modules/openclaw/"
+ ],
  "download": null,
  "short_version": false,
  "offered": true,

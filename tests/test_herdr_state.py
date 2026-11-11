@@ -12,7 +12,7 @@ import herdr_state  # noqa: E402
 
 SNAPSHOT = {"id": "cli:api:snapshot", "result": {"type": "session_snapshot", "snapshot": {
     "version": "0.9.1", "protocol": 22, "tabs": [], "panes": [], "layouts": [],
-    "workspaces": [{"workspace_id": "w1", "label": "asterism", "number": 1}],
+    "workspaces": [{"workspace_id": "w1", "label": "ai-agents-map", "number": 1}],
     "agents": [
         {"agent": "claude", "agent_status": "idle", "cwd": "/home/u/a", "workspace_id": "w1",
          "terminal_title": "secret topic", "pane_id": "p1", "tab_id": "t1", "terminal_id": "x", "focused": False,
@@ -36,7 +36,7 @@ class HerdrTest(unittest.TestCase):
                          "unknown")                           # found, screen not readable: still listed
         self.assertEqual(panes[1].cwd, "/home/u/b")           # where it works now
         self.assertEqual(panes[2].cwd, "")                    # not an absolute path
-        self.assertEqual(panes[0].workspace, "asterism")
+        self.assertEqual(panes[0].workspace, "ai-agents-map")
         self.assertNotIn("secret", repr(panes))
         self.assertEqual([p.state for p in herdr_state.for_agent(panes, "claude")], ["blocked", "idle"])
         self.assertEqual(herdr_state.parse({"error": {"code": "x"}}), [])
@@ -108,7 +108,7 @@ class HerdrTest(unittest.TestCase):
             self.assertEqual(desktop_omarchy._parent(os.getpid()), 0)   # another user's process: not followed
 
     def test_generic_desktop_focuses_through_hyprland(self):
-        """Asterism outside Omarchy (generic mode) on Hyprland: the same window look-up; elsewhere none."""
+        """AI Agents Map outside Omarchy (generic mode) on Hyprland: the same window look-up; elsewhere none."""
         import desktop_generic
         import desktop_omarchy
         with mock.patch.object(desktop_generic, "_hyprland", return_value=desktop_omarchy), \

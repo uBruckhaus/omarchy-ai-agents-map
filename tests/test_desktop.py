@@ -13,16 +13,17 @@ import desktop_omarchy  # noqa: E402
 
 class DetectTest(unittest.TestCase):
     def test_override_and_omarchy_folder(self):
-        self.assertEqual(desktop.detect({"ASTERISM_DESKTOP": "generic"}), "generic")
-        self.assertEqual(desktop.detect({"ASTERISM_DESKTOP": "omarchy", "OMARCHY_PATH": "/nowhere"}), "omarchy")
+        self.assertEqual(desktop.detect({"AI_AGENTS_MAP_DESKTOP": "generic"}), "generic")
+        self.assertEqual(desktop.detect({"AI_AGENTS_MAP_DESKTOP": "omarchy", "OMARCHY_PATH": "/nowhere"}), "omarchy")
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(desktop.detect({"OMARCHY_PATH": tmp}), "omarchy")
         self.assertEqual(desktop.detect({"OMARCHY_PATH": "/nowhere/omarchy"}), "generic")
-        self.assertEqual(desktop.detect({"ASTERISM_DESKTOP": "kde", "OMARCHY_PATH": "/nowhere"}), "generic")
+        self.assertEqual(desktop.detect({"AI_AGENTS_MAP_DESKTOP": "kde", "OMARCHY_PATH": "/nowhere"}), "generic")
 
     def test_both_implement_the_whole_interface(self):
         names = [line.split()[0].split("(")[0] for line in desktop.__doc__.split("The interface")[1].splitlines()
-                 if line.startswith("    ") and line.split()[0][0].islower() and "(" in line.split()[0]]
+                 if line.startswith("    ") and line.split()[0][0].islower() and "(" in line.split()[0]
+                 and line.split()[0].split("(")[0] not in ("app_name", "app_id", "config_dir", "launcher_entry")]
         self.assertGreaterEqual(len(names), 20)
         for module in (desktop_omarchy, g):
             missing = [n for n in names if not hasattr(module, n)]
@@ -30,8 +31,8 @@ class DetectTest(unittest.TestCase):
 
 
 class GenericTest(unittest.TestCase):
-    def test_config_folder_is_asterism(self):
-        self.assertEqual(g.CONFIG_DIR.name, "asterism")
+    def test_config_folder_is_ai_agents_map(self):
+        self.assertEqual(desktop.config_dir().name, "ai-agents-map")
 
     def test_theme_from_the_style_manager(self):
         with mock.patch.object(g, "_adw_style", return_value=(True, "#9141ac")):
@@ -51,6 +52,9 @@ class GenericTest(unittest.TestCase):
         self.assertEqual((light["background"], light["accent"]), (g.LIGHT["background"], g.ACCENTS["blue"]))
 
     def test_terminal_choice(self):
+        found = {"cosmic-term": "/usr/bin/cosmic-term", "xterm": "/usr/bin/xterm"}     # COSMIC's own
+        with mock.patch.object(g.shutil, "which", side_effect=found.get), mock.patch.dict(g.os.environ, {"TERMINAL": ""}):
+            self.assertEqual(g.terminal(), ["/usr/bin/cosmic-term", "--"])
         found = {"konsole": "/usr/bin/konsole", "xterm": "/usr/bin/xterm"}
         with mock.patch.object(g.shutil, "which", side_effect=found.get), mock.patch.dict(g.os.environ, {"TERMINAL": ""}):
             self.assertEqual(g.terminal(), ["/usr/bin/konsole", "-e"])

@@ -13,7 +13,7 @@ def load_tool():
     return module
 
 
-@unittest.skipUnless(TOOL.is_file(), "docs/ is part of Asterism only (the plugin ships the built PDFs)")
+@unittest.skipUnless(TOOL.is_file(), "docs/ is part of AI Agents Map only (the plugin ships the built PDFs)")
 class ManualTranslationsTest(unittest.TestCase):
     """The translated manuals keep the English markup and say which English they were made from.
     Text behind the English is not a failure here (an English edit must not break the tests):

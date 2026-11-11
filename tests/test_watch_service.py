@@ -29,24 +29,16 @@ class WatchServiceTest(unittest.TestCase):
         self.assertEqual(result.stdout.split(), ["/tmp/c.json", "providers-with-agents.json"])
 
     def test_unit_passes_the_config_file(self):
-        text = provider_watch.unit_text(Path("/p/provider_watch.py"), Path("/home/u/.config/asterism/w.json"))
-        self.assertIn("ExecStart=/usr/bin/python3 -I /p/provider_watch.py --config /home/u/.config/asterism/w.json\n", text)
+        text = provider_watch.unit_text(Path("/p/provider_watch.py"), Path("/home/u/.config/omarchy/ai-agents-map/w.json"))
+        self.assertIn("ExecStart=/usr/bin/python3 -I /p/provider_watch.py --config /home/u/.config/omarchy/ai-agents-map/w.json\n", text)
         odd = provider_watch.unit_text(Path("/p/provider_watch.py"), Path("/home/u/my dir/w.json"))
         self.assertIn("ExecStart=/usr/bin/python3 -I /p/provider_watch.py\n", odd)
         self.assertEqual(provider_watch.config_from(["x", "--config", "relative.json"]), provider_watch.CONFIG)
         self.assertEqual(provider_watch.config_from(["x"]), provider_watch.CONFIG)
 
 
-    def test_asterism_has_its_own_unit(self):
-        """The plugin and a standalone Asterism on one machine never share the watcher unit."""
-        from unittest import mock
-        import desktop
-        import desktop_generic
-        import desktop_omarchy
-        with mock.patch.object(desktop, "current", return_value=desktop_omarchy):
-            self.assertEqual(provider_watch._unit_name(), "ai-agents-map-providers.service")
-        with mock.patch.object(desktop, "current", return_value=desktop_generic):
-            self.assertEqual(provider_watch._unit_name(), "asterism-providers.service")
+    def test_ai_agents_map_has_its_own_unit(self):
+        self.assertEqual(provider_watch._unit_name(), "ai-agents-map-providers.service")
 
 
 if __name__ == "__main__":

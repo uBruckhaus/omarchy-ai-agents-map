@@ -158,6 +158,17 @@ class McpTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             mcp_ctl.plan("someagent", "photocraft", ["pi"])
 
+class AntigravityMcpTest(unittest.TestCase):
+    """Antigravity's mcp_config.json: command/args/env, or serverUrl for Streamable HTTP (no httpUrl)."""
+
+    def test_write(self):
+        import mcp_ctl
+        remote = mcp_ctl.normal({"serverUrl": "https://example.com/mcp", "headers": {"X": "y"}})
+        self.assertEqual(remote["url"], "https://example.com/mcp")
+        self.assertEqual(mcp_ctl.native("agy", remote), {"serverUrl": "https://example.com/mcp", "headers": {"X": "y"}})
+        stdio = mcp_ctl.normal({"command": "dart", "args": ["mcp-server"], "env": {"A": "1"}})
+        self.assertEqual(mcp_ctl.native("agy", stdio), {"command": "dart", "args": ["mcp-server"], "env": {"A": "1"}})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -9,6 +9,7 @@
  "package": "",
  "package_only": false,
  "own_install_counts": true,
+ "install_marks": [],
  "download": null,
  "short_version": false,
  "offered": true,
@@ -150,7 +151,10 @@
     "note": "Type /login in it."
    }
   ],
-  "key": null
+  "key": null,
+  "extra_file": "",
+  "extra_key": "",
+  "extra_url": ""
  },
  "security": {
   "settings": [

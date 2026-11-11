@@ -68,6 +68,14 @@ class DshTextTest(unittest.TestCase):
         self.assertEqual(set(dsh_ctl.mcp_servers(text)), {"web"})
         self.assertEqual(dsh_ctl.mcp_text(text, "web", None).count("insert"), 0)
 
+    def test_unparsable_profile_reads_empty_but_writes_refuse(self):
+        broken = "- id: llm-pi-ai\n  config: [unclosed\n- id: agent-default-model\n  config:\n    provider: {\n"
+        self.assertEqual(dsh_ctl.providers(broken), {})
+        self.assertEqual(dsh_ctl.default_model(broken), ("", ""))
+        self.assertEqual(dsh_ctl.mcp_servers(broken), {})
+        with self.assertRaises(Exception):
+            dsh_ctl.connect_text(broken, "llama-local", "llama.cpp", "http://127.0.0.1:8080/v1", ["m"], {}, "m", True)
+
     def test_connect_plan_writes_the_web_profile(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)

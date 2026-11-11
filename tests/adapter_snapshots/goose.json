@@ -9,6 +9,7 @@
  "package": "",
  "package_only": false,
  "own_install_counts": true,
+ "install_marks": [],
  "download": null,
  "short_version": false,
  "offered": true,
@@ -68,7 +69,10 @@
  "tools_setting": [],
  "sandbox_setting": "",
  "replies": [],
- "subagents": [],
+ "subagents": [
+  "goose-db",
+  "~/.local/share/goose/sessions/sessions.db"
+ ],
  "session_files": "goose-db",
  "asks_setting": "",
  "access": {
@@ -95,7 +99,10 @@
     "note": ""
    }
   ],
-  "key": null
+  "key": null,
+  "extra_file": "",
+  "extra_key": "",
+  "extra_url": ""
  },
  "security": null,
  "sessions": {

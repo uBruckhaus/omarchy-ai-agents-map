@@ -1,0 +1,2231 @@
+{
+ "search": [
+  {
+   "_id": "6a9678354e2541b828b4a40e",
+   "id": "DavidAU/Qwen3.8-27B-TURBO-Fable-Cold-Fusion-735-882-Heretic-Uncensored-NEO-CODER-MAX-MTP-GGUF",
+   "lastModified": "2026-10-17T22:34:07.000Z",
+   "likes": 2193,
+   "downloads": 1725108,
+   "gguf": {
+    "total": 26895998464,
+    "architecture": "qwen35",
+    "context_length": 262144,
+    "quantize_imatrix_file": "w:/_imx/Qwen3.8-27B-TFCF-735-882-Here-Uncen-NEO-CODER.gguf",
+    "chat_template": "tools tool_call <think> enable_thinking reasoning_content",
+    "bos_token": "<|endoftext|>",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 11673303648
+   },
+   "tags": [
+    "gguf",
+    "unsloth",
+    "fine tune",
+    "heretic",
+    "uncensored",
+    "abliterated",
+    "ara",
+    "MTP GGUF Quants",
+    "Regular GGUF Quants",
+    "qwen3_8",
+    "qwen3_6",
+    "qwen3_5",
+    "multi-stage tuned",
+    "thinking",
+    "reasoning",
+    "all use cases",
+    "coder",
+    "creative",
+    "creative writing",
+    "all genres",
+    "story",
+    "writing",
+    "fiction",
+    "roleplaying",
+    "bfloat16",
+    "multi-stage-tune",
+    "multi-state-merge",
+    "image-text-to-text",
+    "en",
+    "zh",
+    "dataset:DavidAU/Polar-STRICT-Datasets",
+    "dataset:DavidAU/F451-STRICT-Datasets",
+    "base_model:DavidAU/Qwen3.8-27B-TURBO-Fable-Cold-Fusion-735-882-Heretic-Uncensored-NM-DAU",
+    "base_model:quantized:DavidAU/Qwen3.8-27B-TURBO-Fable-Cold-Fusion-735-882-Heretic-Uncensored-NM-DAU",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "imatrix",
+    "conversational"
+   ],
+   "pipeline_tag": "image-text-to-text"
+  },
+  {
+   "_id": "6ab7939bff5de70b9ff8761d",
+   "id": "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-Coder-GGUF",
+   "lastModified": "2026-10-19T17:48:41.000Z",
+   "likes": 529,
+   "downloads": 1035004,
+   "gguf": {
+    "total": 116514464640,
+    "architecture": "qwen4exp",
+    "context_length": 262144,
+    "quantize_imatrix_file": "imatrix-qwen3.8-flash-next.gguf",
+    "chat_template": "tools tool_call <think> enable_thinking reasoning_content",
+    "bos_token": "<|endoftext|>",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 58408584928
+   },
+   "tags": [
+    "gguf",
+    "gsq",
+    "rco",
+    "quantization",
+    "pruning",
+    "expert-pruning",
+    "mixed-precision",
+    "ist-daslab",
+    "moe",
+    "code",
+    "image-text-to-text",
+    "arxiv:2604.18556",
+    "arxiv:2605.00649",
+    "base_model:Qwen/Qwen3.8-Flash-Next",
+    "base_model:quantized:Qwen/Qwen3.8-Flash-Next",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "imatrix",
+    "conversational"
+   ],
+   "pipeline_tag": "image-text-to-text"
+  },
+  {
+   "_id": "6ac22dfb8f73e742da35e0f0",
+   "id": "nerkyor/Qwen3.8-27B-Coder390-EfficientThink-Opus5.5-GPT6Astra-Grok4.7-DSV4Pro-K3-SFT-RLOO-MTP-DFlash2",
+   "lastModified": "2026-10-24T13:39:28.000Z",
+   "likes": 501,
+   "downloads": 570857,
+   "gguf": {
+    "total": 27320697856,
+    "architecture": "qwen35",
+    "context_length": 262144,
+    "chat_template": "tools tool_call <think> enable_thinking reasoning_content",
+    "bos_token": "<|endoftext|>",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 13488346432
+   },
+   "tags": [
+    "safetensors",
+    "gguf",
+    "qwen3.8",
+    "efficient-thinking",
+    "reasoning",
+    "coding",
+    "uncensored",
+    "sft",
+    "simpo",
+    "rloo",
+    "fp8",
+    "bf16",
+    "nvfp4",
+    "modelopt",
+    "quantization",
+    "calibration",
+    "static-quantization",
+    "compressed-tensors",
+    "gsq-rco",
+    "gsq",
+    "rco",
+    "hessian",
+    "imatrix",
+    "block128",
+    "mtp",
+    "dflash2",
+    "speculative-decoding",
+    "multimodal",
+    "sglang",
+    "vllm",
+    "llama.cpp",
+    "image-text-to-text",
+    "en",
+    "zh",
+    "base_model:nerkyor/Qwen3.8-27B-EfficientThink-Uncensored-K3-Opus5-Grok4.6-GPT5.6Sol-SFT-SimPO-DFlash2",
+    "base_model:quantized:nerkyor/Qwen3.8-27B-EfficientThink-Uncensored-K3-Opus5-Grok4.6-GPT5.6Sol-SFT-SimPO-DFlash2",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "conversational"
+   ],
+   "pipeline_tag": "image-text-to-text"
+  },
+  {
+   "_id": "688b451a53e70a07b0669a7c",
+   "id": "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF",
+   "lastModified": "2026-01-30T06:29:38.000Z",
+   "likes": 1186,
+   "downloads": 466565,
+   "gguf": {
+    "total": 30532122624,
+    "architecture": "qwen3moe",
+    "context_length": 262144,
+    "quantize_imatrix_file": "Qwen3-Coder-30B-A3B-Instruct-GGUF/imatrix_unsloth.gguf",
+    "chat_template": "tools tool_call",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 17310784672
+   },
+   "tags": [
+    "transformers",
+    "gguf",
+    "unsloth",
+    "qwen3",
+    "qwen",
+    "text-generation",
+    "arxiv:2505.09388",
+    "base_model:Qwen/Qwen3-Coder-30B-A3B-Instruct",
+    "base_model:quantized:Qwen/Qwen3-Coder-30B-A3B-Instruct",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "imatrix",
+    "conversational"
+   ],
+   "pipeline_tag": "text-generation"
+  },
+  {
+   "_id": "6ac47805dd6528007ae7eb39",
+   "id": "nerkyor/Qwen3.8-27B-Coder390-EfficientThink-Opus5.5-GPT6Astra-Grok4.7-DSV4Pro-K3-SFT-RLOO-GGUF-NInfer",
+   "lastModified": "2026-10-24T13:39:36.000Z",
+   "likes": 62,
+   "downloads": 207758,
+   "gguf": {
+    "total": 27320697856,
+    "architecture": "qwen35",
+    "context_length": 262144,
+    "chat_template": "tools tool_call <think> enable_thinking reasoning_content",
+    "bos_token": "<|endoftext|>",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 13488346432
+   },
+   "tags": [
+    "ninfer",
+    "gguf",
+    "qwen3.8",
+    "efficient-thinking",
+    "reasoning",
+    "coding",
+    "uncensored",
+    "sft",
+    "simpo",
+    "rloo",
+    "q6_k",
+    "imatrix",
+    "quantization",
+    "llama.cpp",
+    "mtp",
+    "speculative-decoding",
+    "multimodal",
+    "vision",
+    "image-text-to-text",
+    "en",
+    "zh",
+    "base_model:nerkyor/Qwen3.8-27B-EfficientThink-Uncensored-K3-Opus5-Grok4.6-GPT5.6Sol-SFT-SimPO-DFlash2",
+    "base_model:quantized:nerkyor/Qwen3.8-27B-EfficientThink-Uncensored-K3-Opus5-Grok4.6-GPT5.6Sol-SFT-SimPO-DFlash2",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "conversational"
+   ],
+   "pipeline_tag": "image-text-to-text"
+  },
+  {
+   "_id": "6981f3a909190d1015f75eeb",
+   "id": "unsloth/Qwen3-Coder-Next-GGUF",
+   "lastModified": "2026-03-06T14:38:33.000Z",
+   "likes": 896,
+   "downloads": 149816,
+   "gguf": {
+    "total": 79674391296,
+    "architecture": "qwen3next",
+    "context_length": 262144,
+    "quantize_imatrix_file": "Qwen3-Coder-Next-GGUF/imatrix_unsloth.gguf",
+    "chat_template": "tools tool_call",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 45130344480
+   },
+   "tags": [
+    "gguf",
+    "qwen3_next",
+    "unsloth",
+    "qwen",
+    "qwen3",
+    "text-generation",
+    "base_model:Qwen/Qwen3-Coder-Next",
+    "base_model:quantized:Qwen/Qwen3-Coder-Next",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "imatrix",
+    "conversational"
+   ],
+   "pipeline_tag": "text-generation"
+  },
+  {
+   "_id": "688b5ce8c2df7833b422267c",
+   "id": "lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF",
+   "lastModified": "2025-07-31T12:35:45.000Z",
+   "likes": 44,
+   "downloads": 98826,
+   "gguf": {
+    "total": 30532122624,
+    "architecture": "qwen3moe",
+    "context_length": 262144,
+    "chat_template": "tools tool_call",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 14583005504
+   },
+   "tags": [
+    "gguf",
+    "text-generation",
+    "base_model:Qwen/Qwen3-Coder-30B-A3B-Instruct",
+    "base_model:quantized:Qwen/Qwen3-Coder-30B-A3B-Instruct",
+    "endpoints_compatible",
+    "region:us",
+    "conversational"
+   ],
+   "pipeline_tag": "text-generation"
+  },
+  {
+   "_id": "688f367d9a71e76315f250be",
+   "id": "mradermacher/Huihui-Qwen3-Coder-30B-A3B-Instruct-abliterated-i1-GGUF",
+   "lastModified": "2025-12-25T03:18:26.000Z",
+   "likes": 206,
+   "downloads": 83093,
+   "gguf": {
+    "total": 30532122624,
+    "architecture": "qwen3moe",
+    "context_length": 262144,
+    "quantize_imatrix_file": "Huihui-Qwen3-Coder-30B-A3B-Instruct-abliterated-i1-GGUF/Huihui-Qwen3-Coder-30B-A3B-Instruct-abliterated.imatrix.gguf",
+    "chat_template": "tools tool_call",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 7078295040
+   },
+   "tags": [
+    "transformers",
+    "gguf",
+    "abliterated",
+    "uncensored",
+    "en",
+    "base_model:huihui-ai/Huihui-Qwen3-Coder-30B-A3B-Instruct-abliterated",
+    "base_model:quantized:huihui-ai/Huihui-Qwen3-Coder-30B-A3B-Instruct-abliterated",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "imatrix",
+    "conversational"
+   ]
+  },
+  {
+   "_id": "698caba54bb62bbb210cfea9",
+   "id": "mradermacher/Huihui-Qwen3-Coder-Next-abliterated-GGUF",
+   "lastModified": "2026-02-12T09:23:01.000Z",
+   "likes": 1,
+   "downloads": 47882,
+   "gguf": {
+    "total": 79674391296,
+    "architecture": "qwen3next",
+    "context_length": 262144,
+    "chat_template": "tools tool_call",
+    "bos_token": "<|endoftext|>",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 43108780160
+   },
+   "tags": [
+    "transformers",
+    "gguf",
+    "abliterated",
+    "uncensored",
+    "en",
+    "base_model:huihui-ai/Huihui-Qwen3-Coder-Next-abliterated",
+    "base_model:quantized:huihui-ai/Huihui-Qwen3-Coder-Next-abliterated",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "conversational"
+   ]
+  },
+  {
+   "_id": "698038e3ee3ce83b9a06e0d5",
+   "id": "Qwen/Qwen3-Coder-Next-GGUF",
+   "lastModified": "2026-02-04T04:26:16.000Z",
+   "likes": 300,
+   "downloads": 46845,
+   "gguf": {
+    "total": 79674391296,
+    "architecture": "qwen3next",
+    "context_length": 262144,
+    "chat_template": "tools tool_call",
+    "bos_token": "<|endoftext|>",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 159458215744
+   },
+   "tags": [
+    "transformers",
+    "gguf",
+    "text-generation",
+    "arxiv:2309.00071",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "conversational",
+    "deploy:azure"
+   ],
+   "pipeline_tag": "text-generation"
+  },
+  {
+   "_id": "688f1638f355b4a885d44a12",
+   "id": "mradermacher/Huihui-Qwen3-Coder-30B-A3B-Instruct-abliterated-GGUF",
+   "lastModified": "2025-08-03T13:54:43.000Z",
+   "likes": 8,
+   "downloads": 46154,
+   "gguf": {
+    "total": 30532122624,
+    "architecture": "qwen3moe",
+    "context_length": 262144,
+    "chat_template": "tools tool_call",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 16557096128
+   },
+   "tags": [
+    "transformers",
+    "gguf",
+    "abliterated",
+    "uncensored",
+    "en",
+    "base_model:huihui-ai/Huihui-Qwen3-Coder-30B-A3B-Instruct-abliterated",
+    "base_model:quantized:huihui-ai/Huihui-Qwen3-Coder-30B-A3B-Instruct-abliterated",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "conversational"
+   ]
+  },
+  {
+   "_id": "6982206da3d877cab5194e77",
+   "id": "bartowski/Qwen_Qwen3-Coder-Next-GGUF",
+   "lastModified": "2026-03-01T23:17:03.000Z",
+   "likes": 30,
+   "downloads": 37043,
+   "gguf": {
+    "total": 79674391296,
+    "architecture": "qwen3next",
+    "context_length": 262144,
+    "quantize_imatrix_file": "/models_out/Qwen3-Coder-Next-GGUF/Qwen_Qwen3-Coder-Next-imatrix.gguf",
+    "chat_template": "tools tool_call",
+    "bos_token": "<|endoftext|>",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 17302421184
+   },
+   "tags": [
+    "gguf",
+    "text-generation",
+    "base_model:Qwen/Qwen3-Coder-Next",
+    "base_model:quantized:Qwen/Qwen3-Coder-Next",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "imatrix",
+    "conversational"
+   ],
+   "pipeline_tag": "text-generation"
+  },
+  {
+   "_id": "6acf0e435e3438e7c3856e41",
+   "id": "huihui-ai/Huihui-Qwen3.8-27B-Coder390-EfficientThink-abliterated-GGUF",
+   "lastModified": "2026-10-14T18:38:11.000Z",
+   "likes": 25,
+   "downloads": 33513,
+   "gguf": {
+    "total": 6789424,
+    "totalFileSize": 27300192
+   },
+   "tags": [
+    "transformers",
+    "gguf",
+    "abliterated",
+    "uncensored",
+    "huihui",
+    "qwen3",
+    "imatrix",
+    "image-text-to-text",
+    "base_model:nerkyor/Qwen3.8-27B-Coder390-EfficientThink-Opus5.5-GPT6Astra-Grok4.7-DSV4Pro-K3-SFT-RLOO-MTP-DFlash2",
+    "base_model:quantized:nerkyor/Qwen3.8-27B-Coder390-EfficientThink-Opus5.5-GPT6Astra-Grok4.7-DSV4Pro-K3-SFT-RLOO-MTP-DFlash2",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us"
+   ],
+   "pipeline_tag": "image-text-to-text"
+  },
+  {
+   "_id": "6ab347c3f30ac5367263cf3d",
+   "id": "Thaurock/Qwen3-Coder-30B-A3B-Instruct-abliterated-GGUF",
+   "lastModified": "2026-09-23T14:23:00.000Z",
+   "likes": 1,
+   "downloads": 31789,
+   "gguf": {
+    "total": 30532122624,
+    "architecture": "qwen3moe",
+    "context_length": 262144,
+    "chat_template": "tools tool_call",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 61095805792
+   },
+   "tags": [
+    "gguf",
+    "qwen",
+    "qwen3",
+    "coder",
+    "text-generation",
+    "GGUF",
+    "abliterated",
+    "uncensored",
+    "moe",
+    "base_model:huihui-ai/Huihui-Qwen3-Coder-30B-A3B-Instruct-abliterated",
+    "base_model:quantized:huihui-ai/Huihui-Qwen3-Coder-30B-A3B-Instruct-abliterated",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "conversational"
+   ],
+   "pipeline_tag": "text-generation"
+  },
+  {
+   "_id": "6980fc74a738a0a009347d00",
+   "id": "lmstudio-community/Qwen3-Coder-Next-GGUF",
+   "lastModified": "2026-02-04T21:39:48.000Z",
+   "likes": 10,
+   "downloads": 30413,
+   "gguf": {
+    "total": 79674391296,
+    "architecture": "qwen3next",
+    "context_length": 262144,
+    "chat_template": "tools tool_call",
+    "bos_token": "<|endoftext|>",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 48487031968
+   },
+   "tags": [
+    "gguf",
+    "base_model:Qwen/Qwen3-Coder-Next",
+    "base_model:quantized:Qwen/Qwen3-Coder-Next",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "conversational"
+   ]
+  },
+  {
+   "_id": "698a064ac600e11d6785d8ee",
+   "id": "bartowski/huihui-ai_Qwen3-Coder-Next-abliterated-GGUF",
+   "lastModified": "2026-02-10T15:29:06.000Z",
+   "likes": 38,
+   "downloads": 27289,
+   "gguf": {
+    "total": 79674391296,
+    "architecture": "qwen3next",
+    "context_length": 262144,
+    "quantize_imatrix_file": "/models_out/Qwen3-Coder-Next-abliterated-GGUF/huihui-ai_Qwen3-Coder-Next-abliterated-imatrix.gguf",
+    "chat_template": "tools tool_call",
+    "bos_token": "<|endoftext|>",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 17194434496
+   },
+   "tags": [
+    "gguf",
+    "abliterated",
+    "uncensored",
+    "text-generation",
+    "base_model:huihui-ai/Huihui-Qwen3-Coder-Next-abliterated",
+    "base_model:quantized:huihui-ai/Huihui-Qwen3-Coder-Next-abliterated",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "imatrix",
+    "conversational"
+   ],
+   "pipeline_tag": "text-generation"
+  },
+  {
+   "_id": "6a570465ddde8108ea23fe04",
+   "id": "ManniX-ITA/Qwen3.6-27B-A3B-Coder-MTP-GGUF",
+   "lastModified": "2026-09-16T10:44:13.000Z",
+   "likes": 59,
+   "downloads": 26533,
+   "gguf": {
+    "total": 26213016704,
+    "architecture": "qwen35moe",
+    "context_length": 262144,
+    "quantize_imatrix_file": "/srv/ml/models/gguf/Qwen3.6-27B-A3B-Coder-MTP-GGUF/imatrix.dat",
+    "chat_template": "tools tool_call <think> enable_thinking reasoning_content",
+    "bos_token": "<|endoftext|>",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 8204738016
+   },
+   "tags": [
+    "transformers",
+    "gguf",
+    "code",
+    "expert-pruning",
+    "moe",
+    "qwen3.6",
+    "text-generation",
+    "en",
+    "base_model:ManniX-ITA/Qwen3.6-27B-A3B-Coder",
+    "base_model:quantized:ManniX-ITA/Qwen3.6-27B-A3B-Coder",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "imatrix",
+    "conversational"
+   ],
+   "pipeline_tag": "text-generation"
+  },
+  {
+   "_id": "6a2cd9e5852ecf4a782a3cba",
+   "id": "jica98/qwen3.5-4B-super-coder",
+   "lastModified": "2026-06-27T11:24:38.000Z",
+   "likes": 125,
+   "downloads": 25159,
+   "gguf": {
+    "total": 4326350848,
+    "architecture": "qwen35",
+    "context_length": 262144,
+    "chat_template": "tools tool_call <think> enable_thinking reasoning_content",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 2611783040
+   },
+   "tags": [
+    "safetensors",
+    "gguf",
+    "qwen3_5",
+    "coding",
+    "tool-calling",
+    "unsloth",
+    "llama-cpp",
+    "thinking-mode",
+    "Gated-DeltaNet",
+    "mobile-fit",
+    "text-generation",
+    "conversational",
+    "base_model:Qwen/Qwen3.5-4B",
+    "base_model:quantized:Qwen/Qwen3.5-4B",
+    "endpoints_compatible",
+    "region:us"
+   ],
+   "pipeline_tag": "text-generation"
+  },
+  {
+   "_id": "698b65afd48d26ad47616178",
+   "id": "MaziyarPanahi/Qwen3-Coder-Next-GGUF",
+   "lastModified": "2026-02-10T18:04:23.000Z",
+   "likes": 3,
+   "downloads": 24057,
+   "gguf": {
+    "total": 79674391296,
+    "architecture": "qwen3next",
+    "context_length": 262144,
+    "chat_template": "tools tool_call",
+    "bos_token": "<|endoftext|>",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 159458215360
+   },
+   "tags": [
+    "gguf",
+    "mistral",
+    "quantized",
+    "2-bit",
+    "3-bit",
+    "4-bit",
+    "5-bit",
+    "6-bit",
+    "8-bit",
+    "GGUF",
+    "text-generation",
+    "base_model:Qwen/Qwen3-Coder-Next",
+    "base_model:quantized:Qwen/Qwen3-Coder-Next",
+    "region:us",
+    "conversational"
+   ],
+   "pipeline_tag": "text-generation"
+  },
+  {
+   "_id": "6ac5eb5e3e5371d47f976520",
+   "id": "alesha-pro/Qwen3.8-Flash-Next-abliterated-GSQ-RCO-Coder-Strata-GGUF",
+   "lastModified": "2026-10-07T17:57:17.000Z",
+   "likes": 12,
+   "downloads": 21211,
+   "gguf": {
+    "total": 120320,
+    "architecture": "controlvector",
+    "totalFileSize": 483520
+   },
+   "tags": [
+    "gguf",
+    "gsq",
+    "rco",
+    "expert-pruning",
+    "code",
+    "strata",
+    "abliterated",
+    "control-vector",
+    "image-text-to-text",
+    "arxiv:2604.18556",
+    "arxiv:2605.00649",
+    "base_model:ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-Coder-GGUF",
+    "base_model:quantized:ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-Coder-GGUF",
+    "license:other",
+    "region:us"
+   ],
+   "pipeline_tag": "image-text-to-text"
+  },
+  {
+   "_id": "6acc728d1d71f839975cbb1f",
+   "id": "mradermacher/Huihui-Qwen3.8-27B-Coder390-EfficientThink-abliterated-GGUF",
+   "lastModified": "2026-10-12T06:58:32.000Z",
+   "likes": 2,
+   "downloads": 20263,
+   "gguf": {
+    "total": 27320697856,
+    "architecture": "qwen35",
+    "context_length": 262144,
+    "chat_template": "tools tool_call <think> enable_thinking reasoning_content",
+    "bos_token": "<|endoftext|>",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 15420451392
+   },
+   "tags": [
+    "transformers",
+    "gguf",
+    "abliterated",
+    "uncensored",
+    "huihui",
+    "qwen3",
+    "en",
+    "base_model:huihui-ai/Huihui-Qwen3.8-27B-Coder390-EfficientThink-abliterated",
+    "base_model:quantized:huihui-ai/Huihui-Qwen3.8-27B-Coder390-EfficientThink-abliterated",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "conversational"
+   ]
+  },
+  {
+   "_id": "6ad869cab41b5e7b389c6354",
+   "id": "agentionai/Qwen3.8-Flash-Next-Gyro-Coder-GGUF",
+   "lastModified": "2026-10-26T04:04:44.000Z",
+   "likes": 59,
+   "downloads": 17202,
+   "gguf": {
+    "total": 116514464640,
+    "architecture": "qwen4exp",
+    "context_length": 262144,
+    "chat_template": "tools tool_call <think> enable_thinking reasoning_content",
+    "bos_token": "<|endoftext|>",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 83975624672
+   },
+   "tags": [
+    "gguf",
+    "qwen3.8-flash-next",
+    "qwen4exp",
+    "code",
+    "experimental",
+    "agentionai",
+    "text-generation",
+    "base_model:Qwen/Qwen3.8-Flash-Next",
+    "base_model:quantized:Qwen/Qwen3.8-Flash-Next",
+    "license:other",
+    "endpoints_compatible",
+    "region:us",
+    "conversational"
+   ],
+   "pipeline_tag": "text-generation"
+  },
+  {
+   "_id": "6882f58e198458979abe040c",
+   "id": "DavidAU/Qwen3-Zero-Coder-Reasoning-V2-0.8B-NEO-EX-GGUF",
+   "lastModified": "2025-07-28T00:08:51.000Z",
+   "likes": 42,
+   "downloads": 16050,
+   "gguf": {
+    "total": 816283136,
+    "architecture": "qwen3",
+    "context_length": 40960,
+    "quantize_imatrix_file": "E:/_imx/Qwen3-Zero-Coder-Reasoning-0.8B-f16-pure-NEO.dat",
+    "chat_template": "tools tool_call <think> enable_thinking reasoning_content",
+    "bos_token": "<|endoftext|>",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 1638722560
+   },
+   "tags": [
+    "gguf",
+    "merge",
+    "programming",
+    "code generation",
+    "code",
+    "codeqwen",
+    "coding",
+    "coder",
+    "qwen3",
+    "chat",
+    "qwen",
+    "qwen-coder",
+    "reasoning",
+    "thinking",
+    "r1",
+    "cot",
+    "deepseek",
+    "40k context",
+    "general usage",
+    "problem solving",
+    "brainstorming",
+    "solve riddles",
+    "text-generation",
+    "en",
+    "base_model:DavidAU/Qwen3-Zero-Coder-Reasoning-V2-0.8B",
+    "base_model:quantized:DavidAU/Qwen3-Zero-Coder-Reasoning-V2-0.8B",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "imatrix",
+    "conversational"
+   ],
+   "pipeline_tag": "text-generation"
+  },
+  {
+   "_id": "688b46591ec4c07ea068a606",
+   "id": "unsloth/Qwen3-Coder-30B-A3B-Instruct-1M-GGUF",
+   "lastModified": "2025-08-05T11:09:59.000Z",
+   "likes": 165,
+   "downloads": 11673,
+   "gguf": {
+    "total": 30532122624,
+    "architecture": "qwen3moe",
+    "context_length": 1048576,
+    "quantize_imatrix_file": "Qwen3-Coder-30B-A3B-Instruct-1M-GGUF/imatrix_unsloth.gguf",
+    "chat_template": "tools tool_call",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 17310784864
+   },
+   "tags": [
+    "transformers",
+    "gguf",
+    "unsloth",
+    "qwen3",
+    "qwen",
+    "text-generation",
+    "arxiv:2505.09388",
+    "base_model:Qwen/Qwen3-Coder-30B-A3B-Instruct",
+    "base_model:quantized:Qwen/Qwen3-Coder-30B-A3B-Instruct",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "imatrix",
+    "conversational"
+   ],
+   "pipeline_tag": "text-generation"
+  },
+  {
+   "_id": "6aa25a85dade99a5ffda9d00",
+   "id": "Jab1718/qwen3.8-flash-coder-26gb-gguf",
+   "lastModified": "2026-09-11T01:40:03.000Z",
+   "likes": 31,
+   "downloads": 11384,
+   "gguf": {
+    "total": 42620341120,
+    "architecture": "qwen4exp",
+    "context_length": 262144,
+    "chat_template": "tools tool_call <think> enable_thinking reasoning_content",
+    "bos_token": "<|endoftext|>",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 28394087776
+   },
+   "tags": [
+    "gguf",
+    "llama-cpp",
+    "ollama",
+    "moe",
+    "qwen",
+    "code",
+    "coding-agent",
+    "quantization",
+    "text-generation",
+    "en",
+    "vi",
+    "zh",
+    "base_model:Jab1718/qwen3.8-flash-coder-85gb-bf16",
+    "base_model:quantized:Jab1718/qwen3.8-flash-coder-85gb-bf16",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "conversational"
+   ],
+   "pipeline_tag": "text-generation"
+  },
+  {
+   "_id": "6a80194caeee4866df8f1a93",
+   "id": "Lord-H4D3ZS/Qwen3.8-Distill-35B-A3B-Coder-Abliterated",
+   "lastModified": "2026-08-15T13:57:02.000Z",
+   "likes": 25,
+   "downloads": 11370,
+   "gguf": {
+    "total": 35505251456,
+    "architecture": "qwen35moe",
+    "context_length": 262144,
+    "chat_template": "tools tool_call <think> enable_thinking reasoning_content",
+    "bos_token": "<|endoftext|>",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 12289701344
+   },
+   "tags": [
+    "gguf",
+    "qwen3_5_moe_text",
+    "qwen3",
+    "moe",
+    "a3b",
+    "mtp",
+    "rocmfpx",
+    "code",
+    "text-generation",
+    "conversational",
+    "base_model:Qwen/Qwen3.6-35B-A3B",
+    "base_model:quantized:Qwen/Qwen3.6-35B-A3B",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us"
+   ],
+   "pipeline_tag": "text-generation"
+  },
+  {
+   "_id": "6878a604e99748b159673a72",
+   "id": "DavidAU/Qwen3-Zero-Coder-Reasoning-0.8B-NEO-EX-GGUF",
+   "lastModified": "2025-07-28T00:14:32.000Z",
+   "likes": 28,
+   "downloads": 11112,
+   "gguf": {
+    "total": 816283136,
+    "architecture": "qwen3",
+    "context_length": 40960,
+    "quantize_imatrix_file": "E:/_imx/Qwen3-Zero-Coder-Reasoning-0.8B-NEO.dat",
+    "chat_template": "tools tool_call <think> enable_thinking reasoning_content",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 1638723040
+   },
+   "tags": [
+    "gguf",
+    "merge",
+    "programming",
+    "code generation",
+    "code",
+    "codeqwen",
+    "coding",
+    "coder",
+    "qwen3",
+    "chat",
+    "qwen",
+    "qwen-coder",
+    "reasoning",
+    "thinking",
+    "r1",
+    "cot",
+    "deepseek",
+    "40k context",
+    "general usage",
+    "problem solving",
+    "brainstorming",
+    "solve riddles",
+    "text-generation",
+    "en",
+    "base_model:DavidAU/Qwen3-Zero-Coder-Reasoning-0.8B",
+    "base_model:quantized:DavidAU/Qwen3-Zero-Coder-Reasoning-0.8B",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "imatrix",
+    "conversational"
+   ],
+   "pipeline_tag": "text-generation"
+  },
+  {
+   "_id": "6accb62281800b2f2d5839cd",
+   "id": "Schiltmans/Qwen3.8-Flash-Next-Coder-cut240",
+   "lastModified": "2026-10-27T14:58:10.000Z",
+   "likes": 2,
+   "downloads": 10785,
+   "gguf": {
+    "total": 56623104000,
+    "architecture": "qwen4_exp-experts-cut",
+    "totalFileSize": 23495344128
+   },
+   "tags": [
+    "gguf",
+    "qwen4_exp",
+    "moe",
+    "expert-pruning",
+    "apple-silicon",
+    "code",
+    "text-generation",
+    "conversational",
+    "base_model:ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-Coder-GGUF",
+    "base_model:quantized:ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-Coder-GGUF",
+    "license:other",
+    "region:us"
+   ],
+   "pipeline_tag": "text-generation"
+  },
+  {
+   "_id": "6a93983be710781835c14c88",
+   "id": "llmfan46/Qwen3-Coder-Next-Uncensored-Heretic-GGUF",
+   "lastModified": "2026-08-30T05:27:30.000Z",
+   "likes": 2,
+   "downloads": 10736,
+   "gguf": {
+    "total": 79674391296,
+    "architecture": "qwen3next",
+    "context_length": 262144,
+    "chat_template": "tools tool_call",
+    "bos_token": "<|endoftext|>",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 159458414368
+   },
+   "tags": [
+    "transformers",
+    "gguf",
+    "qwen3_next",
+    "heretic",
+    "uncensored",
+    "decensored",
+    "abliterated",
+    "text-generation",
+    "base_model:llmfan46/Qwen3-Coder-Next-Uncensored-Heretic",
+    "base_model:quantized:llmfan46/Qwen3-Coder-Next-Uncensored-Heretic",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "conversational"
+   ],
+   "pipeline_tag": "text-generation"
+  },
+  {
+   "_id": "6ad9fe9b51c12e1f3baed7f9",
+   "id": "ggml-org/Qwen3-Coder-30B-A3B-Instruct-GGUF",
+   "lastModified": "2026-10-22T12:17:35.000Z",
+   "likes": 3,
+   "downloads": 10197,
+   "gguf": {
+    "total": 30532122624,
+    "architecture": "qwen3moe",
+    "context_length": 262144,
+    "chat_template": "tools tool_call",
+    "bos_token": "<|endoftext|>",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 61095804896
+   },
+   "tags": [
+    "gguf",
+    "quantized",
+    "text-generation",
+    "base_model:Qwen/Qwen3-Coder-30B-A3B-Instruct",
+    "base_model:quantized:Qwen/Qwen3-Coder-30B-A3B-Instruct",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "conversational"
+   ],
+   "pipeline_tag": "text-generation"
+  },
+  {
+   "_id": "687fea777eb23e8ba8505b84",
+   "id": "unsloth/Qwen3-Coder-480B-A35B-Instruct-GGUF",
+   "lastModified": "2025-07-31T15:49:07.000Z",
+   "likes": 180,
+   "downloads": 9468,
+   "gguf": {
+    "total": 480154875392,
+    "architecture": "qwen3moe",
+    "context_length": 262144,
+    "quantize_imatrix_file": "Qwen3-Coder-480B-A35B-Instruct-GGUF/imatrix_unsloth.dat",
+    "chat_template": "tools tool_call",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 149716201312
+   },
+   "tags": [
+    "transformers",
+    "gguf",
+    "unsloth",
+    "qwen3",
+    "qwen",
+    "text-generation",
+    "arxiv:2505.09388",
+    "base_model:Qwen/Qwen3-Coder-480B-A35B-Instruct",
+    "base_model:quantized:Qwen/Qwen3-Coder-480B-A35B-Instruct",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "imatrix",
+    "conversational"
+   ],
+   "pipeline_tag": "text-generation"
+  },
+  {
+   "_id": "6a26acddad0052d5c79a9dc0",
+   "id": "mradermacher/Qwen3.5-9B-Coder-GGUF",
+   "lastModified": "2026-06-08T13:09:09.000Z",
+   "likes": 7,
+   "downloads": 8980,
+   "gguf": {
+    "total": 9197093888,
+    "architecture": "qwen35",
+    "context_length": 262144,
+    "chat_template": "tools tool_call <think> enable_thinking reasoning_content",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 18407323584
+   },
+   "tags": [
+    "transformers",
+    "gguf",
+    "text-generation-inference",
+    "coding agent",
+    "agent",
+    "code",
+    "tools",
+    "unsloth",
+    "qwen3_5",
+    "en",
+    "dataset:TeichAI/claude-4.5-opus-high-reasoning-250x",
+    "dataset:armand0e/badlogicgames-pi-mono-opus-filtered",
+    "dataset:armand0e/kimi-k2.6-claude-code-traces",
+    "dataset:TeichAI/Claude-Opus-4.6-Reasoning-887x",
+    "dataset:armand0e/minimax-m3-claude-code-traces",
+    "dataset:armand0e/claude-opus-4.8-pi-traces",
+    "base_model:armand0e/Qwen3.5-9B-Coder",
+    "base_model:quantized:armand0e/Qwen3.5-9B-Coder",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "conversational"
+   ]
+  },
+  {
+   "_id": "6acc7afc1aeb4a9775f3ec85",
+   "id": "mradermacher/Huihui-Qwen3.8-27B-Coder390-EfficientThink-abliterated-i1-GGUF",
+   "lastModified": "2026-10-12T08:03:26.000Z",
+   "likes": 6,
+   "downloads": 8894,
+   "gguf": {
+    "total": 27320697856,
+    "architecture": "qwen35",
+    "context_length": 262144,
+    "quantize_imatrix_file": "Huihui-Qwen3.8-27B-Coder390-EfficientThink-abliterated-i1-GGUF/Huihui-Qwen3.8-27B-Coder390-EfficientThink-abliterated.imatrix.g",
+    "chat_template": "tools tool_call <think> enable_thinking reasoning_content",
+    "bos_token": "<|endoftext|>",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 12768332672
+   },
+   "tags": [
+    "transformers",
+    "gguf",
+    "abliterated",
+    "uncensored",
+    "huihui",
+    "qwen3",
+    "en",
+    "base_model:huihui-ai/Huihui-Qwen3.8-27B-Coder390-EfficientThink-abliterated",
+    "base_model:quantized:huihui-ai/Huihui-Qwen3.8-27B-Coder390-EfficientThink-abliterated",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "imatrix",
+    "conversational"
+   ]
+  },
+  {
+   "_id": "69922a093883cdc4e0f876a4",
+   "id": "ggml-org/Qwen3-Coder-Next-GGUF",
+   "lastModified": "2026-02-15T20:33:56.000Z",
+   "likes": 11,
+   "downloads": 8774,
+   "gguf": {
+    "total": 79674391296,
+    "architecture": "qwen3next",
+    "context_length": 262144,
+    "chat_template": "tools tool_call",
+    "bos_token": "<|endoftext|>",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 84812255040
+   },
+   "tags": [
+    "gguf",
+    "base_model:Qwen/Qwen3-Coder-Next",
+    "base_model:quantized:Qwen/Qwen3-Coder-Next",
+    "endpoints_compatible",
+    "region:us",
+    "conversational"
+   ]
+  },
+  {
+   "_id": "6a32bdf1d1161b239722b129",
+   "id": "AtomicChat/Qwen3-Coder-30B-A3B-GGUF",
+   "lastModified": "2026-10-28T08:54:49.000Z",
+   "likes": 5,
+   "downloads": 8271,
+   "gguf": {
+    "total": 30532122624,
+    "architecture": "qwen3moe",
+    "context_length": 262144,
+    "quantize_imatrix_file": "/root/work/models/qwen3-coder-30b-a3b/atomic.imatrix",
+    "chat_template": "tools tool_call",
+    "bos_token": "<|endoftext|>",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 13513064480
+   },
+   "tags": [
+    "gguf",
+    "atomic-chat",
+    "qwen3",
+    "qwen",
+    "llama.cpp",
+    "quantized",
+    "text-generation",
+    "base_model:Qwen/Qwen3-Coder-30B-A3B-Instruct",
+    "base_model:quantized:Qwen/Qwen3-Coder-30B-A3B-Instruct",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "imatrix",
+    "conversational"
+   ],
+   "pipeline_tag": "text-generation"
+  },
+  {
+   "_id": "6a9969f30a1270cd386752c4",
+   "id": "pragmaticcs/Qwen-35B-A3B-SignOfFour-Coder-GGUF",
+   "lastModified": "2026-10-27T09:16:39.000Z",
+   "likes": 8,
+   "downloads": 7784,
+   "gguf": {
+    "total": 34660610688,
+    "architecture": "qwen35moe",
+    "context_length": 262144,
+    "chat_template": "tools tool_call <think> enable_thinking reasoning_content",
+    "bos_token": "<|endoftext|>",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 25087431968
+   },
+   "tags": [
+    "transformers",
+    "gguf",
+    "merge",
+    "ties",
+    "dare",
+    "moe",
+    "qwen",
+    "qwen3.5",
+    "qwen3.6",
+    "causal-lm",
+    "deltanet",
+    "agentic",
+    "reasoning",
+    "code",
+    "text-generation",
+    "en",
+    "zh",
+    "base_model:Jackrong/Qwopus3.6-35B-A3B-Coder",
+    "base_model:merge:Jackrong/Qwopus3.6-35B-A3B-Coder",
+    "base_model:Kwaipilot/KAT-Coder-V2.5-Dev",
+    "base_model:merge:Kwaipilot/KAT-Coder-V2.5-Dev",
+    "base_model:Qwen/Qwen-AgentWorld-35B-A3B",
+    "base_model:merge:Qwen/Qwen-AgentWorld-35B-A3B",
+    "base_model:ornith-ai/Ornith-1.5-35B-A3B",
+    "base_model:merge:ornith-ai/Ornith-1.5-35B-A3B",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "conversational"
+   ],
+   "pipeline_tag": "text-generation"
+  },
+  {
+   "_id": "6acf52f49c99f92dce8a8000",
+   "id": "ArtomYuan/Qwen3.8-27B-Coder390-EfficientThink-abliterated-ROCmFPX",
+   "lastModified": "2026-10-21T09:44:17.000Z",
+   "likes": 0,
+   "downloads": 7459,
+   "gguf": {
+    "total": 27320697856,
+    "architecture": "qwen35",
+    "context_length": 262144,
+    "chat_template": "tools tool_call <think> enable_thinking reasoning_content",
+    "bos_token": "<|endoftext|>",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 14929750080
+   },
+   "tags": [
+    "gguf",
+    "llama.cpp",
+    "ROCm",
+    "Strix Halo",
+    "gfx1151",
+    "quantization",
+    "rocmfpx",
+    "mtp",
+    "base_model:huihui-ai/Huihui-Qwen3.8-27B-Coder390-EfficientThink-abliterated",
+    "base_model:quantized:huihui-ai/Huihui-Qwen3.8-27B-Coder390-EfficientThink-abliterated",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "conversational"
+   ]
+  },
+  {
+   "_id": "6add9706130a725e85d110c6",
+   "id": "ccore/Qwen3.5-4B-3D-Coder",
+   "lastModified": "2026-10-28T20:59:05.000Z",
+   "likes": 224,
+   "downloads": 6944,
+   "gguf": {
+    "total": 4205751296,
+    "architecture": "qwen35",
+    "context_length": 262144,
+    "chat_template": "tools tool_call <think> enable_thinking reasoning_content",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 2708804096
+   },
+   "tags": [
+    "safetensors",
+    "gguf",
+    "qwen3_5",
+    "code",
+    "threejs",
+    "3d",
+    "preview",
+    "dataset:ccore/ThreeJS-3D-Scenes",
+    "base_model:Qwen/Qwen3.5-4B",
+    "base_model:finetune:Qwen/Qwen3.5-4B",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "conversational"
+   ]
+  },
+  {
+   "_id": "68f6aaeb068057313eb6d1b3",
+   "id": "bartowski/cerebras_Qwen3-Coder-REAP-25B-A3B-GGUF",
+   "lastModified": "2025-10-21T04:36:29.000Z",
+   "likes": 48,
+   "downloads": 6880,
+   "gguf": {
+    "total": 24867354624,
+    "architecture": "qwen3moe",
+    "context_length": 262144,
+    "chat_template": "tools tool_call",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 49761354048
+   },
+   "tags": [
+    "gguf",
+    "text-generation",
+    "base_model:cerebras/Qwen3-Coder-REAP-25B-A3B",
+    "base_model:quantized:cerebras/Qwen3-Coder-REAP-25B-A3B",
+    "endpoints_compatible",
+    "region:us",
+    "conversational"
+   ],
+   "pipeline_tag": "text-generation"
+  },
+  {
+   "_id": "6ac781f83f20b8a2457449c3",
+   "id": "Arkha7/Qwen3.8-27B-Coder390-EfficientThink-Opus5.5-GPT6Astra-Grok4.7-DSV4Pro-K3-SFT-RLOO-MTP-DFlash2",
+   "lastModified": "2026-10-08T11:43:52.000Z",
+   "likes": 0,
+   "downloads": 6086,
+   "gguf": {
+    "total": 460730096,
+    "architecture": "clip",
+    "totalFileSize": 629247008
+   },
+   "tags": [
+    "safetensors",
+    "gguf",
+    "qwen3.8",
+    "efficient-thinking",
+    "reasoning",
+    "coding",
+    "uncensored",
+    "sft",
+    "simpo",
+    "rloo",
+    "fp8",
+    "bf16",
+    "nvfp4",
+    "modelopt",
+    "quantization",
+    "calibration",
+    "static-quantization",
+    "compressed-tensors",
+    "gsq-rco",
+    "gsq",
+    "rco",
+    "hessian",
+    "imatrix",
+    "block128",
+    "mtp",
+    "dflash2",
+    "speculative-decoding",
+    "multimodal",
+    "sglang",
+    "vllm",
+    "llama.cpp",
+    "image-text-to-text",
+    "en",
+    "zh",
+    "base_model:nerkyor/Qwen3.8-27B-EfficientThink-Uncensored-K3-Opus5-Grok4.6-GPT5.6Sol-SFT-SimPO-DFlash2",
+    "base_model:quantized:nerkyor/Qwen3.8-27B-EfficientThink-Uncensored-K3-Opus5-Grok4.6-GPT5.6Sol-SFT-SimPO-DFlash2",
+    "license:apache-2.0",
+    "region:us"
+   ],
+   "pipeline_tag": "image-text-to-text"
+  },
+  {
+   "_id": "68a5365700a4ed7eb378c589",
+   "id": "gaianet/Qwen3-Coder-30B-A3B-Instruct-GGUF",
+   "lastModified": "2025-08-20T07:17:35.000Z",
+   "likes": 0,
+   "downloads": 5020,
+   "gguf": {
+    "total": 30532122624,
+    "architecture": "qwen3moe",
+    "context_length": 262144,
+    "chat_template": "tools tool_call",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 11258611360
+   },
+   "tags": [
+    "transformers",
+    "gguf",
+    "qwen3_moe",
+    "text-generation",
+    "base_model:Qwen/Qwen3-Coder-30B-A3B-Instruct",
+    "base_model:quantized:Qwen/Qwen3-Coder-30B-A3B-Instruct",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "conversational"
+   ],
+   "pipeline_tag": "text-generation"
+  },
+  {
+   "_id": "698d8c211259052e01b7fc2b",
+   "id": "mradermacher/Huihui-Qwen3-Coder-Next-abliterated-i1-GGUF",
+   "lastModified": "2026-02-14T08:50:21.000Z",
+   "likes": 4,
+   "downloads": 4937,
+   "gguf": {
+    "total": 79674391296,
+    "architecture": "qwen3next",
+    "context_length": 262144,
+    "quantize_imatrix_file": "Huihui-Qwen3-Coder-Next-abliterated-i1-GGUF/Huihui-Qwen3-Coder-Next-abliterated.imatrix.gguf",
+    "chat_template": "tools tool_call",
+    "bos_token": "<|endoftext|>",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 17995170208
+   },
+   "tags": [
+    "transformers",
+    "gguf",
+    "abliterated",
+    "uncensored",
+    "en",
+    "base_model:huihui-ai/Huihui-Qwen3-Coder-Next-abliterated",
+    "base_model:quantized:huihui-ai/Huihui-Qwen3-Coder-Next-abliterated",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "imatrix",
+    "conversational"
+   ]
+  },
+  {
+   "_id": "694b0071329f482532fc2f9a",
+   "id": "mradermacher/Qwen3-Coder-30B-A3B-Instruct-RTPurbo-i1-GGUF",
+   "lastModified": "2025-12-24T01:42:58.000Z",
+   "likes": 2,
+   "downloads": 4936,
+   "gguf": {
+    "total": 30532122624,
+    "architecture": "qwen3moe",
+    "context_length": 262144,
+    "quantize_imatrix_file": "Qwen3-Coder-30B-A3B-Instruct-RTPurbo-i1-GGUF/Qwen3-Coder-30B-A3B-Instruct-RTPurbo.imatrix.gguf",
+    "chat_template": "{% if not add_generation_prompt is defin",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 7078287968
+   },
+   "tags": [
+    "transformers",
+    "gguf",
+    "en",
+    "base_model:RTP-LLM/Qwen3-Coder-30B-A3B-Instruct-RTPurbo",
+    "base_model:quantized:RTP-LLM/Qwen3-Coder-30B-A3B-Instruct-RTPurbo",
+    "endpoints_compatible",
+    "region:us",
+    "imatrix",
+    "conversational"
+   ]
+  },
+  {
+   "_id": "6a38d970d5a4cd43ce9897e2",
+   "id": "jica98/qwen3.5-9B-super-coder",
+   "lastModified": "2026-06-22T06:44:03.000Z",
+   "likes": 14,
+   "downloads": 4827,
+   "gguf": {
+    "total": 9197093888,
+    "architecture": "qwen35",
+    "context_length": 262144,
+    "chat_template": "tools tool_call <think> enable_thinking reasoning_content",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 5450280608
+   },
+   "tags": [
+    "gguf",
+    "qwen3_5",
+    "llama.cpp",
+    "unsloth",
+    "vision-language-model",
+    "endpoints_compatible",
+    "region:us",
+    "conversational"
+   ]
+  },
+  {
+   "_id": "69d22d68af460e22bef27ca0",
+   "id": "mudler/Qwen3-Coder-Next-APEX-GGUF",
+   "lastModified": "2026-08-17T09:11:52.000Z",
+   "likes": 19,
+   "downloads": 4742,
+   "gguf": {
+    "total": 79674391296,
+    "architecture": "qwen3next",
+    "context_length": 262144,
+    "chat_template": "tools tool_call",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 58392962816
+   },
+   "tags": [
+    "gguf",
+    "quantized",
+    "apex",
+    "moe",
+    "mixture-of-experts",
+    "qwen3",
+    "coder",
+    "base_model:Qwen/Qwen3-Coder-Next",
+    "base_model:quantized:Qwen/Qwen3-Coder-Next",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "conversational"
+   ]
+  },
+  {
+   "_id": "698bde1ceff4ed0c27b6ec28",
+   "id": "Mungert/Qwen3-Coder-Next-GGUF",
+   "lastModified": "2026-02-13T16:52:32.000Z",
+   "likes": 1,
+   "downloads": 4488,
+   "gguf": {
+    "total": 79674391296,
+    "architecture": "qwen3next",
+    "context_length": 262144,
+    "quantize_imatrix_file": "/home/mahadeva/code/models/Qwen3-Coder-Next/Qwen3-Coder-Next-imatrix.gguf",
+    "chat_template": "tools tool_call",
+    "bos_token": "<|endoftext|>",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 31524659040
+   },
+   "tags": [
+    "transformers",
+    "gguf",
+    "text-generation",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "imatrix",
+    "conversational"
+   ],
+   "pipeline_tag": "text-generation"
+  },
+  {
+   "_id": "6a9f68bfbaa6d32abaf6eb85",
+   "id": "Solstice-AI/Qwen3.8-27B-TURBO-Fable-Cold-Fusion-NEO-CODER-GGUF",
+   "lastModified": "2026-10-15T02:54:46.000Z",
+   "likes": 0,
+   "downloads": 4347,
+   "gguf": {
+    "total": 26895998464,
+    "architecture": "qwen35",
+    "context_length": 262144,
+    "quantize_imatrix_file": "w:/_imx/Qwen3.8-27B-TFCF-735-882-Here-Uncen-NEO-CODER.gguf",
+    "chat_template": "tools tool_call <think> enable_thinking reasoning_content",
+    "bos_token": "<|endoftext|>",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 18047253088
+   },
+   "tags": [
+    "gguf",
+    "solstice-ai",
+    "qwen3.8",
+    "qwen3_8",
+    "27b",
+    "neo-coder",
+    "coder",
+    "swe-bench",
+    "llama.cpp",
+    "ollama",
+    "vision",
+    "multimodal",
+    "mmproj",
+    "speculative-decoding",
+    "mtp",
+    "uncensored",
+    "abliterated",
+    "image-text-to-text",
+    "conversational",
+    "en",
+    "zh",
+    "base_model:DavidAU/Qwen3.8-27B-TURBO-Fable-Cold-Fusion-735-882-Heretic-Uncensored-NM-DAU",
+    "base_model:quantized:DavidAU/Qwen3.8-27B-TURBO-Fable-Cold-Fusion-735-882-Heretic-Uncensored-NM-DAU",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "imatrix"
+   ],
+   "pipeline_tag": "image-text-to-text"
+  },
+  {
+   "_id": "688c9ae0141d5481cc43dfa3",
+   "id": "CISCai/Qwen3-Coder-30B-A3B-Instruct-SOTA-GGUF",
+   "lastModified": "2025-08-01T15:40:53.000Z",
+   "likes": 0,
+   "downloads": 4297,
+   "gguf": {
+    "total": 30532122624,
+    "architecture": "qwen3moe",
+    "context_length": 262144,
+    "quantize_imatrix_file": "Qwen3-Coder-30B-A3B-Instruct.imatrix.gguf",
+    "chat_template": "tools tool_call",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 7456522816
+   },
+   "tags": [
+    "gguf",
+    "code",
+    "codeqwen",
+    "chat",
+    "qwen",
+    "qwen-coder",
+    "text-generation",
+    "en",
+    "dataset:m-a-p/CodeFeedback-Filtered-Instruction",
+    "arxiv:2505.09388",
+    "base_model:Qwen/Qwen3-Coder-30B-A3B-Instruct",
+    "base_model:quantized:Qwen/Qwen3-Coder-30B-A3B-Instruct",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "imatrix",
+    "conversational"
+   ],
+   "pipeline_tag": "text-generation"
+  },
+  {
+   "_id": "6a880d06a0ce20018e11f202",
+   "id": "ManniX-ITA/Qwen3.6-27B-A3B-CoderX-MTP-GGUF",
+   "lastModified": "2026-09-16T10:44:20.000Z",
+   "likes": 8,
+   "downloads": 4217,
+   "gguf": {
+    "total": 26213016704,
+    "architecture": "qwen35moe",
+    "context_length": 262144,
+    "chat_template": "tools tool_call <think> enable_thinking reasoning_content",
+    "bos_token": "<|endoftext|>",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 52470433280
+   },
+   "tags": [
+    "gguf",
+    "code",
+    "expert-pruning",
+    "imatrix",
+    "moe",
+    "qwen3.6",
+    "text-generation",
+    "en",
+    "base_model:ManniX-ITA/Qwen3.6-27B-A3B-CoderX",
+    "base_model:quantized:ManniX-ITA/Qwen3.6-27B-A3B-CoderX",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "conversational"
+   ],
+   "pipeline_tag": "text-generation"
+  },
+  {
+   "_id": "6ab90fe9909092518d606e35",
+   "id": "OliviaRossi/Qwen3.5-9B-C3SM-SDM-Agentic-Coder-GGUF",
+   "lastModified": "2026-09-29T08:26:09.000Z",
+   "likes": 17,
+   "downloads": 4199,
+   "gguf": {
+    "total": 8953803264,
+    "architecture": "qwen35",
+    "context_length": 262144,
+    "chat_template": "tools tool_call <think> enable_thinking reasoning_content",
+    "eos_token": "<|im_end|>",
+    "totalFileSize": 6467994976
+   },
+   "tags": [
+    "transformers",
+    "gguf",
+    "llama.cpp",
+    "qwen",
+    "qwen3.5",
+    "agent",
+    "code",
+    "tool-use",
+    "function-calling",
+    "merge",
+    "c3sm",
+    "sdm",
+    "text-generation",
+    "en",
+    "zh",
+    "base_model:OliviaRossi/Qwen3.5-9B-C3SM-SDM-Agentic-Coder",
+    "base_model:quantized:OliviaRossi/Qwen3.5-9B-C3SM-SDM-Agentic-Coder",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us",
+    "conversational"
+   ],
+   "pipeline_tag": "text-generation"
+  },
+  {
+   "id": "bad id"
+  },
+  {
+   "id": "a/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/ba/b"
+  },
+  {
+   "id": "ü/x"
+  },
+  "not a dict",
+  {
+   "id": "org/neg",
+   "downloads": -5,
+   "likes": true,
+   "lastModified": "2026-10-20T12:34:56.789Z"
+  },
+  {
+   "id": "org/huge",
+   "downloads": 10000000000000000,
+   "likes": 2.5,
+   "lastModified": "2026-10-20T12:34:56"
+  },
+  {
+   "id": "org/bad-date",
+   "lastModified": "yesterday"
+  },
+  {
+   "id": "org/long-date",
+   "lastModified": "2026-10-20T12:34:56.000000000000000000000000000Z"
+  },
+  {
+   "id": "org/vision",
+   "pipeline_tag": "image-text-to-text",
+   "tags": [
+    "x",
+    3,
+    "mtp"
+   ],
+   "gguf": {
+    "total": 7000000000,
+    "chat_template": "<think> tool_call"
+   }
+  },
+  {
+   "id": "org/embed",
+   "pipeline_tag": "feature-extraction"
+  },
+  {
+   "id": "org/long-task",
+   "pipeline_tag": "text-generationxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+   "id": "org/Model-MTP-GGUF",
+   "gguf": "nope",
+   "tags": "vision"
+  },
+  {
+   "id": "org/tags",
+   "tags": [
+    "vision"
+   ],
+   "pipeline_tag": null
+  }
+ ],
+ "tree": [
+  {
+   "type": "directory",
+   "oid": "03170ee52d8843bc8ccfb6afe6ebc10efd6b9429",
+   "size": 0,
+   "path": "BF16"
+  },
+  {
+   "type": "file",
+   "oid": "06c097323190637dbbdb428055d9bee159eb92fc",
+   "size": 3854,
+   "path": ".gitattributes"
+  },
+  {
+   "type": "file",
+   "oid": "6f90dc5522a79372c17e084217e9dac8d496c1d7",
+   "size": 49655154016,
+   "lfs": {
+    "oid": "c432d5b64272ae30f0df02326619557a1994b034c40139c6e8d7dce928142845",
+    "size": 49655154016,
+    "pointerSize": 136
+   },
+   "xetHash": "5ac0a558ac478344b891e6a1897296038d8cd2c55c43e249a5ba3ec710020cb6",
+   "path": "BF16/Qwen3-Coder-30B-A3B-Instruct-BF16-00001-of-00002.gguf"
+  },
+  {
+   "type": "file",
+   "oid": "6730330bcc8b3717475348499cf96f5054248eff",
+   "size": 11440652032,
+   "lfs": {
+    "oid": "cd36c4d1dc4be366aec7fa9597920e16adb7aed06c7e85ca857695b76ef11737",
+    "size": 11440652032,
+    "pointerSize": 136
+   },
+   "xetHash": "cd72c687eeb1015beddfec65efcc41e3e3059ef9fd7040344145d23f5a728061",
+   "path": "BF16/Qwen3-Coder-30B-A3B-Instruct-BF16-00002-of-00002.gguf"
+  },
+  {
+   "type": "file",
+   "oid": "fa447296822efa6b7c6ad0d407bdda0e6cbdfa27",
+   "size": 17310784672,
+   "lfs": {
+    "oid": "27f17516dacc1576ddc8a5e31a33d9c7829fb15dfa502fb208e50b1e70612b56",
+    "size": 17310784672,
+    "pointerSize": 136
+   },
+   "xetHash": "a3789f5927732fc7f00a3ded7748d54bd77c91a16cd17ae060c3b8f1b25d159a",
+   "path": "Qwen3-Coder-30B-A3B-Instruct-IQ4_NL.gguf"
+  },
+  {
+   "type": "file",
+   "oid": "90aad69b4a9954eab5fb114d8e7e0689c5fce937",
+   "size": 16378076320,
+   "lfs": {
+    "oid": "26cd4fef3ada9de84c6c59c4b93f9bc5df4d69a71e18cfe8a17369c2f8374ce7",
+    "size": 16378076320,
+    "pointerSize": 136
+   },
+   "xetHash": "0ac6c244de707d8c5b1baa71c2fc787859132a5a0406ac2fd7ffa62cd221b794",
+   "path": "Qwen3-Coder-30B-A3B-Instruct-IQ4_XS.gguf"
+  },
+  {
+   "type": "file",
+   "oid": "7c9da7b6da975d04f7f9473bb51e00580ff00680",
+   "size": 11258612896,
+   "lfs": {
+    "oid": "6db9853d31fdb928a731666c9d44e8cdebf52f62f4810cb0908c6c677e6c84b5",
+    "size": 11258612896,
+    "pointerSize": 136
+   },
+   "xetHash": "d289feef8434df6c8c58f22faf3a31f4997d656fc51e0f4c3adee82d6f706ce5",
+   "path": "Qwen3-Coder-30B-A3B-Instruct-Q2_K.gguf"
+  },
+  {
+   "type": "file",
+   "oid": "1c92a9b75d6ca81919a915b42f5b67687c45f370",
+   "size": 11331542176,
+   "lfs": {
+    "oid": "7add73b0607b498f79157a5f4e4ccddc14ad7afd61d76655e064e1e92476267e",
+    "size": 11331542176,
+    "pointerSize": 136
+   },
+   "xetHash": "5f7729f4bd8dfe3c07ffc48f1b0d759f78593604282f860a1eda4ac288c17809",
+   "path": "Qwen3-Coder-30B-A3B-Instruct-Q2_K_L.gguf"
+  },
+  {
+   "type": "file",
+   "oid": "086ed6c7599fbbac7c85d19058263140f24fb79c",
+   "size": 14711850144,
+   "lfs": {
+    "oid": "30c83da425db2324444b6a6cecaf4c410038a2ec73a78de2436879dc0316a371",
+    "size": 14711850144,
+    "pointerSize": 136
+   },
+   "xetHash": "5488b9044028ad89a1a7ad834d6fec69287b6923cc5606a45c4611dad50da874",
+   "path": "Qwen3-Coder-30B-A3B-Instruct-Q3_K_M.gguf"
+  },
+  {
+   "type": "file",
+   "oid": "2f50cc5a46ecdd57e807db498e5febc2569f51de",
+   "size": 13292471456,
+   "lfs": {
+    "oid": "17d51f5310e9a598e5ac914d30f401fb2d1bc3b6a06a846919099eac09364ae1",
+    "size": 13292471456,
+    "pointerSize": 136
+   },
+   "xetHash": "c2083ab5e23279b8e4b7c5357e3e25964e3eda9b57263d1ef9b141195593aea2",
+   "path": "Qwen3-Coder-30B-A3B-Instruct-Q3_K_S.gguf"
+  },
+  {
+   "type": "file",
+   "oid": "dce8f5f0fa741dd6704db357f394a602aa463317",
+   "size": 17379990688,
+   "lfs": {
+    "oid": "cf9ea0572e8759348ef7f8cd899fbfecba5110929fc1aa620d18bb6d91e62700",
+    "size": 17379990688,
+    "pointerSize": 136
+   },
+   "xetHash": "766cb18f922a0619659d8c734bd35d3229ecc652a02d64c2c79c3dd3cd2a5a9e",
+   "path": "Qwen3-Coder-30B-A3B-Instruct-Q4_0.gguf"
+  },
+  {
+   "type": "file",
+   "oid": "77586b5bdcebf3a6ff45e656224775a74aad433e",
+   "size": 19192503456,
+   "lfs": {
+    "oid": "7e3ca03775ad2e3ddffe3380a391c34cf675590a54ef27bcaf94a38787bb06a8",
+    "size": 19192503456,
+    "pointerSize": 136
+   },
+   "xetHash": "387f23b3683238e5d7b50732df78e95a29ead162ec5ae39abb26acf4ba586503",
+   "path": "Qwen3-Coder-30B-A3B-Instruct-Q4_1.gguf"
+  },
+  {
+   "type": "file",
+   "oid": "bcb6e049df36a193357fc3974eb6fac2e4e94361",
+   "size": 18556689568,
+   "lfs": {
+    "oid": "fadc3e5f8d42bf7e894a785b05082e47daee4df26680389817e2093056f088ad",
+    "size": 18556689568,
+    "pointerSize": 136
+   },
+   "xetHash": "5d7b49024293ba8d614ed6604bf01a824918fa2037070bca99625bbb212cf7d4",
+   "path": "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf"
+  },
+  {
+   "type": "file",
+   "oid": "781650be7c12b735f73178050994a43b5b29b7e0",
+   "size": 17456012448,
+   "lfs": {
+    "oid": "56a7d00783419bcb0ae566253c371bcb3678261bb79881a553539f5679864db4",
+    "size": 17456012448,
+    "pointerSize": 136
+   },
+   "xetHash": "cfdc85d9da2c581cd40da5643d3e41816a5ed697e65a3be8990be424fea7ff7c",
+   "path": "Qwen3-Coder-30B-A3B-Instruct-Q4_K_S.gguf"
+  },
+  {
+   "type": "file",
+   "oid": "32f05beab2a6f469f4a419abc216586f4b6df1c4",
+   "size": 21725584544,
+   "lfs": {
+    "oid": "4b78837bbec5ee248e4a5642bf608b6793721af41b92589e40c8da0bce58b907",
+    "size": 21725584544,
+    "pointerSize": 136
+   },
+   "xetHash": "beca45caf0e79b680fc4de5279eaf116b609f42b31b1bd4245fe35aa0997d269",
+   "path": "Qwen3-Coder-30B-A3B-Instruct-Q5_K_M.gguf"
+  },
+  {
+   "type": "file",
+   "oid": "ac3c9269aee824b5332683dc9c536da8420d88f3",
+   "size": 21080513696,
+   "lfs": {
+    "oid": "a1a93585e669f77ac0b5f3aaf18241e051028a6c467c4eac376fd7d1c7a1ebca",
+    "size": 21080513696,
+    "pointerSize": 136
+   },
+   "xetHash": "5d721960c92f9da41c21366cf0e3ecf01bc36632a920540ce632a6c6d3a50fdb",
+   "path": "Qwen3-Coder-30B-A3B-Instruct-Q5_K_S.gguf"
+  },
+  {
+   "type": "file",
+   "oid": "32ed4dfdddec6cf6357cfce7eaf0e46fb2f6bc5c",
+   "size": 25092535456,
+   "lfs": {
+    "oid": "100b5121d09553fb1af3b873b21fb3ec3da5c306fc5cb09bd338c48e21b10875",
+    "size": 25092535456,
+    "pointerSize": 136
+   },
+   "xetHash": "7e6ae1cb1e0aec20e0967851ff32eaa9c88f9e63499436a2ec62420832310ddd",
+   "path": "Qwen3-Coder-30B-A3B-Instruct-Q6_K.gguf"
+  },
+  {
+   "type": "file",
+   "oid": "a550928aaea0d92a656e4dc616a518b3c74ecb9b",
+   "size": 32483935392,
+   "lfs": {
+    "oid": "4ff1cff607804037bf6d2168249c570baa4e1621292b159c0e06591e0d7c3066",
+    "size": 32483935392,
+    "pointerSize": 136
+   },
+   "xetHash": "a32bb2d5170a8c3c51a03e91f0cb3d86fa297858ee9ed8c30e314d1df2ec005d",
+   "path": "Qwen3-Coder-30B-A3B-Instruct-Q8_0.gguf"
+  },
+  {
+   "type": "file",
+   "oid": "c3e300f4111aa2e02f9887ec660629de6e4ac5ac",
+   "size": 9627540640,
+   "lfs": {
+    "oid": "87ddf47ea7be2311968f49c4585f1c12cb9a4400f1112b849449ce27e0732d0f",
+    "size": 9627540640,
+    "pointerSize": 135
+   },
+   "xetHash": "fd739d5050edbf5e6da0d610937678e64160b3bca5f41ab7ff60f8c0c7f8cb58",
+   "path": "Qwen3-Coder-30B-A3B-Instruct-UD-IQ1_M.gguf"
+  },
+  {
+   "type": "file",
+   "oid": "50ebc4525cea7a9b5bd70a4189f4e9baa77608a3",
+   "size": 8914328736,
+   "lfs": {
+    "oid": "2dc573a4748d9d9cd45482e03dc786b4151f9174d66f5f982fda64a5b346dc52",
+    "size": 8914328736,
+    "pointerSize": 135
+   },
+   "xetHash": "63b634ffb826f037b67ef76ac4181d7f36c80213d4950452fa974ea7a0f3e8f3",
+   "path": "Qwen3-Coder-30B-A3B-Instruct-UD-IQ1_S.gguf"
+  },
+  {
+   "type": "file",
+   "oid": "cb07245386334b2d516672c6e26f5943da7a650c",
+   "size": 10837007520,
+   "lfs": {
+    "oid": "7055a02d4d974fd68b26b095a9c676f099507aed1171f89a47275025df3f521d",
+    "size": 10837007520,
+    "pointerSize": 136
+   },
+   "xetHash": "ce84496c8f025b3eb2194183ca321511d84de4ad7684ecc074809dece1a1562f",
+   "path": "Qwen3-Coder-30B-A3B-Instruct-UD-IQ2_M.gguf"
+  },
+  {
+   "type": "file",
+   "oid": "bd3165c1055217bca5b08bc768559d7eb50adf56",
+   "size": 10333691040,
+   "lfs": {
+    "oid": "51d0a284dc26f11102032b7aa8eca28619b8c399478afc5a0ab7180cd711bf13",
+    "size": 10333691040,
+    "pointerSize": 136
+   },
+   "xetHash": "d2e064d706bebb4e937f6194c00c4bbc08be50f121e2d8fe8de4c49addd93327",
+   "path": "Qwen3-Coder-30B-A3B-Instruct-UD-IQ2_XXS.gguf"
+  },
+  {
+   "type": "file",
+   "oid": "1d056c7fbb0fc04e81f5e308f7bfc06ba5ecf939",
+   "size": 12848766112,
+   "lfs": {
+    "oid": "d6b85d2b6633c55be3751848acc74fab40d28d93b27dabacd96ceabe10962057",
+    "size": 12848766112,
+    "pointerSize": 136
+   },
+   "xetHash": "ab594b9e52fa5d6efae539fc4960bf75597edfc227a12b1efc406de310846b2a",
+   "path": "Qwen3-Coder-30B-A3B-Instruct-UD-IQ3_XXS.gguf"
+  },
+  {
+   "type": "file",
+   "oid": "b2eb15c18b3da257260dfabb04816bb212f887ee",
+   "size": 11788590240,
+   "lfs": {
+    "oid": "3dee4686d756e8842aec638c5725666c76584edce76d71088732b52d2c5d7a45",
+    "size": 11788590240,
+    "pointerSize": 136
+   },
+   "xetHash": "b792e71d4689154f10afff91a9f6a9c8f33ba19ede2a8137d687701d0fad248b",
+   "path": "Qwen3-Coder-30B-A3B-Instruct-UD-Q2_K_XL.gguf"
+  },
+  {
+   "type": "file",
+   "oid": "481f7ac4028193a3db2ba2e02692fa965d2d04dc",
+   "size": 13806312608,
+   "lfs": {
+    "oid": "69cd7578d77dffc0b17e34bad9ef998d08ae0e20ccceef21bad4e7eb3d8c553b",
+    "size": 13806312608,
+    "pointerSize": 136
+   },
+   "xetHash": "23fc79ae9ded875b3ee94e49961c67a30009b2bfb6a4c6631e1d53e5508860fd",
+   "path": "Qwen3-Coder-30B-A3B-Instruct-UD-Q3_K_XL.gguf"
+  },
+  {
+   "type": "file",
+   "oid": "952a91c66c88fba9af82dc184162b98a196a12dd",
+   "size": 17665334432,
+   "lfs": {
+    "oid": "2841aa314d916434860cfb8990347528dcdfe5c350dbcb9d1461dbee88ff2533",
+    "size": 17665334432,
+    "pointerSize": 136
+   },
+   "xetHash": "199c115af690bce1d3a771918053dc84fd41587e5fa6c51f59318febdd51638f",
+   "path": "Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL.gguf"
+  },
+  {
+   "type": "file",
+   "oid": "79371f5d18ba07dec3a8d0c037ae8cec5b9a81e8",
+   "size": 21740305568,
+   "lfs": {
+    "oid": "eb331a4eee8eb6b5a8eb25f44f96f45c71b8d10f553c0a456190dd590a7ef77d",
+    "size": 21740305568,
+    "pointerSize": 136
+   },
+   "xetHash": "4bd47cda922080780cfd0841201f1568837481be88c0cc017de2180e2d729481",
+   "path": "Qwen3-Coder-30B-A3B-Instruct-UD-Q5_K_XL.gguf"
+  },
+  {
+   "type": "file",
+   "oid": "8186bba56a9c06050adacef10343e7a7354fe275",
+   "size": 26340328608,
+   "lfs": {
+    "oid": "b09fcc58fd27cd43dacdf6840c5829125c8ed9463b2a386ce2667395b1292f63",
+    "size": 26340328608,
+    "pointerSize": 136
+   },
+   "xetHash": "933b468c4c49c0f9f61dc617955a7230b4472522faf7343be1dcc0ae840cc64d",
+   "path": "Qwen3-Coder-30B-A3B-Instruct-UD-Q6_K_XL.gguf"
+  },
+  {
+   "type": "file",
+   "oid": "6463930fba87f06ec30ba6af780a1c98a37173c5",
+   "size": 35989947552,
+   "lfs": {
+    "oid": "c867adc2a5f823ce64f5aa0717af3c4b660959c3f16c23c5f70f7bf8ba795e28",
+    "size": 35989947552,
+    "pointerSize": 136
+   },
+   "xetHash": "7f8c6c4d5b692f2f101d2a52d356e0b2051f578339640a57a99ceaa2983f346e",
+   "path": "Qwen3-Coder-30B-A3B-Instruct-UD-Q8_K_XL.gguf"
+  },
+  {
+   "type": "file",
+   "oid": "0647e77dce3f7a69ef7f957ad7cb7be80b1ece02",
+   "size": 8005213344,
+   "lfs": {
+    "oid": "fcb403c1d7a98bc0ffbe98ec7fbfafe1cdd0050af808ba4af8cd6dcaa807f8d9",
+    "size": 8005213344,
+    "pointerSize": 135
+   },
+   "xetHash": "b0b8216b26a78cf0ffd7bff14b0e8cb4c1dbbf0335e1f8da37349f15227d7ad0",
+   "path": "Qwen3-Coder-30B-A3B-Instruct-UD-TQ1_0.gguf"
+  },
+  {
+   "type": "file",
+   "oid": "7beb1f278127fd8ff363ddeb88f18a227b031ef3",
+   "size": 8413,
+   "path": "README.md"
+  },
+  {
+   "type": "file",
+   "oid": "cf8bd31f9299ca746daab94a2a6cc6f2272cbc8e",
+   "size": 122029344,
+   "lfs": {
+    "oid": "369217ab4855c1ec6416e343f8ffda7bac2be519d296d65f5efcba702ee1e406",
+    "size": 122029344,
+    "pointerSize": 134
+   },
+   "xetHash": "efcae16777b83f1c1572f7e8d09548ddfa8e54f26eb401f7f76854731c183f4a",
+   "path": "imatrix_unsloth.gguf_file"
+  },
+  {
+   "type": "file",
+   "oid": "179d760aeb2411e4c0a0c900bc1cdc12c7851961",
+   "size": 178,
+   "path": "params"
+  },
+  {
+   "type": "file",
+   "oid": "26f6656fa874146ef0a595217be7dcb1aa2eca71",
+   "size": 1482,
+   "path": "template"
+  },
+  {
+   "type": "file",
+   "path": "mmproj-F16.gguf",
+   "size": 5
+  },
+  {
+   "type": "file",
+   "path": "Big-UD-Q4_K_M-00001-of-00002.gguf",
+   "lfs": {
+    "size": 100
+   }
+  },
+  {
+   "type": "file",
+   "path": "Big-UD-Q4_K_M-00002-of-00002.gguf",
+   "lfs": {
+    "size": 50
+   }
+  },
+  {
+   "type": "file",
+   "path": "sub/folder/Model-q8_0.gguf",
+   "size": "77"
+  },
+  {
+   "type": "file",
+   "path": "../escape.gguf",
+   "size": 1
+  },
+  {
+   "type": "file",
+   "path": "a..b.gguf",
+   "size": 1
+  },
+  {
+   "type": "file",
+   "path": "README.md",
+   "size": 9
+  },
+  {
+   "type": "directory",
+   "path": "sub"
+  },
+  {
+   "type": "file",
+   "path": "Tie-A-IQ2_XXS.gguf",
+   "size": 100
+  },
+  {
+   "type": "file",
+   "path": "Tie-B-bf16.gguf",
+   "size": 100.9
+  },
+  {
+   "type": "file",
+   "path": "NoQuant.gguf",
+   "lfs": {},
+   "size": 0
+  },
+  {
+   "type": "file",
+   "path": "Ünicode.gguf",
+   "size": 1
+  },
+  "junk"
+ ]
+}

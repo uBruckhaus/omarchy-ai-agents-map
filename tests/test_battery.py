@@ -62,6 +62,20 @@ class BatteryTest(unittest.TestCase):
         naive = Limit("Weekly (7-day)", 0.40, dt.datetime(2026, 10, 22, 14, 0))  # local time, no zone
         self.assertIsNone(agent_details.battery([naive], now=now))
 
+    def test_old_or_kept_limits_do_not_look_current(self):
+        now = dt.datetime(2026, 11, 5, 12, 0, tzinfo=dt.timezone.utc)
+        fresh = Limit("Week", 0.5, measured_at=now - dt.timedelta(minutes=5))
+        old = Limit("Week", 0.5, measured_at=now - dt.timedelta(minutes=31))
+        self.assertEqual(agent_details.current_limits([fresh, old], now), [fresh])   # no reset, too old: gone
+        self.assertIsNone(agent_details.battery([old], now=now))
+        reset = Limit("Week", 0.5, now + dt.timedelta(hours=2), measured_at=old.measured_at)
+        self.assertEqual(agent_details.limits_stale([reset], now), (old.measured_at,))
+        self.assertIsNone(agent_details.limits_stale([fresh], now))
+        self.assertIn("these numbers may be out of date", agent_details.battery_tip([reset], now))
+        kept = Limit("Session", 0.2, now + dt.timedelta(hours=1), stale=True)        # the collector's flag
+        self.assertEqual(agent_details.battery_tip([kept], now).splitlines()[-1], "These numbers may be out of date.")
+        self.assertEqual(agent_details.current_limits([Limit("Old", 0.1)], now), [Limit("Old", 0.1)])   # no time
+
     def test_gpu_battery_is_the_free_gpu_memory(self):
         gib = 1024 ** 3
         self.assertIsNone(agent_details.gpu_battery(0, 0))                       # no GPU, no battery

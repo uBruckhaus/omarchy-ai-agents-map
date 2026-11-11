@@ -42,6 +42,36 @@ class AutoContextTest(unittest.TestCase):
         context, extra, api = engine.connect_extra(self.llama, "Qwen")
         self.assertEqual((context, len(extra), api), ({"Qwen": 65536}, 1, []))
 
+    def test_the_catch_all_context_is_not_the_models_own(self):
+        # Task 029: "[*] ctx-size = 8192" is a fallback; the model still gets its best context, sized
+        # for a q8_0 KV cache, which is set along with flash attention where nothing is set.
+        self.ini.write_text("version = 1\n\n[*]\nctx-size = 8192\n")
+        engine = provider_llamacpp.PROVIDER.engine
+        ctx, changes = engine.auto_context(self.llama, "Qwen", vram=24 * GiB)
+        self.assertEqual(ctx, 65536)
+        self.assertEqual(context_ctl.fit.call_args.args[2], "q8_0")
+        section = changes[0].new.split("[Qwen]", 1)[1]
+        for line in ("ctx-size = 65536", "cache-type-k = q8_0", "cache-type-v = q8_0", "flash-attn = on"):
+            self.assertIn(line, section)
+        self.assertIn("[*]\nctx-size = 8192", changes[0].new)                # the fallback stays
+
+    def test_a_cache_type_already_set_is_kept_and_sized_for(self):
+        self.ini.write_text("version = 1\n\n[*]\ncache-type-k = q4_0\ncache-type-v = q4_0\nflash-attn = off\n")
+        engine = provider_llamacpp.PROVIDER.engine
+        ctx, changes = engine.auto_context(self.llama, "Qwen", vram=24 * GiB)
+        self.assertEqual(context_ctl.fit.call_args.args[2], "q4_0")
+        section = changes[0].new.split("[Qwen]", 1)[1]
+        self.assertEqual(section.strip(), "ctx-size = 65536")                 # nothing chosen is overridden
+
+    def test_set_to_brings_q8_0_and_is_sized_for_it(self):
+        # Task 029 rule 2, the Performance view's "Set to": the same sizing as a worked-out context.
+        self.ini.write_text("version = 1\n\n[*]\nctx-size = 8192\n")
+        engine = provider_llamacpp.PROVIDER.engine
+        self.assertEqual(engine.context_now(self.llama, Path("/m"), "Qwen")[:2], (8192, "q8_0"))
+        section = engine.context_changes(self.llama, "Qwen", 65536)[0].new.split("[Qwen]", 1)[1]
+        for line in ("ctx-size = 65536", "cache-type-k = q8_0", "cache-type-v = q8_0", "flash-attn = on"):
+            self.assertIn(line, section)
+
     def test_a_context_already_set_is_kept(self):
         self.ini.write_text("[Qwen]\nctx-size = 32768\n")
         engine = provider_llamacpp.PROVIDER.engine

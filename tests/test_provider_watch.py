@@ -332,5 +332,21 @@ class InstanceModelTest(unittest.TestCase):
         self.assertEqual(pw.instance_model("claude", []), "")
 
 
+
+
+class FlutterDevelUnitGuardTest(unittest.TestCase):
+    def test_devel_reference_never_touches_unit_or_systemctl(self):
+        from unittest import mock
+        with mock.patch.dict(os.environ, {'AI_AGENTS_MAP_FLUTTER_DEVEL': '1'}), \
+             mock.patch.object(pw, '_systemctl') as systemctl, \
+             mock.patch.object(pw, 'unit_text') as text, \
+             mock.patch.object(pw, 'UNIT_FILE') as unit:
+            for enabled in (True, False):
+                self.assertFalse(pw.ensure_service(enabled))
+            systemctl.assert_not_called()
+            text.assert_not_called()
+            self.assertEqual(unit.mock_calls, [])
+
+
 if __name__ == "__main__":
     unittest.main()

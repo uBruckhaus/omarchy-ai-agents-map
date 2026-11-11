@@ -38,7 +38,7 @@ class FactsTest(unittest.TestCase):
 
     def test_same_as_the_old_tables(self):
         self.assertEqual(set(self.facts("web_search")), {"claude", "codex", "gemini", "grok", "copilot",
-                                                         "cursor-agent"})
+                                                         "cursor-agent", "agy"})
         self.assertEqual(set(self.facts("chat_app")), {"bionic"})
         self.assertEqual(self.facts("herdr"), {"cursor-agent": "cursor"})
         self.assertEqual(self.facts("program_dir"), {"hermes": "~/.hermes/hermes-agent"})
@@ -47,13 +47,14 @@ class FactsTest(unittest.TestCase):
         self.assertEqual(set(self.facts("rewrite")), {"claude", "codex"})
         self.assertEqual(set(self.facts("models")), {"claude", "codex", "dsh", "hermes", "opencode", "pi"})
         self.assertEqual(self.facts("sandbox_setting"), {"claude": "sandbox.enabled", "codex": "sandbox_mode",
-                                                         "cursor-agent": "sandbox.mode"})
+                                                         "cursor-agent": "sandbox.mode", "agy": "enableTerminalSandbox"})
         self.assertEqual(self.facts("asks_setting"), {
             "claude": "permissions.defaultMode", "codex": "approval_policy", "copilot": "defaultPermissionMode",
             "cursor-agent": "approvalMode", "hermes": "approvals.mode", "opencode": "permission.bash",
-            "pi": "defaultTools"})
+            "pi": "defaultTools", "agy": "toolPermission"})
         self.assertEqual(set(self.facts("details")), {"claude", "codex", "copilot", "cursor-agent", "opencode",
-                                                      "pi", "omp", "hermes", "dsh", "bionic", "openclaw", "goose"})
+                                                      "pi", "omp", "hermes", "dsh", "bionic", "openclaw", "goose",
+                                                      "agy", "gemini", "grok", "crush"})
         self.assertEqual(self.facts("home")["pi"], "~/.pi/agent")
         self.assertEqual(self.facts("tools_setting"), {"pi": ("~/.pi/agent/settings.json", "defaultTools"),
                                                        "omp": ("~/.omp/agent/settings.json", "defaultTools")})
@@ -102,6 +103,19 @@ class FactsTest(unittest.TestCase):
         codex = next(h for h in harnesses.built_in_adapters() if h.command == "codex")
         old = dataclasses.replace(codex, research=tuple("{prompt}" if a == "-" else a for a in codex.research))
         self.assertEqual(harnesses._with_newer_facts(old).research, codex.research)
+
+    def test_an_add_on_with_the_earlier_plan_limits_gets_home_env_and_store(self):
+        """Review 063 round 3 #13: a signed add-on whose [plan_limits] has only rpc and argv."""
+        import dataclasses
+        codex = next(h for h in harnesses.built_in_adapters() if h.command == "codex")
+        old = dataclasses.replace(codex, plan_limits=("codex-app-server", ("codex", "app-server"), "", ()))
+        filled = harnesses._with_newer_facts(old).plan_limits
+        self.assertEqual(filled[:2], ("codex-app-server", ("codex", "app-server")))     # its own
+        self.assertEqual(filled[2:], codex.plan_limits[2:])
+        self.assertEqual(filled[2], "CODEX_HOME")
+        own = dataclasses.replace(codex, plan_limits=("codex-app-server", ("codex", "app-server"), "OTHER", ()))
+        self.assertEqual(harnesses._with_newer_facts(own).plan_limits[2], "OTHER")
+        self.assertIs(harnesses._with_newer_facts(codex), codex)
 
 
 if __name__ == "__main__":

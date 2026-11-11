@@ -2,6 +2,7 @@ import os
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -57,6 +58,21 @@ class AgentsTest(unittest.TestCase):
     def test_fallback_without_menu(self):
         self.assertEqual(agents.catalog(self.menu.with_name("missing")), agents.FALLBACK)
 
+    def test_system_package_is_found_on_path(self):
+        system = self.bin.parent / "usr-bin"
+        system.mkdir()
+        program = system / "claude"
+        program.write_text("#!/bin/sh\n")
+        program.chmod(0o755)
+        shims = self.mise / "shims"
+        shims.mkdir()
+        (shims / "codex").write_text("#!/bin/sh\n")
+        (shims / "codex").chmod(0o755)
+        (self.bin / "claude").unlink()
+        with unittest.mock.patch.dict(os.environ, {"PATH": f"{shims}:{system}"}):
+            self.assertEqual(agents.detect("claude", self.bin, self.mise, self.db), (True, "", "system"))
+            self.assertEqual(agents.detect("codex", self.bin, self.mise, self.db), (False, "", ""))
+
     def test_wrapper_alone_is_not_installed(self):
         self.assertFalse(self.listed()["claude"].installed)
 
@@ -85,6 +101,48 @@ class AgentsTest(unittest.TestCase):
         found = self.listed()["openclaw"]
         self.assertTrue(found.installed)
         self.assertEqual(found.version, "2026.10.1")
+
+    def test_openclaw_and_hermes_outside_their_packages_when_proven(self):
+        """npm, upstream's installers, pipx or a wrapper of the user's count when the program is
+        proven the agent's (install_marks); another program by the name, a stub that runs mise,
+        does not."""
+        root = Path(self.tmp.name)
+        system = root / "usr-bin"
+        system.mkdir()
+
+        def program(path, text="#!/bin/sh\n"):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+            path.chmod(0o755)
+            return path
+        detect = lambda c: agents.detect(c, self.bin, self.mise, self.db)
+        with unittest.mock.patch.dict(os.environ, {"PATH": str(system), "HOME": str(root)}):
+            program(system / "openclaw")                              # someone else's openclaw
+            program(system / "hermes")                                # the Hermes JavaScript engine
+            self.assertEqual(detect("openclaw"), (False, "", ""))
+            self.assertEqual(detect("hermes"), (False, "", ""))
+            (system / "openclaw").unlink()                            # npm -g: a link into its package
+            os.symlink(program(root / "npm/lib/node_modules/openclaw/openclaw.mjs"), system / "openclaw")
+            self.assertEqual(detect("openclaw"), (True, "", "system"))
+            (system / "openclaw").unlink()                            # upstream's install-cli.sh
+            os.symlink(program(root / ".openclaw/bin/openclaw"), self.bin / "openclaw")
+            self.assertEqual(detect("openclaw"), (True, "", "own"))
+            legacy = ("#!/bin/bash\n\n# Written by omarchy-install-hermes-cli.\n\n"
+                      "if ! [[ -d \"$(mise where 'pipx:hermes-agent[extras=all]')/hermes-agent/lib\" ]]; then\n"
+                      "  mise use -g --quiet --force 'pipx:hermes-agent[extras=all]' || exit 1\nfi\n\n"
+                      "exec mise x 'pipx:hermes-agent[extras=all]' -- hermes \"$@\"\n")
+            program(self.bin / "hermes", legacy)                      # Omarchy's old stub: builds it first
+            self.assertEqual(detect("hermes"), (False, "", ""))
+            program(self.bin / "hermes", f'#!/bin/bash\nexec "{root}/.hermes/hermes-agent/venv/bin/hermes" "$@"\n')
+            self.assertEqual(detect("hermes"), (True, "", "own"))    # upstream's installer
+            for home in ("$HOME", "${HOME}", "~"):                     # a hand-made wrapper
+                program(self.bin / "hermes", f'#!/bin/sh\nexec "{home}/.hermes/bin/hermes" "$@"\n')
+                self.assertEqual(detect("hermes"), (True, "", "own"), home)
+            program(self.bin / "hermes", '#!/bin/sh\nexec "$HOMEX/.hermes/bin/hermes" "$@"\n')
+            self.assertEqual(detect("hermes"), (False, "", ""))      # another variable's folder
+            (self.bin / "hermes").unlink()                            # pipx
+            os.symlink(program(root / ".local/share/pipx/venvs/hermes-agent/bin/hermes"), self.bin / "hermes")
+            self.assertEqual(detect("hermes"), (True, "", "own"))
 
     def test_order_installed_first_default_leading(self):
         self.install("claude", "1")

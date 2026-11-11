@@ -101,7 +101,7 @@ class CheckTest(unittest.TestCase):
             rt = inventory.Runtime("ollama", "Ollama", True, False, address="127.0.0.1:1", models=["qwen3:8b"])
             hints = link_check.check_provider("opencode", "OpenCode", rt, "", with_agents=True)
         self.assertEqual(self.levels(hints), ["warning", "error"])
-        self.assertIn("click one of Ollama's models", hints[0]["text"])
+        self.assertIn("draw a line on the map from OpenCode to one of Ollama's models", hints[0]["text"])
         self.assertIn("ollama serve", hints[1]["text"])
 
     def test_before_connecting_the_settings_are_not_asked_for(self):

@@ -1,14 +1,15 @@
 {
  "command": "agy",
  "name": "Antigravity CLI",
- "label": "Antigravity CLI",
- "full_name": "",
+ "label": "Antigravity",
+ "full_name": "Antigravity CLI",
  "icon": "󰊭",
  "icon_font": "",
- "spec": "",
+ "spec": "antigravity-cli",
  "package": "",
  "package_only": false,
  "own_install_counts": true,
+ "install_marks": [],
  "download": null,
  "short_version": false,
  "offered": false,
@@ -18,6 +19,17 @@
  "short_model_flag": false,
  "self_update": [],
  "install": [
+  {
+   "kind": "mise",
+   "spec": "antigravity-cli",
+   "tool": "",
+   "argv": [],
+   "sudo": false,
+   "packages": [],
+   "url": "",
+   "note": "",
+   "update": []
+  },
   {
    "kind": "installer",
    "spec": "",
@@ -30,16 +42,22 @@
    "update": []
   }
  ],
- "data": [],
+ "data": [
+  "~/.gemini/antigravity-cli",
+  "~/.gemini/config",
+  "~/.gemini/antigravity"
+ ],
  "homepage": "https://antigravity.google",
  "ask": [],
  "games": [],
  "effort": [],
  "configure": [],
- "home": "",
- "activity": [],
+ "home": "~/.gemini/antigravity-cli",
+ "activity": [
+  "~/.gemini/antigravity-cli"
+ ],
  "program_dir": "",
- "web_search": false,
+ "web_search": true,
  "chat_app": false,
  "herdr": "",
  "logout": [],
@@ -51,22 +69,213 @@
  "advise": [],
  "closed": [],
  "tools_setting": [],
- "sandbox_setting": "",
+ "sandbox_setting": "enableTerminalSandbox",
  "replies": [],
  "subagents": [],
  "session_files": "",
- "asks_setting": "",
- "access": null,
- "security": null,
+ "asks_setting": "toolPermission",
+ "access": {
+  "how": "A Google account (free tier or Google AI plan), or a Gemini API key from aistudio.google.com",
+  "login": "agy",
+  "files": [
+   ".gemini/antigravity-cli/history.jsonl"
+  ],
+  "env": [
+   "GEMINI_API_KEY"
+  ],
+  "local_ok": false,
+  "per_token": false,
+  "logins": [
+   {
+    "label": "Google account",
+    "argv": [
+     "agy"
+    ],
+    "note": "Choose “Sign in with Google” when it asks."
+   }
+  ],
+  "key": null,
+  "extra_file": "",
+  "extra_key": "",
+  "extra_url": ""
+ },
+ "security": {
+  "settings": [
+   {
+    "key": "toolPermission",
+    "title": "When Antigravity asks",
+    "explain": "Whether Antigravity asks before it runs a tool, such as a command or a file change.",
+    "choices": [
+     {
+      "value": "strict",
+      "label": "Strict",
+      "explain": "Asks before every tool, even reading.",
+      "risk": 0
+     },
+     {
+      "value": "request-review",
+      "label": "Ask first",
+      "explain": "Asks before it runs a command or changes a file.",
+      "risk": 1
+     },
+     {
+      "value": "proceed-in-sandbox",
+      "label": "Go ahead in the sandbox",
+      "explain": "Runs commands in its sandbox without asking.",
+      "risk": 2
+     },
+     {
+      "value": "always-proceed",
+      "label": "Never ask",
+      "explain": "Runs every tool without asking. Only for a throwaway machine.",
+      "risk": 3
+     }
+    ],
+    "current": null,
+    "default": "request-review",
+    "path": "~/.gemini/antigravity-cli/settings.json",
+    "fmt": "json",
+    "terms": [
+     "approval",
+     "sandbox"
+    ],
+    "editable": true,
+    "recommended": "request-review",
+    "warn": []
+   },
+   {
+    "key": "agentMode",
+    "title": "Agent mode",
+    "explain": "How much Antigravity may do on its own. It can be changed for one session in the CLI.",
+    "choices": [
+     {
+      "value": "default",
+      "label": "Normal",
+      "explain": "Follows “When Antigravity asks”.",
+      "risk": 1
+     },
+     {
+      "value": "plan",
+      "label": "Plan only",
+      "explain": "Reads and plans; changes nothing until you agree.",
+      "risk": 0
+     },
+     {
+      "value": "accept-edits",
+      "label": "Edit without asking",
+      "explain": "Edits files on its own, asks before commands.",
+      "risk": 2
+     },
+     {
+      "value": "auto",
+      "label": "Automatic (preview)",
+      "explain": "Decides on its own which actions need your OK.",
+      "risk": 2
+     }
+    ],
+    "current": null,
+    "default": "default",
+    "path": "~/.gemini/antigravity-cli/settings.json",
+    "fmt": "json",
+    "terms": [
+     "approval"
+    ],
+    "editable": true,
+    "recommended": "default",
+    "warn": []
+   },
+   {
+    "key": "enableTerminalSandbox",
+    "title": "Sandbox for commands",
+    "explain": "Runs terminal commands in a sandbox.",
+    "choices": [
+     {
+      "value": "on",
+      "label": "On",
+      "explain": "Commands are fenced in.",
+      "risk": 0
+     },
+     {
+      "value": "off",
+      "label": "Off",
+      "explain": "Commands run with all your rights.",
+      "risk": 1
+     }
+    ],
+    "current": null,
+    "default": "off",
+    "path": "~/.gemini/antigravity-cli/settings.json",
+    "fmt": "json",
+    "terms": [
+     "sandbox"
+    ],
+    "editable": true,
+    "recommended": "on",
+    "warn": []
+   },
+   {
+    "key": "allowNonWorkspaceAccess",
+    "title": "Files outside the project",
+    "explain": "Whether Antigravity may read and write files outside the project folder.",
+    "choices": [
+     {
+      "value": "off",
+      "label": "Project only",
+      "explain": "Stays inside the project folder.",
+      "risk": 0
+     },
+     {
+      "value": "on",
+      "label": "Anywhere",
+      "explain": "May touch any file you can.",
+      "risk": 2
+     }
+    ],
+    "current": null,
+    "default": "off",
+    "path": "~/.gemini/antigravity-cli/settings.json",
+    "fmt": "json",
+    "terms": [
+     "sandbox"
+    ],
+    "editable": true,
+    "recommended": "off",
+    "warn": []
+   }
+  ],
+  "rules": [],
+  "files": [
+   "~/.gemini/antigravity-cli/settings.json"
+  ],
+  "note": ""
+ },
  "sessions": null,
  "usage": null,
  "latest": null,
  "installer": "Agy",
  "detect": false,
  "limits": false,
- "details": false,
+ "details": true,
  "models": null,
  "local_llm": null,
- "skills": null,
- "mcp": null
+ "skills": {
+  "dirs": [
+   "~/.gemini/antigravity-cli/skills"
+  ],
+  "own": "~/.gemini/antigravity-cli/skills",
+  "settings_list": false,
+  "settings_file": "",
+  "listed": null,
+  "write": null
+ },
+ "mcp": {
+  "path": "~/.gemini/config/mcp_config.json",
+  "format": "json",
+  "key": "mcpServers",
+  "shape": "antigravity",
+  "in_app": "",
+  "write": null,
+  "read": null,
+  "native": null
+ }
 }

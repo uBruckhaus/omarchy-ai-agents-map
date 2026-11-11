@@ -92,7 +92,7 @@ class UsageTest(unittest.TestCase):
 
 
 class ClaudeUsageTest(unittest.TestCase):
-    """Claude Code's own session files when Omarchy keeps no record (Asterism on any desktop)."""
+    """Claude Code's own session files when Omarchy keeps no record (AI Agents Map on any desktop)."""
 
     def test_days_models_and_sessions(self):
         from claude_sessions import Session
@@ -330,6 +330,15 @@ class PaidPerTokenTest(unittest.TestCase):
         self.assertFalse(st.pays_per_token("claude", self.details(), {}))                  # nothing known
         self.assertFalse(st.pays_per_token("claude", None, with_key))
 
+    def test_sessions_that_cost_money_pay_per_token(self):
+        """Its own store says what its sessions cost (Hermes, OpenCode): a provider billing per token,
+        not a plan (none named, no limits, no sign-in that ran out)."""
+        self.assertTrue(st.pays_per_token("hermes", self.details(), {}, billed=True))
+        self.assertFalse(st.pays_per_token("hermes", self.details(), {}, billed=False))
+        self.assertFalse(st.pays_per_token("hermes", self.details(plan="Plus"), {}, billed=True))
+        limit = ad.Limit(label="5 hours", percent=0.3)
+        self.assertFalse(st.pays_per_token("hermes", self.details([limit]), {}, billed=True))
+
     def test_cost_of_the_sessions_active_today(self):
         today = dt.date(2026, 10, 23)
         noon = dt.datetime(2026, 10, 23, 12).timestamp()
@@ -370,6 +379,20 @@ class CostsTest(unittest.TestCase):
         self.assertEqual(spent.unpriced, {"qwen-local": 10})
         with mock.patch.object(st.harnesses, "get", return_value=harness):
             self.assertAlmostEqual(st.cost_today("claude", today), 4)
+        self.assertEqual(spent.billed, 0)                  # tokens only: what they would cost, not a bill
+
+    def test_money_the_sessions_report_is_billed(self):
+        from types import SimpleNamespace
+        from unittest import mock
+        today = dt.date(2026, 10, 23)
+        noon = dt.datetime(2026, 10, 23, 12).timestamp()
+        sessions = {"a": SimpleNamespace(first=noon, last=noon, tokens={"claude-opus-5-5": [1000, 0, 0, 0]}, cost=0.25),
+                    "b": SimpleNamespace(first=noon, last=noon, tokens={}, cost=0.5),
+                    "c": SimpleNamespace(first=noon - 40 * 86400, last=noon - 40 * 86400, tokens={}, cost=9.0)}
+        harness = SimpleNamespace(sessions=SimpleNamespace(collect=lambda: sessions))
+        with mock.patch.object(st.harnesses, "get", return_value=harness):
+            spent = st.costs("opencode", today)
+        self.assertAlmostEqual(spent.billed, 0.75)          # within the 30 days, with or without tokens
 
     def test_no_prices_no_costs(self):
         from types import SimpleNamespace

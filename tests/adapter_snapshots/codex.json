@@ -9,9 +9,28 @@
  "package": "",
  "package_only": false,
  "own_install_counts": true,
+ "install_marks": [],
  "download": null,
  "short_version": false,
  "offered": true,
+ "plan_limits": [
+  "codex-app-server",
+  [
+   "codex",
+   "-s",
+   "read-only",
+   "-a",
+   "on-request",
+   "app-server"
+  ],
+  "CODEX_HOME",
+  [
+   "~/.codex/config.toml",
+   "toml",
+   "cli_auth_credentials_store",
+   "file"
+  ]
+ ],
  "login_status": null,
  "fixed_provider": "",
  "self_served": false,
@@ -167,7 +186,10 @@
   "codex-jsonl",
   []
  ],
- "subagents": [],
+ "subagents": [
+  "codex-rollouts",
+  "~/.codex/sessions"
+ ],
  "session_files": "codex-files",
  "asks_setting": "approval_policy",
  "access": {
@@ -200,7 +222,10 @@
     "--with-api-key"
    ],
    "env_file": ""
-  }
+  },
+  "extra_file": "",
+  "extra_key": "",
+  "extra_url": ""
  },
  "security": {
   "settings": [

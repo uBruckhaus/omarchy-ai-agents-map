@@ -40,6 +40,7 @@ class RefreshGuardTest(unittest.TestCase):
 class Limit:
     def __init__(self, percent, resets_at, label="5h"):
         self.percent, self.resets_at, self.label = percent, resets_at, label
+        self.measured_at, self.stale = None, False      # agent_details.Limit's newer fields
 
 
 class BatteryTest(unittest.TestCase):

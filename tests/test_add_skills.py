@@ -82,6 +82,7 @@ class FilesTest(unittest.TestCase):
 class CornersTest(unittest.TestCase):
     def test_radius(self):
         self.assertEqual(corners.radius("windows", 8), 8)
+        self.assertEqual(corners.radius("slight", 0), corners.SLIGHT)
         self.assertEqual(corners.radius("rounded", 0), corners.ROUNDED)
         self.assertEqual(corners.radius("square", 8), 0)
         self.assertEqual(corners.parse_rounding('{"option": "decoration:rounding", "int": 10}'), 10)

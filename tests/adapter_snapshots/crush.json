@@ -9,6 +9,7 @@
  "package": "",
  "package_only": false,
  "own_install_counts": true,
+ "install_marks": [],
  "download": null,
  "short_version": false,
  "offered": true,
@@ -82,7 +83,10 @@
     "note": ""
    }
   ],
-  "key": null
+  "key": null,
+  "extra_file": "",
+  "extra_key": "",
+  "extra_url": ""
  },
  "security": null,
  "sessions": {
@@ -94,7 +98,7 @@
  "installer": null,
  "detect": false,
  "limits": false,
- "details": false,
+ "details": true,
  "models": null,
  "local_llm": null,
  "skills": {

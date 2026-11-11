@@ -56,6 +56,8 @@ def snapshot(harness, home: Path) -> dict:
         return json.loads(text.replace(str(home), "~"))
     out = {f.name: plain(getattr(harness, f.name)) for f in dataclasses.fields(harnesses.Harness)
            if f.name not in CALLABLES}
+    if not harness.plan_limits:
+        out.pop("plan_limits")         # only an adapter that has it (the snapshots before it stay as they were)
     out["access"] = plain(harness.access()) if harness.access else None
     if harness.security:
         report = agent_security.Report(harness.command, True)
