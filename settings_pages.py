@@ -355,7 +355,9 @@ class SettingsPages:
         self.settings_list.add_css_class("navigation-sidebar")
         side.append(self.settings_list)
         layout.append(side)
-        self.settings_stack = Gtk.Stack(hexpand=True, vhomogeneous=False)
+        # Each section as wide as it needs (a homogeneous stack took the widest one's natural width: the
+        # AI features disclaimer on one line, wider than the window).
+        self.settings_stack = Gtk.Stack(hexpand=True, vhomogeneous=False, hhomogeneous=False)
         self.settings_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
         layout.append(self.settings_stack)
         self.settings_sections, self.settings_section_rows = {}, {}
