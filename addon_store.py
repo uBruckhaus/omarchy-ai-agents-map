@@ -289,9 +289,11 @@ def install(entry: Entry, fetch=None, **kwargs) -> addons.Addon:
 
 
 def same_description(addon, entry) -> bool:
-    """The verified add-on declares what its catalog entry says: kind, privacy level, what it reads and
-    sends, its capabilities (the Install confirmation is built from the entry)."""
-    return (addon.kind == entry.kind and addon.privacy == entry.privacy
+    """The verified add-on declares what its catalog entry says: its name, summary and description, kind,
+    privacy level, what it reads and sends, its capabilities (the Install confirmation and the page are
+    built from the entry)."""
+    texts = all((getattr(addon, f, "") or "") == (getattr(entry, f, "") or "") for f in ("name", "summary", "description"))
+    return (texts and addon.kind == entry.kind and addon.privacy == entry.privacy
             and all(sorted(map(str, getattr(addon, f))) == sorted(map(str, getattr(entry, f)))
                     for f in ("reads", "sends", "capabilities")))
 

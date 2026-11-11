@@ -897,8 +897,9 @@ the backup and Undo), and the agent is told the same context. A context you set 
   kills it; its JSON output is read while it runs (at most 1 MiB). GPU memory is read from sysfs as
   for the GPU card. The result is only shown; **Apply** writes `models.ini` with backup and Undo.
 - **F12 screenshot**: the window as a PNG in `AI Agents Map/` in your pictures folder
-  (`XDG_PICTURES_DIR`, else `~/Pictures`; created 0700, every step and the file opened without
-  following links, the file created new), after a dialog with its name; nothing else is captured.
+  (`XDG_PICTURES_DIR`, else `~/Pictures`, as your own folders lead there; the `AI Agents Map`
+  folder is created 0700 and opened without following a link, the file is created new in it,
+  never through a link), after a dialog with its name; nothing else is captured.
 - **Update with AI…** (a box's update badge): opens the chosen agent in a terminal tab with the task
   (which program, its version now and the newest, how it was installed), shown before it starts.
 - **Writes**, each only after you confirm it with its preview (except AI Agents Map's own state):
