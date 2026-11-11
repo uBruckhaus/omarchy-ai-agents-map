@@ -77,7 +77,8 @@ changes, one commit per step, Uwe looks at it before the next phase.
    their window, enforced on every change route. Dictation comes with it (Ask AI is where it is used):
    Maprisma's engines (Omarchy's dictation, whisper.cpp, a local LLM, an online API) plus Superwhisper
    directly through its own CLI (Uwe, 2026-11-11), not only when Omarchy's default tool is Superwhisper.
-5. **Settings and the rest.** Sections + Find in Settings and the new keys; measure and tune;
+5. **Settings and the rest.** Progress: sections + Find in Settings done (7bcfa1f, 14f026e). Open: measure and
+   tune (llama-bench), the add-on lock while an agent runs, remaining 063 details in the GTK pages. Sections + Find in Settings and the new keys; measure and tune;
    remaining 063 details.
 6. **Release.** Manual (8 languages + PDFs), preview.png, publishing skill preflight, Codex until CLEAN, then
    ask Uwe before push and [Verify].
