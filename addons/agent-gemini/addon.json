@@ -1,0 +1,33 @@
+{
+  "api": 1,
+  "privacy": "numbers",
+  "needs": "maprisma >= 0.14.3",
+  "id": "agent-gemini",
+  "name": "Gemini CLI",
+  "version": "0.14.3",
+  "kind": "agent",
+  "icon": "system-users-symbolic",
+  "summary": "Gemini CLI on the map: its models, MCP servers, skills, settings and sessions",
+  "description": "Teaches Maprisma Gemini CLI: where it keeps its settings, which models, MCP servers and skills it uses, its session numbers, and how to install or remove it.",
+  "capabilities": [
+    "agent"
+  ],
+  "harnesses": [
+    "gemini"
+  ],
+  "provides": [
+    "gemini"
+  ],
+  "reads": [
+    "Gemini CLI's own settings and session files (~/.gemini)"
+  ],
+  "detect": {
+    "commands": [
+      "gemini"
+    ],
+    "paths": [
+      "~/.gemini"
+    ]
+  },
+  "homepage": "https://github.com/google-gemini/gemini-cli"
+}

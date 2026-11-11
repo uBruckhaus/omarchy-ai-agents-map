@@ -1,0 +1,122 @@
+# Google's Antigravity CLI (docs/adapter-format.md): facts only, nothing in this file runs. Its own
+# settings are ~/.gemini/antigravity-cli/settings.json (model, agentMode, toolPermission, sandbox,
+# permissions); MCP servers ~/.gemini/config/mcp_config.json (shared with the Antigravity IDE:
+# command/args/env, or serverUrl for Streamable HTTP; no httpUrl, no SSE); skills
+# ~/.gemini/antigravity-cli/skills (and .agents/skills in a project). Sources:
+# antigravity.google/docs/settings?tab=cli, /docs/mcp, /docs/skills, /docs/getting-started?tab=cli.
+command = "agy"
+name = "Antigravity CLI"
+label = "Antigravity"
+full_name = "Antigravity CLI"
+icon = "U+F02AD"
+installer = "agy"
+offered = false                        # not in Omarchy's agent menu (only this app offers it)
+spec = "antigravity-cli"
+homepage = "https://antigravity.google"
+data = ["~/.gemini/antigravity-cli", "~/.gemini/config", "~/.gemini/antigravity"]
+home = "~/.gemini/antigravity-cli"
+activity = ["~/.gemini/antigravity-cli"]
+web_search = true                      # searches the web itself (Google Search grounding)
+
+[details]                              # its model: the one its newest log says it selected
+reader = "agy"
+
+[[install]]                            # its release through mise (aqua, checksummed)
+kind = "mise"
+spec = "antigravity-cli"
+
+[[install]]
+kind = "installer"
+
+[skills]                               # its own folder (and .agents/skills in a project)
+dirs = ["~/.gemini/antigravity-cli/skills"]
+own = "~/.gemini/antigravity-cli/skills"
+
+[mcp]
+path = "~/.gemini/config/mcp_config.json"
+shape = "antigravity"
+
+[access]
+how = "A Google account (free tier or Google AI plan), or a Gemini API key from aistudio.google.com"
+login = "agy"
+files = [".gemini/antigravity-cli/history.jsonl"]  # its sign-in is in the keyring; only a used agent has this
+env = ["GEMINI_API_KEY"]
+
+[[access.logins]]
+label = "Google account"
+argv = ["agy"]
+note = "Choose “Sign in with Google” when it asks."
+
+[security]
+sandbox = "enableTerminalSandbox"      # the setting that is its sandbox
+asks = "toolPermission"                # the setting that says when it asks first
+file = "~/.gemini/antigravity-cli/settings.json"
+format = "json"
+
+[[security.settings]]
+key = "toolPermission"
+title = "When Antigravity asks"
+explain = "Whether Antigravity asks before it runs a tool, such as a command or a file change."
+default = "request-review"
+recommended = "request-review"
+terms = ["approval", "sandbox"]
+choices = [
+  { value = "strict", label = "Strict", explain = "Asks before every tool, even reading.", risk = 0 },
+  { value = "request-review", label = "Ask first", explain = "Asks before it runs a command or changes a file.", risk = 1 },
+  { value = "proceed-in-sandbox", label = "Go ahead in the sandbox", explain = "Runs commands in its sandbox without asking.", risk = 2 },
+  { value = "always-proceed", label = "Never ask", explain = "Runs every tool without asking. Only for a throwaway machine.", risk = 3 },
+]
+
+[[security.settings]]
+key = "agentMode"
+title = "Agent mode"
+explain = "How much Antigravity may do on its own. It can be changed for one session in the CLI."
+default = "default"
+recommended = "default"
+terms = ["approval"]
+choices = [
+  { value = "default", label = "Normal", explain = "Follows “When Antigravity asks”.", risk = 1 },
+  { value = "plan", label = "Plan only", explain = "Reads and plans; changes nothing until you agree.", risk = 0 },
+  { value = "accept-edits", label = "Edit without asking", explain = "Edits files on its own, asks before commands.", risk = 2 },
+  { value = "auto", label = "Automatic (preview)", explain = "Decides on its own which actions need your OK.", risk = 2 },
+]
+
+[[security.settings]]
+key = "enableTerminalSandbox"
+title = "Sandbox for commands"
+explain = "Runs terminal commands in a sandbox."
+default = "off"
+recommended = "on"
+terms = ["sandbox"]
+choices = [
+  { value = "on", label = "On", explain = "Commands are fenced in.", risk = 0 },
+  { value = "off", label = "Off", explain = "Commands run with all your rights.", risk = 1 },
+]
+
+[[security.settings]]
+key = "allowNonWorkspaceAccess"
+title = "Files outside the project"
+explain = "Whether Antigravity may read and write files outside the project folder."
+default = "off"
+recommended = "off"
+terms = ["sandbox"]
+choices = [
+  { value = "off", label = "Project only", explain = "Stays inside the project folder.", risk = 0 },
+  { value = "on", label = "Anywhere", explain = "May touch any file you can.", risk = 2 },
+]
+
+[[security.rules]]
+key = "permissions.allow"
+title = "Allowed without asking"
+
+[[security.rules]]
+key = "permissions.ask"
+title = "Always ask"
+
+[[security.rules]]
+key = "permissions.deny"
+title = "Never allowed"
+
+[[security.rules]]
+key = "trustedWorkspaces"
+title = "Trusted folders"

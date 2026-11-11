@@ -1,0 +1,31 @@
+{
+  "api": 1,
+  "privacy": "numbers",
+  "needs": "maprisma >= 0.14.3",
+  "id": "llm-strata",
+  "name": "Strata",
+  "version": "0.14.3",
+  "kind": "provider",
+  "icon": "network-server-symbolic",
+  "summary": "Strata on the map: found, installed, started and stopped here, its models",
+  "description": "Teaches Maprisma the local LLM Strata: how to find it and its models, start and stop it, connect agents to it, and install or remove it.",
+  "capabilities": [
+    "provider",
+    "installer"
+  ],
+  "provides": [
+    "strata"
+  ],
+  "reads": [
+    "Strata's model folders and its own settings"
+  ],
+  "detect": {
+    "commands": [],
+    "paths": [
+      "~/.local/share/strata/install",
+      "~/.local/share/strata/components",
+      "~/.strata"
+    ]
+  },
+  "homepage": "https://github.com/Niko1221/Strata"
+}

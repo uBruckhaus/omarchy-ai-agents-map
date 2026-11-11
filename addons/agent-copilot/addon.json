@@ -1,0 +1,33 @@
+{
+  "api": 1,
+  "privacy": "numbers",
+  "needs": "maprisma >= 0.14.3",
+  "id": "agent-copilot",
+  "name": "GitHub Copilot",
+  "version": "0.14.3",
+  "kind": "agent",
+  "icon": "system-users-symbolic",
+  "summary": "GitHub Copilot on the map: its models, MCP servers, skills, settings and sessions",
+  "description": "Teaches Maprisma GitHub Copilot: where it keeps its settings, which models, MCP servers and skills it uses, its session numbers, and how to install or remove it.",
+  "capabilities": [
+    "agent"
+  ],
+  "harnesses": [
+    "copilot"
+  ],
+  "provides": [
+    "copilot"
+  ],
+  "reads": [
+    "GitHub Copilot's own settings and session files (~/.copilot)"
+  ],
+  "detect": {
+    "commands": [
+      "copilot"
+    ],
+    "paths": [
+      "~/.copilot"
+    ]
+  },
+  "homepage": "https://github.com/github/copilot-cli"
+}

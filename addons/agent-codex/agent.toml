@@ -1,0 +1,148 @@
+# OpenAI's Codex CLI (docs/adapter-format.md): facts only, nothing in this file runs.
+command = "codex"
+name = "Codex"
+label = "Codex"
+icon = "U+E905"
+icon_font = "omarchy"
+short_model_flag = true
+homepage = "https://github.com/openai/codex"
+data = ["~/.codex"]
+home = "~/.codex"
+activity = ["~/.codex/history.jsonl", "~/.codex/sessions", "~/.codex/state_5.sqlite"]
+web_search = true                      # searches the web itself (no MCP server needed)
+
+[replies]                              # its session files: the map's usage statistics box
+folder = "~/.codex/sessions"
+depth = 3
+format = "codex-jsonl"
+
+[[install]]
+kind = "mise"
+spec = "codex"
+
+[subagents]
+format = "codex-rollouts"
+path = "~/.codex/sessions"
+
+[sessions]
+reader = "codex-files"            # a reader the app has (~/.codex/sessions)
+note = "Numbers from {0}'s session files (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs."
+note_args = ["Codex"]
+
+[skills]
+dirs = ["~/.agents/skills", "~/.codex/skills"]
+own = "~/.codex/skills"
+
+[mcp]
+path = "~/.codex/config.toml"
+format = "toml"
+key = "mcp_servers"
+shape = "codex"
+
+[ask]                                  # one prompt, one answer, no tools (the chess page)
+argv = ["codex", "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral", "--color", "never", "{prompt}"]
+games = ["chess"]                      # its menu offers Play chess
+effort = { quick = ["-c", "model_reasoning_effort=low"], normal = ["-c", "model_reasoning_effort=medium"], deep = ["-c", "model_reasoning_effort=high"], max = ["-c", "model_reasoning_effort=high"] }   # Thinking time
+note = "read-only sandbox, no session kept"
+
+[plan_limits]                          # its plan's limits where no Omarchy collector is: asked of its own app-server
+rpc = "codex-app-server"               # account/rateLimits/read over JSON-RPC: no prompt, no credential read here
+argv = ["codex", "-s", "read-only", "-a", "on-request", "app-server"]
+home_env = "CODEX_HOME"                # moves ~/.codex: auth.json and config.toml are looked for there
+store = { file = "~/.codex/config.toml", format = "toml", key = "cli_auth_credentials_store", files = "file" }   # keyring or auto: signed in outside auth.json, only Codex can tell
+
+[access]
+logout = ["codex", "logout"]     # its own sign-out, in a terminal
+how = "A ChatGPT plan (Plus, Pro, Business), or an API key from platform.openai.com"
+login = "codex login"
+files = [".codex/auth.json"]
+env = ["OPENAI_API_KEY"]
+local_ok = true
+
+[[access.logins]]
+label = "ChatGPT plan"
+argv = ["codex", "login"]
+
+[access.key]
+var = "OPENAI_API_KEY"
+url = "https://platform.openai.com/api-keys"
+stdin = ["codex", "login", "--with-api-key"]
+
+[security]
+sandbox = "sandbox_mode"                  # the setting that is its sandbox
+asks = "approval_policy"     # the setting that says when it asks first
+file = "~/.codex/config.toml"
+format = "toml"
+
+[[security.settings]]
+key = "approval_policy"
+title = "When Codex asks"
+explain = "When Codex stops and asks before running a command."
+default = "on-request"
+recommended = "on-request"
+terms = ["approval"]
+choices = [
+  { value = "untrusted", label = "Ask for everything but safe reads", explain = "Asks before every command that is not a known read-only one.", risk = 0 },
+  { value = "on-request", label = "When it needs more", explain = "Works inside the sandbox on its own and asks when it needs to leave it.", risk = 1 },
+  { value = "on-failure", label = "After a failure (old)", explain = "Asks only when a sandboxed command failed. Replaced by “When it needs more”.", risk = 1 },
+  { value = "never", label = "Never", explain = "Never asks; what the sandbox allows simply happens.", risk = 2 },
+]
+
+[[security.settings]]
+key = "sandbox_mode"
+title = "Sandbox"
+explain = "What commands Codex runs may touch."
+default = "workspace-write"
+recommended = "workspace-write"
+terms = ["sandbox"]
+choices = [
+  { value = "read-only", label = "Read only", explain = "Commands may read, not write or go online.", risk = 0 },
+  { value = "workspace-write", label = "Project folder", explain = "Commands may write in the project folder (and temp), nowhere else.", risk = 1 },
+  { value = "danger-full-access", label = "No sandbox", explain = "Commands may do anything you can do.", risk = 3 },
+]
+
+[[security.settings]]
+key = "sandbox_workspace_write.network_access"
+title = "Network in the sandbox"
+explain = "Whether commands in the project-folder sandbox may reach the internet."
+default = false
+recommended = false
+terms = ["network"]
+choices = [
+  { value = false, label = "Off", explain = "No internet for commands (web search of Codex itself still works).", risk = 0 },
+  { value = true, label = "On", explain = "Commands may download and upload.", risk = 2 },
+]
+
+[[security.rules]]
+key = "projects"
+title = "Trusted folders"
+keys_where = { trust_level = "trusted" }
+
+# Its own setup commands, in a terminal tab (Configure… on the map)
+[[configure]]
+label = "Check its setup"
+argv = ["codex", "doctor"]
+
+[details]                              # its model and providers (the agent's card)
+reader = "codex"
+
+[models]                               # the online models the map can switch it to
+reader = "codex"
+
+[research]                             # a web look-up (Add skills, MCP, AI checks): read-only sandbox, the answer as JSON
+argv = ["codex", "--search", "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--json", "--output-schema",
+        "{schema}", "-"]                 # "-": the prompt on stdin, never in the process list
+output = "codex-jsonl"                 # events: the answer and its token use
+
+[task]                                 # Do it with Codex…: in a terminal tab, it asks before each step
+argv = ["codex", "{prompt}"]
+
+[rewrite]                              # a skill rewritten for an MCP server: read-only, the prompt on stdin
+argv = ["codex", "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--output-last-message", "{answer}", "-"]
+
+[closed]                               # what closes it in when the map starts it (agent_guard)
+background = ["--disable", "apps", "--disable", "plugins", "--disable", "hooks"]   # look-ups, rewrites: no connectors, plugins, hooks
+task = ["--sandbox", "read-only", "--ask-for-approval", "on-request", "--disable", "apps", "--disable", "plugins",
+        "--disable", "hooks"]           # task tabs: every change leaves the sandbox, so it asks first
+mcp_off = ["-c", "mcp_servers.{name}.enabled=false"]   # each MCP server of its [mcp] file, off for the run
+home_env = "CODEX_HOME"                # where its [mcp] file is when this variable moves its home

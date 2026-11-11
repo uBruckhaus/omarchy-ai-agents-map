@@ -1,0 +1,37 @@
+{
+  "api": 1,
+  "privacy": "numbers",
+  "needs": "maprisma >= 0.14.3",
+  "id": "providers-online",
+  "name": "Online providers",
+  "version": "0.14.3",
+  "kind": "provider",
+  "icon": "network-workgroup-symbolic",
+  "summary": "The online providers agents use, by name on the map",
+  "description": "Names the online providers in agent settings and on the map: Anthropic, OpenAI, GitHub Copilot, Cursor, Google, xAI, Meta, OpenClaw, Nous Research, OpenRouter, Groq, Mistral, DeepSeek, Fireworks, Together AI, OpenCode Zen, Z.ai.",
+  "capabilities": [
+    "provider"
+  ],
+  "provides": [
+    "anthropic",
+    "openai",
+    "github-copilot",
+    "cursor",
+    "google",
+    "xai",
+    "meta",
+    "openclaw",
+    "nous",
+    "openrouter",
+    "groq",
+    "mistral",
+    "deepseek",
+    "fireworks",
+    "together",
+    "opencode-zen",
+    "zai"
+  ],
+  "reads": [
+    "Nothing of its own: the agent settings the agent add-ons read"
+  ]
+}

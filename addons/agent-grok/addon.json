@@ -1,0 +1,33 @@
+{
+  "api": 1,
+  "privacy": "numbers",
+  "needs": "maprisma >= 0.14.3",
+  "id": "agent-grok",
+  "name": "Grok",
+  "version": "0.14.3",
+  "kind": "agent",
+  "icon": "system-users-symbolic",
+  "summary": "Grok on the map: its models, MCP servers, skills, settings and sessions",
+  "description": "Teaches Maprisma Grok: where it keeps its settings, which models, MCP servers and skills it uses, its session numbers, and how to install or remove it.",
+  "capabilities": [
+    "agent"
+  ],
+  "harnesses": [
+    "grok"
+  ],
+  "provides": [
+    "grok"
+  ],
+  "reads": [
+    "Grok's own settings and session files (~/.grok)"
+  ],
+  "detect": {
+    "commands": [
+      "grok"
+    ],
+    "paths": [
+      "~/.grok"
+    ]
+  },
+  "homepage": "https://www.npmjs.com/package/@xai-official/grok"
+}

@@ -1,0 +1,47 @@
+# Oh My Pi (docs/adapter-format.md). Connecting a local LLM (YAML text) is a hook (omp.py).
+command = "omp"
+name = "Oh My Pi"
+label = "omp"
+full_name = "Oh My Pi"
+icon = "U+E903"
+icon_font = "omarchy"
+spec = "github:can1357/oh-my-pi"
+homepage = "https://github.com/can1357/oh-my-pi"
+data = ["~/.omp"]
+home = "~/.omp"
+activity = ["~/.omp/agent/sessions"]
+
+[[install]]
+kind = "mise"
+spec = "github:can1357/oh-my-pi"
+
+[local_llm]
+files = ["~/.omp/agent/models.yml", "~/.omp/agent/config.yml"]
+hooks = true
+
+[sessions]
+reader = "omp-db"                      # a reader the app has (~/.omp/agent/agent.db, client_usage)
+note = "Numbers from {0}'s session database (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs."
+note_args = ["Oh My Pi"]
+
+[skills]
+dirs = ["~/.omp/agent/skills"]
+own = "~/.omp/agent/skills"
+listed = { file = "~/.omp/agent/settings.json", format = "json", key = "skills" }
+
+[mcp]
+path = "~/.omp/agent/mcp.json"
+shape = "omp"
+
+# Its own setup commands, in a terminal tab (Configure… on the map)
+[[configure]]
+label = "Setup wizard"
+argv = ["omp", "setup"]
+
+[details]                              # its model and providers (the agent's card)
+reader = "pi"
+dir = "~/.omp/agent"
+
+[tools]                                # the tools it is given
+file = "~/.omp/agent/settings.json"
+key = "defaultTools"

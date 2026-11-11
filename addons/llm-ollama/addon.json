@@ -1,0 +1,31 @@
+{
+  "api": 1,
+  "privacy": "numbers",
+  "needs": "maprisma >= 0.14.3",
+  "id": "llm-ollama",
+  "name": "Ollama",
+  "version": "0.14.3",
+  "kind": "provider",
+  "icon": "network-server-symbolic",
+  "summary": "Ollama on the map: found, installed, started and stopped here, its models",
+  "description": "Teaches Maprisma the local LLM Ollama: how to find it and its models, start and stop it, connect agents to it, and install or remove it.",
+  "capabilities": [
+    "provider",
+    "installer"
+  ],
+  "provides": [
+    "ollama"
+  ],
+  "reads": [
+    "Ollama's model folders and its own settings"
+  ],
+  "detect": {
+    "commands": [
+      "ollama"
+    ],
+    "paths": [
+      "~/.ollama"
+    ]
+  },
+  "homepage": "https://ollama.com"
+}

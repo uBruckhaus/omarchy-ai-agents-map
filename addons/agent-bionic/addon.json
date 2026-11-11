@@ -1,0 +1,34 @@
+{
+  "api": 1,
+  "privacy": "numbers",
+  "needs": "maprisma >= 0.14.3",
+  "id": "agent-bionic",
+  "name": "LM Studio Bionic",
+  "version": "0.14.3",
+  "kind": "agent",
+  "icon": "system-users-symbolic",
+  "summary": "LM Studio Bionic on the map: its models, MCP servers, skills, settings and sessions",
+  "description": "Teaches Maprisma LM Studio Bionic: where it keeps its settings, which models, MCP servers and skills it uses, its session numbers, and how to install or remove it.",
+  "capabilities": [
+    "agent",
+    "installer"
+  ],
+  "harnesses": [
+    "bionic"
+  ],
+  "provides": [
+    "bionic"
+  ],
+  "reads": [
+    "LM Studio Bionic's own settings and session files (~/.lmstudio/apps/bionic)"
+  ],
+  "detect": {
+    "commands": [
+      "bionic"
+    ],
+    "paths": [
+      "~/.lmstudio/apps/bionic"
+    ]
+  },
+  "homepage": "https://lmstudio.ai"
+}

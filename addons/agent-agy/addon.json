@@ -1,0 +1,36 @@
+{
+  "api": 1,
+  "privacy": "numbers",
+  "needs": "maprisma >= 0.14.3",
+  "id": "agent-agy",
+  "name": "Antigravity CLI",
+  "version": "0.14.3",
+  "kind": "agent",
+  "icon": "system-users-symbolic",
+  "summary": "Antigravity CLI on the map: its models, MCP servers, skills, settings and sessions",
+  "description": "Teaches Maprisma Antigravity CLI: where it keeps its settings, which models, MCP servers and skills it uses, its session numbers, and how to install or remove it.",
+  "capabilities": [
+    "agent",
+    "installer"
+  ],
+  "harnesses": [
+    "agy"
+  ],
+  "provides": [
+    "agy"
+  ],
+  "reads": [
+    "Antigravity CLI's own settings and session files (~/.gemini/antigravity-cli, ~/.gemini/config, ~/.gemini/antigravity)"
+  ],
+  "detect": {
+    "commands": [
+      "agy"
+    ],
+    "paths": [
+      "~/.gemini/antigravity-cli",
+      "~/.gemini/config",
+      "~/.gemini/antigravity"
+    ]
+  },
+  "homepage": "https://antigravity.google"
+}

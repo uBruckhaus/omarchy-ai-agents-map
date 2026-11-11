@@ -1,0 +1,31 @@
+{
+  "api": 1,
+  "privacy": "numbers",
+  "needs": "maprisma >= 0.14.3",
+  "id": "llm-koboldcpp",
+  "name": "KoboldCpp",
+  "version": "0.14.3",
+  "kind": "provider",
+  "icon": "network-server-symbolic",
+  "summary": "KoboldCpp on the map: found, installed, started and stopped here, its models",
+  "description": "Teaches Maprisma the local LLM KoboldCpp: how to find it and its models, start and stop it, connect agents to it, and install or remove it.",
+  "capabilities": [
+    "provider",
+    "installer"
+  ],
+  "provides": [
+    "koboldcpp"
+  ],
+  "reads": [
+    "KoboldCpp's model folders and its own settings"
+  ],
+  "detect": {
+    "commands": [
+      "koboldcpp"
+    ],
+    "paths": [
+      "~/.koboldcpp"
+    ]
+  },
+  "homepage": "https://github.com/LostRuins/koboldcpp"
+}

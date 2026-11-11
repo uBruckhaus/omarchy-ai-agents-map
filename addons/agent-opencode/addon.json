@@ -1,0 +1,34 @@
+{
+  "api": 1,
+  "privacy": "numbers",
+  "needs": "maprisma >= 0.14.3",
+  "id": "agent-opencode",
+  "name": "OpenCode",
+  "version": "0.14.3",
+  "kind": "agent",
+  "icon": "system-users-symbolic",
+  "summary": "OpenCode on the map: its models, MCP servers, skills, settings and sessions",
+  "description": "Teaches Maprisma OpenCode: where it keeps its settings, which models, MCP servers and skills it uses, its session numbers, and how to install or remove it.",
+  "capabilities": [
+    "agent"
+  ],
+  "harnesses": [
+    "opencode"
+  ],
+  "provides": [
+    "opencode"
+  ],
+  "reads": [
+    "OpenCode's own settings and session files (~/.local/share/opencode, ~/.config/opencode)"
+  ],
+  "detect": {
+    "commands": [
+      "opencode"
+    ],
+    "paths": [
+      "~/.local/share/opencode",
+      "~/.config/opencode"
+    ]
+  },
+  "homepage": "https://opencode.ai"
+}

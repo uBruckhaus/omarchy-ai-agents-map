@@ -1,0 +1,153 @@
+# Claude Code (docs/adapter-format.md): facts only, nothing in this file runs.
+command = "claude"
+name = "Claude Code"
+label = "Claude"
+full_name = "Claude Code"
+icon = "U+F06C4"                      # Nerd Font glyph (the app draws its own SVG of it)
+homepage = "https://github.com/anthropics/claude-code"
+data = ["~/.claude", "~/.claude.json"] # its settings and sessions: never removed by the app
+home = "~/.claude"
+activity = ["~/.claude/history.jsonl", "~/.claude/projects"]
+web_search = true                      # searches the web itself (no MCP server needed)
+
+[[install]]                            # ways to install it, best first
+kind = "mise"
+spec = "claude"
+
+[update]
+self = ["claude", "update"]            # its own updater
+latest = "claude-channel"              # a reader the app has: the newest version of its channel
+
+[sessions]
+reader = "claude-files"                # a reader the app has (~/.claude/projects)
+note = "Numbers from Claude Code's session files (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs."
+
+[replies]                              # its session files: the map's usage statistics box
+folder = "~/.claude/projects"
+depth = 1
+format = "claude-jsonl"
+contexts = { "claude-opus-5" = 1000000, "" = 200000 }   # context size by model name beginning
+
+[subagents]                            # its subagents (Task/Agent tool): the map's subagents page
+format = "claude-projects"
+path = "~/.claude/projects"
+
+[skills]
+dirs = ["~/.claude/skills"]            # read by the agent itself
+own = "~/.claude/skills"               # where the app's links go
+
+[mcp]
+path = "~/.claude.json"
+format = "claude"
+shape = "claude"
+
+[ask]                                  # one prompt, one answer, no tools (the chess page)
+argv = ["claude", "-p", "--tools", "", "--strict-mcp-config", "--no-session-persistence", "{prompt}"]
+games = ["chess"]                      # its menu offers Play chess
+effort = { quick = ["--effort", "low"], normal = ["--effort", "medium"], deep = ["--effort", "high"], max = ["--effort", "max"] }   # Thinking time
+note = "no tools, no MCP servers, no session kept"
+
+[access]
+logout = ["claude", "auth", "logout"]     # its own sign-out, in a terminal
+how = "A Claude Pro or Max subscription (claude.ai), or an API key from console.anthropic.com"
+login = "claude auth login"
+files = [".claude/.credentials.json"]  # only whether one exists is checked, never read
+env = ["ANTHROPIC_API_KEY"]
+extra_file = "~/.claude.json"          # only this one value is read: is paid usage beyond the plan on?
+extra_key = "oauthAccount.hasExtraUsageEnabled"
+extra_url = "https://claude.ai/settings/usage"
+
+[[access.logins]]
+label = "Claude subscription"
+argv = ["claude", "auth", "login", "--claudeai"]
+
+[[access.logins]]
+label = "API billing (Anthropic Console)"
+argv = ["claude", "auth", "login", "--console"]
+
+[security]
+sandbox = "sandbox.enabled"                  # the setting that is its sandbox
+asks = "permissions.defaultMode"     # the setting that says when it asks first
+file = "~/.claude/settings.json"
+format = "json"
+
+[[security.settings]]
+key = "permissions.defaultMode"
+title = "Permission mode"
+explain = "How much Claude Code may do without asking. It can be changed for one session with Shift+Tab."
+default = "default"
+recommended = "default"
+terms = ["approval", "classifier", "bypass"]
+choices = [
+  { value = "default", label = "Ask first", explain = "Asks before it edits a file or runs a command.", risk = 1 },
+  { value = "plan", label = "Plan only", explain = "Reads and plans; changes nothing until you agree.", risk = 0 },
+  { value = "dontAsk", label = "Only what is allowed", explain = "Never asks: does only what your allow rules permit and refuses the rest.", risk = 0 },
+  { value = "acceptEdits", label = "Edit without asking", explain = "Edits files in the project on its own, asks before commands.", risk = 2 },
+  { value = "auto", label = "Automatic review", explain = "A classifier lets safe actions through and asks about the rest.", risk = 2 },
+  { value = "bypassPermissions", label = "Bypass all checks", explain = "Does everything without asking. Only for a throwaway machine.", risk = 3 },
+]
+
+[[security.settings]]
+key = "sandbox.enabled"
+title = "Sandbox for commands"
+explain = "Runs shell commands in a sandbox (bubblewrap on Linux): writes only in the project, network only to allowed sites."
+default = false
+recommended = true
+terms = ["sandbox", "network"]
+choices = [
+  { value = true, label = "On", explain = "Commands are fenced in.", risk = 0 },
+  { value = false, label = "Off", explain = "Commands run with all your rights.", risk = 1 },
+]
+
+[[security.settings]]
+key = "permissions.disableBypassPermissionsMode"
+warn = { title = "Bypass mode can be switched on", explain = "Starting it with --dangerously-skip-permissions switches every check off.", fix = "Block bypass mode." }
+title = "Block bypass mode"
+explain = "Makes it impossible to start Claude Code with --dangerously-skip-permissions, even by mistake."
+recommended = "disable"
+terms = ["bypass"]
+choices = [
+  { value = "disable", label = "Blocked", explain = "Bypass mode cannot be switched on.", risk = 0 },
+  { unset = true, label = "Allowed", explain = "Bypass mode can be switched on with a flag.", risk = 1 },
+]
+
+[[security.rules]]                     # lists shown under the settings, one entry per line
+key = "permissions.allow"
+title = "Allowed without asking"
+
+[[security.rules]]
+key = "permissions.ask"
+title = "Always ask"
+
+[[security.rules]]
+key = "permissions.deny"
+title = "Never allowed"
+
+# Its own setup commands, in a terminal tab (Configure… on the map)
+[[configure]]
+label = "Check its setup"
+argv = ["claude", "doctor"]
+
+[details]                              # its model and providers (the agent's card)
+reader = "claude"
+
+[models]                               # the online models the map can switch it to
+reader = "claude"
+
+[research]                             # a web look-up (Add skills, MCP, AI checks): only the two web tools, no session kept, the prompt on stdin
+argv = ["claude", "-p", "--tools", "WebSearch", "WebFetch", "--allowedTools", "WebSearch", "WebFetch",
+        "--strict-mcp-config", "--no-session-persistence", "--disable-slash-commands", "--output-format", "json"]
+output = "claude-json"                 # the answer and its token use
+
+[task]                                 # Do it with Claude…: in a terminal tab, it asks before each step
+argv = ["claude", "{prompt}"]
+
+[rewrite]                              # a skill rewritten for an MCP server: no tools at all, the prompt on stdin
+argv = ["claude", "-p", "--tools", "", "--strict-mcp-config", "--no-session-persistence",
+        "--disable-slash-commands", "--output-format", "text"]
+
+[closed]                               # what closes it in when the map starts it (agent_guard)
+background = ["--strict-mcp-config", "--settings", "{\"disableAllHooks\": true}"]   # look-ups, rewrites: their tools are in their argv; no hooks
+# Task tabs: "ask" rules win over the user's own allow-list, so every command and edit is asked first; no hooks.
+task = ["--permission-mode", "manual", "--strict-mcp-config", "--settings",
+        "{\"disableAllHooks\": true, \"permissions\": {\"ask\": [\"Bash\", \"Edit\", \"Write\", \"MultiEdit\", \"NotebookEdit\"]}}"]

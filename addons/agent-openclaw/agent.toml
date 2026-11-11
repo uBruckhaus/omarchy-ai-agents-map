@@ -1,0 +1,59 @@
+# OpenClaw, the openclaw pacman package (docs/adapter-format.md). Its MCP entries are written by a
+# hook (openclaw.py): the file may be JSON5, which is then left alone.
+command = "openclaw"
+name = "OpenClaw"
+label = "OpenClaw"
+icon = "U+E90C"
+icon_font = "omarchy"
+package = "openclaw"
+package_only = true
+# Another install counts when its program lives in one of these (upstream install-cli.sh, npm/bun/pnpm).
+install_marks = ["~/.openclaw/", "/node_modules/openclaw/"]
+homepage = "https://github.com/openclaw/openclaw"
+data = ["~/.openclaw"]
+home = "~/.openclaw"
+
+[[install]]
+kind = "command"
+argv = ["omarchy-install-openclaw-cli", "--now"]
+sudo = true
+
+[[install]]
+kind = "package"
+packages = [["pacman", "openclaw"]]
+
+[local_llm]                            # models.providers.<key> and agents.defaults.model.primary (openclaw.py)
+files = ["~/.openclaw/openclaw.json"]
+hooks = true
+
+[sessions]
+reader = "openclaw-db"            # a reader the app has (~/.openclaw/agents)
+note = "Numbers from {0}'s session database (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs."
+note_args = ["OpenClaw"]
+
+[skills]
+dirs = ["~/.openclaw/skills", "~/.agents/skills"]
+own = "~/.openclaw/skills"
+listed = { file = "~/.openclaw/openclaw.json", format = "json", key = "skills.load.extraDirs" }
+
+[mcp]
+path = "~/.openclaw/openclaw.json"
+key = "mcp.servers"
+shape = "openclaw"
+write = "hook"
+
+# Its own setup commands, in a terminal tab (Configure… on the map)
+[[configure]]
+label = "Configure"
+argv = ["openclaw", "configure"]
+
+[[configure]]
+label = "Guided setup"
+argv = ["openclaw", "onboard"]
+
+[[configure]]
+label = "Check its setup"
+argv = ["openclaw", "doctor"]
+
+[details]                              # its model and providers (the agent's card)
+reader = "openclaw"

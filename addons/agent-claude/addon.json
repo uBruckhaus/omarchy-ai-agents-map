@@ -1,0 +1,35 @@
+{
+  "api": 1,
+  "privacy": "numbers",
+  "needs": "maprisma >= 0.14.3",
+  "id": "agent-claude",
+  "name": "Claude Code",
+  "version": "0.14.3",
+  "kind": "agent",
+  "icon": "system-users-symbolic",
+  "summary": "Claude Code on the map: its models, MCP servers, skills, settings and sessions",
+  "description": "Teaches Maprisma Claude Code: where it keeps its settings, which models, MCP servers and skills it uses, its session numbers, and how to install or remove it.",
+  "capabilities": [
+    "agent",
+    "updater"
+  ],
+  "harnesses": [
+    "claude"
+  ],
+  "provides": [
+    "claude"
+  ],
+  "reads": [
+    "Claude Code's own settings and session files (~/.claude, ~/.claude.json)"
+  ],
+  "detect": {
+    "commands": [
+      "claude"
+    ],
+    "paths": [
+      "~/.claude",
+      "~/.claude.json"
+    ]
+  },
+  "homepage": "https://github.com/anthropics/claude-code"
+}
