@@ -751,9 +751,10 @@ class AddonsPage:
         """allow(id, kind, replacing) for addon_store.install_bytes: the rules for the verified add-on
         (its own id and kind, from the signed zip), checked before anything is replaced."""
         import action_rules
-        rules, hints = ai_core.setting("action_rules"), ai_core.setting("action_rule_hints") is not False
 
         def allow(aid, kind, replacing):
+            # The rules as they are right now, just before the add-on folder changes (not when the job began).
+            rules, hints = ai_core.setting("action_rules"), ai_core.setting("action_rule_hints") is not False
             text = action_rules.refusal(rules, hints, *action_rules.addon_check(step, aid, kind))
             if text is None and replacing and step != "update":
                 text = action_rules.refusal(rules, hints, *action_rules.addon_check("update", aid, kind))
@@ -909,15 +910,7 @@ class AddonsPage:
             if not path or self.addons_busy():
                 return
 
-            import action_rules
-            rules, hints = ai_core.setting("action_rules"), ai_core.setting("action_rule_hints") is not False
-
-            def allow(aid, kind, replacing):
-                # The add-on's own rule, known once the zip is verified (before anything is replaced).
-                text = action_rules.refusal(rules, hints, *action_rules.addon_check("install", aid, kind))
-                if text is None and replacing:
-                    text = action_rules.refusal(rules, hints, *action_rules.addon_check("update", aid, kind))
-                return text
+            allow = self.addon_rule_gate("install")   # the add-on's own rule, read just before it is replaced
 
             def work():
                 try:

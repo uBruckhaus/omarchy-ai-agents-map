@@ -215,6 +215,10 @@ class Round6Test(unittest.TestCase):
             # The catalog said provider, the signed zip is an agent: the agent's rule decides.
             self.assertTrue(gate("llm-x", "agent", False))
             self.assertIsNone(gate("llm-x", "provider", False))
+        # Rules changed while the download ran: the gate reads them when it is asked.
+        later = rules + [{"effect": "deny", "action": "install", "category": "providers", "item": "*", "agent": "*"}]
+        with mock.patch.object(addons_page.ai_core, "setting", lambda key, *a: later if key == "action_rules" else None):
+            self.assertTrue(gate("llm-x", "provider", False))
 
     def test_a_failed_replace_puts_the_old_add_on_back(self):
         import addons
