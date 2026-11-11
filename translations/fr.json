@@ -3476,5 +3476,9 @@
  "Update with AI…": "Mettre à jour avec l’IA…",
  "Selected: {0}": "Sélection : {0}",
  "Its add-on is switched off: it is no longer offered on the map": "Son extension est désactivée : elle n’est plus proposée sur la carte",
- "This proposal is too old. Ask again.": "Cette proposition est trop ancienne. Demande à nouveau."
+ "This proposal is too old. Ask again.": "Cette proposition est trop ancienne. Demande à nouveau.",
+ "not possible for this agent": "Impossible pour cet agent",
+ "not possible for this provider": "Impossible pour ce fournisseur",
+ "not possible for this add-on": "Impossible pour cette extension",
+ "This column comes in a later step of the port.": "Cette colonne arrive dans une étape ultérieure."
 }

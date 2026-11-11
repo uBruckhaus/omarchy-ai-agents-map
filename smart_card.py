@@ -19,6 +19,7 @@ import threading
 from dataclasses import dataclass, field
 
 import plugin_ai
+from i18n import N_
 
 COLUMNS = ("mcp", "agents", "providers", "models")
 MAX_REQUEST = 2000
@@ -35,8 +36,8 @@ LOOKUP_CHOICE = (
     "when this column cannot do it but the web can tell how, for example how to update a program. Prefer "
     "this to redirect when no other column can do it.\n")
 
-NEEDS_WEB = "This needs a look on the web, which this helper cannot do. Choose an online agent as the helper."
-NOT_POSSIBLE = "I can't do that here. Try another item or ask again."
+NEEDS_WEB = N_("This needs a web search, which a local helper cannot do. Choose Claude Code or Codex above and ask again.")
+NOT_POSSIBLE = N_("I can't make that map change. Try another item or ask again.")
 
 STEP_NAMES = {"install": "Install", "update": "Update", "remove": "Remove", "start": "Start", "stop": "Stop",
               "login": "Sign in", "logout": "Sign out", "verify": "Send the test question",
@@ -225,7 +226,7 @@ def addons_answer(answer: dict, facts: dict) -> dict:
     named = answer.get("addons") if isinstance(answer.get("addons"), list) else []
     found = [a for a in facts.get("addons") or [] if a.get("id") in named and a.get(step) is True]
     if step not in MENU_NAMES["addons"] or not found:
-        raise SmartError("not possible for this add-on")
+        raise SmartError(N_("not possible for this add-on"))
     return proposal([menu_candidate(i + 1, "addons", step, a["id"], a.get("name", a["id"]))
                      for i, a in enumerate(found)])
 
@@ -240,7 +241,7 @@ def agents_answer(answer: dict, facts: dict) -> dict:
     found = [a for a in facts.get("agents", []) if a.get("command") in named and a.get(action) is True]
     menu = action in MENU_NAMES["agents"]
     if (action not in AGENT_STEPS and not menu) or not found:
-        raise SmartError("not possible for this agent")
+        raise SmartError(N_("not possible for this agent"))
     if menu:
         return proposal([{**menu_candidate(i + 1, "agents", action, a["command"], a.get("name", a["command"])),
                           "agents": [a["command"]]} for i, a in enumerate(found)])
@@ -259,7 +260,7 @@ def providers_answer(answer: dict, facts: dict) -> dict:
     found = next((p for p in facts.get("providers", [])
                   if p.get("key") == answer.get("provider") and p.get(action) is True), None)
     if action not in PROVIDER_STEPS or found is None:
-        raise SmartError("not possible for this provider")
+        raise SmartError(N_("not possible for this provider"))
     return proposal([{"id": "c1", "kind": "provider_action", "title": line(found.get("name")),
                       "subtitle": STEP_NAMES[action], "reason": "", "key": found["key"], "step": action,
                       "action": {"kind": "provider_action", "key": found["key"], "step": action}}])
@@ -328,7 +329,7 @@ def ask(helper: Helper, facts: dict, run=None, look_up=None) -> dict:
     column = facts.get("column")
     result = {"helper": helper.name, "local": helper.local}
     if column not in HANDLERS:
-        return {**result, "status": "error", "summary": "This column comes in a later step of the port."}
+        return {**result, "status": "error", "summary": N_("This column comes in a later step of the port.")}
     make_prompt, handle = HANDLERS[column]
     prompt = make_prompt(facts)
     try:
@@ -339,7 +340,7 @@ def ask(helper: Helper, facts: dict, run=None, look_up=None) -> dict:
         found = handle(plugin_ai.first_json(text, "action"), facts)
     except Exception as error:          # an answer the app cannot use: said, never retried
         message = str(error) if isinstance(error, SmartError) else (
-            "The local helper did not answer." if helper.local else line(str(error)) or NOT_POSSIBLE)
+            N_("The local helper did not answer: its local LLM is probably not running. Start it on the map, or choose another helper above.") if helper.local else line(str(error)) or NOT_POSSIBLE)
         return {**result, "status": "error", "summary": message}
     if found.get("status") != "lookup":
         return {**result, **found}

@@ -105,8 +105,9 @@ class AskAiPage:
         note.add_css_class("am-hint")
         page.append(note)
         # Examples of this column (a click fills the field; only Ask sends).
-        self.ask_examples = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=4,
-                                        column_spacing=6, row_spacing=6)
+        self.ask_examples = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=6,
+                                        column_spacing=6, row_spacing=6, homogeneous=False,
+                                        halign=Gtk.Align.START)
         page.append(self.ask_examples)
         # What came back.
         self.ask_result = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
@@ -391,7 +392,8 @@ class AskAiPage:
                 box.append(card)
             return
         # error
-        text(result.get("summary") or _("The action could not be completed."), "am-problem")
+        # The engine's own messages are English (smart_card): shown in the user's language.
+        text(_(result.get("summary") or "The action could not be completed."), "am-problem")
         again = Gtk.Button(label=_("Try again"), halign=Gtk.Align.START)
         again.add_css_class("am-small-btn")
         again.connect("clicked", lambda *_: self.show_ask_state("idle"))

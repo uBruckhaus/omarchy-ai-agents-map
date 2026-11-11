@@ -3476,5 +3476,9 @@
  "Update with AI…": "Bijwerken met AI…",
  "Selected: {0}": "Geselecteerd: {0}",
  "Its add-on is switched off: it is no longer offered on the map": "Zijn add-on wordt uitgeschakeld: hij wordt niet meer op de kaart aangeboden",
- "This proposal is too old. Ask again.": "Dit voorstel is te oud. Vraag het opnieuw."
+ "This proposal is too old. Ask again.": "Dit voorstel is te oud. Vraag het opnieuw.",
+ "not possible for this agent": "Niet mogelijk voor deze agent",
+ "not possible for this provider": "Niet mogelijk voor deze provider",
+ "not possible for this add-on": "Niet mogelijk voor deze add-on",
+ "This column comes in a later step of the port.": "Deze kolom komt in een latere stap."
 }
