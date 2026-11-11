@@ -14,7 +14,8 @@ class Cards:
     for name in ("group_key", "all_groups", "in_order", "keep_order", "groups", "siblings", "order_slot",
                  "reorder", "card_height", "column_height", "needed_height", "layout", "column_top",
                  "visible_rows", "group_title", "default_layout", "card_header_at", "card_at",
-                 "agent_slots", "agent_width", "text_width", "card_rows", "toggle_card", "make_room"):
+                 "agent_slots", "agent_width", "text_width", "card_rows", "toggle_card", "make_room",
+                 "card_nodes", "node_used"):
         locals()[name] = M.__dict__[name]
     del name
 
@@ -24,6 +25,7 @@ class Cards:
         self.agent_links = set()
         self.costs, self.text_widths, self.measure = {}, {}, None
         self.collapsed, self.folded = set(), set()
+        self.used_only, self.pinned = set(), set()       # the cards' filters (Maprisma's used_only), pins
         self.view_columns = 0
 
     def relayout(self):
@@ -406,3 +408,24 @@ class NarrowColumnsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UsedOnlyTest(unittest.TestCase):
+    """A card's filter (Maprisma's "Show only what is connected or pinned")."""
+
+    def test_the_filter_keeps_connected_and_pinned_boxes(self):
+        view = Cards(built())
+        view.layout(1200, 800)
+        all_mcp = [n for n in view.boxes if n.startswith("mcp:")]
+        key = view.group_key(next(n for n in view.graph.nodes if n.id == all_mcp[0]))
+        used = {n for n in all_mcp if view.node_used(n)}
+        view.used_only.add(key)
+        view.layout(1200, 800)
+        shown = {n for n in view.boxes if n.startswith("mcp:")}
+        self.assertEqual(shown, used)
+        loose = next((n for n in all_mcp if n not in used), None)
+        if loose is not None:
+            view.pinned.add(loose)
+            view.layout(1200, 800)
+            self.assertIn(loose, view.boxes)
+

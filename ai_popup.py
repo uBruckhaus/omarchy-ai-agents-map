@@ -2442,11 +2442,21 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         # Folded cards (open by default): group keys, a bounded list of short strings.
         self.side_map.collapsed = {k for k in (collapsed if isinstance(collapsed, list) else [])[:100]
                                    if isinstance(k, str) and 0 < len(k) <= 500}
+        # The cards whose filter is on (Maprisma's used_only), and the lines' colours of Settings › Map.
+        stored = ai_core.setting("map_layout")
+        used = stored.get("used_only") if isinstance(stored, dict) else None    # kept also unpinned
+        self.side_map.used_only = {k for k in (used if isinstance(used, list) else [])[:100]
+                                   if isinstance(k, str) and 0 < len(k) <= 500}
+        look = ai_core.setting("flutter_map_layout")
+        colors = look.get("line_colors") if isinstance(look, dict) else None
+        self.side_map.line_colors = {str(k): v for k, v in (colors.items() if isinstance(colors, dict) else ())
+                                     if isinstance(v, str) and len(v) <= 20}
 
     def save_map_layout(self):
         self.save_setting(map_layout={"order": self.side_map.order,
                                       "cards": {k: [round(v[0]), round(v[1])] for k, v in self.side_map.cards.items()},
-                                      "collapsed": sorted(self.side_map.collapsed)})
+                                      "collapsed": sorted(self.side_map.collapsed),
+                                      "used_only": sorted(self.side_map.used_only)})
 
     # The map's column switches, as in Maprisma: one per column, each switching its categories.
     COLUMN_CHIPS = (("mcp", N_("MCP servers"), ("mcp", "skills")), ("agents", N_("Agents"), ("agents",)),

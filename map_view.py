@@ -177,6 +177,9 @@ class MapView(Gtk.DrawingArea):
         self.costs = {}          # agent box id -> (label, tooltip, colour): paid per token, today's cost, no battery
         self.cost_rects = {}     # agent box id -> rectangle of that label (its tooltip)
         self.menu_rects = {}     # box id -> rectangle of its ⋮ (its menu, as a right-click)
+        self.line_colors = {}    # Settings › Map: line kind -> "#rrggbb" or "theme:<name>" (Maprisma's)
+        self.used_only = set()   # cards whose filter shows only the connected or pinned boxes
+        self.filter_rects = {}   # card key -> rectangle of its filter symbol
         self.details_rects = {}  # box id -> rectangle of its ⓘ (its details)
         self.has_details = None  # has_details(node id) -> bool: a box with a details page gets ⓘ
         self.on_details = None   # on_details(node id): open it
@@ -487,8 +490,27 @@ class MapView(Gtk.DrawingArea):
         return GROUP_LABEL_H + rows * NODE_H + max(0, rows - 1) * NODE_GAP + CARD_PAD
 
     def card_rows(self, nodes) -> int:
-        """The boxes a card shows: none while it is collapsed."""
-        return 0 if self.group_key(nodes[0]) in self.collapsed else len(nodes)
+        """The boxes a card shows: none while it is collapsed; with its filter on, only the used ones."""
+        key = self.group_key(nodes[0])
+        return 0 if key in self.collapsed else len(self.card_nodes(key, nodes))
+
+    def node_used(self, node_id: str) -> bool:
+        """Connected (a line other than an offer) or pinned: what a card's filter keeps."""
+        if node_id in self.pinned:
+            return True
+        return any(e.kind != "offer" and node_id in (e.source, e.target) for e in self.graph.edges)
+
+    def card_nodes(self, key: str, nodes) -> list:
+        """A card's boxes as shown: all, or with its filter on (Maprisma's "Show only what is connected
+        or pinned") only the used ones."""
+        return [n for n in nodes if self.node_used(n.id)] if key in self.used_only else list(nodes)
+
+    def toggle_used_only(self, key: str):
+        (self.used_only.discard if key in self.used_only else self.used_only.add)(key)
+        self.relayout()
+        self.queue_draw()
+        if self.on_layout is not None:
+            self.on_layout()
 
     def toggle_card(self, key: str):
         """Fold a card to its header, or open it again (saved with the map's layout). An opened card
@@ -677,7 +699,7 @@ class MapView(Gtk.DrawingArea):
                 self.group_labels.append((key, (cx, cy, card_w, card_h), title, detail,
                                           sum(1 for n in nodes if n.kind != "more"), nodes[0].kind))
                 by = cy + GROUP_LABEL_H
-                for node in nodes:
+                for node in (nodes if key in self.collapsed else self.card_nodes(key, nodes)):
                     if key in self.collapsed:
                         # Folded: every box sits on the header, so its lines still reach the card.
                         self.boxes[node.id] = (cx + CARD_PAD, cy, column_w, CARD_HEAD)
@@ -1486,6 +1508,11 @@ class MapView(Gtk.DrawingArea):
         if column is not None and self.on_expand is not None:
             self.on_expand(column)
             return
+        filtered = next((key for key, (fx, fy, fw, fh) in self.filter_rects.items()
+                         if fx <= x <= fx + fw and fy <= y <= fy + fh), None)
+        if filtered is not None and self.node_at(x, y) is None:
+            self.toggle_used_only(filtered)           # the card's filter: only what is connected or pinned
+            return
         if self.node_at(x, y) is None and self.card_header_at(x, y) is not None:
             # A click on a card's header folds or opens it (a drag moves it: the drag claims it).
             self.toggle_card(self.card_header_at(x, y))
@@ -1895,7 +1922,26 @@ class MapView(Gtk.DrawingArea):
     # --- drawing ------------------------------------------------------------------------------
 
     def color(self, name: str, alpha: float = 1.0):
+        if name.startswith("#"):                       # a colour of Settings › Map (line_colors)
+            return rgba(name, alpha)
         return rgba(self.colors.get(name, "#888888"), alpha)
+
+    # Which line a colour of Settings › Map is for (Maprisma's mapLineKind), and its theme colours.
+    LINE_KINDS = {"uses": "provider", "available": "provider", "default": "model", "live": "model",
+                  "serves": "serves", "mcp": "mcp", "skills": "skills"}
+    THEME_LINE_COLORS = {"primary": "accent", "secondary": "cyan", "tertiary": "magenta", "outline": "dim"}
+
+    def edge_color(self, kind: str, loaded: bool = False) -> str:
+        """A line's colour, as Maprisma's: the one set for its kind in Settings › Map (#rrggbb or
+        theme:<name>), else the theme's accent; a model loaded without an agent stays light."""
+        if loaded:
+            return EDGE_COLORS["loaded"]
+        chosen = self.line_colors.get(self.LINE_KINDS.get(kind, ""))
+        if isinstance(chosen, str) and chosen.startswith("theme:"):
+            return self.THEME_LINE_COLORS.get(chosen[6:], "accent")
+        if isinstance(chosen, str) and len(chosen) == 7 and chosen.startswith("#"):
+            return chosen
+        return "muted" if kind == "offer" else "accent"
 
     def queue_draw(self):
         self.texture = None
@@ -1950,10 +1996,9 @@ class MapView(Gtk.DrawingArea):
             bend = (x2 - x1) * 0.5
             picked = (edge.source, edge.target) == self.selected_edge
             alpha = 0.55
-            if only_lit and index not in lit_edges and not picked:
-                continue
             if lit_edges is not None:
-                alpha = 0.95 if index in lit_edges else 0.08
+                # A selection grays the rest out (Maprisma: its lines at 20 %), hover and pins fade it more.
+                alpha = 0.95 if index in lit_edges else 0.2 if only_lit else 0.08
             if picked:
                 moving = self.link is not None and self.link.get("relink") and self.link["drawing"]
                 alpha = 0.3 if moving else 1.0
@@ -1977,7 +2022,7 @@ class MapView(Gtk.DrawingArea):
                 # an agent another one uses now: its path in the collaboration colour, as the arrow to it.
                 tint = "collab" if active and index in collab else None if index in own_path else self.tints.get(index)
                 cr.set_source_rgba(*self.color(tint or ("accent" if active else "outside" if outside
-                                               else EDGE_COLORS.get("loaded" if loaded else edge.kind, "muted")),
+                                               else self.edge_color(edge.kind, loaded)),
                                                0.85 if loaded and alpha == 1.0 else alpha))
                 cr.set_line_width(3.2 if picked else 2.8 if active or outside else 2.2 if loaded else
                                   2.0 if lit_edges is not None and index in lit_edges else 1.4)
@@ -2011,6 +2056,7 @@ class MapView(Gtk.DrawingArea):
         self.subagent_rects = {}
         self.cost_rects = {}
         self.menu_rects = {}
+        self.filter_rects = {}
         self.details_rects = {}
         self.update_rects = {}
         self.draw_summaries(cr, layout)
@@ -2028,7 +2074,7 @@ class MapView(Gtk.DrawingArea):
                 continue                       # its card is collapsed: only the header shows
             x, y, w, h = self.boxes[node.id]
             faded = lit_nodes is not None and node.id not in lit_nodes
-            alpha = 0.25 if faded else (0.55 if node.dim or node.status == "missing" else 1.0)
+            alpha = 0.3 if faded else (0.55 if node.dim or node.status == "missing" else 1.0)   # Maprisma: 30 %
             selected = node.id in self.selected
             self.draw_box(cr, layout, node, x, y, w, h, faded, alpha, lit_nodes)
 
@@ -2237,47 +2283,42 @@ class MapView(Gtk.DrawingArea):
                 cr.move_to(x + 1, y + CARD_HEAD + 0.5)
                 cr.line_to(x + w - 1, y + CARD_HEAD + 0.5)
                 cr.stroke()
-            # The chevron at the right end: ▾ open, ▸ folded (a click on the header switches).
-            self.draw_chevron(cr, x + w - 12, y + CARD_HEAD / 2, folded)
-            node_kind = self.CARD_KINDS.get(key, "model")
-            glyph_text = glyph(TILE_GLYPHS.get(node_kind, "model"))
-            tone = TILE_TONES.get(node_kind, "accent")
-            colour = self.color(tone if tone != "muted" else "fg", 0.9)
-            gx, size = x + 9, 14
-            if not self.draw_icon(cr, glyph_text, "", gx, y + (CARD_HEAD - size) / 2, size, colour):
-                layout.set_font_description(Pango.FontDescription.from_string("JetBrainsMono Nerd Font, Symbols Nerd Font 10"))
-                layout.set_width(-1)
-                layout.set_text(glyph_text, -1)
-                cr.set_source_rgba(*colour)
-                cr.move_to(gx, y + (CARD_HEAD - layout.get_pixel_size()[1]) / 2)
-                PangoCairo.show_layout(cr, layout)
-            gx += size + 7
-            # The number of boxes left of the chevron; the grip left of it.
+            # As Maprisma's card header: the chevron at the left (▾ open, ▸ folded; a click on the header
+            # switches), the title, the number of boxes, the filter at the right.
+            self.draw_chevron(cr, x + 12, y + CARD_HEAD / 2, folded)
+            gx = x + 24
+            fx = x + w - 20
+            self.filter_rects[key] = (fx - 4, y, 20, CARD_HEAD)
+            on = key in self.used_only
+            cr.set_source_rgba(*self.color("accent" if on else "dim", 0.95))
+            cr.new_path()
+            fy = y + CARD_HEAD / 2 - 5
+            cr.move_to(fx, fy)
+            cr.line_to(fx + 11, fy)
+            cr.line_to(fx + 7, fy + 5)
+            cr.line_to(fx + 7, fy + 10)
+            cr.line_to(fx + 4, fy + 9)
+            cr.line_to(fx + 4, fy + 5)
+            cr.close_path()
+            cr.fill() if on else (cr.set_line_width(1.1), cr.stroke())
             layout.set_width(-1)
             layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 8"))
             layout.set_text(str(count), -1)
             cw, ch = layout.get_pixel_size()
-            bx = x + w - 24 - cw - 8
+            bx = fx - 10 - cw - 8
             self.rounded(cr, bx, y + (CARD_HEAD - ch - 2) / 2, cw + 8, ch + 2, (ch + 2) / 2)
             cr.set_source_rgba(*self.color("fg", 0.10))
             cr.fill()
             cr.set_source_rgba(*self.color("dim"))
             cr.move_to(bx + 4, y + (CARD_HEAD - ch) / 2)
             PangoCairo.show_layout(cr, layout)
-            grip_x = bx - 14
-            cr.set_source_rgba(*self.color("dim", 0.8))
-            for row in range(3):
-                for col in range(2):
-                    cr.arc(grip_x + col * 4, y + CARD_HEAD / 2 - 4 + row * 4, 1.1, 0, 2 * math.pi)
-                    cr.fill()
-            # Title (bold, upper case) and the folder after it (dim, its own case, shortened in front).
-            room = grip_x - 8 - gx
-            layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 8"))
-            layout.set_text(title.upper(), -1)
+            room = bx - 8 - gx
+            layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 9"))
+            layout.set_text(title, -1)
             layout.set_width(int(room * Pango.SCALE))
             layout.set_ellipsize(Pango.EllipsizeMode.END)
             tw, th = layout.get_pixel_size()
-            cr.set_source_rgba(*self.color("accent" if lifted else "fg", 0.9))
+            cr.set_source_rgba(*self.color("accent" if lifted else "fg", 0.95))
             cr.move_to(gx, y + (CARD_HEAD - th) / 2)
             PangoCairo.show_layout(cr, layout)
             if detail and room - tw > 30:
