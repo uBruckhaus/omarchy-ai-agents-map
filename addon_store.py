@@ -234,9 +234,10 @@ def unpack(data: bytes, target: Path) -> str:
 
 
 def install_bytes(data: bytes, user_dir: Path = addons.USER_DIR, signers: str = addons.ALLOWED_SIGNERS,
-                  expect: str | None = None, trash=None) -> addons.Addon:
+                  expect: str | None = None, trash=None, allow=None) -> addons.Addon:
     """Unpack, verify and put an add-on into the user's add-ons folder; the verified Addon.
-    Raises InstallError (nothing is changed then)."""
+    `allow(id, kind, replacing)`: asked once it is verified and before anything is changed; a text
+    refuses it (Settings › What may be done). Raises InstallError (nothing is changed then)."""
     user_dir.mkdir(parents=True, exist_ok=True, mode=0o755)
     staging = Path(tempfile.mkdtemp(prefix=".install-", dir=user_dir))
     try:
@@ -248,6 +249,10 @@ def install_bytes(data: bytes, user_dir: Path = addons.USER_DIR, signers: str = 
         if addon.state != "verified":
             raise InstallError(addon.reason)
         final = user_dir / aid
+        if allow is not None:
+            refused = allow(aid, addon.kind, final.exists() or final.is_symlink())
+            if refused:
+                raise InstallError(refused)
         old = None
         if final.exists() or final.is_symlink():
             old = user_dir / f".old-{aid}-{int(time.time())}"

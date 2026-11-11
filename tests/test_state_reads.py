@@ -179,6 +179,27 @@ class AddonRulesTest(unittest.TestCase):
         self.assertEqual([a[0] for a in asked], ["install", "remove", "update", "install", "remove"])
 
 
+class FoundAddonsTest(unittest.TestCase):
+    def test_a_denied_add_on_is_not_switched_on_at_the_start(self):
+        import addons_page
+
+        class Page(addons_page.AddonsPage):
+            pass
+        page = Page()
+        agent = type("A", (), {"id": "agent-goose", "kind": "agent"})()
+        llm = type("A", (), {"id": "llm-ollama", "kind": "provider"})()
+        page.adapter_addons = lambda: [agent, llm]
+        page.installed_adapters = lambda adapters: {"agent-goose", "llm-ollama"}
+        page.load_addons = page.reload_addons = lambda: None
+        rules = [{"effect": "allow", "action": "*", "category": "*", "item": "*", "agent": "*"},
+                 {"effect": "deny", "action": "install", "category": "agents", "item": "agent-goose", "agent": "*"}]
+        got = []
+        with mock.patch.object(addons_page.ai_core, "setting", lambda key, *a: rules if key == "action_rules" else None), \
+                mock.patch.object(addon_store, "enable_found", lambda ids: got.extend(ids) or []):
+            page.enable_found_addons()
+        self.assertEqual(got, ["llm-ollama"])
+
+
 class TrustedChainTest(unittest.TestCase):
     def test_a_folder_higher_up_that_others_can_write(self):
         import llama_tune

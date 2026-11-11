@@ -229,7 +229,12 @@ class AddonsPage:
         switched off; the map then shows them. At the start once setup was done (not during the first-run
         setup, whose welcome page ticks what it found)."""
         try:
-            switched = addon_store.enable_found(self.installed_adapters(self.adapter_addons()))
+            import action_rules
+            rules = ai_core.setting("action_rules")
+            kinds = {a.id: a.kind for a in self.adapter_addons()}
+            found = [i for i in self.installed_adapters(self.adapter_addons())
+                     if action_rules.allows(rules, *action_rules.addon_check("on", i, kinds.get(i, "")))]
+            switched = addon_store.enable_found(found)
         except Exception:               # never keep the app from starting
             switched = []
         if switched:
@@ -889,9 +894,19 @@ class AddonsPage:
             if not path or self.addons_busy():
                 return
 
+            import action_rules
+            rules, hints = ai_core.setting("action_rules"), ai_core.setting("action_rule_hints") is not False
+
+            def allow(aid, kind, replacing):
+                # The add-on's own rule, known once the zip is verified (before anything is replaced).
+                text = action_rules.refusal(rules, hints, *action_rules.addon_check("install", aid, kind))
+                if text is None and replacing:
+                    text = action_rules.refusal(rules, hints, *action_rules.addon_check("update", aid, kind))
+                return text
+
             def work():
                 try:
-                    return addon_store.install_file(Path(path))
+                    return addon_store.install_file(Path(path), allow=allow)
                 except addon_store.InstallError as error:
                     return error
 

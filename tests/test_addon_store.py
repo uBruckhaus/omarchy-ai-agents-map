@@ -217,6 +217,25 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(store.enabled(), set())
         self.assertFalse(store.remove("../etc", self.user, trash=self.trashed.append))
 
+    def test_the_rules_are_asked_before_anything_changes(self):
+        path = self.tmp / "demo.zip"
+        path.write_bytes(self.zip_addon())
+        asked = []
+
+        def refuse(aid, kind, replacing):
+            asked.append((aid, replacing))
+            return "Install: not allowed by your rules"
+        with self.assertRaises(store.InstallError):
+            store.install_file(path, user_dir=self.user, signers=self.signers, allow=refuse)
+        self.assertEqual(asked, [("demo", False)])
+        self.assertFalse((self.user / "demo").exists())                       # nothing installed
+        store.install_file(path, user_dir=self.user, signers=self.signers)
+        before = sorted(p.name for p in (self.user / "demo").iterdir())
+        with self.assertRaises(store.InstallError):
+            store.install_file(path, user_dir=self.user, signers=self.signers, allow=refuse)
+        self.assertEqual(asked[-1], ("demo", True))                            # replacing: an update
+        self.assertEqual(sorted(p.name for p in (self.user / "demo").iterdir()), before)
+
     def test_present(self):
         entry = store.entry_from(self.entry())
         with mock.patch.object(store.shutil, "which", return_value=None), \
