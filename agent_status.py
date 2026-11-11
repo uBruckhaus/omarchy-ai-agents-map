@@ -459,7 +459,7 @@ def login_state(command: str) -> bool | None:
     import ai_core
     import shutil
     entry = STATUS_COMMANDS.get(command)
-    if entry is None or not shutil.which(entry[0][0]):
+    if entry is None or not entry[0] or not shutil.which(entry[0][0]):
         return None
     argv, negative, positive = entry
     try:

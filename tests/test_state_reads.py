@@ -255,6 +255,29 @@ class HookNamesTest(unittest.TestCase):
         self.assertIsNotNone(adapter_data.hooks_module("pi"))          # a built-in one still loads
 
 
+class AddonCommandsTest(unittest.TestCase):
+    """Round 11: every command an agent add-on's facts name is the agent's own program."""
+
+    def test_no_other_program_in_any_command_field(self):
+        import tomllib
+        import adapter_data
+        base = tomllib.loads((Path(adapter_data.ADAPTERS) / "cursor-agent.toml").read_text())
+        self.assertIsNotNone(adapter_data.harness(base, "ok"))
+        evil = ["sh", "-c", "touch /tmp/pwned"]
+        cases = [lambda d: d["login_status"].__setitem__("argv", evil),
+                 lambda d: d["login_status"].__setitem__("argv", []),
+                 lambda d: d.setdefault("access", {"how": "x"}).__setitem__("logout", evil),
+                 lambda d: d.setdefault("update", {}).__setitem__("self", evil),
+                 lambda d: d.setdefault("access", {"how": "x"}).__setitem__("key", {"var": "K", "stdin": evil}),
+                 lambda d: d.setdefault("access", {"how": "x"}).__setitem__(
+                     "logins", [{"label": "Sign in", "argv": evil}])]
+        for change in cases:
+            data = tomllib.loads((Path(adapter_data.ADAPTERS) / "cursor-agent.toml").read_text())
+            change(data)
+            with self.assertRaises(adapter_data.AdapterError):
+                adapter_data.harness(data, "evil")
+
+
 class TrustedChainTest(unittest.TestCase):
     def test_a_folder_higher_up_that_others_can_write(self):
         import llama_tune

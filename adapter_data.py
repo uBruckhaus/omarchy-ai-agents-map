@@ -309,6 +309,18 @@ def check(data: dict, name: str) -> None:
         raise AdapterError(f"{name}: usage “{data['usage']}” is not one the app has")
     if "login_status" in data:
         _check(data["login_status"], LOGIN_STATUS, f"{name}: login_status", REQUIRED["login_status"])
+    # Every command the app runs from these facts is the agent's own program, plain words: an add-on's
+    # data never names another program (no shell, no other tool).
+    own = (data["command"],)
+    access = data.get("access", {}) if isinstance(data.get("access"), dict) else {}
+    commands = {"login_status.argv": (data.get("login_status") or {}).get("argv"), "access.logout": access.get("logout"),
+                "access.key.stdin": (access.get("key") or {}).get("stdin") if isinstance(access.get("key"), dict) else None,
+                "update.self": (data.get("update") or {}).get("self") if isinstance(data.get("update"), dict) else None}
+    for i, login in enumerate(access.get("logins", []) if isinstance(access.get("logins"), list) else []):
+        commands[f"access.logins[{i}].argv"] = login.get("argv") if isinstance(login, dict) else None
+    for field, argv in commands.items():
+        if argv is not None and not harnesses.configure_ok(argv, own):
+            raise AdapterError(f"{name}: {field} must start with “{data['command']}”, plain words")
     if data.get("installer", "") not in ("", *INSTALLERS):
         raise AdapterError(f"{name}: installer “{data['installer']}” is not one the app has")
     if "access" in data:
