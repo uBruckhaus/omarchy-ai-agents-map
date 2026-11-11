@@ -257,6 +257,10 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         except OSError:
             pass
         self.load_addons()
+        if ai_core.setting("setup_done") and hasattr(self, "enable_found_addons"):
+            # What was installed since is on the map (Maprisma task 055); also an update from the plugin
+            # without add-ons, whose agents and LLMs were all built in, keeps its map.
+            self.enable_found_addons(reload=False)
         shown = getattr(self, "splash", None)
         holder = shown.widget.get_parent() if shown is not None else None
         if isinstance(holder, Gtk.Overlay):
@@ -268,7 +272,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.watch_theme()
         write_pid_file()
         if hasattr(self, "setup_needed") and self.setup_needed():
-            self.setup_pending = True           # a fresh Asterism: pick what goes on the map (open_content)
+            self.setup_pending = True           # a fresh start: pick what goes on the map (open_content)
         self.booting = False
         self.fit()
         self.first_open_content()

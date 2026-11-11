@@ -312,8 +312,8 @@ class SettingsPages:
         except (OSError, ValueError):
             pass
         try:
-            import addons            # Asterism only
-            return addons.ASTERISM_VERSION, cls.ASTERISM_URL
+            import addons
+            return addons.MAPRISMA_VERSION, cls.ASTERISM_URL
         except ImportError:
             return "", cls.ASTERISM_URL
 
