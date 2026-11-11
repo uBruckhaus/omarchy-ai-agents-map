@@ -426,23 +426,38 @@ def _identity(path: Path):
     return st.st_dev, st.st_ino
 
 
-def seen_by(runtime_key: str, folder: Path) -> set:
+def seen_by(runtime_key: str, folder: Path, budget=None) -> set:
     """The files a local LLM reads from its folder (as (device, inode)): LM Studio
     those at least two folders down (<publisher>/<model>/…), Ollama its blobs
-    (hard links count), llama.cpp and KoboldCpp the folder and one level below."""
+    (hard links count), llama.cpp and KoboldCpp the folder and one level below.
+    Every entry looked at is charged to `budget` (scan_budget.Budget; a scan of its own)."""
+    import model_layout
+    import scan_budget
+    budget = budget if budget is not None else scan_budget.Budget()
     folder = Path(folder)
     kind = llm_engine.layout(runtime_key)
-    if kind == "publisher":
-        paths = folder.glob("*/*/**/*.gguf")
-    elif kind == "blobs":
-        paths = (folder / "blobs").glob("sha256-*")
-    else:
-        import itertools
-        paths = itertools.chain(folder.glob("*.gguf"), folder.glob("*/*.gguf"))     # lazily, one by one
+    paths = []
+    try:
+        if kind == "publisher":
+            for publisher in budget.entries(folder, 5000):
+                if not publisher.is_dir() or publisher.is_symlink():
+                    continue
+                for model in budget.entries(publisher, 5000):
+                    if model.is_dir() and not model.is_symlink():
+                        files, links = model_layout.walk_gguf(model, set(), budget=budget)
+                        paths += files + links
+        elif kind == "blobs":
+            paths = [p for p in budget.entries(folder / "blobs", 20000) if p.name.startswith("sha256-")]
+        else:
+            for entry in budget.entries(folder, 20000):
+                if entry.name.endswith(".gguf"):
+                    paths.append(entry)
+                elif entry.is_dir() and not entry.is_symlink():
+                    paths += [p for p in budget.entries(entry, 5000) if p.name.endswith(".gguf")]
+    except OSError:
+        pass
     found = set()
-    for count, path in enumerate(paths):
-        if count > 5000:
-            break
+    for path in paths[:5001]:
         found.add(_identity(path))
     return found - {None}
 

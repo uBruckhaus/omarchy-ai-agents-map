@@ -109,16 +109,9 @@ class Group:
         self.refresh()
 
     def _alive_fds(self) -> list[int]:
-        alive = []
-        for fd in self.fds.values():
-            try:
-                signal.pidfd_send_signal(fd, 0)
-                alive.append(fd)
-            except ProcessLookupError:
-                pass
-            except OSError:
-                pass
-        return alive
+        """The held processes that still exist AND are still in the group: only such an anchor
+        keeps the group id taken (a member that moved to another group does not)."""
+        return [fd for pid, fd in self.fds.items() if self._in_group(fd, pid)]
 
     def refresh(self) -> None:
         """Hold the group's current members. Only while a held member exists (before and after

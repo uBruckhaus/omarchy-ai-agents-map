@@ -10,6 +10,7 @@ files: never environment values, headers, tokens or keys.
 import os
 import re
 import shutil
+import threading
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -194,7 +195,7 @@ def arg_value(argv: list[str], *flags: str) -> str:
 def unit_files() -> list[Path]:
     root = HOME / ".config/systemd/user"
     try:
-        return [p for p in scan_budget.entries(root, 2000) if p.suffix == ".service" and p.is_file()][:200]
+        return [p for p in listing_budget().entries(root, 2000) if p.suffix == ".service" and p.is_file()][:200]
     except OSError:
         return []
 
@@ -222,7 +223,7 @@ def unit_for(binary: str) -> tuple[str, dict]:
         text = ad._read(unit) or ""
         drop_in = unit.with_name(unit.name + ".d")
         try:
-            for extra in [p for p in scan_budget.entries(drop_in, 200) if p.suffix == ".conf"][:20]:
+            for extra in [p for p in listing_budget().entries(drop_in, 200) if p.suffix == ".conf"][:20]:
                 text += "\n" + (ad._read(extra) or "")
         except OSError:
             pass
@@ -254,7 +255,7 @@ def gguf_files(folder: Path) -> list[Path]:
     """The GGUF files of a folder (or symlinks to them), one level deep: regular files only (a FIFO
     or device with a .gguf name is not a model), listed within one scan budget."""
     found = []
-    budget = scan_budget.Budget()
+    budget = listing_budget()
     try:
         entries = budget.entries(folder, MAX_ITEMS * 2)
     except OSError:
@@ -371,7 +372,7 @@ def ollama_models(root: Path) -> list[str]:
     registries keep their path). Newer Ollama keeps new pulls in manifests-v2
     (ollama.com/library/<name>/<tag>), older ones stay in manifests."""
     names = []
-    budget = scan_budget.Budget()          # all stores and levels together
+    budget = listing_budget()          # all stores and levels together
     for store in ("manifests", "manifests-v2"):
         try:
             hosts = budget.entries(root / store, 20)
@@ -416,7 +417,7 @@ def ollama(processes) -> Runtime:
 
 def has_model_files(folder: Path, budget=None) -> bool:
     try:
-        return any(p.suffix.lower() in (".gguf", ".safetensors") for p in (budget or scan_budget.Budget()).entries(folder, 200))
+        return any(p.suffix.lower() in (".gguf", ".safetensors") for p in (budget or listing_budget()).entries(folder, 200))
     except OSError:
         return False
 
@@ -440,7 +441,7 @@ def lmstudio(processes) -> Runtime:
     folder = settings.get("downloadsFolder") if isinstance(settings.get("downloadsFolder"), str) else ""
     path = Path(os.path.expanduser(folder)) if folder else root / "models"
     names = []
-    budget = scan_budget.Budget()
+    budget = listing_budget()
     try:
         for publisher in budget.entries(path, 200):
             if publisher.is_dir() and not publisher.name.startswith("."):
@@ -544,7 +545,7 @@ def jan_model_ids(models: Path) -> list[str]:
     """Model ids: folders under llamacpp/models holding a model.yml (ids may
     have one slash: "janhq/Jan-v3-4B-gguf")."""
     found = []
-    budget = scan_budget.Budget()
+    budget = listing_budget()
     try:
         entries = budget.entries(models, MAX_ITEMS)
     except OSError:
@@ -615,7 +616,7 @@ def koboldcpp(processes) -> Runtime:
     if folder:
         rt.models_dir = tilde(folder)
     try:
-        configs = [p.name for p in scan_budget.entries(KOBOLD_CONFIGS, MAX_ITEMS * 4) if p.suffix == ".kcpps"][:MAX_ITEMS]
+        configs = [p.name for p in listing_budget().entries(KOBOLD_CONFIGS, MAX_ITEMS * 4) if p.suffix == ".kcpps"][:MAX_ITEMS]
     except OSError:
         configs = []
     rt.models = dedupe_models(configs)
@@ -731,7 +732,7 @@ def skills_in(folder: Path, depth: int = 0) -> list[tuple[Path, Path]]:
     category folders count as one set."""
     found = []
     try:
-        entries = scan_budget.entries(folder, MAX_ITEMS)
+        entries = listing_budget().entries(folder, MAX_ITEMS)
     except OSError:
         return found
     for entry in entries:
@@ -791,7 +792,31 @@ def reused_folders(runtimes, folders) -> list:
     return found
 
 
+_SCAN = threading.local()           # the budget of the collect() running on this thread
+
+
+def listing_budget():
+    """The budget for one listing: collect()'s shared one (it may run on GTK's main loop, so all its
+    folder listings together get COLLECT_VISITS entries and COLLECT_SECONDS), else a small one."""
+    budget = getattr(_SCAN, "budget", None)
+    return budget if budget is not None else scan_budget.Budget(visits=COLLECT_VISITS, seconds=COLLECT_SECONDS)
+
+
+COLLECT_VISITS = 20_000
+COLLECT_SECONDS = 1.5
+
+
 def collect(agent_list, *, remember: bool = True, model_folders=()) -> Inventory:
+    outer = getattr(_SCAN, "budget", None)
+    if outer is None:
+        _SCAN.budget = scan_budget.Budget(visits=COLLECT_VISITS, seconds=COLLECT_SECONDS)
+    try:
+        return _collect(agent_list, remember=remember, model_folders=model_folders)
+    finally:
+        _SCAN.budget = outer
+
+
+def _collect(agent_list, *, remember: bool = True, model_folders=()) -> Inventory:
     inv = Inventory()
     processes = own_processes()
     inv.runtimes = [p.detect(processes) for p in providers.local() if p.detect is not None]

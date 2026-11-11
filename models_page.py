@@ -1308,7 +1308,7 @@ class ModelsPage:
 
         def work():
             try:
-                have = models_ctl.seen_by(rt.key, own) if own is not None and own.is_dir() else set()
+                have = models_ctl.seen_by(rt.key, own, budget) if own is not None and own.is_dir() else set()
                 found = models_ctl.local_ggufs(roots, have, budget)
             except OSError:
                 found = []
