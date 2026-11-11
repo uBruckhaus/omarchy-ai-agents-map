@@ -211,9 +211,18 @@ class TerminalPane(Gtk.Box):
             self.stopping = process_group.Group(self.pid, os.dup(self.leader_fd))
         group = self.stopping
         group.signal(signal.SIGHUP)
+        # While the stop escalates, the group is looked through often (Group.refresh: only while a
+        # held member still anchors it), so what the agent starts on SIGHUP is held as well.
+        GLib.timeout_add(150, self.watch_stop, group)
         self.set_state(True, _("stopping…"))
         GLib.timeout_add(3000, self.force_stop, group, signal.SIGTERM)
         GLib.timeout_add(6000, self.force_stop, group, signal.SIGKILL)
+
+    def watch_stop(self, group) -> bool:
+        if not group.fds:                       # closed: the stop is over
+            return False
+        group.refresh()
+        return group.alive()
 
     def force_stop(self, group, sig) -> bool:
         group.signal(sig)

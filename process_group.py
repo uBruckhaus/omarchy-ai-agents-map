@@ -152,8 +152,11 @@ class Group:
         return stat is not None and stat[1] == self.pgid and alive()
 
     def signal(self, sig) -> None:
+        """Every held member that is still in the group (one that left it, by setsid, is spared)."""
         self.refresh()
-        for fd in self.fds.values():
+        for pid, fd in self.fds.items():
+            if not self._in_group(fd, pid):
+                continue
             try:
                 signal.pidfd_send_signal(fd, sig)
             except OSError:
