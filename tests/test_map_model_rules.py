@@ -92,6 +92,18 @@ class MapModelRulesTest(unittest.TestCase):
             page.switch_online(page.agent_list[:1], "gpt-5-mini", "cloud:openai")
         apply.assert_not_called()
 
+    def test_a_backup_provider_leaves_nothing_a_move_leaves_the_old_provider(self):
+        rules = action_rules.default_rules() + [
+            {"effect": "deny", "action": "disconnect", "category": "models", "item": "old", "agent": "hermes"},
+            {"effect": "deny", "action": "disconnect", "category": "providers", "item": "ollama", "agent": "hermes"}]
+        page = self.page(rules)
+        hermes = page.agent_list[:1]
+        with mock.patch.object(type(page), "models_used_by", lambda self, agent: {"old"}):
+            self.assertTrue(page.model_change_allowed(hermes, "runtime:llamacpp", "new", switches=False))
+            self.assertFalse(page.model_change_allowed(hermes, "runtime:llamacpp", "new", switches=True))
+            self.assertFalse(page.model_change_allowed(hermes, "runtime:llamacpp", "old", switches=False,
+                                                       replaces="ollama"))
+
     def test_allowed_by_default_rules(self):
         page = self.page(action_rules.default_rules())
         self.assertTrue(page.model_change_allowed(page.agent_list, "runtime:llamacpp", "qwen"))

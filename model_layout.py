@@ -298,7 +298,14 @@ def plan(root: Path, providers: list, keep_old_paths: bool = True) -> Plan:
         elif not p.ours:
             result.steps.append(Step("note", provider=p.key, source=str(p.folder)))
     if any(s.kind == "folder" and s.target == str(flat) for s in result.steps) or flat.is_dir():
-        have = {Path(os.path.realpath(l)) for l in flat.glob("*.gguf")} if flat.is_dir() else set()
+        try:
+            listed = budget.entries(flat, MAX_FILES) if flat.is_dir() else []
+        except OSError:
+            listed = []
+        if budget.stopped:                  # the plan's shared budget: a partial picture moves nothing
+            result.problems.append("too-many")
+            return result
+        have = {Path(os.path.realpath(l)) for l in listed if l.name.endswith(".gguf")}
         for model in models:
             link = flat / model.name
             if model not in have and not link.exists() and not link.is_symlink():

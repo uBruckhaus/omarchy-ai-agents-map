@@ -128,7 +128,8 @@ class ConnectPage:
         else:
             self.on_map_link(agent_id, new_id, replaces_id=old_id)
 
-    def model_change_allowed(self, agents: list, runtime_id: str, model: str | None, old: str = "") -> bool:
+    def model_change_allowed(self, agents: list, runtime_id: str, model: str | None, old: str = "",
+                             switches: bool = True, replaces: str = "") -> bool:
         """The user's rules, checked where an agent's model setting is written (also after a
         dialog, which may have been open while the rules changed): for every agent of a batch,
         connecting to (or, model None, disconnecting from) the provider, and using the model.
@@ -141,11 +142,26 @@ class ConnectPage:
                 return False
             if model and not self.rule_allows("connect", "models", model, command):
                 return False
-            # Moved off (or disconnected from) the model it uses now: that model's disconnect rule.
-            for leaving in {old, *self.models_used_by(agent)} - {"", model}:
+            # Moved to another provider: leaving the old one is a disconnect there.
+            if replaces and replaces != provider[1] \
+                    and not self.rule_allows("disconnect", "providers", replaces, command):
+                return False
+            # Only a change that makes the agent use another model now (`switches`) leaves the model it
+            # uses: that model's disconnect rule. A backup provider (not used now) leaves nothing.
+            leaving = {old, *(self.models_used_by(agent) if switches else ())} - {"", model}
+            for leaving in leaving:
                 if not self.rule_allows("disconnect", "models", leaving, command):
                     return False
         return True
+
+    def uses_provider(self, agent, runtime_id: str) -> bool:
+        """Whether the agent's active provider is this one (its "uses" line on the map)."""
+        graph = getattr(getattr(self, "side_map", None), "graph", None)
+        source = f"agent:{getattr(agent, 'command', agent)}"
+        try:
+            return any(e.kind == "uses" and e.source == source and e.target == runtime_id for e in graph.edges)
+        except (AttributeError, TypeError):
+            return True                     # unknown: check as if it were
 
     def models_used_by(self, agent) -> set:
         """The models the agent uses now, local or online: its "default" lines on the map."""
@@ -1019,7 +1035,13 @@ class ConnectPage:
             removing = remove or info.get("remove_only")
             models = self.connect_models
             chosen = models[self.connect_model.get_selected()] if models and not removing else ""
-            if not self.model_change_allowed([agent], f"runtime:{runtime.key}", None if removing else chosen):
+            replaced = info.get("replaces") if not removing else None
+            # Its model changes when the line becomes the one it uses, or when the line it uses goes.
+            active = (self.connect_use_now.get_active() and not removing) \
+                or (removing and self.uses_provider(agent, f"runtime:{runtime.key}"))
+            if not self.model_change_allowed([agent], f"runtime:{runtime.key}", None if removing else chosen,
+                                             switches=active,
+                                             replaces=getattr(replaced, "key", "") if replaced is not None else ""):
                 return
         link = self.link_of(info)
         drawn = link is not None and not remove and not info.get("remove_only")
