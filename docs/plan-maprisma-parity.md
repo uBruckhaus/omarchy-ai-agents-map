@@ -69,7 +69,8 @@ changes, one commit per step, Uwe looks at it before the next phase.
 3. **Overlay window.** One centred window over the dimmed map for terminal, reviews and actions; F12 screenshot
    with note; status symbol per column. Progress: overlay window, F12 + note (kit's shot_save), column
    state on the summary cards. Phase 2 finished with programs to install as rows and the legend window.
-4. **Ask AI (dart → py).** The smart card engine and its plans (MCP, models, agents, providers, menu actions,
+4. **Ask AI (dart → py).** Progress: step 1 (d4d3fda, d175eb8) smart_card.py + askai_page.py, Agents and
+   Providers columns, clarify/redirect, add-ons, web look-up + Do it with …; next step 2 MCP and models. The smart card engine and its plans (MCP, models, agents, providers, menu actions,
    disconnect all), the review/apply/Undo path, helper choice, examples, Update with AI…; action rules with
    their window, enforced on every change route. Dictation comes with it (Ask AI is where it is used):
    Maprisma's engines (Omarchy's dictation, whisper.cpp, a local LLM, an online API) plus Superwhisper
