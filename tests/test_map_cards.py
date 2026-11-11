@@ -240,7 +240,7 @@ class OrderTest(unittest.TestCase):
         """Codex's case: opening MCP re-centres its column, Skills moves down onto Online (placed)."""
         view = Cards(built())
         view.collapsed.add("mcp")
-        view.cards = {"online": [4, 466]}
+        view.cards = {"online": [4, 466 + map_view.HEADER_H - 12]}   # 12: the band above the cards before the summaries
         view.layout(1200, 800)
         before = dict(view.card_rects)
         self.assertFalse(any(self.overlap(before[a], before[b]) for a in before for b in before if a < b))

@@ -1063,6 +1063,12 @@ class SettingsPages:
         monitor = self.help_llm_monitor_card()
         if monitor is not None:
             body.append(monitor)
+        # The author's other plugins (the house ⓘ page; the header's ⓘ is the map's legend, as in Maprisma).
+        import more_plugins
+        more = Gtk.Button(label=_(more_plugins.INFORMATION), halign=Gtk.Align.START)
+        more.add_css_class("am-small-btn")
+        more.connect("clicked", lambda *_: self.open_info())
+        body.append(more)
         for addon_id, builder in self.addon_hooks("help"):
             card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
             card.add_css_class("am-help-card")

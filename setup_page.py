@@ -75,8 +75,16 @@ class SetupPage:
         self.fill_setup()
         self.show_view("setup", save=False)
 
-    def open_my_setup(self):
-        """Setup in the header: the cards, with what was found on this PC looked up again."""
+    # A map column's Expand (Maprisma's column focus): only that column's sections.
+    COLUMN_SECTIONS = {0: {"mcp", "mcp-online", "skills"}, 1: {"agents"}, 2: {"local", "online"}, 3: {"models"}}
+
+    def open_column(self, column: int):
+        self.open_my_setup(focus=self.COLUMN_SECTIONS.get(column))
+
+    def open_my_setup(self, focus=None):
+        """Setup: the cards, with what was found on this PC looked up again; focus: only these sections
+        (a map column's Expand)."""
+        self.setup_focus = focus
         if self.with_addons():
             self.setup_installed = self.installed_adapters(self.adapter_addons())
         self.setup_welcome = False
@@ -85,6 +93,7 @@ class SetupPage:
 
     def close_setup(self):
         self.setup_welcome = False
+        self.setup_focus = None
         self.show_view("main", save=False)
 
     def refresh_setup(self):
@@ -831,9 +840,12 @@ class SetupPage:
             self.save_setting(setup_collapsed=sorted(now))
 
         head.connect("clicked", toggle)
+        focus = getattr(self, "setup_focus", None)
         if key == "explain":                   # already inside its own card
             box.append(head)
             box.append(body)
+            if focus is not None:
+                box.set_visible(False)         # a column's Expand: only its sections
             return body
         # A category: a group card holding its heading and its content.
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
@@ -843,6 +855,8 @@ class SetupPage:
         card.append(head)
         card.append(body)
         box.append(card)
+        if focus is not None and key not in focus:
+            card.set_visible(False)            # a column's Expand: only its sections
         return body
 
     def setup_problems(self) -> dict:

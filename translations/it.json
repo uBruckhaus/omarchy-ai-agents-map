@@ -3469,5 +3469,6 @@
  "Rounded ({0} px)": "Arrotondati ({0} px)",
  "The screenshot could not be saved: {0}": "Impossibile salvare lo screenshot: {0}",
  "The note could not be saved: {0}": "Impossibile salvare la nota: {0}",
- "Corners of the window, its cards, the map's boxes and every control (buttons, choice boxes, fields). “Like windows” follows Hyprland's window rounding.": "Angoli della finestra, delle sue schede, delle caselle della mappa e di tutti i controlli (pulsanti, caselle di scelta, campi). «Come le finestre» segue l'arrotondamento delle finestre di Hyprland."
+ "Corners of the window, its cards, the map's boxes and every control (buttons, choice boxes, fields). “Like windows” follows Hyprland's window rounding.": "Angoli della finestra, delle sue schede, delle caselle della mappa e di tutti i controlli (pulsanti, caselle di scelta, campi). «Come le finestre» segue l'arrotondamento delle finestre di Hyprland.",
+ "All fine": "Tutto a posto"
 }

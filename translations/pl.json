@@ -3550,5 +3550,6 @@
  "Rounded ({0} px)": "Zaokrąglone ({0} px)",
  "The screenshot could not be saved: {0}": "Nie udało się zapisać zrzutu ekranu: {0}",
  "The note could not be saved: {0}": "Nie udało się zapisać notatki: {0}",
- "Corners of the window, its cards, the map's boxes and every control (buttons, choice boxes, fields). “Like windows” follows Hyprland's window rounding.": "Narożniki okna, jego kart, pól mapy i wszystkich kontrolek (przyciski, listy wyboru, pola). „Jak okna” podąża za zaokrągleniem okien Hyprlanda."
+ "Corners of the window, its cards, the map's boxes and every control (buttons, choice boxes, fields). “Like windows” follows Hyprland's window rounding.": "Narożniki okna, jego kart, pól mapy i wszystkich kontrolek (przyciski, listy wyboru, pola). „Jak okna” podąża za zaokrągleniem okien Hyprlanda.",
+ "All fine": "Wszystko w porządku"
 }

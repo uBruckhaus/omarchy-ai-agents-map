@@ -114,6 +114,7 @@ class ThemeCss:
             dark_bg = True
         choice_hex = dim_hex if ai_core.setting("choice_text") == "dim" else ("#ffffff" if dark_bg else fg_hex)
         pill = 999 if radius else 0      # chips and switches: round pills, or square with Square corners
+        control_r = min(radius, 8)       # Maprisma's control corners: the radius, at most 8 (app_theme.dart)
         css = f"""
         window#aiagentsmap-window {{ background: {bg_hex}; }}
         .am-card {{ background: {bg_hex}; color: {fg_hex}; border: none;
@@ -134,6 +135,15 @@ class ThemeCss:
         .am-card button.am-header-btn {{ padding: 4px; min-width: 0; min-height: 0; margin-right: 4px; }}
         .am-card button.am-view-btn {{ margin-right: 0; }}
         .am-view-switch {{ margin-right: 4px; }}
+        .am-card button.am-plain-btn, .am-card menubutton.am-plain-btn > button {{ border: none; background: none;
+            box-shadow: none; padding: 4px 6px; margin: 0 2px; min-width: 0; min-height: 0; }}
+        .am-card button.am-plain-btn:hover, .am-card menubutton.am-plain-btn > button:hover {{
+            background: alpha({fg_hex}, 0.08); }}
+        .am-card button.am-ai-map-btn {{ color: {accent_hex}; background: none; font-size: 15px; padding: 4px 10px; }}
+        .am-card button.am-ai-map-btn:checked {{ background: none; }}
+        .am-card button.am-status-green {{ color: {green_hex}; }}
+        .am-card button.am-status-yellow {{ color: {yellow_hex}; }}
+        .am-card button.am-status-red {{ color: {red_hex}; }}
         .am-card button.am-gear-btn {{ border: 1px solid alpha({fg_hex}, 0.35); border-radius: {radius}px;
             padding: 1px 6px; margin-right: 0; }}
         .am-gear {{ font-family: "JetBrainsMono Nerd Font", "Symbols Nerd Font", monospace; font-size: 13px; }}
@@ -481,6 +491,11 @@ class ThemeCss:
         .am-card button.am-chip:checked {{ background: alpha({accent_hex}, 0.18); border-color: {accent_hex};
             color: {fg_hex}; }}
         .am-card button.am-chip:disabled {{ opacity: 0.4; }}
+        /* Maprisma's column switches: outlined when off, filled with a tick when on */
+        .am-card button.am-column-chip {{ font-size: 13px; padding: 4px 12px; border-radius: {control_r}px;
+            border: 1px solid alpha({fg_hex}, 0.35); background: none; color: {fg_hex}; }}
+        .am-card button.am-column-chip:checked {{ background: alpha({accent_hex}, 0.28); border-color: transparent;
+            color: {fg_hex}; }}
         .boxed-list .am-agent {{ background: none; border: none; border-radius: 0; }}
         .boxed-list .am-agent.am-agent-selected {{ background: alpha({accent_hex}, 0.18);
             box-shadow: inset 3px 0 {accent_hex}; }}

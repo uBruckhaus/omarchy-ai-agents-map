@@ -499,129 +499,58 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         header.append(title)
         self.title_label = title
         header.append(Gtk.Box(hexpand=True))     # the room between the title and the buttons (they keep right)
-        # Setup and Map (setup_page.py: what is on the map is set up, updated and removed there):
-        # both on every page, the one in view highlighted.
-        self.view_buttons = {}
-        for name, icon, label, tip in (
-                ("setup", "view-grid-symbolic", _("Setup"),
-                 _("Agents, LLMs, MCP servers, skills and models: add, update or remove them; the map shows "
-                   "what is set up")),
-                ("main", "mark-location-symbolic", _("Map"), _("Back to the map (Esc)"))):
-            button = Gtk.ToggleButton(valign=Gtk.Align.CENTER)
-            content = Gtk.Box(spacing=6)
-            content.append(Gtk.Image.new_from_icon_name(icon))
-            content.append(Gtk.Label(label=label))
-            button.set_child(content)
-            button.add_css_class("am-small-btn")
-            button.add_css_class("am-view-btn")
+        # As in Maprisma's header (main.dart): AI Map · status · Ask AI · legend · Help · Settings · Refresh,
+        # plain symbols without frames. "AI Map" brings the map back from any page.
+        ai_map = Gtk.ToggleButton(label=_("AI Map"), valign=Gtk.Align.CENTER)
+        for css in ("flat", "am-view-btn", "am-ai-map-btn"):
+            ai_map.add_css_class(css)
+        ai_map.set_tooltip_text(_("Back to the map (Esc)"))
+        ai_map.connect("toggled", self.on_view_button, "main")
+        header.append(ai_map)
+        self.view_buttons = {"main": ai_map}
+
+        def symbol(icon: str, tip: str, clicked=None, button=None):
+            button = button or Gtk.Button(valign=Gtk.Align.CENTER)
+            if isinstance(button, Gtk.MenuButton):
+                button.set_icon_name(icon)
+            else:
+                button.set_child(Gtk.Image.new_from_icon_name(icon))
             button.set_tooltip_text(tip)
-            button.connect("toggled", self.on_view_button, name)
+            for css in ("flat", "am-header-btn", "am-plain-btn"):
+                button.add_css_class(css)
+            if clicked is not None:
+                button.connect("clicked", lambda *_: clicked())
             header.append(button)
-            self.view_buttons[name] = button
-        # Refresh (F5): look at the PC again, as on start (reload_setup); the map and Setup follow.
-        self.refresh_button = Gtk.Button()
-        self.refresh_button.set_child(Gtk.Image.new_from_icon_name("view-refresh-symbolic"))
-        self.refresh_button.set_tooltip_text(_("Refresh") + " (F5) — " + _("Look again at what is on this PC (F5)").replace(" (F5)", ""))
-        for css in ("flat", "am-header-btn", "am-gear-btn"):
-            self.refresh_button.add_css_class(css)
-        self.refresh_button.connect("clicked", lambda *_: self.reload_setup())
-        header.append(self.refresh_button)
-        # Open problems: shown only while something needs fixing (health.check), opens their list.
-        self.problem_button = Gtk.Button(label="!", valign=Gtk.Align.CENTER, visible=False)
-        self.problem_button.add_css_class("flat")
-        self.problem_button.add_css_class("am-header-btn")
-        self.problem_button.add_css_class("am-problem-btn")
-        self.problem_button.connect("clicked", lambda *_: self.open_health())
-        header.append(self.problem_button)
+            return button
 
-        # The legend (as in App Manager): what the map's dots, lines and marks mean.
-        legend_button = Gtk.MenuButton()
-        mark = Gtk.Label(label="ⓘ")
-        mark.add_css_class("am-gear")
-        legend_button.set_child(mark)
-        legend_button.set_tooltip_text(_("What the marks mean"))
-        legend_button.add_css_class("flat")
-        legend_button.add_css_class("am-header-btn")
-        legend_button.add_css_class("am-gear-btn")
-        legend_button.set_create_popup_func(lambda button: button.set_popover(self.legend_popover()))
-        header.append(legend_button)
-        self.legend_button = legend_button
-        # Network: the running agents' traffic (traffic_page), lit while one moves data.
-        self.traffic_button = Gtk.MenuButton()
-        self.traffic_mark = LegendSample(lambda name, alpha=1.0: self.side_map.color(name, alpha), "traffic:quiet",
-                                         width=18, height=16)
-        self.traffic_button.set_child(self.traffic_mark)
-        self.traffic_button.set_tooltip_text(_("Network traffic of the running agents"))
-        self.traffic_button.add_css_class("flat")
-        self.traffic_button.add_css_class("am-header-btn")
-        self.traffic_button.add_css_class("am-gear-btn")
-        self.traffic_button.set_create_popup_func(lambda button: button.set_popover(self.traffic_popover()))
-        header.append(self.traffic_button)
-
-        # Smart Check: what the installed online agent did and found (only while one can).
-        self.smartcheck_button = Gtk.Button(visible=False)
-        self.smartcheck_button.set_child(Gtk.Image.new_from_icon_name("am-smartcheck-symbolic"))
-        self.smartcheck_button.set_tooltip_text(_("Smart Check: your AI setup checked by an agent, its finds and tokens"))
-        for css in ("flat", "am-header-btn", "am-gear-btn"):
-            self.smartcheck_button.add_css_class(css)
-        self.smartcheck_button.connect("clicked", lambda *_: self.open_smart_check())
-        header.append(self.smartcheck_button)
-        # Add-ons (Asterism only): everything the app understands, and what can be added.
+        # The state of the setup (health.check): green when all is fine, yellow for tips and updates, red
+        # when something needs fixing; opens the list (Maprisma: SmartStatusIcon).
+        self.problem_button = symbol("object-select-symbolic", _("All fine"), lambda: self.open_health())
+        self.problem_button.set_visible(False)
+        # Ask AI (✦). Until Ask AI is here (parity phase 4) it opens Smart Check, only while an agent can.
+        self.smartcheck_button = symbol("am-smartcheck-symbolic",
+                                        _("Smart Check: your AI setup checked by an agent, its finds and tokens"),
+                                        lambda: self.open_smart_check())
+        self.smartcheck_button.set_visible(False)
+        # The legend: what the map's dots, lines and marks mean.
+        self.legend_button = symbol("help-about-symbolic", _("What the marks mean"), button=Gtk.MenuButton())
+        self.legend_button.set_create_popup_func(lambda button: button.set_popover(self.legend_popover()))
+        # Network traffic and add-ons have no header symbol (as in Maprisma): an agent's traffic mark on the
+        # map opens its traffic, the add-ons are in Settings and on each column's Expand.
+        self.traffic_button = None
         self.addons_button = None
-        if hasattr(self, "open_addons"):
-            addons_button = Gtk.Button()
-            addons_button.set_child(Gtk.Image.new_from_icon_name("application-x-addon-symbolic"))
-            addons_button.set_tooltip_text(_("Add-ons"))
-            addons_button.add_css_class("flat")
-            addons_button.add_css_class("am-header-btn")
-            addons_button.add_css_class("am-gear-btn")
-            addons_button.connect("clicked", lambda *_: self.open_addons())
-            header.append(addons_button)
-            self.addons_button = addons_button
-        # Information: the author's other plugins (from the marketplace).
-        import more_plugins
-        info_button = Gtk.Button()
-        info_mark = Gtk.Label(label=more_plugins.INFO_GLYPH)
-        info_mark.add_css_class("am-gear")
-        info_button.set_child(info_mark)
-        info_button.set_tooltip_text(_(more_plugins.INFORMATION))
-        info_button.add_css_class("flat")
-        info_button.add_css_class("am-header-btn")
-        info_button.add_css_class("am-gear-btn")
-        info_button.connect("clicked", lambda *_: self.open_info())
-        header.append(info_button)
-        self.info_button = info_button
-        # Help (the manual: setting up by drawing, …), left of the gear, in the same bordered box.
-        help_button = Gtk.Button()
-        mark = Gtk.Label(label="?")
-        mark.add_css_class("am-gear")
-        mark.add_css_class("am-help-mark")
-        help_button.set_child(mark)
-        help_button.set_tooltip_text(_("Help (F1)"))
-        help_button.add_css_class("flat")
-        help_button.add_css_class("am-header-btn")
-        help_button.add_css_class("am-gear-btn")
-        help_button.connect("clicked", lambda *_: self.open_help())
-        header.append(help_button)
-        self.help_button = help_button
-        # The same gear (Nerd Font U+F0493, stored as the app's own icon) in a small bordered box as the
-        # other plugins.
-        settings_button = Gtk.Button()
-        from ui_helpers import glyph_widget
-        gear = glyph_widget("\U000F0493", "", 15, ("am-gear",))
-        settings_button.set_child(gear)
-        settings_button.set_tooltip_text(_("Settings"))
-        settings_button.add_css_class("flat")
-        settings_button.add_css_class("am-header-btn")
-        settings_button.add_css_class("am-gear-btn")
-        settings_button.connect("clicked", lambda *_: self.open_settings())
-        header.append(settings_button)   # rightmost
-        self.settings_button = settings_button
+        self.info_button = None             # the author's other plugins: on the Help page
+        self.help_button = symbol("help-browser-symbolic", _("Help (F1)"), lambda: self.open_help())
+        self.settings_button = symbol("emblem-system-symbolic", _("Settings"), lambda: self.open_settings())
+        # Refresh (F5): look at the PC again, as on start (reload_setup); the map follows.
+        self.refresh_button = symbol("view-refresh-symbolic",
+                                     _("Refresh") + " (F5) — " + _("Look again at what is on this PC (F5)").replace(" (F5)", ""),
+                                     lambda: self.reload_setup())
         self.setup_header_order(header)
         return header
 
     # The header's symbols in the user's order: hold the left mouse button on one and drag it.
-    HEADER_ITEMS = ("refresh", "problem", "legend", "traffic", "smartcheck", "addons", "info", "help", "settings")
+    HEADER_ITEMS = ("problem", "smartcheck", "legend", "help", "settings", "refresh")     # Maprisma's order
 
     def header_items(self) -> dict:
         found = {key: getattr(self, f"{key}_button", None) for key in self.HEADER_ITEMS}
@@ -874,8 +803,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
     def build_main_page(self) -> Gtk.Widget:
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         # Only while the map is in view: the pages opened in its place have a header of their own.
-        self.map_heading = self.view_heading(_("Map"))
-        page.append(self.map_heading)
+        self.map_heading = None              # no heading over the map (as in Maprisma)
         # Downloads and installs running in the background (or interrupted): one line each.
         self.jobs_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self.jobs_box.add_css_class("am-jobs")
@@ -903,8 +831,8 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.gpu_card.append(self.gpu_software)
         self.gpu_line.set_visible(True)                    # the card shows or hides now
         self.gpu_card.group_card.set_visible(False)        # until the first reading has a card
-        side.append(self.build_layer_toggles())
-        # The filter line: a hint, or what is selected and a way back to everything.
+        # One row above the map, as in Maprisma: what is selected (only then) on the left; the columns'
+        # switches, the zoom and the layout pin on the right.
         bar = Gtk.Box(spacing=8)
         self.side_filter = Gtk.Label(xalign=0, hexpand=True)
         self.side_filter.add_css_class("am-agent-detail")
@@ -917,6 +845,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.map_show_all.set_tooltip_text(_("Clear the selection (Esc)"))
         self.map_show_all.connect("clicked", lambda *_: self.set_selection([]))
         bar.append(self.map_show_all)
+        bar.append(self.build_layer_toggles())
         # Zoom: − 100 % + (also Ctrl+scroll on the map, Ctrl+plus / minus / 0).
         zoom = Gtk.Box(spacing=0)
         zoom.add_css_class("am-zoom")
@@ -940,6 +869,13 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             self.layout_pin.add_css_class(css)
         self.layout_pin.connect("clicked", lambda *_: self.toggle_layout_pin())
         bar.append(self.layout_pin)
+        reset = Gtk.Button(icon_name="view-restore-symbolic", valign=Gtk.Align.CENTER)
+        for css in ("flat", "am-small-btn", "am-quiet-btn"):
+            reset.add_css_class(css)
+        reset.set_tooltip_text(_("Default layout") + " — " +
+                               _("Put the cards back in their columns and the boxes in the map's own order"))
+        reset.connect("clicked", lambda _b: self.side_map.default_layout())
+        bar.append(reset)
         side.append(bar)
         side.append(self.build_first_card())
         self.side_map = MapView()
@@ -1003,6 +939,13 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.show_layout_pin()
         self.side_map.on_layout = self.save_map_layout
         self.side_map.card_tip = _("Click to fold or open this card. Drag to move it. Drag a box inside its card to change the order")
+        # Each column's summary card (Maprisma's MapGroupCard) and its Expand.
+        self.side_map.column_titles = {0: _("MCP servers and skills"), 1: _("Agents"), 2: _("Providers"),
+                                       3: _("Models")}
+        self.side_map.summary_texts = (_("{0} on · {1} more available"), _("{0} found on this PC · Expand"),
+                                       _("None yet · Expand to add one"), _("Expand"))
+        self.side_map.summary_counts = self.column_counts
+        self.side_map.on_expand = self.open_column
         self.zoom_label.set_label(f"{round(self.side_map.zoom * 100)} %")
         # The right of the Overview: the map, or a page opened from a card or from the map.
         right = Gtk.Stack(hexpand=True)
@@ -1352,7 +1295,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
     def show_gpu(self, usage, runtimes):
         gib = gpu_usage.gib
         total = usage.vram_total
-        self.gpu_card.group_card.set_visible(total > 0)
+        self.gpu_card.group_card.set_visible(False)     # Maprisma has no GPU card over the map
         if total:
             free = max(0, total - usage.vram_used)
             self.gpu_memory.set_parts([(usage.llm_vram / total, "accent", 1.0), (usage.other_vram / total, "fg", 0.45)])
@@ -2465,35 +2408,49 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                                       "cards": {k: [round(v[0]), round(v[1])] for k, v in self.side_map.cards.items()},
                                       "collapsed": sorted(self.side_map.collapsed)})
 
+    # The map's column switches, as in Maprisma: one per column, each switching its categories.
+    COLUMN_CHIPS = (("mcp", N_("MCP servers"), ("mcp", "skills")), ("agents", N_("Agents"), ("agents",)),
+                    ("providers", N_("Providers"), ("online", "local")), ("models", N_("Models"), ("models",)))
+
     def build_layer_toggles(self) -> Gtk.Widget:
-        """One toggle per category: shorten the map to what you are setting up."""
+        """One switch per column: shorten the map to what you are setting up."""
         row = Gtk.Box(spacing=6)
-        label = Gtk.Label(label=_("Show:"))
-        label.add_css_class("am-line-label")
-        row.append(label)
-        names = {"agents": _("Agents"), "online": _("Online providers"), "local": _("Local LLMs"),
-                 "models": _("Models"), "mcp": _("MCP servers"), "skills": _("Skills")}
-        self.layer_buttons = {}
-        for layer in graph.LAYERS:
-            button = Gtk.ToggleButton(label=names[layer])
-            button.add_css_class("am-chip")
-            button.connect("toggled", lambda b, l=layer: self.on_layer_toggled(l, b.get_active()))
-            row.append(button)
-            self.layer_buttons[layer] = button
         # Why the switches changed by themselves (auto_layers: the narrow window picks its own).
-        self.layers_note = Gtk.Label(xalign=0, hexpand=True, visible=False)
+        self.layers_note = Gtk.Label(xalign=1, visible=False)
         self.layers_note.add_css_class("am-line-label")
         self.layers_note.set_ellipsize(Pango.EllipsizeMode.END)
-        self.layers_note.set_margin_start(6)
+        self.layers_note.set_max_width_chars(40)
         row.append(self.layers_note)
-        # Right: back to the map's own layout (cards in their columns, boxes in the map's order).
-        row.append(Gtk.Box(hexpand=True))
-        reset = Gtk.Button(label=_("Default layout"))
-        reset.add_css_class("am-chip")
-        reset.set_tooltip_text(_("Put the cards back in their columns and the boxes in the map's own order"))
-        reset.connect("clicked", lambda _b: self.side_map.default_layout())
-        row.append(reset)
+        self.layer_buttons = {}
+        for key, name, layers in self.COLUMN_CHIPS:
+            button = Gtk.ToggleButton(valign=Gtk.Align.CENTER)
+            content = Gtk.Box(spacing=6)
+            tick = Gtk.Label(label="✓")
+            content.append(tick)
+            content.append(Gtk.Label(label=_(name)))
+            button.set_child(content)
+            button.tick = tick
+            button.add_css_class("am-chip")
+            button.add_css_class("am-column-chip")
+            button.connect("toggled", lambda b, ls=layers: self.on_column_toggled(ls, b.get_active()))
+            row.append(button)
+            self.layer_buttons[key] = button
         return row
+
+    def column_counts(self, column: int) -> tuple[int, int]:
+        """A map column's (more available, found on this PC), as Maprisma's _groupAvailable/_groupFound:
+        for agents and providers, the installed add-ons switched off and the catalog's not installed;
+        found: those switched off whose program is on this PC."""
+        if column not in (1, 2):
+            return 0, 0
+        def ours(kind):
+            return kind == "agent" if column == 1 else kind != "agent"
+        installed = {a.id for a in getattr(self, "addons", [])}
+        off = {a.id for a in getattr(self, "addons", []) if ours(a.kind) and a.state == "verified"}
+        catalog = {e.id for e in getattr(self, "addons_entries", None) or []
+                   if (e.kind == "agent" if column == 1 else e.kind == "provider") and e.id not in installed}
+        found = off & set(getattr(self, "setup_installed", None) or ())
+        return len(off | catalog), len(found)
 
     def model_users(self) -> dict:
         """Model box id -> names of the agents that use it (their default model)."""
@@ -2518,23 +2475,26 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         return node.label if node is not None else ident
 
     def update_layer_toggles(self):
-        """Pressed = switched on; greyed out while what it needs is off."""
+        """Ticked = its column is on; greyed out while what it needs is off."""
         on = self.map_view.layers
-        needs = {"models": _("Needs Online providers or Local LLMs"),
-                 "mcp": _("Needs Agents"), "skills": _("Needs Agents")}
         self.updating_layers = True
-        for layer, button in self.layer_buttons.items():
-            button.set_active(layer in on)
-            usable = not graph.REQUIRES.get(layer) or any(n in on for n in graph.REQUIRES[layer])
+        for key, _name, layers in self.COLUMN_CHIPS:
+            button = self.layer_buttons[key]
+            active = any(layer in on for layer in layers)
+            button.set_active(active)
+            button.tick.set_visible(active)
+            usable = any(not graph.REQUIRES.get(layer) or any(n in on for n in graph.REQUIRES[layer])
+                         for layer in layers)
             button.set_sensitive(usable)
-            button.set_tooltip_text(None if usable else needs[layer])
+            button.set_tooltip_text(None if usable else
+                                    _("Needs Agents") if key == "mcp" else _("Needs Online providers or Local LLMs"))
         self.updating_layers = False
 
-    def on_layer_toggled(self, layer: str, active: bool):
+    def on_column_toggled(self, column_layers, active: bool):
         if self.updating_layers:
             return
         layers = set(self.map_view.layers)
-        layers.add(layer) if active else layers.discard(layer)
+        layers.update(column_layers) if active else layers.difference_update(column_layers)
         if not graph.effective_layers(layers):
             self.update_layer_toggles()   # keep at least one category on
             return
@@ -2543,6 +2503,9 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.update_layer_toggles()
         if not self.narrow_window():     # the narrow window chooses its own (auto_layers)
             self.save_setting(map_layers=[l for l in graph.LAYERS if l in layers])
+
+    def on_layer_toggled(self, layer: str, active: bool):
+        self.on_column_toggled((layer,), active)
 
     def on_map_selection(self, nodes):
         """A click in either map."""
@@ -2561,9 +2524,8 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             self.side_filter.set_label(_("Selected: {0} · hold Shift and click to add or remove one")
                                        .format(", ".join(n.label for n in nodes)) + pick_hint + hook_hint)
         else:
-            self.side_filter.set_label(_("Click a box to see only its connections; Shift+click selects more than one; "
-                                         "▶ starts an agent."))
-        self.side_filter.set_tooltip_text(self.side_filter.get_label())
+            self.side_filter.set_label("")          # as in Maprisma: no hint line over the map
+        self.side_filter.set_tooltip_text(self.side_filter.get_label() or None)
         self.map_show_all.set_visible(bool(nodes))
 
     def batteries_past_reset(self):
@@ -2839,13 +2801,17 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             hints += 1
             child = child.get_next_sibling()
         self.hints_heading.set_visible(hints > 0)
-        self.problem_button.set_visible(problems > 0 or hints > 0)
-        # Red for something to fix; the accent colour when there are only updates and suggestions.
-        (self.problem_button.add_css_class if problems else self.problem_button.remove_css_class)("am-problem-open")
+        # Maprisma's status symbol: shown once there is a report (never on an empty map); red for something
+        # to fix, yellow for tips and updates, green when all is fine.
+        self.problem_button.set_visible(report is not None and not self.map_empty)
+        icon = "dialog-error-symbolic" if problems else "dialog-warning-symbolic" if hints else "object-select-symbolic"
+        self.problem_button.set_child(Gtk.Image.new_from_icon_name(icon))
+        for css, on in (("am-status-red", problems > 0), ("am-status-yellow", not problems and hints > 0),
+                        ("am-status-green", not problems and not hints)):
+            (self.problem_button.add_css_class if on else self.problem_button.remove_css_class)(css)
         parts = ([ngettext("1 open problem", "{0} open problems", problems).format(problems)] if problems else []) + \
                 ([ngettext("1 suggestion", "{0} suggestions", hints).format(hints)] if hints else [])
-        if parts:
-            self.problem_button.set_tooltip_text(" · ".join(parts) + " — " + _("Open"))
+        self.problem_button.set_tooltip_text(" · ".join(parts) + " — " + _("Open") if parts else _("All fine"))
 
     def open_health(self):
         # Where it was opened from (the update page, a terminal, Settings…): Back returns there.

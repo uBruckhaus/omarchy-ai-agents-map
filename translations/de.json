@@ -3469,5 +3469,6 @@
  "Rounded ({0} px)": "Abgerundet ({0} px)",
  "The screenshot could not be saved: {0}": "Das Bildschirmfoto konnte nicht gespeichert werden: {0}",
  "The note could not be saved: {0}": "Die Notiz konnte nicht gespeichert werden: {0}",
- "Corners of the window, its cards, the map's boxes and every control (buttons, choice boxes, fields). “Like windows” follows Hyprland's window rounding.": "Ecken des Fensters, seiner Karten, der Felder der Karte und aller Bedienelemente (Knöpfe, Auswahlfelder, Eingabefelder). „Wie Fenster“ folgt der Fensterrundung von Hyprland."
+ "Corners of the window, its cards, the map's boxes and every control (buttons, choice boxes, fields). “Like windows” follows Hyprland's window rounding.": "Ecken des Fensters, seiner Karten, der Felder der Karte und aller Bedienelemente (Knöpfe, Auswahlfelder, Eingabefelder). „Wie Fenster“ folgt der Fensterrundung von Hyprland.",
+ "All fine": "Alles in Ordnung"
 }

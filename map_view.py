@@ -60,7 +60,9 @@ GROUP_GAP = 18           # between two cards of a column
 CARD_HEAD = 26           # a card's header: its title, a count, the grip to move the card
 CARD_PAD = 8             # room around the boxes inside a card
 GROUP_LABEL_H = CARD_HEAD + 2   # from a card's top to its first box
-HEADER_H = 12            # room above the cards (their headers carry the titles)
+SUMMARY_TOP = 6          # the columns' summary cards (Maprisma's MapGroupCard): their top,
+SUMMARY_H = 48           # their height
+HEADER_H = SUMMARY_TOP + SUMMARY_H + 14   # room above the cards: the summaries
 ORDER_KEEP = 300         # ids a group's saved order keeps (also of boxes gone for now, so they come back in place)
 PAD = 12
 ZOOM_STEPS = (0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5)
@@ -126,6 +128,13 @@ class MapView(Gtk.DrawingArea):
         self.defaults = set()    # model ids some agent uses by default
         self.group_titles = {}   # group key or node kind -> its card's title (translated by the window)
         self.group_labels = []   # (key, (x, y, w, h) of the card, title, detail, count, kind) drawn this time
+        # Each column's summary card on top (Maprisma): its title, "n on · m more available", Expand.
+        self.summaries = {}      # column -> (x, y, w, h)
+        self.column_titles = {0: "MCP servers and skills", 1: "Agents", 2: "Providers", 3: "Models"}
+        self.summary_counts = None   # summary_counts(column) -> (more available, found on this PC)
+        self.summary_texts = ("{0} on · {1} more available", "{0} found on this PC · Expand",
+                              "None yet · Expand to add one", "Expand")
+        self.on_expand = None    # on_expand(column): the column's own page
         self.order = {}          # group key -> box ids in the user's order (saved; new boxes go last)
         self.cards = {}          # group key -> [x, y] where the user put its card (map units; saved)
         self.card_rects = {}     # group key -> (x, y, w, h) of its card as drawn
@@ -634,6 +643,7 @@ class MapView(Gtk.DrawingArea):
         # The least the columns need side by side: a view narrower than that scrolls sideways (relayout).
         self.min_width = room + 2 * PAD + total + (count - 1) * COLUMN_GAP_MIN
         self.column_x = {}
+        self.summaries = {}
         self.group_labels = []
         self.group_rects = {}
         self.card_rects = {}
@@ -644,6 +654,7 @@ class MapView(Gtk.DrawingArea):
             column_w = widths[column]
             card_w = column_w + 2 * CARD_PAD
             self.column_x[column] = x
+            self.summaries[column] = (x - CARD_PAD, SUMMARY_TOP, card_w, SUMMARY_H)
             for nodes in self.groups(column):
                 key = self.group_key(nodes[0])
                 card_h = self.card_height(self.card_rows(nodes))
@@ -1465,6 +1476,10 @@ class MapView(Gtk.DrawingArea):
         """Click: select this box only (again: none). Shift+click: add or remove it.
         A click on a box's pin pins or unpins it."""
         x, y = x / self.zoom, y / self.zoom
+        column = self.summary_at(x, y)
+        if column is not None and self.on_expand is not None:
+            self.on_expand(column)
+            return
         if self.node_at(x, y) is None and self.card_header_at(x, y) is not None:
             # A click on a card's header folds or opens it (a drag moves it: the drag claims it).
             self.toggle_card(self.card_header_at(x, y))
@@ -1979,6 +1994,7 @@ class MapView(Gtk.DrawingArea):
         self.traffic_rects = {}
         self.subagent_rects = {}
         self.cost_rects = {}
+        self.draw_summaries(cr, layout)
         # Each card with its boxes, one card after the other: a card moved by hand lies over the others.
         z = {key: i for i, (key, *_rest) in enumerate(self.group_labels)}
         cards_drawn = set()
@@ -2188,6 +2204,70 @@ class MapView(Gtk.DrawingArea):
                 cr.move_to(gx + tw + 8, y + (CARD_HEAD - layout.get_pixel_size()[1]) / 2)
                 PangoCairo.show_layout(cr, layout)
             layout.set_ellipsize(Pango.EllipsizeMode.END)
+        layout.set_width(-1)
+
+    def summary_at(self, x, y):
+        """The column whose summary card is at (x, y), or None."""
+        for column, (sx, sy, sw, sh) in self.summaries.items():
+            if sx <= x <= sx + sw and sy <= y <= sy + sh:
+                return column
+        return None
+
+    def draw_summaries(self, cr, layout):
+        """Maprisma's column cards: the column's name, how many boxes are on it and how many more are
+        available (or found on this PC), and Expand (⤢) to the column's own page. A column with nothing
+        on it yet: a dashed card that says so."""
+        for column, (x, y, w, h) in self.summaries.items():
+            on = sum(1 for n in self.shown(column) if n.kind != "more" and not n.dim)
+            available, found = self.summary_counts(column) if self.summary_counts is not None else (0, 0)
+            empty = on == 0
+            self.rounded(cr, x, y, w, h, self.radius + 2)
+            if empty:
+                cr.set_source_rgba(*self.color("fg", 0.45))
+                cr.set_line_width(1)
+                cr.set_dash([4, 3])
+                cr.stroke()
+                cr.set_dash([])
+            else:
+                cr.set_source_rgba(*self.color("fg", 0.07))
+                cr.fill()
+            texts = self.summary_texts
+            detail = (texts[1].format(found) if found else texts[2]) if empty else texts[0].format(on, available)
+            room = w - 24 - 14
+            tx = x + 12
+            if empty:
+                layout.set_width(-1)
+                layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 11"))
+                layout.set_text("+", -1)
+                cr.set_source_rgba(*self.color("fg", 0.8))
+                cr.move_to(tx, y + (h - layout.get_pixel_size()[1]) / 2)
+                PangoCairo.show_layout(cr, layout)
+                tx += 16
+                room -= 16
+            layout.set_ellipsize(Pango.EllipsizeMode.END)
+            layout.set_width(int(room * Pango.SCALE))
+            layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 9"))
+            layout.set_text(self.column_titles.get(column, ""), -1)
+            cr.set_source_rgba(*self.color("fg", 0.95))
+            cr.move_to(tx, y + 9)
+            PangoCairo.show_layout(cr, layout)
+            layout.set_font_description(Pango.FontDescription.from_string("Sans 7.5"))
+            layout.set_text(detail, -1)
+            cr.set_source_rgba(*self.color("fg", 0.75))
+            cr.move_to(tx, y + 27)
+            PangoCairo.show_layout(cr, layout)
+            # Expand: Maprisma's open_in_full, two arrows out of the corners.
+            ex, ey, r = x + w - 18, y + h / 2, 4.5
+            cr.set_source_rgba(*self.color("fg", 0.85))
+            cr.set_line_width(1.3)
+            for sx, sy in ((1, -1), (-1, 1)):
+                tipx, tipy = ex + sx * r, ey + sy * r
+                cr.move_to(ex + sx * 1, ey + sy * 1)
+                cr.line_to(tipx, tipy)
+                cr.move_to(tipx - sx * 3, tipy)
+                cr.line_to(tipx, tipy)
+                cr.line_to(tipx, tipy - sy * 3)
+            cr.stroke()
         layout.set_width(-1)
 
     def draw_chevron(self, cr, cx, cy, folded):
