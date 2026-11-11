@@ -3472,5 +3472,6 @@
  "Measured: {0} t/s prompt · {1} t/s generation · context {2} · batch {3}": "Gemeten: {0} t/s prompt · {1} t/s generatie · context {2} · batch {3}",
  "{0}: tuned for this card": "{0}: afgestemd op deze kaart",
  "Names local LLMs the app has built in (its addon.py is never run)": "Noemt lokale LLM's die de app ingebouwd heeft (de addon.py wordt nooit uitgevoerd)",
- "Facts about the agent; the app uses its own built-in code for it (hooks.py is never run)": "Feiten over de agent; de app gebruikt er zijn eigen ingebouwde code voor (hooks.py wordt nooit uitgevoerd)"
+ "Facts about the agent; the app uses its own built-in code for it (hooks.py is never run)": "Feiten over de agent; de app gebruikt er zijn eigen ingebouwde code voor (hooks.py wordt nooit uitgevoerd)",
+ "Add-ons come with AI Agents Map and are updated with it.": "Add-ons komen mee met AI Agents Map en worden ermee bijgewerkt."
 }

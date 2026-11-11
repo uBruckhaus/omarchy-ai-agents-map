@@ -24,11 +24,14 @@ import harnesses
 import install_recipes
 import providers
 import setup_page
-from i18n import _
+from i18n import N_, _
 
 KIND_ICONS = {"agent": "system-users-symbolic", "provider": "network-server-symbolic",
               "feature": "application-x-addon-symbolic", "extension": "list-add-symbolic"}
 FILTERS = ("all", "agent", "provider", "feature", "installed", "updates")
+
+
+BUNDLED_NOTE = N_("Add-ons come with AI Agents Map and are updated with it.")
 
 
 @dataclass
@@ -162,10 +165,6 @@ class AddonsPage:
                                              hexpand=True, max_width_chars=40, halign=Gtk.Align.END)
         self.addons_search.connect("search-changed", lambda *_a: self.fill_addons_list())
         header.append(self.addons_search)
-        from_file = Gtk.Button(label=_("Install from file…"))
-        from_file.add_css_class("am-small-btn")
-        from_file.connect("clicked", lambda *_a: self.addon_from_file())
-        header.append(from_file)
         page.append(header)
         rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         rule.add_css_class("am-settings-rule")
@@ -340,9 +339,7 @@ class AddonsPage:
                                         glyphs)
         self.fill_addons_list()
         online = addon_store.online()
-        self.addons_status.set_label(_("Looking for add-ons…") if online else
-                                     _("Looking for add-ons online is off (Settings › Add-ons): only what is "
-                                       "installed is shown."))
+        self.addons_status.set_label(_(BUNDLED_NOTE))
 
         def work():
             try:
@@ -722,44 +719,7 @@ class AddonsPage:
                             and not getattr(self, "addons_updating", False))
 
     def install_addon(self, item: Item):
-        if item.entry is None or not self.addon_rule_allows("install", item.id, item.kind):
-            return
-
-        def go():
-            if self.addons_busy():
-                return
-            self.toast(_("Installing {0}…").format(item.name), 3)
-
-            def work():
-                try:
-                    addon_store.install(item.entry, allow=self.addon_rule_gate("install"))
-                    addon_store.set_enabled(item.id, True)
-                    return ""
-                except addon_store.InstallError as error:
-                    return str(error)
-
-            def done(error):
-                if error:
-                    self.toast(_("{0} was not installed: {1}").format(item.name, error), 8)
-                else:
-                    self.addons_changed(_("{0} is installed and on.").format(item.name), item.id)
-            self.run_addon_job(work, done)
-        self.addon_confirm(item, _("Install {0}?").format(item.name), _("Install and switch on"), go)
-
-    @staticmethod
-    def addon_rule_gate(step: str):
-        """allow(id, kind, replacing) for addon_store.install_bytes: the rules for the verified add-on
-        (its own id and kind, from the signed zip), checked before anything is replaced."""
-        import action_rules
-
-        def allow(aid, kind, replacing):
-            # The rules as they are right now, just before the add-on folder changes (not when the job began).
-            rules, hints = ai_core.setting("action_rules"), ai_core.setting("action_rule_hints") is not False
-            text = action_rules.refusal(rules, hints, *action_rules.addon_check(step, aid, kind))
-            if text is None and replacing and step != "update":
-                text = action_rules.refusal(rules, hints, *action_rules.addon_check("update", aid, kind))
-            return text
-        return allow
+        self.toast(_(BUNDLED_NOTE), 6)          # no catalog: they come with the plugin
 
     def addon_rule_allows(self, step: str, addon_id: str, kind: str = "") -> bool:
         """Settings › What may be done, for an add-on change (action_rules.addon_check)."""
@@ -784,24 +744,7 @@ class AddonsPage:
         return True
 
     def update_addon(self, item: Item):
-        if item.entry is None or self.addons_busy() or self.addon_locked([item.id]) \
-                or not self.addon_rule_allows("update", item.id, item.kind):
-            return
-
-        def work():
-            try:
-                addon_store.install(item.entry, allow=self.addon_rule_gate("update"))
-                return ""
-            except addon_store.InstallError as error:
-                return str(error)
-
-        def done(error):
-            if error:
-                self.toast(_("{0} was not updated: {1}").format(item.name, error), 8)
-            else:
-                self.addons_changed(_("{0} is updated to {1}.").format(item.name, item.entry.version), item.id)
-        self.toast(_("Updating {0}…").format(item.name), 3)
-        self.run_addon_job(work, done)
+        self.toast(_(BUNDLED_NOTE), 6)
 
     def addon_update_items(self) -> list:
         """The installed add-ons the signed catalog has a newer version of (empty until the catalog
@@ -814,46 +757,7 @@ class AddonsPage:
         return [i for i in items if i.update and i.entry is not None]
 
     def update_all_addons(self):
-        """Every add-on with a newer version, one after the other in the background; then they
-        are loaded again (no restart) and one toast says what happened."""
-        import action_rules
-        rules = ai_core.setting("action_rules")
-        # Only those the rules allow (each refused one is left as it is, quietly: one toast at the end).
-        items = [i for i in self.addon_update_items()
-                 if action_rules.allows(rules, *action_rules.addon_check("update", i.id, i.kind))]
-        if not items or self.addons_busy():
-            return
-        # A running agent's own add-on waits; the others are updated (Maprisma's Update all).
-        running = {c for c, p in getattr(self, "sessions", {}).items() if getattr(p, "running", False)}
-        waiting = {a.id for a in getattr(self, "addons", []) if a.kind == "agent" and running.intersection(a.provides)}
-        if waiting:
-            self.addon_locked(waiting)
-            items = [i for i in items if i.id not in waiting]
-            if not items:
-                return
-        if hasattr(self, "addons_update_bar"):
-            self.addons_update_bar.set_visible(False)
-        gate = self.addon_rule_gate("update")
-
-        def work():
-            done, failed = [], []
-            for item in items:
-                try:
-                    addon_store.install(item.entry, allow=gate)
-                    done.append(item.name)
-                except Exception as error:      # one bad download never stops the others
-                    failed.append(f"{item.name} ({error})")
-            return done, failed
-
-        def finished(result):
-            done, failed = result if isinstance(result, tuple) else ([], [str(result)])
-            message = _("Add-ons updated: {0}").format(", ".join(done)) if done else ""
-            if failed:
-                message = (message + " · " if message else "") + _("Not updated: {0}").format("; ".join(failed))
-            self.addons_changed(message)
-            self.refresh_overview()
-        self.toast(_("Updating add-ons…"), 3)
-        self.run_addon_job(work, finished)
+        self.toast(_(BUNDLED_NOTE), 6)
 
     def switch_addon_on(self, item: Item):
         if not self.addon_rule_allows("on", item.id, item.kind):
@@ -871,58 +775,8 @@ class AddonsPage:
         self.addons_changed(_("{0} is off.").format(item.name), item.id)
 
     def remove_addon(self, item: Item):
-        if self.addon_locked([item.id]) or not self.addon_rule_allows("remove", item.id, item.kind):
-            return
-        dialog = Adw.AlertDialog(heading=_("Remove {0}?").format(item.name),
-                                 body=_("It goes to the trash; you can install it again any time."))
-        dialog.add_response("cancel", _("Cancel"))
-        dialog.add_response("remove", _("Remove"))
-        dialog.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
-        dialog.set_default_response("cancel")
-
-        def answered(_d, response):
-            if response != "remove":
-                return
-            if addon_store.remove(item.id):
-                self.addons_changed(_("{0} is removed (in the trash).").format(item.name))
-            else:
-                self.toast(_("{0} is installed for every user; remove its package instead.").format(item.name), 8)
-        dialog.connect("response", answered)
-        dialog.present(self.window)
+        self.toast(_(BUNDLED_NOTE), 6)          # they are part of the plugin's own files
 
     def addon_from_file(self):
-        # Its kind is known only once it is read: installing must be allowed for agents and providers.
-        if not (self.rule_allows("install", "agents") and self.rule_allows("install", "providers")):
-            return
-        dialog = Gtk.FileDialog(title=_("Install an add-on from a file"))
-        zips = Gtk.FileFilter(name=_("Add-on (.zip)"))
-        zips.add_pattern("*.zip")
-        filters = Gio.ListStore.new(Gtk.FileFilter)
-        filters.append(zips)
-        dialog.set_filters(filters)
+        self.toast(_(BUNDLED_NOTE), 6)
 
-        def chosen(_dialog, result):
-            try:
-                file = dialog.open_finish(result)
-            except GLib.Error:
-                return
-            path = file.get_path() if file is not None else None
-            if not path or self.addons_busy():
-                return
-
-            allow = self.addon_rule_gate("install")   # the add-on's own rule, read just before it is replaced
-
-            def work():
-                try:
-                    return addon_store.install_file(Path(path), allow=allow)
-                except addon_store.InstallError as error:
-                    return error
-
-            def done(addon):
-                if isinstance(addon, Exception):
-                    self.toast(_("Not installed: {0}").format(addon), 8)
-                else:
-                    self.addons_changed(_("{0} is installed; switch it on on its card.").format(addon.name),
-                                        addon.id)
-            self.run_addon_job(work, done)
-        dialog.open(self.window, None, chosen)

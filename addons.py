@@ -48,8 +48,8 @@ LEGACY_SIGNERS = (f'{PRINCIPAL} namespaces="{LEGACY_NAMESPACE}" '
 LEGACY_REASON = "made for Asterism, this app's old name"
 
 USER_DIR = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share") / "ai-agents-map/addons"
-# The add-ons that come with the app (signed like any other), next to its own files: /usr/lib/maprisma/
-# addons from the package, inside the AppImage; a newer copy in USER_DIR (from the catalog) wins.
+# The add-ons that come with the plugin (signed like any other), next to its own files: the only ones
+# loaded (USER_DIR, Maprisma's folder for catalog installs, is not read by the plugin).
 SYSTEM_DIR = Path(__file__).resolve().parent / "addons"
 
 MAPRISMA_VERSION = "0.14.3"       # the Maprisma core this plugin follows: an add-on that "needs" a newer one is refused
@@ -400,7 +400,7 @@ def load(addon: Addon, hooks: addon_api.Hooks = addon_api.HOOKS) -> Addon:
     return addon
 
 
-def find(dirs=(USER_DIR, SYSTEM_DIR)) -> list:
+def find(dirs=(SYSTEM_DIR,)) -> list:
     """Add-on folders; an id in the user folder wins over the same id installed system-wide."""
     seen, found = set(), []
     for base in dirs:
@@ -414,7 +414,7 @@ def find(dirs=(USER_DIR, SYSTEM_DIR)) -> list:
     return found
 
 
-def load_all(enabled, dirs=(USER_DIR, SYSTEM_DIR), signers: str = ALLOWED_SIGNERS,
+def load_all(enabled, dirs=(SYSTEM_DIR,), signers: str = ALLOWED_SIGNERS,
              hooks: addon_api.Hooks = addon_api.HOOKS) -> list:
     """Verify every add-on found (to show its state) and load the ones switched on; then the
     modules rebuild their tables, so the add-ons' agents and providers appear everywhere."""

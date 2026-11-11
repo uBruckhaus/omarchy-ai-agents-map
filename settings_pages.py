@@ -274,11 +274,6 @@ class SettingsPages:
             right.reorder_child_after(right.get_last_child(), None)     # the app's own entry first on the right
         if hasattr(self, "open_addons"):
             group = self.preference_group(right, _("Add-ons"))
-            self.switch_row(group, _("Look for add-ons online"),
-                            _("Reads the list of add-ons (signed by Uwe Bruckhaus) from GitHub every few hours, to "
-                              "suggest one when a harness it knows is on this PC. Nothing is sent but the request."),
-                            ai_core.setting("addons_online") is not False,
-                            lambda on: self.save_setting(addons_online=on))
             self.button_row(group, _("Add-ons"), _("Agents, providers and features: what is built in, installed "
                                                    "and available."), _("Open"), self.open_addons)
             if self.adapter_addons():

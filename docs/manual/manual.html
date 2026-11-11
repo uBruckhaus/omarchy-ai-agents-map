@@ -317,7 +317,6 @@
 
   <h2 id="smart-card">Smart cards on the map</h2>
   <p>A collapsed <b>Ask AI…</b> bar sits at the top of every map column, with a status symbol at its left: a green check mark when all is fine, a yellow triangle for tips, updates or suggestions, or a red <b>!</b> when something in that column needs fixing. The header bar shows the overall status across all four columns (even hidden ones) and opens the first column that needs attention. Clicking a column’s status symbol opens its status list: each finding for that column with the button that opens where it is fixed and <b>Ask AI</b> to pre-fill the prompt, newer versions of installed agents and local LLMs (<b>Update</b> runs <code>mise upgrade</code> or the agent’s own updater in a terminal, or opens the install review; checked at most every six hours), MCP server updates from the daily AI checks, and <b>Check again</b>. On the welcome page, <b>What you can do with it</b> shows the use cases (everyday help, vibe coding, images, voice, research and writing) as <b>Ready</b>, <b>Almost</b> or <b>Not yet</b>, with what is there for each and the next step.</p>
-  <p>The app reads the signed add-on catalog in the background at start: from its cache, and online only when <b>Look for add-ons online</b> is on. Each column’s status list then also shows agents and local LLMs on this PC whose add-on is switched off or not installed yet (<b>Get add-ons</b> or <b>Add-ons</b> opens the add-ons to switch on or get), new programs or skills found on this PC (<b>Add MCP server…</b>, <b>Add skills…</b>), and installed add-ons with a newer version in the catalog. <b>Update all</b> shows them with their versions and, once confirmed, updates them one after the other, each checked against the catalog; one message says what was updated and what was not.</p>
   <p>Clicking the <b>Ask AI…</b> part of the bar opens the prompt in a centred window over the map, with the helper and its cost in the header and the buttons in the footer (or offers <b>Get started</b> when no AI helper is set up yet). Before anything is sent, the card shows which helper answers (with a menu when more than one is ready) and whether it runs locally (<b>Local, no tokens</b>) or <b>Uses plan/tokens</b>; only clicking <b>Ask</b> sends your one-line request. The helper either asks one clarifying question, offers to move the request to the right column, or proposes checked candidates from real search results. In the <b>Models</b> column, the card shows this PC’s VRAM, RAM and free disk space and marks each candidate as <b>Fits in VRAM</b>, <b>Uses RAM offload</b> or <b>Too large for this PC</b>. <b>Review</b> opens the download preview before anything is downloaded or changed, and once a model is ready you can optionally connect it to an agent through the connection preview with <b>Undo</b>.</p>
   <p>In the <b>MCP servers and skills</b> column the helper can add an MCP server from the official registry, connect a server to an agent, or disconnect it. It can disconnect several or all servers in one step, with one preview and one Undo. You choose the agents, fill in what the server needs (keys stay on this PC and never reach the helper), and approve the normal review; then the change is made and the map shows it. It turns down anything else and names the right column. It can also disconnect skill folders in the same step. It cannot add or update skills yet, update programs, or delete a server from the PC.</p>
   <p>In the <b>Models</b> column the helper can also remove a model of a local LLM: you see the normal removal review first, and files go to Trash where that is possible. It can also move a model folder to another disk, with a preview and <b>Undo</b> in the header. Each folder gets its own review. It can also disconnect agents from one, several or all models of a local LLM, in one preview with one Undo; no file is deleted.</p>
@@ -882,7 +881,7 @@
       <tr><td><b>AI features</b>: <b>Agent for AI checks</b></td><td>Claude Code or Codex: does the AI checks and look-ups and takes the <b>Do it with …</b> and <b>Fix it with …</b> tasks.</td></tr>
       <tr><td><b>AI features</b>: <b>Local helper</b></td><td>An agent with a model of your local LLM for the AI help that needs no web (off until you choose one). See <a href="#local-helper">The local helper</a>.</td></tr>
       <tr><td><b>Models folder</b></td><td>One folder for all models, with <b>Reorganize models…</b>.</td></tr>
-      <tr><td><b>Add-ons</b> </td><td><b>Look for add-ons online</b>, the Add-ons page, and <b>Setup</b>.</td></tr>
+      <tr><td><b>Add-ons</b> </td><td>the Add-ons page, and <b>Setup</b>.</td></tr>
       <tr><td><b>About</b></td><td>The version, the author and the license; <b>Website</b> opens the project on GitHub and <b>Report an Issue</b> its issue list.</td></tr>
     </tbody>
   </table>
@@ -1061,10 +1060,10 @@
 <p>An agent whose add-on is on but whose program is not on this PC yet (for example Codex after you switched its add-on on) gets a dashed card at the end of the Agents card on the map, with its name and <b>Not installed</b>. A click on it, or <b>Install …</b> in its <b>⋯</b> menu, opens the normal install review; the install runs in a terminal you can watch. The menu also has <b>Add-on…</b> and <b>Switch off</b>. Once the program is installed, the card turns into the agent's normal box. A folded card leaves these cards out. Help › Agents and Ask AI still install agents too.</p>
 <p>The map shows agents in two cards: <b>Online agents</b> and, below it, <b>Local agents</b> for agents made for a local LLM (such as Pi). Programs to install end the online agents card. A local LLM whose add-on is on but which is not installed yet (for example vLLM) gets the same dashed card at the end of the local providers card; a click opens the install review of the local LLM. A box whose add-on you have just switched on shows right away, even in a card set to show only what is connected or pinned.</p>
 <h2 id="map-groups-addons">Manage add-ons</h2>
-<p>Focus groups show On, Off, Found on this PC and Not installed as applicable. Use the overflow menu or right-click for switching, Add-on details, a newer signed version or provider sign-in through an installed agent. Details disclose reads, sends and capabilities. Switches apply immediately with one Undo snackbar. Changes are blocked while this app owns running agent sessions or an installation is active. Agents in other terminals do not block add-on management. Look for add-ons online explicitly loads the signed catalog; merely expanding never requests it. Review Install or Update before execution. New add-ons stay off. Removing a user add-on makes a backup and preserves programs and data; Undo is available until the app closes. Bundled add-ons stay with their package.</p>
+<p>Focus groups show On, Off, Found on this PC and Not installed as applicable. The overflow menu or a right-click switches an add-on, opens its details (what it reads, sends and may do) or signs in to a provider through an installed agent. A switch applies at once, with one <b>Undo</b>. While an agent runs in one of this app's terminals, its own add-on waits; agents in other terminals do not block it.</p>
 <p>A card that says <b>Made for Asterism</b> holds an add-on from before this app was renamed, signed with the old key. It is never loaded and hides the copy that comes with AI Agents Map: remove it from the card’s menu, and AI Agents Map uses its own.</p>
 <p>After a confirmed removal, old backups become eligible for cleanup after 30 days. Backups with an active Undo are kept; links, unrelated folders and foreign-owned folders are skipped. Undo lasts until this app closes. During first use, Welcome’s Agents button reopens the same Agents focus with its fixed Switch on / Later footer; it does not finish welcome or open a plain group view.</p>
-<p><b>Install from file…</b> takes an add-on .zip you downloaded yourself. Its own signature decides, as for a catalog download: the file is checked first and shown like a catalog entry (name, version, kind, what it reads and sends, and whether it replaces an installed version), and nothing is installed until you confirm. The file is read again then and must still be the one you reviewed. Only agent and provider add-ons can be used so far.</p>
+
 <h2 id="map-groups-welcome">First use and existing flows</h2>
 <p>Welcome appears above the map, with local Look at this PC / Skip. Mount existing data disks before searching. The Agents group opens with detected agents marked. Its fixed Switch on / Later footer stays visible while the list scrolls. Switch on is one batch with one Undo; Later preserves choices. Other enabled add-on kinds are preserved. Later starts do not auto-expand. Models links to existing download/import controls and model-folder reuse; MCP servers and skills links to Connections. New MCP definitions and new skill-folder installation remain unported. The rocket button retains the first-agent guide. Setup and Add-ons pages have been replaced by these groups.</p>
 </section>
@@ -1238,10 +1237,7 @@
   <p>Open it with the puzzle button in the header, from Settings › <b>Add-ons</b>, or from any
   "add-on available" hint. It shows, as cards:</p>
   <ul>
-    <li><b>Suggested for this PC</b> — an add-on whose agent or provider is installed here but not
-      shown yet;</li>
     <li><b>Installed add-ons</b> — on, off, or <i>not loaded</i> with the reason (for example a changed file);</li>
-    <li><b>Available</b> — the other add-ons of the catalog;</li>
     <li><b>Built into AI Agents Map</b> — agents and providers that no installed add-on brings (when you
       run AI Agents Map from its source folder without add-ons).</li>
   </ul>
@@ -1256,20 +1252,15 @@
   agents, providers, features, the installed ones or those with an update. Click a card for its
   details: what it reads, what it sends, what it may do, and its privacy level.</p>
 
-  <h2 id="addons-install">Installing, switching on and off, updating, removing</h2>
-  <p><b>Install</b> (or <b>Get add-on</b>) first shows what the add-on reads, sends and may do; only
-  after your OK is it downloaded, checked and switched on. <b>Switch off</b> and <b>Switch on</b>
-  work at once, without a restart: its agents, providers, sections and cards appear or disappear
-  everywhere. <b>Update</b> replaces it with the newer version from the catalog, after the new one
-  was checked; <b>Remove</b> moves it to the trash. <b>Install from file…</b> takes an add-on zip
-  you downloaded yourself; the same checks apply.</p>
-  <p>When the catalog has newer versions of installed add-ons, <b>Setup</b>'s cards say <i>Add-on update</i>, the column’s status lists <b>Add-on updates ready</b> with <b>Update all</b> and <b>Add-ons</b>, and the Add-ons page shows a bar with <b>Update all</b>. The card's ⋯ menu (or a right-click on it) also has <b>Update add-on to</b> <i>version</i>, for that one add-on. Update all updates every one of them in turn, with the same checks, and says in one message which were updated. One install or update runs at a time; another one started meanwhile asks you to try again in a moment.</p>
-
-  <div class="tip"><p><b>Only from the author.</b> AI Agents Map loads only add-ons signed by Uwe
-  Bruckhaus (key fingerprint <code>SHA256:e5cC634Ke3Our5LAeSc88qs22NKZEHTncBW5Ig3amWQ</code>). Before
-  anything of an add-on runs, the signature is checked with OpenSSH's <code>ssh-keygen</code>, every
-  file is compared with its SHA-256, and no file may have been added. A download must also match the
-  SHA-256 in the signed catalog.</p></div>
+  <h2 id="addons-install">Switching on and off</h2>
+  <p>The add-ons come with AI Agents Map and are updated with it: nothing is downloaded, installed
+  from a file or removed on its own. <b>Switch on</b> first shows what the add-on reads, sends and
+  may do; <b>Switch off</b> and <b>Switch on</b> work at once, without a restart: its agents,
+  providers, sections and cards appear or disappear everywhere.</p>
+  <div class="note"><p><b>Only from the author</b> AI Agents Map loads only add-ons signed by Uwe
+  Bruckhaus (key fingerprint SHA256:e5cC634Ke3Our5LAeSc88qs22NKZEHTncBW5Ig3amWQ). Before anything of an add-on is used, the signature is checked
+  with OpenSSH's <code>ssh-keygen</code>, every file is compared with its SHA-256, and no file may
+  have been added. Add-ons are data only: no code of an add-on ever runs.</p></div>
 
   <h2 id="addons-privacy">Privacy levels</h2>
   <table class="first-nowrap">
@@ -1301,10 +1292,9 @@
   cannot say</i>.</p>
 
   <h2 id="addons-new-harness">A new agent on your computer</h2>
-  <p>When you install an agent AI Agents Map does not know yet, it looks in the catalog (Settings ›
-  <b>Look for add-ons online</b>, on by default: the list is read from GitHub every few hours, nothing
-  is sent but the request). If an add-on knows that agent, the column’s status says so (<i>"Kilo Code is on this PC but not on the map"</i>) and a card under <b>Suggested for this PC</b>; one click installs it. If no add-on exists yet, the
-  agent's details say so, with a link to ask for one.</p>
+  <p>When you install an agent AI Agents Map does not know yet, it shows it as installed, without
+  sessions, security settings, MCP servers or skills. The agent's details say so, with a link to ask
+  for an add-on; a new add-on comes with a later version of AI Agents Map.</p>
 
   <h2 id="addons-make">Making an add-on</h2>
   <p>A new local LLM or a new agent needs nothing but an add-on: AI Agents Map builds its card, its box and

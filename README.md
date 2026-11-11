@@ -104,9 +104,9 @@ code. The plugin brings all of them (`addons/`); on the first start the add-ons 
 on this computer are switched on (after an update from 0.26, too, so the map shows what it showed
 before). The column pages and **Add-ons** switch them on and off; off takes them off the map, nothing
 is deleted. While an agent runs in one of the window's terminals, its own add-on is locked.
-Settings › **Look for add-ons online** (on by default) fetches the signed catalog from
-`github.com/maprisma/maprisma-addons` (see Privacy); only add-ons signed with the author's built-in
-key are used, and any add-on that brings code is refused.
+The plugin uses only the add-ons it brings: nothing is fetched or installed from elsewhere (Maprisma's
+online add-on catalog and Install from file are not part of the plugin); they are updated with the
+plugin. Only add-ons signed with the author's built-in key are used, and add-on code never runs.
 
 ### Updates
 
@@ -620,7 +620,7 @@ the backup and Undo), and the agent is told the same context. A context you set 
   against `addons.ALLOWED_SIGNERS`) and every file matches its hash; add-on code never runs: an
   `addon.py` or `hooks.py` is accepted only when it names providers or agent hooks the plugin has
   built in (those built-in ones are used), else the add-on is refused (`addons.data_only_refusal`). The bundled ones are verified
-  the same way.
+  the same way. They are the plugin's own files (nothing is fetched or installed from elsewhere).
 - **Reads** (to draw the setup): the agents' settings files, mise's install folders, the pacman
   database, user services (`~/.config/systemd/user`), model folders and this user's own processes
   (`/proc`, own UID only, including their GPU memory from DRM fdinfo), LM Studio's model index
@@ -866,13 +866,11 @@ the backup and Undo), and the agent is told the same context. A context you set 
   day for a cost, when an agent's battery or cost turns red: a desktop notification with the
   agent's name and the limit, as plain text (markup and control characters removed). What was
   notified is kept in `~/.local/state/ai-agents-map/red-notified.json` (0600).
-- **Add-on catalog** (Settings › **Look for add-ons online**, on by default; at most every 6 h while
-  the window is open): `catalog.json` and `catalog.sig` from `raw.githubusercontent.com/maprisma/
-  maprisma-addons` (at most 1 MiB), used only when the signature verifies with the built-in key. A
-  newer add-on is downloaded only on **Update** or **Install** on the Add-ons page (a zip of at most
-  8 MiB, checked against the catalog's size and SHA-256, unpacked with size, count and path limits
-  into a staging folder of its own, then verified as above before it replaces the old copy, which goes to
-  the trash). **Install from file…** takes a zip you chose, with the same checks.
+- **Add-ons** are only the plugin's own `addons/` folder: no add-on is downloaded, installed from a
+  file or read from another folder, so every add-on is part of the reviewed plugin commit (as
+  `adapters/` was before). The commands an agent add-on names (status, sign-in, sign-out, API key,
+  self-update, ask, research, configure, …) must start with that agent's own program; its hook code is
+  only ever the plugin's own `adapters/<command>.py`, chosen by exact name.
 - **Ask AI** (✦, on a click only): your request and a short description of the setup (agents and
   local LLMs with what can be done with them, the column's servers, skills or models by name, your
   action rules; never keys, settings values, environment variables or headers) go to the
@@ -1018,7 +1016,7 @@ The full module map, with diagrams, is in [ARCHITECTURE.md](ARCHITECTURE.md). Th
 | `harnesses.py`, `adapter_data.py`, `adapters/`, `edition.py` | The agents as data: one `adapters/<command>.toml` per agent (plus a small hook module for five of them), its loader and schema check; what this edition may show (numbers only in this plugin) |
 | `desktop.py`, `desktop_omarchy.py`, `desktop_generic.py` | Everything desktop-specific behind one interface: Omarchy/Hyprland here; the generic one is used only outside Omarchy (the same code as the stand-alone app Asterism) |
 | `ai_core.py`, `palette.py`, `corners.py`, `pidfile.py`, `i18n.py`, `I18n.js` | Shared helpers, theme colours, corners, PID file, languages |
-| `addons.py`, `addon_store.py`, `addons_page.py`, `addons/` | Add-ons: loading and verifying (data only), the signed catalog, the Add-ons page, the bundled add-ons |
+| `addons.py`, `addon_store.py`, `addons_page.py`, `addons/` | Add-ons: loading and verifying (data only), switching on and off, the Add-ons page, the bundled add-ons |
 | `askai_page.py`, `smart_card.py`, `local_helper.py` | Ask AI: the page, the engine that checks an answer against the facts, the local helper |
 | `action_rules.py`, `rules_window.py` | What may be done: the rules and their window |
 | `dictation.py` | Dictation in Ask AI (Omarchy dictation, Superwhisper) |

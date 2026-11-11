@@ -37,7 +37,6 @@ class StateReadsTest(unittest.TestCase):
         return path
 
     def test_a_fifo_never_hangs_a_reader(self):
-        self.assertIsNone(finishes(self, lambda: addon_store._load_cache(self.fifo("catalog.json"))))
         self.assertEqual(finishes(self, lambda: skill_update.load_state(self.fifo("skills.json"))), {})
         queue = jobs.Jobs.__new__(jobs.Jobs)
         queue.state_file = self.fifo("jobs.json")
@@ -78,13 +77,6 @@ class AddonReadsTest(unittest.TestCase):
         fifo = self.tmp / "addon.toml"
         os.mkfifo(fifo)
         self.assertIsNone(finishes(self, lambda: self.addons._read(fifo, os.getuid(), 1024)))
-
-        def chosen():
-            try:
-                addon_store.install_file(fifo)
-            except addon_store.InstallError as error:
-                return str(error)
-        self.assertTrue(finishes(self, chosen))
 
     def test_too_many_files_stops_early(self):
         folder = self.tmp / "crafted"
@@ -168,15 +160,10 @@ class AddonRulesTest(unittest.TestCase):
         page.addons_busy = lambda: False
         item = addons_page.Item("llm-ollama", "Ollama", "provider", "on", "", "", "")
         item.entry = object()
-        with mock.patch.object(addon_store, "set_enabled", side_effect=AssertionError("changed")), \
-                mock.patch.object(addon_store, "install", side_effect=AssertionError("installed")), \
-                mock.patch.object(addon_store, "remove", side_effect=AssertionError("removed")):
+        with mock.patch.object(addon_store, "set_enabled", side_effect=AssertionError("changed")):
             page.switch_addon_on(item)
             page.switch_addon_off(item)
-            page.update_addon(item)
-            page.install_addon(item)
-            page.remove_addon(item)
-        self.assertEqual([a[0] for a in asked], ["install", "remove", "update", "install", "remove"])
+        self.assertEqual([a[0] for a in asked], ["install", "remove"])
 
 
 class FoundAddonsTest(unittest.TestCase):
@@ -206,39 +193,20 @@ class Round6Test(unittest.TestCase):
             os.mkfifo(Path(folder) / "SKILL.md")
             self.assertEqual(finishes(self, lambda: skill_update.read_skill(Path(folder))), "")
 
-    def test_the_gate_uses_the_verified_kind(self):
-        import addons_page
-        rules = [{"effect": "allow", "action": "*", "category": "*", "item": "*", "agent": "*"},
-                 {"effect": "deny", "action": "install", "category": "agents", "item": "*", "agent": "*"}]
-        with mock.patch.object(addons_page.ai_core, "setting", lambda key, *a: rules if key == "action_rules" else None):
-            gate = addons_page.AddonsPage.addon_rule_gate("install")
-            # The catalog said provider, the signed zip is an agent: the agent's rule decides.
-            self.assertTrue(gate("llm-x", "agent", False))
-            self.assertIsNone(gate("llm-x", "provider", False))
-        # Rules changed while the download ran: the gate reads them when it is asked.
-        later = rules + [{"effect": "deny", "action": "install", "category": "providers", "item": "*", "agent": "*"}]
-        with mock.patch.object(addons_page.ai_core, "setting", lambda key, *a: later if key == "action_rules" else None):
-            self.assertTrue(gate("llm-x", "provider", False))
+class BundledOnlyTest(unittest.TestCase):
+    """Round 12: add-ons come only with the plugin: nothing fetched, installed, read from elsewhere."""
 
-    def test_a_failed_replace_puts_the_old_add_on_back(self):
+    def test_only_the_plugins_own_add_ons(self):
         import addons
-        with tempfile.TemporaryDirectory() as root:
-            user = Path(root) / "addons"
-            (user / "demo").mkdir(parents=True)
-            (user / "demo" / "keep").write_text("old")
-            verified = type("A", (), {"state": "verified", "kind": "agent", "reason": "", "folder": None})()
-            real_replace = os.replace
-
-            def replace(src, dst):
-                if ".install-" in str(src):
-                    raise OSError("disk full")
-                return real_replace(src, dst)
-            with mock.patch.object(addon_store, "unpack", side_effect=lambda data, staging: (Path(staging) / "demo").mkdir() or "demo"), \
-                    mock.patch.object(addons, "verify", return_value=verified), \
-                    mock.patch.object(addon_store.os, "replace", replace):
-                with self.assertRaises(OSError):
-                    addon_store.install_bytes(b"zip", user_dir=user)
-            self.assertEqual((user / "demo" / "keep").read_text(), "old")
+        self.assertEqual(addons.find.__defaults__, ((addons.SYSTEM_DIR,),))
+        self.assertEqual(addons.load_all.__defaults__[0], (addons.SYSTEM_DIR,))
+        for gone in ("install", "install_file", "install_bytes", "unpack", "remove", "parse_catalog"):
+            self.assertFalse(hasattr(addon_store, gone), gone)
+        self.assertFalse(addon_store.online())
+        self.assertEqual(addon_store.catalog(True), [])
+        with tempfile.TemporaryDirectory() as home, mock.patch.object(addons, "USER_DIR", Path(home)):
+            (Path(home) / "agent-evil").mkdir()
+            self.assertNotIn("agent-evil", [p.name for p in addons.find()])
 
 
 class HookNamesTest(unittest.TestCase):
