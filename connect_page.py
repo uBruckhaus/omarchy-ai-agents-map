@@ -148,14 +148,16 @@ class ConnectPage:
         return True
 
     def models_used_by(self, agent) -> set:
-        """The local models the agent uses now (its active provider's model, from the map)."""
-        import model_slots
-        name = getattr(agent, "name", "")
-        try:
-            in_use = model_slots.models_in_use(getattr(getattr(self, "side_map", None), "graph", None))
-        except (AttributeError, TypeError, ValueError):
+        """The models the agent uses now, local or online: its "default" lines on the map."""
+        graph = getattr(getattr(self, "side_map", None), "graph", None)
+        if graph is None:
             return set()
-        return {model for models in in_use.values() for model, users in models.items() if name in users}
+        source = f"agent:{getattr(agent, 'command', agent)}"
+        try:
+            labels = {n.id: n.label for n in graph.nodes}
+            return {labels.get(e.target, "") for e in graph.edges if e.kind == "default" and e.source == source} - {""}
+        except (AttributeError, TypeError):
+            return set()
 
     def on_map_remodel(self, runtime_id: str, old_id: str, new_id: str | None):
         """A local LLM's model line moved: every agent that uses the old model uses the new one

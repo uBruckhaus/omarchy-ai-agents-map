@@ -76,6 +76,22 @@ class MapModelRulesTest(unittest.TestCase):
             self.assertTrue(page.model_change_allowed(page.agent_list[:1], "runtime:llamacpp", "old"))   # stays
             self.assertTrue(page.model_change_allowed(page.agent_list[1:], "runtime:llamacpp", "new"))
 
+    def test_an_online_model_in_use_counts_too(self):
+        import graph
+        rules = action_rules.default_rules() + [
+            {"effect": "deny", "action": "disconnect", "category": "models", "item": "gpt-5", "agent": "hermes"}]
+        page = self.page(rules)
+        g = graph.Graph()
+        g.add(graph.Node("agent:hermes", 1, "Hermes", kind="agent"))
+        g.add(graph.Node("cloud:openai", 2, "OpenAI", kind="cloud"))
+        g.add(graph.Node("model:cloud:openai:gpt-5", 3, "gpt-5", kind="model"))
+        g.link("agent:hermes", "model:cloud:openai:gpt-5", "default")
+        page.side_map = SimpleNamespace(graph=g)
+        self.assertEqual(page.models_used_by(page.agent_list[0]), {"gpt-5"})
+        with mock.patch.object(connect_page.connect, "apply") as apply:
+            page.switch_online(page.agent_list[:1], "gpt-5-mini", "cloud:openai")
+        apply.assert_not_called()
+
     def test_allowed_by_default_rules(self):
         page = self.page(action_rules.default_rules())
         self.assertTrue(page.model_change_allowed(page.agent_list, "runtime:llamacpp", "qwen"))
