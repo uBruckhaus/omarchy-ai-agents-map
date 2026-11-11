@@ -2069,6 +2069,7 @@ class MapView(Gtk.DrawingArea):
         self.menu_rects[node.id] = (right - 16, row, 16, row_h)
         cr.set_source_rgba(*self.color("fg", (1.0 if node.id == self.hover else 0.7) * dim_factor))
         for dot in range(3):
+            cr.new_path()
             cr.arc(right - 8, row + row_h / 2 - 4 + dot * 4, 1.3, 0, 2 * math.pi)
             cr.fill()
         right -= 18
@@ -2083,6 +2084,7 @@ class MapView(Gtk.DrawingArea):
             if state:
                 # Loaded (green), loading (yellow), asleep (a grey ring: listed, GPU memory free).
                 cx, cy = right - 6, row + row_h / 2
+                cr.new_path()
                 if state == "sleeping":
                     cr.set_source_rgba(*self.color("muted", 0.35 if faded else 1.0))
                     cr.set_line_width(1.5)
@@ -2123,10 +2125,12 @@ class MapView(Gtk.DrawingArea):
             self.details_rects[node.id] = (cx - 2, row, 2 * r + 4, row_h)
             cr.set_source_rgba(*self.color("fg", (1.0 if node.id == self.hover else 0.65) * dim_factor))
             cr.set_line_width(1.2)
+            cr.new_path()                  # the text's position is not joined to the circle
             cr.arc(dx, dy, r, 0, 2 * math.pi)
             cr.stroke()
             cr.rectangle(dx - 0.7, dy - 1, 1.4, 4.5)
             cr.fill()
+            cr.new_path()
             cr.arc(dx, dy - 3.2, 0.9, 0, 2 * math.pi)
             cr.fill()
             cx += 2 * r + 8
