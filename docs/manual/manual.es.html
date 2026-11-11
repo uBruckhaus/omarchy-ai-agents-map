@@ -1,0 +1,1371 @@
+<!doctype html>
+<html lang="es">
+<!-- en-sections: {"cover":"d24a9f7fa081","about":"381259a897b4","contents":"21ea3e57c9da","introduction":"d4dc7ed56500","what-it-does":"973e6dd83c7f","key-ideas":"0dc7c4d398f5","safety-promise":"9d1c3a52f2de","installation":"adcdc36e3a21","install-plugin":"4f509bacad6b","first-start":"da37d447a4a6","remove":"b45c95a030b1","window":"a36df34e8203","my-setup":"b18484214ea0","views":"28e5ef4ed403","map":"4340205e4785","health":"36eb07c49505","smart-card":"8f25c86a9931","agents":"725cacb072f7","agent-cards":"49d62a419412","running-agents":"1935db325f67","network":"32cc0af50220","subagents":"35559d70c459","together-flutter":"d2db72f8eb9e","costs-flutter":"2d0170fe6ac5","details-flutter":"ed925bec028c","tabs-usage-flutter":"d0dea8fbeaf4","configure":"d6ce9ed0b3eb","sign-in":"ea6d1e3e72ac","sign-in-flutter":"48feb3c62a59","agent-updates":"63acd8bcc8fc","installed-agents":"d18aef680a08","new-agents":"fb16b013258a","local-llms":"e2be23aaaf47","install-runtime":"872dc95380d9","start-with-agents":"075ad179ee74","strata":"a240b2658f07","llm-details":"b75c476f9a86","performance":"057fb658ea40","gpu":"506b214de8f3","models-at-once":"6f97ef4f31de","outside-use":"b43673327130","models":"b4d5fe299a8c","get-models":"7c51fbdc55a1","jobs-flutter":"8411c9cda83b","ask-model":"f9b007e0a888","installed-models":"f110e8230bbe","context":"68d7514720cb","on-this-pc":"55bee8ede689","move-models":"d71891f4f901","reorganize":"1114fcad96d5","connecting":"4e3dccd115f3","connect-llm":"2c547e213d2b","connect-mcp":"156740ae6b29","connect-skills":"9fce5a98b968","found-on-pc":"d2b67f7bb083","connect-local-flutter":"3a47a3b0a2ca","failed":"7ac7d4b2bc76","mcp":"cc5a616e0263","mcp-sources":"7ce3a56b7f42","mcp-setup":"5207a423a5a6","mcp-manage":"24427ff7c541","skills":"7903d52383fc","skills-sources":"cca012ddc59e","skills-flutter":"b4e3697b4b08","skills-details":"d4adf096db78","settings":"70e44dac2d67","omarchy-data-flutter":"530164a300bd","settings-list":"b49c1bff97eb","red-flutter":"88686a3f24c4","dictation":"ccd2a45b03be","help":"cfd8755b7aef","disk-space":"5ee741e044cc","smart-check":"5534e76c3d81","smart-summary":"37151dd6fbc4","smart-updates":"87045275c9cd","ai-progress":"5f78964ff295","local-helper":"57e7db9d50d2","ai-checks-flutter":"c8d2b1bed30b","smart-protocol":"9775d93cb36a","smart-tokens":"dcbb7f8385c6","map-groups":"4dddc518acd3","map-groups-expand":"e61e186bf42d","map-groups-addons":"ba49f2610d11","map-groups-welcome":"3cf098c7a8cd","flutter-map-editor":"9e466405a96f","task-cards":"381d51540d8c","security":"e9ecce23da38","security-card":"ac6936e999ff","security-change":"8154c861d65e","security-flutter":"cc4104c3a487","health-flutter":"6be9f90fed1c","security-agents":"f40610c167dd","security-risks":"3dd9a2ca7708","security-words":"3d1a5d5bd8fd","addons":"15f6c41bf268","addons-setup":"f8d880cef461","addons-page":"86749f9f05f2","addons-install":"71d51255fa0b","addons-privacy":"9fd28763652d","addons-kinds":"f4a30c5e6661","addons-new-harness":"dbc8057b8ba9","addons-make":"e32f97667abe","privacy":"35c1f6a0ec27","troubleshooting":"2643b001c361","reference":"6ac732d0e888","shortcuts":"faf983bdb383","files":"9225e10117d4","glossary":"0ce132e36d9f"} -->
+<head>
+<meta charset="utf-8">
+<title>AI Agents Map &amp; AI Agents Map — Manual de usuario</title>
+<link rel="stylesheet" href="manual.css">
+</head>
+<body>
+<!-- Spanish translation of manual.html: same markup and ids, only the text translated. -->
+
+<!-- ============================== Cover ============================== -->
+<section class="cover">
+  <img class="cover-icon" src="images/icon.svg" alt="Icono de la app AI Agents Map">
+  <p class="cover-kicker">Manual de usuario</p>
+  <h1 class="cover-title">AI Agents Map</h1>
+  <p class="cover-sub">Tus agentes de IA, modelos locales, servidores MCP y skills en un solo mapa</p>
+  <div class="cover-meta">
+    <p>AI Agents Map {{PLUGIN_VERSION}}</p>
+    <p>{{DATE}}</p>
+  </div>
+</section>
+
+<!-- ============================== About ============================== -->
+<section class="front" id="about">
+  <h2 class="front-title">Acerca de este manual</h2>
+  <p>Este manual describe <b>AI Agents Map</b>, un plugin para el escritorio Omarchy: un botón de
+  la barra lo abre. Usa los colores del tema de Omarchy (o el aspecto Adwaita de GNOME) y guarda sus
+  ajustes en <code>~/.config/omarchy/ai-agents-map/</code>.</p>
+
+  <h3>Convenciones</h3>
+  <table class="conventions">
+    <tbody>
+      <tr><th scope="row"><b>Añadir</b></th><td>Un botón, pestaña o elemento de menú de la ventana.</td></tr>
+      <tr><th scope="row">Ajustes › <b>Aspecto</b></th><td>Un camino por la interfaz: abre los ajustes y luego <b>Aspecto</b>.</td></tr>
+      <tr><th scope="row"><code>~/.agents/skills</code></th><td>Un archivo, una carpeta o un comando. <code>~</code> es tu carpeta personal.</td></tr>
+      <tr><th scope="row"><kbd>Ctrl</kbd>+<kbd>,</kbd></th><td>Un atajo de teclado.</td></tr>
+    </tbody>
+  </table>
+  <div class="note"><p><b>Nota</b> Las notas dan contexto útil.</p></div>
+  <div class="tip"><p><b>Consejo</b> Los consejos muestran un camino más rápido o una buena costumbre.</p></div>
+  <div class="warn"><p><b>Atención</b> Los avisos de atención señalan algo difícil de deshacer.</p></div>
+</section>
+
+<!-- ============================== Contents (filled by the build) ============================== -->
+<section class="front toc" id="contents">
+  <h2 class="front-title">Contenido</h2>
+  <!-- TOC -->
+</section>
+
+<!-- ============================== 1 Introduction ============================== -->
+<section class="chapter" id="introduction">
+  <h1>Introducción</h1>
+  <p class="lead">AI Agents Map muestra la configuración de IA de tu ordenador como tarjetas y como mapa: qué agentes
+  de programación están instalados, qué modelos de lenguaje usan — servicios en la nube y entornos locales —, qué
+  modelos sirven estos y qué servidores MCP y skills tiene cada agente. Y te permite cambiar esa configuración
+  dibujando líneas.</p>
+
+  <div class="figure wide">
+    <img src="images/main-window.jpg" alt="La ventana principal: en la cabecera Configuración, Mapa y un ! rojo para los problemas abiertos; la tarjeta GPU y el mapa a todo lo ancho: servidores MCP y skills, agentes con un botón de inicio, proveedores de LLM y modelos">
+    <p class="caption">La ventana principal: el mapa a todo lo ancho, encima la tarjeta GPU, en la cabecera el ! de los problemas abiertos.</p>
+  </div>
+
+  <h2 id="what-it-does">Qué hace</h2>
+  <ul>
+    <li><b>Agentes de programación</b> — Claude Code, Codex, GitHub Copilot, Cursor CLI, Gemini, OpenCode, Pi,
+      Hermes y más: su versión, su plan, sus límites y su uso, y lo que le falta a cada uno, con el comando que lo arregla.</li>
+    <li><b>LLM locales</b> — llama.cpp, Ollama, LM Studio, vLLM, Jan, KoboldCpp y Strata: instalarlos, descargar modelos,
+      ajustar el tamaño de contexto que cabe en tu tarjeta gráfica e iniciarlos junto con los agentes que los usan.</li>
+    <li><b>Servidores MCP y skills</b> — encontrados en tu ordenador o en la web, con servidores recomendados y una
+      búsqueda en el registro oficial de MCP.</li>
+    <li><b>Estado de las columnas</b> — un símbolo en la barra de cada columna, cada problema con el camino hasta donde se arregla; para qué sirve tu configuración está en la página de bienvenida y en la Ayuda.</li>
+  </ul>
+
+  <h2 id="key-ideas">Ideas clave</h2>
+  <dl>
+    <dt>Agente</dt><dd>Un programa con el que hablas y que escribe código o hace tareas, como Claude Code.</dd>
+    <dt>Proveedor de LLM</dt><dd>Donde se ejecuta el modelo de un agente: un servicio en la nube (Anthropic, OpenAI, …)
+      o un entorno de LLM local en este ordenador (llama.cpp, Ollama, …).</dd>
+    <dt>Modelo</dt><dd>El modelo de lenguaje en sí. Los modelos locales son archivos, casi siempre en formato GGUF.</dd>
+    <dt>Servidor MCP</dt><dd>Un pequeño programa o servicio web que da herramientas extra a los agentes — leer archivos,
+      buscar en la web, manejar un navegador. MCP es el Model Context Protocol.</dd>
+    <dt>Skill</dt><dd>Una carpeta con instrucciones (un <code>SKILL.md</code>) y a veces scripts, que enseña a un
+      agente una tarea concreta.</dd>
+  </dl>
+
+  <h2 id="safety-promise">Nada cambia sin vista previa</h2>
+  <p>Cada cambio en los ajustes de un agente se muestra primero, línea por línea, antes de escribir nada. El archivo
+  anterior se guarda como copia de seguridad, y la barra que aparece tras el cambio tiene <b>Deshacer</b>. La app en sí nunca se ejecuta con permisos de administrador; solo instalar un agente que viene como
+  paquete del sistema pide tu contraseña, en un terminal que ves.</p>
+</section>
+
+<!-- ============================== 2 Installation ============================== -->
+<section class="chapter" id="installation">
+  <h1>Instalación</h1>
+
+  <h2 id="install-plugin">Instalar el plugin</h2>
+  <p>Instala AI Agents Map desde el Omarchy Plugin Marketplace o en un terminal:</p>
+  <pre>omarchy plugin add https://github.com/uBruckhaus/omarchy-ai-agents-map.git --enable</pre>
+  <p>En la barra aparece un botón con un robot. Todo lo demás que necesita viene con una instalación
+  estándar de Omarchy, incluidos sus add-ons firmados. Para ejecutar agentes dentro de la ventana,
+  instala VTE: <code>sudo pacman -S vte4</code>. Opcional: <code>mise</code> instala y actualiza
+  agentes.</p>
+
+  <h2 id="first-start">Primer inicio</h2>
+  <p>Una instalación nueva se abre en la <b>página de bienvenida</b>: los agentes y LLM locales
+  instalados en este ordenador son tarjetas ya marcadas, y <b>Activar</b> los pone en el mapa (ver
+  <a href="#addons-setup">Configurar AI Agents Map</a>). Tras actualizar desde una versión anterior del
+  plugin, tus ajustes se mantienen y los add-ons de los agentes y LLM locales de este ordenador se
+  activan solos, así que el mapa muestra lo que mostraba antes.</p>
+  <p>El botón de la barra abre la ventana, la trae al frente o la oculta si ya está delante. Cerrar la
+  ventana la oculta; el programa sigue en segundo plano y por eso se vuelve a abrir al instante.
+  Ajustes › <b>En el lanzador</b> añade una entrada al lanzador de Omarchy.</p>
+  <div class="note"><p><b>Nota</b> Mientras un agente se ejecuta dentro de la ventana, al cerrarla se
+  pregunta primero: <b>Detener y cerrar</b> (el LLM local del agente también se detiene y libera la
+  memoria de la tarjeta gráfica) o <b>Dejar en marcha</b>.</p></div>
+  <p>Mientras la aplicación mira qué hay en este ordenador al abrirse por primera vez, un resumen
+  animado lista lo que encuentra, tipo por tipo: agentes, LLM locales, servidores MCP y skills, cada
+  uno con un indicador que se convierte en ✓ y un número, y cuántos aún no están conectados. Se
+  desvanece solo tras un momento; un clic lo cierra enseguida.</p>
+
+  <h2 id="remove">Quitar el plugin</h2>
+  <p><code>omarchy plugin remove ubruckhaus.ai-agents-map</code>.</p>
+  <p>Antes de quitarlo, desactiva Ajustes › <b>Iniciar los LLM locales con sus agentes</b> para que se
+  quite también el vigilante en segundo plano, y Ajustes › <b>En el lanzador</b> para
+  borrar la entrada del lanzador. Los cambios que hiciste con la aplicación se quedan: ajustes de los
+  agentes, servidores MCP, skills y LLM locales instalados. Desinstala antes un LLM local (clic derecho
+  › <b>Desinstalar…</b>) si quieres que desaparezca. Para borrar también el estado propio de la
+  aplicación:</p>
+  <pre>rm -rf ~/.config/omarchy/ai-agents-map ~/.local/state/ai-agents-map \
+       ~/.cache/ai-agents-map ~/.local/share/ai-agents-map</pre>
+</section>
+
+<!-- ============================== 3 The window ============================== -->
+<section class="chapter" id="window">
+  <h1>La ventana de un vistazo</h1>
+
+  <div class="figure wide annotated">
+    <div class="shot">
+      <img src="images/main-window.jpg" alt="La ventana principal con zonas numeradas">
+      <span class="pin" style="left:63.2%;top:2.6%">1</span>
+      <span class="pin" style="left:79.5%;top:2.6%">2</span>
+      <span class="pin" style="left:1.3%;top:12.9%">3</span>
+      <span class="pin" style="left:0.6%;top:27.9%">4</span>
+      <span class="pin" style="left:50.0%;top:34.9%">5</span>
+      <span class="pin" style="left:40.7%;top:43.6%">6</span>
+    </div>
+    <p class="caption">La ventana principal. Los números corresponden a la lista de abajo.</p>
+  </div>
+
+  <ol class="legend-list">
+    <li><b>Configuración</b> y <b>Mapa</b> — las dos vistas, en cada página; la que está a la vista aparece resaltada. Configuración tiene cada agente, LLM local, servidor MCP, carpeta de skills y modelo como una tarjeta: instalar, actualizar, iniciar sesión, quitar (ver abajo).</li>
+    <li>Los símbolos de la cabecera: <b>⟳</b> actualizar (<kbd>F5</kbd>: volver a mirar, como al iniciar), <b>!</b> el estado general (verde: todo bien; amarillo: consejos o actualizaciones; rojo: algo que arreglar; un clic lleva a la primera columna afectada), <b>ⓘ</b> la leyenda (qué significa cada punto, línea y marca del mapa), <b>⇅</b> el tráfico de red de los agentes en marcha (ver <a href="#network">Tráfico de red</a>), los complementos , la <b>i</b> rellena para Información (ver <a href="#help">Ayuda</a>), <b>?</b> Ayuda (<kbd>F1</kbd>) y el engranaje de los Ajustes (<kbd>Ctrl</kbd>+<kbd>,</kbd>). Mantén pulsado el botón izquierdo del ratón sobre un símbolo y arrástralo hacia un lado para ponerlo en otro sitio: una barra muestra dónde caerá, y el orden se conserva.</li>
+    <li><b>GPU</b> — memoria GPU y actividad de la GPU: cómo se usa la tarjeta gráfica ahora mismo, en una tarjeta que se pliega (plegada, su línea conserva las cifras).</li>
+    <li><b>Filtros de columnas y zoom</b> — filtrar las columnas del mapa (<b>Servidores MCP</b>, <b>Agentes</b>, <b>Proveedores</b>, <b>Modelos</b>) y hacer zoom o ajustar a la ventana sobre el mapa.</li>
+    <li><b>El mapa</b> — servidores MCP y skills ← agentes → proveedores de LLM → modelos, a todo lo ancho, bajo su encabezado <b>MAPA</b>.</li>
+    <li><b>▶</b> en la caja de un agente lo inicia en una terminal dentro de la ventana; mientras se ejecuta ahí, el
+      botón devuelve su terminal.</li>
+  </ol>
+
+  <h2 id="my-setup">Configuración</h2>
+  <p>El mapa muestra lo que está configurado — agentes y LLM locales instalados, los servidores MCP y
+  carpetas de skills que usan los agentes, y los modelos — y, atenuados, los servidores MCP y carpetas
+  de skills encontrados en este ordenador que ningún agente usa todavía, listos para conectar con una
+  línea (ver <a href="#found-on-pc">Encontrado en este PC</a>). Todo lo demás se hace en
+  <b>Configuración</b> (el botón de la cabecera, junto a <b>Mapa</b>), una tarjeta por elemento, en
+  secciones que se pliegan con un clic en su barra:</p>
+  <ul>
+    <li><b>Cómo llegan las cosas a tu mapa</b> — una tarjeta plegada arriba del todo; ábrela para ver cinco pasos numerados: activar (o encontrar) lo que usas, instalar lo que falta, iniciar sesión en un agente en línea, conectar dibujando, y lo que aparece por sí solo.</li>
+    <li><b>Lo que puedes hacer con esto</b> — para qué sirve la configuración (ayuda diaria, programación, imágenes, voz, investigación y escritura), una ficha para cada uso con lo que hay y el siguiente paso; plegada, su línea dice cuántos están listos.</li>
+    <li><b>Agentes de IA, LLM locales</b> — todos los que conoce la app. Una tarjeta con borde azul está instalada en
+      este PC; una gris no, y tiene <b>Instalar</b> donde las instaladas tienen <b>Desinstalar</b>.
+      Un clic marca o desmarca la tarjeta (✓), y <b>Aplicar</b> activa o desactiva
+      su complemento. Desactivar la quita del mapa; no borra nada. Mientras un agente se ejecuta en un
+      terminal de AI Agents Map (también el de <b>Preguntar a la IA</b>), su propio complemento no se puede
+      desactivar, actualizar ni quitar; los demás complementos sí se pueden cambiar. La página dice qué
+      agente es y tiene <b>Mostrar terminal</b>.</li>
+    <li><b>Proveedores en línea</b> — el complemento de los proveedores en línea;
+      su menú tiene <b>Iniciar sesión en …</b> para cada agente instalado que los usa.</li>
+    <li><b>Servidores MCP, Skills, Modelos</b> — una tarjeta por cada elemento instalado. Un clic abre sus detalles
+      (en un modelo, su menú). La tarjeta <b>+</b> al final de una sección añade uno: <b>Añadir servidor MCP</b>,
+      <b>Añadir skills</b>, <b>Añadir modelo</b>, <b>Obtener complementos</b>.</li>
+    <li><b>⋯</b> o un clic derecho en una tarjeta abre el mismo menú que su caja en el mapa: actualizar, iniciar sesión,
+      iniciar o detener, detalles, desinstalar o quitar, mover un modelo.</li>
+    <li>Un <b>↑ versión</b> amarillo en una tarjeta significa que hay una actualización; su menú tiene <b>Actualizar</b>.</li>
+    <li>Un <b>!</b> rojo en una tarjeta significa un problema abierto ahí; pasa el ratón por encima para ver cuál.</li>
+    <li>Los detalles de un agente muestran <b>Uso adicional</b> bajo su plan: si puede costar dinero extra más allá de los límites del plan. Claude Code lo indica en tu PC (y la página para cambiarlo); con otros agentes la app dice que no lo sabe, así que compruébalo con el proveedor.</li>
+    <li>Una pequeña batería en la tarjeta de un agente en línea muestra lo que queda de sus límites (una sesión, una semana): cuenta el más ajustado, amarilla con una cuarta parte o menos, roja por debajo de una décima; pasa el ratón por encima para ver cada límite y cuándo se reinicia. En la tarjeta de un LLM local en marcha, la batería es la memoria GPU que queda libre, con los mismos colores; pasa el ratón por encima para ver cuánta usa ese LLM local.</li>
+    <li>El símbolo de actualizar (<kbd>F5</kbd>) de la cabecera vuelve a mirar qué está instalado, configurado y con la sesión iniciada, y repite las comprobaciones del inicio (apps nuevas, add-ons, actualizaciones, problemas abiertos).</li>
+  </ul>
+  <div class="figure">
+    <img src="images/my-setup.jpg" alt="Configuración: las tarjetas plegadas Cómo llegan las cosas a tu mapa y Lo que puedes hacer con esto (4 de 5 listos), la barra Agentes de IA 16, luego los agentes como tarjetas con marco azul y marca de verificación; Claude Code y DeepSeek Harness con una insignia amarilla de actualización, Claude Code y Codex con una batería para sus límites, Cursor CLI y Hermes con un ! rojo; el menú de Claude Code está abierto con Actualizar a 2.1.303, Desinstalar, Actualizar, Iniciar sesión, Iniciar aquí, Iniciar en el terminal, Detalles y Complemento">
+    <p class="caption">Configuración: los agentes instalados tienen un marco azul, los activados un ✓, las actualizaciones una insignia amarilla y los problemas una roja; el menú de Claude Code.</p>
+  </div>
+  <div class="figure">
+    <img src="images/my-setup-tools.jpg" alt="Configuración más abajo: servidores MCP y carpetas de skills como tarjetas con los agentes que los usan, y las tarjetas Añadir servidor MCP y Añadir skills">
+    <p class="caption">Servidores MCP y skills, cada sección con una tarjeta para añadir.</p>
+  </div>
+  <p>No hay nada que ocultar: lo que no quieras en el mapa se desactiva o se quita aquí. Cuando una instalación o un
+  inicio de sesión se ejecuta en una terminal dentro de la ventana, <b>Atrás</b> (o <b>×</b> en su pestaña) te devuelve
+  a la página desde la que empezó.</p>
+
+  <p><b>Servidores MCP locales</b> y <b>Servidores MCP en línea</b> (los que se alcanzan por una
+  dirección web) son dos secciones. <b>Añadir carpeta…</b> en <b>Servidores MCP locales</b> y en
+  <b>Skills</b> añade una carpeta donde la aplicación también los busca — por ejemplo un disco
+  compartido con aplicaciones descomprimidas que ofrecen un servidor MCP, o una carpeta con tus propias
+  skills. Las carpetas añadidas aparecen junto al botón; <b>✕</b> en una deja de buscar allí (no se
+  borra nada). Lo que se encuentra en ellas aparece atenuado en el mapa hasta que una línea lo conecta:
+  Configuración solo tiene tarjetas para lo que está configurado.</p>
+
+  <h2 id="views">Elegir qué muestra el mapa</h2>
+  <p>El mapa muestra todo lo que está configurado. Los botones de filtro <b>Servidores MCP</b>,
+  <b>Agentes</b>, <b>Proveedores</b> y <b>Modelos</b> sobre el mapa (y Ajustes › <b>Mapa</b>) dejan
+  fuera columnas enteras y se recuerdan.</p>
+  <p>En una ventana pequeña (hasta el 55&nbsp;% de la pantalla o menos de 1150 píxeles) el mapa muestra
+  <b>Agentes</b> y <b>Proveedores</b>; en una ventana mediana (hasta el 80&nbsp;% de la pantalla o
+  menos de 1600 píxeles) añade <b>Modelos</b>; en una ventana mayor se muestran
+  las cuatro columnas. Una columna que la vista deja fuera se puede activar con su botón sobre el mapa,
+  y el mapa se reorganiza; el filtro oculta columnas en todas las vistas. Las columnas
+  mostradas se centran y ajustan su ancho (de 266 a 560 píxeles) y separación al espacio libre, y el
+  mapa se ajusta al ancho de la ventana hasta que haces zoom (<kbd>Ctrl</kbd>+<kbd>0</kbd> vuelve a
+  ajustarlo).</p>
+
+  <h2 id="map">Trabajar con el mapa</h2>
+  <p>El modelo de un agente es una cadena: una línea del agente a su proveedor y otra del proveedor al modelo que usa. Los modelos que nadie usa quedan como cuadros sin línea, y el filtro de una tarjeta (solo lo conectado o fijado) los oculta. Arrastrar un proveedor local a uno de sus modelos es un paso breve: el proveedor usa ese modelo, y un agente que conectes después al proveedor lo recibe. Si algo soltado no puede funcionar, una nota breve explica por qué, por ejemplo a qué proveedor debe conectarse antes el agente. Una conexión o desconexión sencilla dibujada pide Aplicar en un cuadro pequeño y después una nota breve lo confirma, con Deshacer; un error indica qué falló. Los cambios con más pasos usan la revisión detallada. Cuando un agente llama a otro, la ruta activa del agente llamado y la flecha entre ambos usan otro color, incluso en llamadas más profundas. La flecha apunta al agente utilizado; cuando termina el trabajo, queda atenuada. El símbolo de árbol de la tarjeta abre sus subagentes recientes; destaca mientras uno trabaja y se atenúa cuando solo quedan los finalizados.</p>
+  <p>Preguntar a la IA puede proponer los mismos cambios del mapa, como cambiar un modelo existente, conectar una carpeta de habilidades, reparar una conexión fallida e iniciar o cerrar la sesión de un agente. Muestra la misma vista previa y pide confirmación antes de aplicar. Para preguntas sobre velocidad, memoria gráfica, contexto, Vulkan o ROCm, abre Rendimiento y usa el hardware y las mediciones de este PC antes de sugerir cambios.</p>
+  <p>Debajo de la pregunta, una tarjeta desplazable sugiere solicitudes para servidores MCP y habilidades, agentes, proveedores y modelos. Al elegir una, se rellena la pregunta con su categoría al principio (por ejemplo, Modelos:) y se cambia a esa categoría; no se envía nada. Puedes editar la pregunta o escribir tú mismo una categoría. Solo Preguntar la envía. En la vista de estado puedes seguir consultando los hallazgos de cada categoría.</p>
+  <p>Puedes adaptar estas sugerencias: el marcador del campo de la pregunta guarda lo que has escrito como nueva sugerencia de la categoría elegida (hasta 12 por categoría), el lápiz junto a una sugerencia la edita en el sitio (Intro la guarda, Esc cancela, un texto vacío la quita), su × la quita y la flecha al final de la línea recupera las sugerencias integradas.</p>
+  <ul>
+    <li><b>Pasa el ratón</b> sobre una caja para resaltarla junto con todo lo que está unido a ella: sus bordes toman el color de acento. Nada se atenúa.</li>
+    <li><b>Haz clic</b> en una caja para seleccionarla; <kbd>Mayús</kbd>+clic añade más. Una caja seleccionada tiene un borde más grueso, todo lo unido a ella sigue resaltado y las demás cajas y líneas se atenúan. Un segundo clic en ella, o un clic en una zona vacía del mapa, termina la selección. Para ocultar las líneas atenuadas, desactiva <b>Ajustes › Mapa › Mostrar líneas atenuadas</b>.</li>
+    <li>La <b>chincheta</b> abajo a la derecha de una caja mantiene resaltadas la caja y sus líneas, también mientras hay otra cosa seleccionada.</li>
+    <li><b>Clic derecho</b> en una caja para todo lo que ofrece su tarjeta en Configuración: iniciar o detener,
+      detalles, instalar, iniciar sesión, modelos, actualizar, quitar y más.</li>
+    <li><b>▶</b> en la caja de un agente lo inicia en una terminal dentro de la ventana.</li>
+    <li>Los agentes se quedan siempre en el centro de la parte visible del mapa mientras te desplazas.</li>
+    <li>El camino activo de cada agente — agente → el proveedor que usa → su modelo — se dibuja en negrita. Mientras un
+      agente trabaja, una luz recorre esa línea.</li>
+    <li>El <b>recuadro de estadísticas de uso</b>: mientras un agente trabaja, se escriben pequeños números a lo
+      largo de su línea hacia el proveedor, en el color de la línea: qué tan rápido llegó su última respuesta
+      (<b>t/s</b>, tokens por segundo), el tamaño de su contexto (<b>1M</b>) y cuánto está en uso (<b>%</b>,
+      amarillo desde el 75&nbsp;%, rojo por encima del 90&nbsp;%, como las baterías). Salen de los propios archivos
+      de sesión del agente (solo números; Claude Code, Codex y Pi). Qué muestra y su tamaño de texto están en Ajustes.</li>
+    <li>Una línea roja de puntos une un agente con un proveedor para el que está configurado pero que no usa ahora (ningún modelo suyo en uso).</li>
+    <li>Cuando los agentes usan modelos distintos de un mismo LLM local, las líneas hacia esos modelos son violetas: los mantiene cargados a la vez o los alterna (ver <a href="#models-at-once">Modelos a la vez</a>).</li>
+    <li>La caja de un agente en línea tiene la misma batería que su tarjeta en Configuración: lo que queda de sus límites; la caja de un LLM local en marcha, la memoria GPU que queda libre.</li>
+    <li>Un agente que se paga por token — con sesión iniciada mediante una clave de API, así que sin límites
+      de plan para una batería — muestra en su lugar lo que cuestan hoy sus sesiones activas a precios de API,
+      como un pequeño <b>«$3.40 hoy»</b> en su recuadro y su tarjeta: verde, amarillo desde el 75&nbsp;% del
+      límite diario y rojo por encima (Ajustes › <b>Costes</b>), renovado cada minuto. Sus detalles muestran
+      todo el <a href="#api-cost">coste de API</a>.</li>
+    <li>Cuando un programa que no está en el mapa usa un LLM local, la línea de ese LLM a su modelo se vuelve gruesa y de
+      un color propio (púrpura o cian, el que destaque sobre los demás colores del tema), y una luz la recorre. Ver
+      <a href="#outside-use">Usado por otras apps</a>.</li>
+    <li>Cuando un agente ha iniciado otro — Claude Code ejecutando <code>pi -p …</code> o
+      <code>codex exec …</code> desde su shell, por ejemplo —, una <b>flecha</b> recorre la izquierda de la
+      tarjeta de agentes desde el agente que usa el otro hasta el usado, con luz recorriéndola; su descripción
+      emergente nombra a ambos. Un agente puede usar varios otros a la vez, cada uno con su propia flecha.
+      Mientras se usa, el agente usado tiene también sus líneas hacia su proveedor y hasta su modelo en el color
+      de la flecha, y la luz sobre ellas corre en ese color: ves de un vistazo qué proveedor y qué modelo
+      trabajan para quién.</li>
+    <li>El símbolo de actualizar (<kbd>F5</kbd>) de la cabecera vuelve a mirar qué está instalado, configurado y con la sesión iniciada, y repite las comprobaciones del inicio (apps nuevas, add-ons, actualizaciones, problemas abiertos).</li>
+    <li>Hasta que se dibuja la primera línea, una tarjeta encima del mapa muestra cómo en tres pasos; <b>Ver cómo</b> reproduce la animación de la Ayuda. Tras la primera conexión, o con ×, desaparece para siempre.</li>
+    <li>Filtra las columnas del mapa con los botones <b>Servidores MCP</b>, <b>Agentes</b>,
+      <b>Proveedores</b> y <b>Modelos</b> sobre el mapa. La rueda del ratón desplaza el mapa; haz zoom
+      con los botones <b>− 100&nbsp;% +</b> y <b>Ajustar a la ventana</b> arriba a la derecha o
+      <kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>−</kbd> / <kbd>0</kbd>.</li>
+    <li>Las cajas están en una tarjeta por categoría (agentes, proveedores en línea, LLM locales, una tarjeta por
+      carpeta de modelos, servidores MCP, skills). Arrastra una tarjeta por su cabecera para cambiar el orden en su
+      columna, y una caja dentro de su tarjeta para cambiar el orden.</li>
+    <li><b>Haz clic en la cabecera de una tarjeta</b> para plegarla hasta su cabecera (<b>▸</b> a la derecha de la
+      cabecera) y otra vez para abrirla (<b>▾</b>). Las líneas de las cajas de una tarjeta plegada terminan en su cabecera,
+      así que sigues viendo lo que está unido a ella (las flechas entre agentes se ocultan mientras la tarjeta de agentes está plegada). Al abrir una tarjeta, las tarjetas debajo de ella en su columna bajan.</li>
+    <li>La <b>chincheta</b> a la derecha del zoom conserva la disposición del mapa — el orden de las tarjetas y de las
+      cajas y qué tarjetas están plegadas — tras <b>Actualizar</b> (<kbd>F5</kbd>) y un reinicio. Sin fijar,
+      como empieza, el mapa vuelve a su disposición predeterminada en cada actualización e inicio; tus cambios duran hasta
+      entonces. <b>Disposición predeterminada</b> lo devuelve todo a la vez.</li>
+    <li>Las <b>cajas atenuadas</b> de las tarjetas de servidores MCP y skills están en este ordenador,
+      pero ningún agente las usa. Traza una línea desde un agente hasta una para conectarla (ver
+      <a href="#found-on-pc">Encontrado en este PC</a>). Los servidores MCP que se alcanzan por una
+      dirección web tienen su propia tarjeta, <b>Servidores MCP en línea</b>, junto a <b>Servidores MCP
+      locales</b>; ambas se pliegan como cualquier otra tarjeta.</li>
+  </ul>
+  <div class="tip"><p><b>Consejo</b> El mapa se ajusta al ancho de la ventana hasta que haces zoom
+  (<kbd>Ctrl</kbd>+<kbd>0</kbd> vuelve a ajustarlo). Hasta el 55&nbsp;% de la pantalla (menos de 1150
+  píxeles) muestra <b>Agentes</b> y <b>Proveedores</b>; hasta el 80&nbsp;% (menos de 1600 píxeles)
+  añade <b>Modelos</b>; por encima, las cuatro columnas. Los botones sobre el mapa activan cualquier columna en cualquier vista.</p></div>
+
+  <h2 id="health">Estado de las columnas</h2>
+  <p>La barra <b>Preguntar a la IA…</b> de cada columna muestra a la izquierda su estado, y la cabecera muestra el peor estado de todas las columnas, también de una oculta: una marca verde cuando todo va bien, un triángulo amarillo para consejos, actualizaciones o sugerencias, una <b>!</b> roja cuando hay algo que arreglar. Un clic en el símbolo abre la lista de la columna, lo más grave primero: un agente sin iniciar sesión, un LLM local sin modelos, una conexión que no funciona, poco espacio para modelos, cada uno con un botón hacia donde se arregla. <b>Preguntar a la IA</b> en una línea la pone en la petición; solo <b>Preguntar</b> la envía. Un clic en el símbolo de la cabecera lleva a la primera columna afectada. La comprobación solo lee; no cambia, no inicia y no envía nada.</p>
+  <p>La lista también muestra programas o skills nuevos encontrados en este PC, lo que está en este PC pero no en el mapa, y actualizaciones de agentes, LLM locales y servidores MCP instalados, cada uno con su botón. Las actualizaciones se comprueban en segundo plano al abrir la ventana, como mucho cada seis horas. Una actualización solo empieza al hacer clic en <b>Actualizar</b> (mira <a href="#smart-updates">Actualizaciones encontradas</a>). Para qué sirve tu configuración está en la página de bienvenida y en la Ayuda, en <b>Lo que puedes hacer con ello</b>.</p>
+
+  <h2 id="smart-card">Tarjetas inteligentes en el mapa</h2>
+  <p>En la parte superior de cada columna del mapa hay una barra plegada <b>Preguntar a la IA…</b> con un símbolo de estado a la izquierda: una marca verde cuando todo está bien, un triángulo amarillo cuando hay consejos, actualizaciones o sugerencias, o un <b>!</b> rojo cuando hay algo que arreglar en esa columna. La barra de cabecera muestra el estado general de las cuatro columnas (incluidas las ocultas) y abre la primera columna que requiere atención. Al hacer clic en el símbolo de estado de una columna se abre su lista de estado: cada problema o sugerencia de esa columna con el botón que abre donde se arregla y <b>Preguntar a la IA</b> para rellenar la petición, versiones más nuevas de los agentes y LLM locales instalados (<b>Actualizar</b> ejecuta <code>mise upgrade</code> o el actualizador propio del agente en una terminal, o abre la vista previa de instalación; se comprueba como mucho cada seis horas), actualizaciones de servidores MCP de las comprobaciones IA diarias y <b>Comprobar de nuevo</b>. En la página de bienvenida, <b>Lo que puedes hacer con ello</b> muestra los casos de uso (ayuda diaria, vibe coding, imágenes, voz, investigación y escritura) como <b>Listo</b>, <b>Casi</b> o <b>Todavía no</b>, con lo que hay para cada uno y el siguiente paso.</p>
+  <p>La aplicación lee al arrancar, en segundo plano, el catálogo firmado de complementos: de su caché, y en línea solo si <b>Buscar complementos en línea</b> está activado. La lista de estado de cada columna muestra entonces también los agentes y LLM locales de este PC cuyo complemento está desactivado o aún no instalado (<b>Obtener complementos</b> o <b>Complementos</b> abre los complementos para activar u obtener), programas o skills nuevos encontrados en este PC (<b>Añadir servidor MCP…</b>, <b>Añadir skills…</b>) y los complementos instalados con una versión más nueva en el catálogo. <b>Actualizar todo</b> los muestra con sus versiones y, tras confirmar, los actualiza uno tras otro, cada uno comprobado con el catálogo; un mensaje dice qué se actualizó y qué no.</p>
+  <p>Un clic en la parte <b>Preguntar a la IA…</b> de la barra abre la petición en una ventana centrada sobre el mapa, con el ayudante y su coste en la cabecera y los botones en el pie (u ofrece <b>Empezar</b> cuando aún no hay ningún ayudante IA configurado). Antes de enviar nada, la tarjeta muestra qué ayudante responde (con un menú si hay más de uno listo) y si funciona localmente (<b>Local, sin tokens</b>) o <b>Usa plan/tokens</b>; solo al hacer clic en <b>Preguntar</b> se envía tu petición. El ayudante hace una pregunta aclaratoria, ofrece pasar la petición a la columna adecuada o propone candidatos verificados procedentes de búsquedas reales. En la columna <b>Modelos</b>, la tarjeta muestra la VRAM, la RAM y el espacio libre de este PC y marca cada candidato como <b>Cabe en VRAM</b>, <b>Usa descarga en RAM</b> o <b>Demasiado grande para este PC</b>. <b>Revisar</b> abre la vista previa de descarga antes de descargar o cambiar nada y, cuando el modelo está listo, puedes conectarlo opcionalmente a un agente mediante la vista previa de conexión con <b>Deshacer</b>.</p>
+  <p>En la columna <b>Servidores MCP y skills</b> el ayudante puede añadir un servidor MCP del registro oficial, conectar un servidor a un agente o desconectarlo. También puede desconectar varios servidores o todos en un solo paso, con una vista previa y un solo Deshacer. Tú eliges los agentes, rellenas lo que el servidor necesita (las claves se quedan en este PC y nunca llegan al ayudante) y apruebas la revisión normal; entonces se hace el cambio y el mapa lo muestra. Rechaza todo lo demás e indica la columna correcta. En el mismo paso también puede desconectar carpetas de skills. Aún no puede añadir ni actualizar skills, actualizar programas ni borrar un servidor del PC.</p>
+  <p>En la columna <b>Modelos</b> el ayudante también puede quitar un modelo de un LLM local: primero ves la revisión normal, y los archivos van a la Papelera cuando es posible. También puede mover una carpeta de modelos a otro disco, con vista previa y <b>Deshacer</b> en la cabecera. Cada carpeta tiene su propia revisión. También puede desconectar agentes de uno, varios o todos los modelos de un LLM local, con una vista previa y un Deshacer; no se borra ningún archivo.</p>
+  <p>En la columna <b>Agentes</b> el ayudante puede instalar, actualizar o quitar un agente, donde la página de Agentes lo ofrece. Ves su revisión normal; el paso se ejecuta luego en una terminal que puedes observar. No inicia agentes ni cambia sus ajustes.</p>
+  <p>En la columna <b>Proveedores</b> el ayudante puede instalar o actualizar un LLM local, e iniciarlo o detenerlo, donde la app lo ofrece; se abre la revisión normal de la app. No puede desinstalar un proveedor ni iniciar sesión en uno en línea.</p>
+  <p>Preguntar a la IA también ofrece los demás pasos de los menús de la aplicación, cada uno a través del mismo menú con su propia revisión y Deshacer. En la columna <b>Agentes</b>: la pregunta de prueba, la tarjeta de la clave de API (escribes la clave allí; el asistente nunca la ve), los ajustes de seguridad, iniciar un agente o detener uno que se ejecuta fuera de la aplicación, sus conexiones y detalles, y para un complemento sus detalles, activarlo o desactivarlo, instalarlo, actualizarlo o quitarlo. En la columna <b>Proveedores</b>: los mismos pasos de complementos para los LLM locales y <b>Buscar IA existente</b>, que busca programas y carpetas de modelos que ya están en este PC; la aplicación no desinstala por sí misma un programa de LLM local. En la columna <b>Modelos</b>: cargar, descargar de memoria o importar un modelo, y el modelo que usa un LLM local por sí mismo, comprobado con las mismas reglas que un cambio de modelo y con su propio Deshacer, como cuando lo dibujas en el mapa. En la columna <b>Servidores MCP y habilidades</b>: lo que muestra <b>Encontrados en este PC</b>. Conectar un agente a un proveedor en línea inicia su sesión en su propio proveedor; el proveedor de otro agente se rechaza con el motivo. Cuando los agentes dejan un LLM local, solo cambia su configuración, como cuando quitas la línea. Tras una descarga, Preguntar a la IA ofrece los agentes que pueden usar un LLM local, y el modelo pasa a ser el modelo de ese agente, como cuando dibujas la conexión.</p>
+  <p>Cuando una columna no puede hacer algo pero la web puede explicarlo, un ayudante en línea busca en la web y la tarjeta muestra su respuesta con fuentes; un ayudante local no puede buscar en la web y lo dice. Tras esa respuesta, <b>Hacerlo con …</b> muestra la instrucción, y el agente trabaja en una terminal y pregunta antes de cada paso que cambie archivos. La tarea en sí espera en un archivo privado en la caché de AI Agents Map; la línea de órdenes del agente solo nombra ese archivo, así que otras cuentas de este PC no pueden leerla.</p>
+</section>
+
+<!-- ============================== 4 Agents ============================== -->
+<section class="chapter" id="agents">
+  <h1>Agentes</h1>
+
+  <h2 id="agent-cards">Detalles de un agente</h2>
+  <p>Cada agente de programación tiene una tarjeta en Configuración, las instaladas con su versión. Haz clic en la
+  tarjeta de un agente instalado (<b>⋯</b> › <b>Detalles</b>), o clic derecho en su
+  caja del mapa › <b>Detalles</b>. Arriba, una línea dice si el agente está listo (y si no, por qué) y si está en marcha
+  ahora o cuándo se usó por última vez. Debajo, cada parte es una tarjeta que se pliega: un clic en su título la abre o
+  la cierra. Empiezan plegadas, cada una con un resumen de una línea y distintivos; una parte que abras sigue abierta en
+  las siguientes páginas de detalles.</p>
+  <div class="figure wide">
+    <img src="images/agent-details.jpg" alt="La página de detalles de OpenCode: Configurado y listo, luego tarjetas plegadas Uso y tokens, Proyectos de los últimos 30 días, Temas con distintivo de Privacidad, Estado con Sano, Ajustes de seguridad y Gestión de riesgos con Riesgo alto, Qué significan las palabras y Configuración, cada una con un resumen">
+    <p class="caption">Los detalles de un agente: cada parte plegada, con su resumen y sus distintivos.</p>
+  </div>
+  <table>
+    <thead><tr><th>Tarjeta</th><th>Qué muestra</th></tr></thead>
+    <tbody>
+      <tr><td><b>Uso y tokens</b></td><td>Lo que el agente registra: tokens y sesiones de hoy y de los últimos siete días, el plan, un gráfico de tokens por día, límites con su hora de reinicio y tokens por modelo.</td></tr>
+      <tr><td><b>Coste de API</b> / <b>Valor de API</b></td><td>Lo que cuestan sus tokens a los precios de API de los proveedores: hoy, los últimos 7 y 30 días y, por modelo, el desglose en entrada, salida, lectura de caché y escritura de caché (tokens e importe). <b>Coste de API</b> para un agente que se paga por token (con su parte del límite diario), <b>Valor de API</b> para uno con plan (el plan lo cubre). Consulta <a href="#api-cost">Coste de API</a>.</td></tr>
+      <tr><td><b>Proyectos, últimos 30 días</b></td><td>Por carpeta de proyecto: tiempo de trabajo, sesiones, tokens, ejecuciones de subagentes, líneas cambiadas y el valor de API.</td></tr>
+      <tr><td><b>Temas</b> (Privacidad)</td><td>De qué trataban las sesiones. Va más allá de las cifras, por eso lleva la marca <b>Privacidad</b> y solo la rellena un complemento (ver abajo); el complemento da nombre a la tarjeta y su distintivo dice cuánto lee.</td></tr>
+      <tr><td><b>Estado</b></td><td>Cada comprobación de la configuración con un ✓, o qué hacer a continuación: iniciar sesión, instalar o iniciar su LLM local, descargar un modelo, añadir servidores MCP o skills.</td></tr>
+      <tr><td><b>Ajustes de seguridad</b>, <b>Gestión de riesgos</b>, <b>Qué significan las palabras</b></td><td>Lo que el agente puede hacer sin preguntarte y lo que reduce el riesgo (ver <a href="#security">Chequeo de salud y seguridad</a>).</td></tr>
+      <tr><td><b>Configuración</b></td><td>Los ajustes del agente, sus servidores MCP, sus skills y su carpeta de ajustes.</td></tr>
+    </tbody>
+  </table>
+  <p>Los proyectos se muestran para Claude Code, Codex, Pi, Oh My Pi, OpenCode, Hermes, DeepSeek Harness, Goose, Gemini CLI y OpenClaw: tiempo de trabajo, sesiones, tokens, ejecuciones de
+  subagentes, líneas cambiadas y lo que costarían los tokens a precios de API. Las cifras salen de los propios archivos
+  de sesión o de la base de datos de cada agente; no se lee ningún texto.</p>
+  <p id="api-cost"><b>Coste de API.</b> Los importes son una estimación: los recuentos de tokens que guarda el agente
+  (entrada, salida, lectura y escritura de caché, por modelo) a los precios de API publicados por los
+  proveedores — Anthropic, OpenAI, DeepSeek, xAI y Google, con la fecha en que se tomaron. Una sesión cuenta el
+  día de su última respuesta; los modelos locales no cuestan nada. Crush no guarda recuentos de tokens que se
+  puedan sumar, así que su tarjeta muestra el coste que indica el propio Crush. Para un agente que no guarda
+  recuentos de tokens en el PC (Cursor CLI, Antigravity, Muse), la tarjeta dice que el coste no se sabe; la
+  página de cuenta de su proveedor lo tiene. Los importes se muestran en dólares estadounidenses o en euros al
+  tipo de referencia diario del Banco Central Europeo (Ajustes › <b>Costes</b>).</p>
+  <p> Con el complemento <b>Insights</b> (ver <a href="#addons">Complementos</a>) la tarjeta <b>Temas</b> muestra primero
+  qué temas usaron más tokens en los últimos 30 días (<b>Más tokens</b>: las sesiones con el mismo título son un solo
+  tema, cada uno con su parte de todos los tokens), luego los títulos que el agente dio a sus sesiones, por proyecto
+  (<b>Por proyecto</b>), y ofrece <b>Resumir con Claude…</b> (si Claude Code está instalado). Sus tokens vienen de
+  los propios archivos de sesión del agente sin las lecturas de caché, así que pueden ser muy inferiores a los de
+  <b>Uso y tokens</b>, que puede contar las lecturas de caché. Antes de enviar nada, ves exactamente lo que se
+  enviará: los títulos y las cifras, nunca las conversaciones.</p>
+
+  <h2 id="running-agents">Iniciar y detener agentes</h2>
+  <p>Se guardan las últimas 50 carpetas de proyecto por agente.</p>
+  <p>El submenú <b>Iniciar</b> de cada agente tiene tres secciones separadas por líneas: <b>Iniciar</b> con la carpeta actual, <b>Elegir carpeta…</b> y la lista desplegable de búsqueda <b>Proyectos recientes</b>. La lista se desplaza y muestra todas las carpetas usadas para iniciar este agente desde el mapa, de la más reciente a la más antigua. Elige un proyecto anterior y luego Iniciar. El selector de carpetas inicia una sesión en la carpeta elegida. No es necesario fijar ninguna carpeta: sin una, se usa Ajustes › <b>Los agentes se inician en</b> o tu carpeta personal. La página de detalles incluye una tarjeta desplazable <b>Proyectos recientes</b> con todas las carpetas registradas. Pulsa una fila para abrir Iniciar con esa carpeta seleccionada. La chincheta establece el próximo valor predeterminado de este agente; solo se puede fijar una carpeta por agente. Desfijarla restaura el valor general. La papelera quita la entrada y su chincheta del historial de este agente, nunca la carpeta ni sus archivos. El mismo submenú, historial y chinchetas se usan en <b>Iniciar aquí</b> e <b>Iniciar en terminal</b>. <b>Iniciar de nuevo</b> vuelve a abrir el submenú. Las sesiones activas conservan su carpeta; las selecciones canceladas y los inicios fallidos no añaden historial.</p>
+  <ul>
+    <li><b>▶</b> en la caja del agente o <b>Iniciar aquí</b> en su menú inicia el agente en una terminal dentro de la
+      ventana, en lugar del mapa. Necesita VTE (<code>vte4</code>).</li>
+    <li><b>Iniciar en terminal</b> lo abre en su propia ventana de terminal.</li>
+    <li>Mientras se ejecuta dentro de la ventana: <b>Mostrar terminal</b> y <b>Detener</b>. Detener termina el agente y
+      todo lo que inició, como sus servidores MCP.</li>
+    <li><b>Terminales…</b> lista dónde más se ejecuta el agente: <i>Aquí, en esta ventana</i>, cada
+      <i>Ventana de terminal</i> (un clic la trae al frente) y cada instancia <i>En segundo plano</i>
+      — una sin ventana, como <code>claude -p …</code> ejecutado por un script o por otro agente. Un
+      clic en una instancia en segundo plano abre una pestaña de terminal que muestra lo que escribe, a
+      medida que lo escribe: preguntas, respuestas y las herramientas que usa (de su archivo de sesión, o
+      de su salida cuando esta va a un archivo). La pestaña termina cuando termina la instancia. Es el
+      único lugar donde la app muestra texto de conversaciones, y solo de la instancia en la que haces clic.</li>
+    <li><b>Detener…</b> — también el pequeño botón de detener a la izquierda de <b>▶</b> en la caja del
+      agente — detiene una de sus instancias fuera de esta ventana. Elígela en la lista, que dice dónde y
+      cuándo se inició cada una. Se le pide que termine (SIGTERM) y, si sigue ahí al cabo de 3 segundos, se
+      termina. Solo se detiene exactamente ese proceso: si ha terminado entretanto y su número de proceso
+      pertenece ahora a otro programa, no ocurre nada.</li>
+  </ul>
+  <p>Cuando hay agentes con terminales dentro de la ventana, una fila de pestañas sobre el mapa muestra una pestaña por
+  terminal, con un punto para <i>trabajando</i>, <i>en marcha</i> o <i>terminado</i>. Un clic en una pestaña muestra esa
+  terminal; <b>×</b> cierra una terminada.</p>
+  <p>Un agente abierto en cualquier parte del ordenador recibe un punto verde y <i>en marcha</i>, y la caja del modelo
+  con el que se ejecuta dice <i>en uso · &lt;agente&gt;</i>.</p>
+
+  <h2 id="network">Tráfico de red</h2>
+  <p>La caja y la tarjeta de un agente en marcha muestran lo que recibe y envía (↓ entrada, ↑ salida). Haz clic en esa
+  línea, o en <b>⇅</b> de la cabecera para todos los agentes en marcha, para abrir su página de red: <b>Ahora</b>,
+  <b>Los últimos 5 minutos</b> como gráfico (entrada en verde, salida en azul), <b>Adónde va</b> — API en línea, LLM
+  locales, este PC y tu red local, cada uno con su parte — y <b>Programas</b>: el propio agente y los programas que ha
+  iniciado, como sus servidores MCP. Se cuenta a partir de las conexiones TCP del propio agente mientras la app está
+  abierta (sin derechos de administrador; UDP no se cuenta) y se queda en este PC.</p>
+
+  <h2 id="subagents">Subagentes</h2>
+  <p>Claude Code y OpenCode pueden pasar partes de una tarea a <b>subagentes</b>. Mientras uno de los
+  subagentes de un agente trabaja, su recuadro en el mapa muestra una pequeña marca de árbol junto a ⇅;
+  si solo tiene terminados en la lista, la marca aparece atenuada. Haz clic en ella para abrir la página
+  <b>Subagentes</b> del agente: un mapa propio, dispuesto como el grande, con la tarjeta del agente a la
+  izquierda y una tarjeta <b>Subagentes</b> a la derecha. Cada recuadro muestra la tarea del subagente, su
+  tipo, la carpeta en que trabaja su sesión y <b>trabajando</b> o <b>terminado hace … minutos</b>. La luz
+  recorre las líneas hacia los que trabajan; los terminados aparecen atenuados. Pasa el puntero por un
+  recuadro para leer toda su tarea.</p>
+  <div class="figure wide">
+    <img src="images/subagents.jpg" alt="El mapa de la página Subagentes: a la izquierda la tarjeta de Claude Code con su marca de subagentes y el símbolo de red, a la derecha una tarjeta Subagentes con tres recuadros: dos subagentes trabajando con luz en sus líneas y uno terminado, atenuado">
+    <p class="caption">Los subagentes de un agente: dos trabajando, uno terminado.</p>
+  </div>
+  <p>Cuánto tiempo se quedan en la lista los subagentes terminados (30 minutos) y cuántos como máximo (10)
+  se ajusta en Ajustes › <b>Subagentes</b>; los que trabajan se muestran siempre. La página solo lee el
+  tipo de cada subagente y la descripción de una línea de su tarea, de los propios archivos del agente
+  (las carpetas de sesión de Claude Code, la base de datos de OpenCode), nunca lo que dicen los subagentes.</p>
+
+  <h2 id="together-flutter">Agentes que trabajan juntos</h2>
+  <p>Un agente que inició otro y lo usa —Claude Code ejecutando <code>pi -p …</code> por su shell, por ejemplo— queda unido a él en el mapa por una línea curvada a la derecha de las cajas de los agentes. La luz corre por ella mientras cualquiera de los dos trabaja. Se detecta solo por el árbol de procesos (los procesos propios de los agentes y sus padres), y la línea se muestra, nunca se edita. Los subagentes de Claude Code, Codex, GitHub Copilot, OpenCode y Goose se leen como en la app.</p>
+
+
+  <h2 id="costs-flutter">Costes</h2>
+  <p>Los detalles de un agente muestran lo que cuestan sus tokens a los precios de API de los proveedores: hoy, en los últimos 7 y 30 días, y por modelo dividido en entrada, salida, lectura de caché y escritura de caché. <b>Coste de API</b> para un agente que paga por token (con la parte del límite diario), <b>Valor en API</b> para uno con plan (que lo cubre). Es una estimación a partir de los números de sus propios archivos de sesión; no se lee ningún texto de ellos. Ajustes › <b>Costes</b> fija la <b>Moneda</b> (euros al tipo de referencia diario del Banco Central Europeo, obtenido una vez al día), el <b>Límite diario</b> y los niveles <b>Amarillo desde</b> y <b>Rojo desde</b> (rojo siempre por encima del amarillo). Los archivos de sesión de Claude Code se siguen leyendo desde donde se quedó la última mirada, así que las sesiones muy largas cuentan enteras; la primera mirada en un PC con muchísimas puede necesitar dos para estar completa.</p>
+  <p>En el mapa, un agente con límites del plan muestra en su caja una pequeña batería con lo que queda del límite más ajustado, y uno que paga por token muestra ahí el coste de hoy, con una batería al lado de lo que queda del límite diario; verde, amarillo o rojo según los niveles de Ajustes › Costes, los detalles en su información emergente. Ambos se vuelven a mirar cada minuto. Una batería cuyas cifras pueden estar desactualizadas (el recopilador las conservó tras una consulta fallida, o se midieron hace más de 30 minutos) aparece atenuada, y su información emergente dice cuándo se midieron; un límite sin hora de reinicio deja de mostrarse entonces. Los límites vienen del recopilador de uso de Omarchy para ese agente (<code>omarchy-agent-usage-claude</code>, <code>-codex</code>, …): en Omarchy a través del propio Omarchy, en otro escritorio cuando el recopilador está en tu PATH. Sin recopilador, se pregunta al propio Codex mientras tiene la sesión iniciada: su propio <code>codex app-server</code> indica los límites de su plan (no se envía ningún prompt y se cierra enseguida). Solo se pregunta al Codex instalado, nunca a un lanzador que antes lo instalaría o actualizaría; también cuenta una sesión guardada en el llavero o en la carpeta que indica <code>CODEX_HOME</code>. Mientras la aplicación está abierta, los límites se vuelven a pedir cada diez minutos; tras cerrar la sesión ya no se muestran. AI Agents Map no lee por sí mismo ningún archivo de inicio de sesión; lo hace el recopilador o el agente. Un agente cuyos propios datos de sesión dicen cuánto costaron sus sesiones (Hermes, OpenCode) cuenta como pago por token; un coste solo estimado no cuenta. Con <b>Avisar al llegar al rojo</b> activado, un coste en rojo recibe una notificación de escritorio al día.</p>
+
+  <h2 id="details-flutter">Detalles</h2>
+  <p>Los detalles de un agente muestran también <b>Proyectos, últimos 30 días</b>: por carpeta de proyecto el tiempo de trabajo, las sesiones, los tokens, las líneas cambiadas y el valor en API, las ejecuciones de subagentes por tipo y la hora más activa, a partir de los números de sus archivos de sesión. La tarjeta de un LLM local dice si está en marcha, cuánta memoria de GPU ocupa y qué modelos están cargados, muestra sus modelos, agentes y dirección, <b>Uso y tokens</b> que los agentes enviaron a través de él (emparejados por nombre de modelo) y, en <b>Gestión de riesgos</b>, quién puede alcanzarlo. En el mapa, un LLM local en marcha muestra la memoria de GPU aún libre como una batería. Un clic en la caja de un servidor MCP o de un conjunto de skills abre sus detalles: qué agentes lo tienen y cómo cada uno lo inicia, lo llama o lo lee (los valores de claves, tokens y parámetros de consulta nunca se muestran), quién no lo tiene todavía, y las herramientas del servidor según la última consulta o la descripción de cada skill.</p>
+
+  <h2 id="tabs-usage-flutter">Pestañas de terminal, recuadro de uso y modelo inicial</h2>
+  <p>Los terminales se abren en una ventana centrada sobre el mapa. Mientras haya agentes en terminales de la ventana, sobre el mapa hay una pestaña para cada uno, con un punto para <b>trabajando</b>, <b>en marcha</b> o <b>terminado</b>; un clic muestra el terminal y el visible queda marcado (Ajustes: <b>Pestañas de terminal sobre el mapa</b>). La caja de un agente que trabaja en el mapa muestra el <b>Recuadro de estadísticas de uso</b>: lo rápido que llegó su última respuesta (tokens por segundo), el tamaño de su contexto y cuánto está en uso (amarillo desde el 75 %, rojo por encima del 90 %), leído de sus propios archivos de sesión, solo números; los Ajustes dicen qué se muestra y a qué tamaño. En <b>Tu primer agente</b>, una ruta con un LLM local propone el modelo inicial que cabe en tu tarjeta gráfica (<b>Un modelo</b>), y <b>Descargarlo</b> inicia su descarga como la página de modelos.</p>
+  <h2 id="configure">Configurar…</h2>
+  <p>Clic derecho en un agente o un LLM local › <b>Configurar…</b> abre su propia configuración en una pestaña de terminal
+  de la ventana, para lo que la app no ajusta por sí misma — por ejemplo <code>hermes setup</code> o el menú propio de
+  Ollama; LM Studio abre su ventana. Un programa sin orden de configuración muestra su <code>--help</code>. Cuando
+  termina, el mapa vuelve a mirar y muestra lo que ha cambiado, y a un LLM local en marcha se le ofrece reiniciarse.</p>
+
+  <h2 id="sign-in">Iniciar sesión</h2>
+  <p><b>Iniciar sesión…</b> en el menú de un agente (en Configuración o en el mapa) muestra lo que necesita el agente
+  y sus propias formas de iniciar sesión:</p>
+  <ul>
+    <li><b>Una suscripción o una cuenta</b> — el propio inicio de sesión del agente se ejecuta en una terminal dentro de
+      la ventana (por ejemplo <code>claude auth login</code> o <code>codex login</code>). Tu contraseña o el inicio de
+      sesión en el navegador quedan entre tú y el agente; la app nunca los ve. Donde el agente lo pide, la terminal dice
+      qué escribir (Pi y Copilot: <code>/login</code>).</li>
+    <li><b>Una clave de API</b> — para los agentes que leen una: la clave va a un campo de contraseña y de ahí directamente
+      al propio comando del agente (Codex la guarda él mismo) o al archivo que lee el agente (Gemini:
+      <code>~/.gemini/.env</code>, legible solo por ti). Nunca acaba en una línea de comandos, un registro ni los ajustes
+      de la app, y la app no la conserva. La facturación por API de Claude Code es su propio inicio de sesión en la
+      Anthropic Console, así que ninguna clave pasa por la app.</li>
+  </ul>
+  <div class="figure">
+    <img src="images/sign-in.jpg" alt="El diálogo Iniciar sesión en Claude Code: lo que necesita Claude Code, una nota de que el propio inicio de sesión del agente se ejecuta en una terminal, y los botones Facturación por API (Anthropic Console), Suscripción a Claude y Cancelar">
+    <p class="caption">Iniciar sesión en Claude Code: una suscripción o facturación por API, ambas con el propio inicio de sesión de Claude Code.</p>
+  </div>
+  <p>Después, el mapa muestra el proveedor en línea del agente y sus modelos.</p>
+
+  <h2 id="sign-in-flutter">Claves de API</h2>
+  <p>Un agente que lee una clave de API muestra <b>Clave API…</b> en sus detalles. La tarjeta indica adónde va la clave antes de que la escribas: al propio comando del agente (Codex: <code>codex login --with-api-key</code>) o al archivo que lee el agente (Gemini: <code>~/.gemini/.env</code>, escrito como un archivo nuevo que solo tú puedes leer; las demás líneas se conservan). El campo oculta lo que escribes y <b>Guardar</b> solo se activa con algo que tenga forma de clave. La clave va a un proceso de trabajo aparte por su entrada estándar; nunca entra en una línea de comandos, un registro, una copia de seguridad ni los ajustes de la aplicación, y la aplicación no la guarda. Cuando responde el propio comando del agente, se muestra su última línea, sin la clave.</p>
+
+  <h2 id="agent-updates">Actualizar agentes</h2>
+  <p>Cuando sale una versión más nueva de un agente instalado, su tarjeta en Configuración recibe un
+  <b>↑ versión</b> amarillo, y el estado de la columna lo dice.
+  <b>Actualizar</b> ejecuta la actualización del modo en que se instaló el agente — por ejemplo
+  <code>mise upgrade &lt;tool&gt;</code> o <code>claude update</code> — en una ventana de terminal propia, para
+  que puedas seguirla.</p>
+
+  <h2 id="installed-agents">Agentes que la app puede instalar</h2>
+  <p>Cuatro agentes se pueden instalar, actualizar y desinstalar desde el mapa (clic derecho en el agente ›
+  <b>Instalar…</b>):</p>
+  <ul>
+    <li><b>Goose</b> (<code>goose</code>, de la Agentic AI Foundation, antes Block), su versión de GitHub
+      mediante mise. Funciona con muchos proveedores y con LLM locales; <b>Configurar…</b> ejecuta
+      <code>goose configure</code>.</li>
+    <li><b>DeepSeek Harness</b> (<code>dsh</code>, versión preliminar para desarrolladores), desde npm. Puede usar LLM locales.</li>
+    <li><b>Antigravity CLI</b> (<code>agy</code>, Google), desde el manifiesto de versiones de Google; la descarga se
+      comprueba con su suma SHA-512.</li>
+    <li><b>LM Studio Bionic</b> no se puede instalar desde aquí (no publica suma de comprobación); consíguelo en
+      lmstudio.ai. Siempre usa el motor y los modelos de LM Studio.</li>
+  </ul>
+
+  <h2 id="new-agents">Agentes nuevos</h2>
+  <p>Cuando aparece un agente que la app aún no conoce, pregunta una vez a un agente instalado (Claude Code, si no Codex)
+  que averigüe en la web dónde guarda ese agente sus skills y servidores MCP. La respuesta se comprueba antes de usarla, y
+  nada de ella se ejecuta nunca. Ajustes › <b>Buscar agentes nuevos</b> lo desactiva.</p>
+</section>
+
+<!-- ============================== 5 Local LLMs ============================== -->
+<section class="chapter" id="local-llms">
+  <h1>LLM locales</h1>
+  <p class="lead">Un entorno de LLM local ejecuta modelos de lenguaje en tu propia tarjeta gráfica, así que las
+  peticiones nunca salen del ordenador. La app los instala, inicia y detiene por ti.</p>
+
+  <h2 id="install-runtime">Instalar un LLM local</h2>
+  <p>Clic derecho en un LLM local gris (no instalado) del mapa › <b>Instalar…</b>. Eliges la carpeta del programa, la
+  carpeta de modelos (se sugiere la que usan tus otros LLM locales) y si se inicia al entrar en la sesión. Se instala
+  solo para tu usuario, con un servicio de usuario, así que no hace falta contraseña. Cada descarga debe coincidir con la
+  suma SHA-256 que publica su versión antes de desempaquetarse o ejecutarse.</p>
+  <table>
+    <thead><tr><th>Entorno</th><th>Notas</th></tr></thead>
+    <tbody>
+      <tr><td><b>Ollama</b></td><td>La versión oficial (con ROCm para tarjetas AMD).</td></tr>
+      <tr><td><b>llama.cpp</b></td><td>La compilación que elijas (Vulkan, ROCm, CUDA, CPU), como enrutador de modelos: cualquier GGUF de la carpeta de modelos, uno cargado a la vez.</td></tr>
+      <tr><td><b>LM Studio</b></td><td>No se instala desde aquí (no publica suma de comprobación); consíguelo en lmstudio.ai. Una vez instalado, se muestra y se gestiona.</td></tr>
+      <tr><td><b>vLLM</b></td><td>Para tarjetas NVIDIA, en su propio entorno de Python.</td></tr>
+      <tr><td><b>Jan</b></td><td>Su AppImage, desempaquetado, con el motor de Jan como servicio en segundo plano para los agentes.</td></tr>
+      <tr><td><b>KoboldCpp</b></td><td>La compilación oficial de un solo archivo, como enrutador de modelos.</td></tr>
+      <tr><td><b>Strata</b></td><td>Su propio instalador (<code>install.sh</code> de la última versión, comprobado con el SHA-256 que indica la versión), que coloca el terminal de Strata en <code>~/.local/share/strata/terminal</code>. Su motor y sus modelos llegan después, en las pantallas propias de Strata (ver <a href="#strata">Strata</a>). AI Agents Map no ofrece <b>Desinstalar…</b> para él; cómo quitarlo está también en esa sección.</td></tr>
+    </tbody>
+  </table>
+  <p>Instalado así, un LLM local ofrece además <b>Actualizar…</b> (la versión anterior se guarda como respaldo),
+  <b>Carpeta de modelos…</b> y <b>Desinstalar…</b>, que quita el programa, el comando, el servicio y los ajustes, pero
+  nunca los modelos. Los LLM locales que instalaste tú mismo se muestran, pero nunca se modifican.</p>
+  <p>Un LLM local que aún no está instalado muestra <b>Instalar</b> en Proveedores y modelos, y la guía del primer agente ofrece <b>Instalar mise</b>, <b>Instalar Node.js</b> e <b>Instalar</b> para el LLM local que necesita su camino. AI Agents Map busca primero la versión más reciente y la muestra en una tarjeta: sus archivos y su tamaño, la carpeta del programa (<code>~/.local/share/ai-agents-map/&lt;nombre&gt;</code>, una carpeta por versión), la carpeta de modelos dentro de ella y tu tarjeta gráfica. Para llama.cpp y KoboldCpp, elige allí la variante (Vulkan, ROCm, CUDA o CPU); otra variante se vuelve a buscar antes de instalar nada. Un LLM local con servicio de usuario ofrece además <b>Iniciar ya</b> e <b>Iniciar al entrar</b>.</p>
+  <p><b>Instalar</b> descarga los archivos, comprueba cada uno con la suma de verificación que indica su versión y los descomprime; nada de la descarga se ejecuta durante la instalación (el AppImage de Jan se descomprime a sí mismo en un entorno aislado). Strata es la excepción: su propio <code>install.sh</code>, comprobado con la suma de verificación de su versión, se ejecuta y lo instala en tu carpeta personal. Un programa ya instalado de otra forma, o un archivo de ajustes o un servicio que ya existe, nunca se reemplaza: la tarjeta lo rechaza. Ollama, llama.cpp, KoboldCpp, Jan, Strata y mise se instalan así; LM Studio y vLLM no, porque no hay para ellos una versión con suma de verificación.</p>
+  <p>Cada paso que inicias desde la guía del primer agente —instalar, iniciar sesión, la pregunta de prueba, Proveedores y modelos, Conexiones— te devuelve a la guía con <b>Atrás</b>, actualizada, de modo que el paso recién hecho aparece como hecho.</p>
+
+  <h2 id="start-with-agents">Iniciar y detener con los agentes</h2>
+  <p>Conecta una vez un agente a un LLM local y luego simplemente inicia el agente — incluso con la app cerrada o tras
+  reiniciar. Su LLM local arranca con él, y cuando termina el último agente que lo usa, el LLM se detiene unos cinco
+  segundos después, así su memoria gráfica vuelve a quedar libre.</p>
+  <p>De esto se encarga un pequeño servicio en segundo plano, <code>ai-agents-map-providers.service</code>. Se configura
+  con la primera conexión a un LLM local y se quita cuando desaparece la última o cuando desactivas Ajustes ›
+  <b>Iniciar los LLM locales con sus agentes</b>.</p>
+  <div class="note"><p><b>Nota</b> KoboldCpp tarda unos segundos en arrancar, más de lo que esperan algunos agentes. Por
+  eso arranca al entrar en la sesión, y cuando termina el último agente solo se descarga su modelo.</p></div>
+  <div class="note"><p><b>Nota</b> Strata no arranca con sus agentes. Inícialo en el mapa (el botón ▶ de su recuadro) o en el propio Strata antes de trabajar con un agente conectado a él.</p></div>
+
+  <h2 id="strata">Strata</h2>
+  <p>Strata es un motor de inferencia local con su propia aplicación de terminal. Sirve un modelo a la vez en <code>127.0.0.1:8080</code> y habla las API de OpenAI y Anthropic, así que los agentes se conectan a él como a los demás LLM locales. AI Agents Map lo encuentra por su propio comando <code>strata</code> (otro programa con ese nombre, como el gestor de archivos Strata en <code>/usr/bin</code>, no se toma por él), por su servidor en marcha y por sus modelos: las configuraciones de ejecución que Strata guarda en <code>~/.local/share/strata/install</code>.</p>
+  <p>Elegir, descargar y ajustar un modelo se hace en las pantallas propias de Strata: ejecuta <code>~/.local/bin/strata launch</code> en un terminal (<code>~/.local/bin/strata launch --status</code> muestra qué se está sirviendo). Cuando Strata ha iniciado así un modelo, lo recuerda como preajuste de lanzamiento. Desde entonces <b>Iniciar</b> en el mapa (el botón ▶ del recuadro de Strata) inicia el último preajuste usado (<code>strata launch --preset … --no-tui</code>, que vuelve cuando el modelo está servido; los modelos grandes tardan unos minutos), y <b>Detener</b> lo detiene (<code>strata launch --stop</code>).</p>
+  <p>Strata y llama.cpp usan ambos el puerto 8080 salvo que se indique otro. Un agente conectado desde el mapa nombra su LLM local (<code>strata-local</code>), así que sigue siendo de Strata aunque llama.cpp use también ese puerto; solo uno de los dos puede servir en un puerto a la vez.</p>
+  <p>AI Agents Map no quita Strata. Para quitarlo tú mismo, borra su terminal (<code>~/.local/share/strata/terminal</code>) y el enlace <code>~/.local/bin/strata</code>. Sus motores y configuraciones de ejecución están en <code>~/.local/share/strata</code> (<code>components</code>, <code>install</code>), sus modelos en las carpetas que elegiste en Strata y los chats de la aplicación de escritorio en <code>~/.strata</code>; bórralos solo si ya no los quieres.</p>
+
+  <h2 id="llm-details">Detalles de un LLM local</h2>
+  <p>Haz clic en la tarjeta de un LLM local en Configuración, o clic derecho en su caja del mapa › <b>Detalles</b>.
+  Bajo los mosaicos (modelos, agentes, dirección) vienen las mismas tarjetas plegables que en los agentes:
+  <b>Uso y tokens</b> — lo que tus agentes enviaron a través de él en los últimos días, por agente y modelo, a partir de
+  las propias cifras de sesión de los agentes y emparejado por el nombre del modelo —, luego Estado, Gestión de riesgos,
+  Qué significan las palabras y Configuración.</p>
+
+  <h2 id="performance">Rendimiento</h2>
+  <p>Un LLM local cuyos ajustes conoce la app (llama.cpp, Ollama instalado por la app) tiene una tarjeta
+  <b>Rendimiento</b> en su página de detalles:</p>
+  <ul>
+    <li><b>Variante</b>, <b>Pilas de GPU</b> y <b>Memoria de vídeo</b>: con qué funciona — ROCm, Vulkan, CUDA o la
+      CPU (en llama.cpp se lee de su propia lista de dispositivos, también en una variante compilada por ti),
+      cuáles de estas pilas tiene este PC y la memoria de la tarjeta.</li>
+    <li><b>Contexto por modelo</b>: el tamaño de archivo de cada modelo, el contexto configurado ahora, el contexto
+      que la tarjeta admite para él — su archivo más la caché del contexto, leída de la cabecera del modelo — y
+      aquel para el que fue entrenado. <b>!</b> marca un contexto mayor del que admite la tarjeta (el modelo no
+      se cargaría o se desbordaría a la RAM), <b>↑</b> uno que la tarjeta podría ampliar; <b>Poner a …</b> lo cambia.</li>
+    <li><b>Preguntar a …</b>: el ayudante local (o el agente en línea) examina estos datos — solo nombres y
+      números — y sugiere cambios: ajustes como flash attention, el tipo de caché del contexto, las capas en la
+      GPU, las peticiones en paralelo y los tamaños de lote; contextos; otra variante cuando claramente ayudaría.
+      La app solo conserva las sugerencias que puede respaldar (un ajuste conocido con un valor permitido, un
+      contexto que la tarjeta admite) y muestra cada una con su motivo. <b>Aplicar</b> la escribe con copia de
+      seguridad; el mensaje ofrece <b>Deshacer</b>, o <b>Reiniciar ahora</b> cuando solo cuenta tras un reinicio.
+      Otra variante solo se sugiere: instálala desde el menú del LLM local.</li>
+  </ul>
+  <p>En Ollama, sus ajustes valen para todos los modelos a la vez (el archivo de entorno de su servidor).</p>
+  <p>Un LLM local con ajustes que la app puede afinar (llama.cpp, Ollama) tiene <b>Rendimiento</b> en <b>Proveedores y modelos</b>. Muestra la compilación con la que funciona, las pilas de GPU de este PC y la memoria de vídeo, y luego <b>Contexto por modelo</b>: el tamaño de cada modelo, su contexto actual, lo que la tarjeta admite para él y para qué se entrenó. Un modelo con más contexto del que admite la tarjeta queda marcado, igual que uno para el que la tarjeta aún tiene sitio; en llama.cpp, <b>Poner a …</b> lo ajusta. <b>Ajustes para todos los modelos</b> lista los ajustes del motor con lo que hace cada uno; uno con una lista de valores se puede cambiar ahí. Cada cambio se muestra primero y se escribe con una copia de seguridad, así que <b>Deshacer</b> lo revierte; cuenta tras reiniciar el LLM local. En <b>Consejos de un agente</b>, <b>Preguntar a …</b> hace que el agente de comprobaciones de IA mire estos datos (solo nombres y números, solo a través de la web): propone ajustes, contextos, otra compilación o notas, cada uno con su porqué. La app solo conserva lo que puede respaldar —un valor permitido, un contexto que la tarjeta admite, una compilación que tiene el LLM local— y <b>Aplicar</b> pasa por la misma vista previa. Los tokens son del agente; la ejecución aparece en el Smart Check. Para llama.cpp, la app también mide cada modelo en esta tarjeta con la compilación que usa su servicio (ROCm o Vulkan): tras una descarga, cuando cambia la compilación y con <b>Medir y ajustar</b>. Prueba tamaños de lote, se queda con el más rápido y da al modelo el mayor contexto que deja la memoria de vídeo medida, con caché q8_0 y flash attention salvo que hayas elegido otra cosa; los agentes conectados a llama.cpp también reciben el nuevo contexto. Espera mientras haya un modelo cargado, y <b>Deshacer</b> devuelve los ajustes anteriores.</p>
+
+  <h2 id="gpu">Memoria GPU y liberar memoria GPU</h2>
+  <p>En la tarjeta <b>GPU</b> sobre el mapa, <b>Memoria GPU</b> muestra cuánta está en uso, repartida en
+  LLM locales, escritorio y aplicaciones, y libre; <b>Actividad de la GPU</b> muestra la carga, la temperatura
+  y la potencia. La caja de cada LLM local muestra cuánta memoria ocupa, y los modelos cargados reciben un
+  punto verde.</p>
+  <p>Clic derecho en un LLM local para <b>Iniciar</b>, <b>Detener</b>, iniciar al entrar en la sesión y
+  <b>Liberar memoria GPU</b>: se descargan sus modelos, sigue en marcha y vuelve a cargar uno cuando se le pide.</p>
+  <p>Cuando se cierra el último agente que usaba un LLM local y el LLM aún tiene sus modelos cargados, un
+  mensaje pregunta si se devuelve la memoria: <b>Liberarla</b> los descarga, <b>Conservar</b> los deja cargados.</p>
+
+  <p>Un LLM local que ocupa memoria de la GPU recibe un botón rojo de parada en su casilla. Primero pregunta: <b>Liberar memoria GPU</b> descarga sus modelos; <b>Detener</b> lo detiene. En LM Studio el botón es <b>Detener servidor</b>: solo se detiene su servidor y la aplicación sigue abierta con sus modelos cargados. Un modelo que un LLM local tiene cargado, pero que ningún agente usa, está unido a él por una línea clara continua.</p>
+  <p>LM Studio puede estar abierto sin su servidor. Entonces su casilla dice <i>servidor apagado</i> con un punto amarillo, los agentes no pueden alcanzarlo y su menú ofrece <b>Iniciar servidor</b> (<code>lms server start</code>).</p>
+
+  <h2 id="models-at-once">Modelos a la vez</h2>
+  <p>llama.cpp, LM Studio y Ollama pueden mantener cargado más de un modelo. Cuando conectas agentes a modelos distintos
+  de un mismo LLM local, la app ajusta cuántos mantiene cargados a la vez al número que usan sus agentes — con la misma
+  vista previa, copia de seguridad y Deshacer que la conexión — y ofrece reiniciarlo si está en marcha, porque lee el
+  número al arrancar. Donde ese número no le corresponde a la app (una instalación del sistema o tu propio comando de
+  inicio), una nota dice dónde ajustarlo.</p>
+  <p>Cuando los modelos juntos no caben en la memoria de la GPU, un aviso lo dice: el LLM local los alterna entonces, lo
+  que es lento, o parte de un modelo se ejecuta en el procesador. Al iniciar un agente se comprueba lo mismo: si cargar
+  su modelo necesita más memoria de GPU de la que hay libre, se te pregunta antes, con lo que ocupa la memoria ahora —
+  <b>Liberar memoria de GPU y luego iniciar</b>, <b>Iniciar de todos modos</b> o <b>Cancelar</b>.</p>
+  <p>Tras aplicar un cambio del LLM local o del modelo de un agente, la app mira cuántos modelos distintos usan ahora los agentes de cada LLM local. Donde puede fijar ese número —los archivos de ajustes de llama.cpp y Ollama de las instalaciones propias de la app, el ajuste «uno o varios» de LM Studio—, una segunda <b>Vista previa</b> muestra el cambio, con lo que significa y cualquier aviso; <b>Aplicar</b> lo escribe con una copia de seguridad, y <b>Deshacer</b> lo revierte. Un número fijado en tu propio script de inicio se queda como está. Cuando los modelos son más de los que se mantienen cargados, o demasiado grandes juntos para la tarjeta gráfica, también lo dice el estado de la columna Proveedores.</p>
+
+  <h2 id="outside-use">Usado por otras apps</h2>
+  <p>Los LLM locales no los usan solo los agentes. Un plugin como Video Trans, una app de chat o tu propio script también
+  pueden enviarles peticiones. La app lo detecta y lo muestra:</p>
+  <div class="figure wide">
+    <img src="images/outside-use.jpg" alt="El mapa: una línea cian con una luz de llama.cpp al modelo gemma-4-12B-it-QAT-Q4_0, cuya caja dice in use · curl; encima, la línea azul de acento de Claude Code a opus">
+    <p class="caption">Un programa que no está en el mapa (aquí <code>curl</code>) generando con llama.cpp: la línea y la caja cian (tema Tokyo Night). El propio camino de Claude Code a opus sigue en el color de acento.</p>
+  </div>
+  <ul>
+    <li><b>En el mapa</b>, la línea del LLM local al modelo con el que genera se vuelve gruesa y de su propio color, una
+      luz la recorre, y la caja del modelo recibe un punto de ese color y dice quién lo usa, por ejemplo
+      <i>en uso · Video Trans</i>.</li>
+    <li><b>El menú de clic derecho del LLM local</b> y su página <b>ⓘ Detalles</b> dicen <i>En uso por Video Trans · ahora</i>
+      o hace cuántos segundos se usó por última vez.</li>
+    <li>La leyenda <b>ⓘ</b> muestra ambas marcas.</li>
+  </ul>
+  <p>La app mira cuáles de tus propios programas tienen una conexión abierta con el LLM local. Nunca lee lo que envían. Un
+  plugin aparece con su propio nombre, un agente con el suyo, y todo lo demás con el nombre de su programa. La propia app
+  y LLM Monitor, que solo leen el estado, no cuentan.</p>
+  <div class="note"><p><b>Nota</b> La luz solo se ve mientras el programa genera y se apaga unos diez segundos después de
+  su última petición. Un programa abierto pero inactivo — Video Trans sin voz que traducir — no muestra nada. Un programa
+  sigue en el menú medio minuto después de su última petición.</p></div>
+</section>
+
+<!-- ============================== 6 Models ============================== -->
+<section class="chapter" id="models">
+  <h1>Modelos</h1>
+  <p class="lead">Clic derecho en un LLM local instalado › <b>Modelos…</b>, o haz clic en <b>Añadir modelo</b> en
+  <b>Configuración</b>. La página tiene una lista a la izquierda y el modelo elegido a la derecha, en tres pestañas.</p>
+
+  <div class="figure wide">
+    <img src="images/models-download.jpg" alt="La página de modelos: resultados de búsqueda y opciones de descarga">
+    <p class="caption">Obtener de Hugging Face: qué puede hacer un modelo y qué tamaño cabe en tu tarjeta gráfica.</p>
+  </div>
+
+  <h2 id="get-models">Obtener de Hugging Face</h2>
+  <p>Explora los modelos de chat GGUF más populares o busca. Cada resultado muestra autor, tamaño, descargas, me gusta,
+  antigüedad y lo que puede hacer: <b>Visión</b>, <b>Herramientas</b>, <b>Razonamiento</b>, <b>MTP</b>. La página del
+  modelo muestra parámetros, arquitectura, contexto, licencia y la ficha del modelo. <b>Qué significa el nombre</b>
+  explica las partes del nombre, como <i>35B-A3B</i> o <i>Q4_K_M</i>.</p>
+  <p><b>Opciones de descarga</b> lista cada tamaño con cómo encaja: en la tarjeta gráfica, en parte en la memoria (funciona,
+  pero más lento) o probablemente demasiado grande. La mejor opción ya está elegida; <b>Descargar</b> la trae a la carpeta
+  de modelos. Para Ollama, que descarga por el nombre del tamaño, solo se ofrecen los tamaños que puede descargar: un archivo dividido, uno en una subcarpeta o uno que Hugging Face rechaza para Ollama aparece atenuado, con el motivo, y nunca se recomienda.</p>
+  <p>Las descargas se ejecutan en segundo plano y aparecen en una franja arriba de la página principal. Si la conexión se
+  corta, se reintenta y la descarga continúa. Si la app se cerró durante una descarga, aparece como interrumpida, con
+  <b>Continuar</b> o <b>Descartar</b>.</p>
+
+  <h2 id="jobs-flutter">Descargas interrumpidas</h2>
+  <p>Una descarga de modelo o un pull de Ollama cuya conexión se corta se reintenta tras 5, 15, 30, 60 y 120 segundos y sigue donde se detuvo. Si la app se cierra antes, el siguiente inicio muestra un aviso con cada descarga interrumpida, dónde se detuvo, <b>Continuar</b> (sigue con la parte ya descargada) y <b>Descartar</b>. Solo se guarda cómo volver a iniciarla, en <code>~/.local/state/ai-agents-map/jobs.json</code>, legible solo por ti; una descarga que aún funciona en otro lado no se inicia dos veces.</p>
+
+  <h2 id="ask-model">Preguntar a un agente qué modelo encaja</h2>
+  <p>¿No sabes qué modelo elegir? Si hay un agente para las comprobaciones de IA (Ajustes › <b>Agente para las comprobaciones IA</b>),
+  la tarjeta <b>Preguntar a un agente</b> bajo la búsqueda acepta una pregunta con tus propias palabras — por ejemplo
+  <i>un modelo de programación con contexto largo que quepa en mi tarjeta gráfica</i>. <b>Preguntar</b> (o
+  <kbd>Ctrl</kbd>+<kbd>Intro</kbd>) la envía, junto con tu tarjeta gráfica, su memoria, la memoria del
+  ordenador y los modelos que ya tienes, a ese agente, que busca en la web; mientras trabaja se muestran un
+  indicador giratorio y el tiempo transcurrido. Al cabo de uno o dos minutos la tarjeta muestra su breve resumen,
+  y los modelos que sugiere aparecen debajo en la lista de resultados, con el título <i>Sugerido por …</i>: cada uno
+  encontrado en Hugging Face, con su tamaño y por qué encaja, y un clic abre su página y las opciones de descarga
+  como cualquier resultado de búsqueda. Una sugerencia que Hugging Face no tiene se nombra bajo el título. Sugiere
+  hasta 10 modelos; <b>Sugerencias</b>, a la derecha de la línea del agente, fija otro número (5, 10, 15 o 20).
+  Usa los tokens del agente; la pregunta no se guarda, y la página de cada LLM local pregunta por su cuenta.</p>
+
+  <h2 id="installed-models">Instalados</h2>
+  <div class="figure wide">
+    <img src="images/models-installed.jpg" alt="La pestaña Instalados con los tamaños de contexto de un modelo y su nombre explicado">
+    <p class="caption">Instalados: contexto actual, el mejor para tu tarjeta y con el que se entrenó; qué significa el nombre; Quitar.</p>
+  </div>
+  <p>Cada modelo muestra su tamaño, su archivo y su contexto — <i>ahora</i>, <i>mejor para tu tarjeta</i> y
+  <i>entrenado para</i>. <b>Quitar</b> pregunta primero y mueve los archivos a la papelera, de donde puedes restaurarlos.
+  Un modelo que solo es un enlace pierde únicamente el enlace.</p>
+
+  <h2 id="context">Tamaño de contexto</h2>
+  <p>El contexto es cuánto texto puede tener en cuenta el modelo a la vez. La app calcula, a partir del propio archivo del
+  modelo, el mayor contexto que cabe en tu tarjeta gráfica. <b>Fijar contexto</b> lo escribe en los ajustes del LLM local,
+  con copia de seguridad y Deshacer. Los agentes necesitan un contexto bastante grande; cuando conectas un agente a un
+  modelo de LM Studio sin contexto fijado, el mejor se fija en el mismo paso.</p>
+
+  <h2 id="on-this-pc">En este PC</h2>
+  <p>Lista archivos GGUF que el LLM local aún no lee — en su carpeta de modelos, en las carpetas de los otros LLM locales,
+  en <code>~/Downloads</code> y en <code>~/Models</code>. <b>Añadir</b> convierte uno en su modelo sin una segunda copia
+  (mediante un enlace), salvo en Ollama, que importa su propia copia.</p>
+
+  <h2 id="move-models">Mover y borrar modelos</h2>
+  <p>Clic derecho en un modelo de llama.cpp, KoboldCpp o LM Studio › <b>Mover a…</b>, o arrastra la caja del modelo a la
+  carpeta de otro LLM local. Primero ves cuánto se mueve y qué agente usa el modelo. Deshacer vuelve a mover los archivos.
+  <b>Eliminar…</b> pregunta primero y mueve los archivos a la papelera.</p>
+
+  <h2 id="reorganize">Una carpeta de modelos</h2>
+  <p>Ajustes › <b>Carpeta de modelos</b> fija una carpeta para los modelos de todos los LLM locales.
+  <b>Ordenar modelos…</b> muestra de antemano cómo se ordenarían los archivos
+  (<code>&lt;carpeta&gt;/&lt;editor&gt;/&lt;modelo&gt;/</code>), y nada cambia hasta que pulsas <b>Ordenar</b>. Con
+  <b>Las rutas antiguas siguen funcionando</b> (activado por defecto) queda un enlace en cada ubicación antigua.
+  <b>Deshacer la última ordenación</b> lo devuelve todo a su sitio.</p>
+  <div class="warn"><p><b>Atención</b> Al mover a otro disco, los modelos se copian primero y los originales solo se quitan
+  cuando la copia está completa. Asegúrate de que hay espacio libre suficiente en el destino; si no, la app rechaza el
+  movimiento.</p></div>
+</section>
+
+<!-- ============================== 7 Connecting ============================== -->
+<section class="chapter" id="connecting">
+  <h1>Conectar dibujando</h1>
+  <p class="lead">Pulsa en una caja del mapa y arrastra hasta otra para conectarlas. Cada cambio muestra, antes de
+  escribir, exactamente qué líneas de qué archivo cambian, hace una copia de seguridad y se puede deshacer desde la barra
+  que aparece después.</p>
+
+  <h2 id="connect-llm">Agente ↔ LLM local</h2>
+  <p>Arrastra de un agente a un LLM local o al revés. Para cambiar una conexión, selecciona su agente (o haz clic en la línea): cada línea que se puede mover o quitar muestra un <b>gancho naranja</b> en su extremo. Arrastra el gancho a otro LLM local — o al vacío para quitarla; al pasar sobre un gancho se indica qué hace arrastrarlo.
+  Dibuja una línea de un agente a un modelo de un LLM local conectado para que sea el modelo del agente.</p>
+  <p>Agentes compatibles: Hermes, Pi, Oh My Pi, OpenCode, OpenClaw y DeepSeek Harness.</p>
+
+  <h2 id="connect-mcp">Agente ↔ servidor MCP</h2>
+  <p>Arrastra de un agente a un servidor MCP. Los ajustes del servidor se copian al formato propio de ese agente.
+  Compatibles: Claude Code, Codex, Copilot, Crush, Cursor, Gemini, Goose, Grok, Hermes, Muse, Oh My Pi, OpenClaw, OpenCode y
+  Pi. Los archivos de ajustes que pueden contener claves se escriben siempre de modo que solo tú puedas leerlos.</p>
+
+  <h2 id="connect-skills">Agente ↔ carpeta de skills</h2>
+  <p>Arrastra de un agente a una carpeta de skills. Pi y Hermes reciben la carpeta en sus ajustes; cualquier otro agente
+  recibe un enlace por skill en su propia carpeta de skills. Una carpeta que un agente lee por sí solo (la mayoría lee
+  <code>~/.agents/skills</code>) no se puede quitar solo a ese agente.</p>
+
+  <h2 id="found-on-pc">Encontrado en este PC</h2>
+  <p>Cada vez que se abre la ventana (y con <b>Actualizar</b>), la aplicación busca servidores MCP y
+  carpetas de skills en este ordenador, sin iniciar nada: programas que ofrecen un servidor MCP en
+  <code>~/.local/bin</code>, <code>~/Applications</code>, <code>/opt</code> y las carpetas añadidas en
+  Configuración, y carpetas de skills que trajeron las aplicaciones o que están en una carpeta añadida.
+  Lo que ningún agente usa todavía aparece en el mapa como una caja atenuada sin líneas. Nada se conecta
+  solo.</p>
+  <ol>
+    <li>Arrastra desde un agente hasta la caja atenuada.</li>
+    <li>La página de conexión muestra cómo se iniciará el servidor — el comando que indica su propio
+      texto de ayuda, por ejemplo con una carpeta que puede leer y escribir — y exactamente qué cambia en
+      la configuración del agente.</li>
+    <li><b>Conectar</b> lo escribe. La caja deja de estar atenuada, y la aplicación comprueba enseguida
+      que el servidor responde (ver <a href="#failed">Cuando una conexión falla</a>).</li>
+  </ol>
+  <p>El servidor MCP de una aplicación funciona por sí solo: la ventana de la aplicación no tiene que
+  estar abierta. Los programas dentro de una AppImage que no se ha descomprimido no están en el mapa;
+  <b>Añadir servidor MCP</b> › <b>En este PC</b> los descomprime primero.</p>
+  <div class="tip"><p><b>Consejo</b> Guarda las aplicaciones con un servidor MCP y tus propias skills en
+  una carpeta cada una — por ejemplo en un disco que comparten varios sistemas — y añade esas carpetas en
+  Configuración. En otro ordenador, añade allí las mismas carpetas, y todo lo que contienen aparece
+  también en su mapa.</p></div>
+
+  <h2 id="connect-local-flutter">Conexiones locales</h2>
+  <p>Abra Conexiones y Añadir servidor MCP. Escriba un nombre, elija stdio, HTTP o SSE y seleccione los agentes instalados. Para stdio, introduzca el ejecutable por separado y un argumento por línea; los espacios de una línea permanecen en ese argumento. Añada variables o cabeceras como pares nombre/valor; los valores se ocultan. La vista previa muestra destinatarios y recuentos de cambios, sin valores de configuración. Se avisa antes de sustituir definiciones del mismo nombre. Aplicar usa copia de seguridad y Deshacer. AI Agents Map no inicia ni prueba el servidor aquí; los agentes pueden iniciarlo al leer la configuración.</p>
+  <p>Añadir habilidades selecciona una carpeta existente con carpetas de habilidades, cada una con SKILL.md. Elija la carpeta principal y los agentes. Revise enlaces o ajustes antes de Aplicar. Los originales permanecen; los enlaces siguen las ediciones posteriores y las habilidades pueden incluir scripts ejecutables por agentes. Las carpetas nativas ya leídas no necesitan otro enlace. Se comprueban 200 entradas por carpeta, un nivel de categorías y 1.000 entradas en total; elija una carpeta menor si hace falta. Cada vista previa admite 32 agentes y 200 enlaces. Deshacer conserva cambios posteriores. Catálogos en línea, descargas de habilidades y pruebas de herramientas MCP quedan fuera de estos formularios locales.</p>
+  <p>La aplicación busca al arrancar, en segundo plano y sin ejecutar nada, programas de este PC que ofrecen un servidor MCP (sus archivos contienen las palabras propias del protocolo; cómo iniciarlos sale de su propio texto de uso) y conjuntos de skills que trajeron las aplicaciones. Los programas grandes se leen una vez y se recuerdan. El estado de la columna MCP indica <b>Nuevo en este PC</b> para lo que aún no se mostró; <b>Añadir servidor MCP…</b> o <b>Añadir skills…</b>, o <b>Encontrados en este PC</b> en Conexiones, los lista, los nuevos con una ★. <b>Añadir…</b> abre el formulario rellenado con el nombre y el comando de inicio, o la carpeta, para revisarlo y cambiarlo antes de la vista previa. La búsqueda en sí nunca ejecuta un AppImage. <b>Mirar dentro…</b> desempaqueta solo los programas de cada uno, encerrados por bubblewrap (sin red, sin carpeta personal, solo una carpeta temporal escribible), los lee y los borra de nuevo; lo encontrado se recuerda. Añadir un servidor que vive en un AppImage pregunta primero si desempaquetar todo el AppImage en <code>~/Applications/&lt;app&gt;-&lt;version&gt;/</code> (<b>Desempaquetar</b>), del mismo modo. Un AppImage más nuevo de una aplicación ya examinada o desempaquetada solo se nombra (<b>Nueva versión encontrada</b>): un archivo con un nombre más nuevo no prueba una actualización auténtica, así que se mira dentro como cualquier otro.</p>
+  <p>Cuando se encuentra una aplicación en una versión más nueva mientras agentes, la lista de servidores MCP o un enlace en <code>~/.local/bin</code> todavía inician la antigua, la lista la muestra con sus versiones y quién la usa. <b>Actualizar…</b> (tras desempaquetar el AppImage más nuevo, si lo es) previsualiza un solo cambio para todo: cada entrada recibe el programa nuevo (los argumentos hacia la carpeta antigua se mueven con él), los enlaces apuntan a la carpeta nueva y la carpeta antigua pasa a la copia de seguridad. Se queda allí 7 días; Deshacer lo restaura todo.</p>
+
+  <h2 id="failed">Cuando una conexión falla</h2>
+  <p>Justo después de escribir una conexión, la app comprueba si funcionará: si hay un LLM local instalado y ofrece el
+  modelo, si un servidor MCP responde, si los enlaces de las skills están intactos. Una conexión fallida se queda en el
+  mapa como <span class="red">línea roja de puntos</span> con un <b>!</b>; una con solo advertencias es
+  <span class="yellow">amarilla de puntos</span>. Haz clic en la línea o en su <b>!</b> para ver sugerencias:</p>
+  <ul>
+    <li><b>Probar de nuevo</b> vuelve a comprobarla; si pasa, la línea vuelve a ser normal.</li>
+    <li><b>Intentar de nuevo…</b> abre la página de conexión para una conexión que nunca se escribió.</li>
+    <li><b>Quitar conexión</b> la quita.</li>
+  </ul>
+</section>
+
+<!-- ============================== 8 MCP servers ============================== -->
+<section class="chapter" id="mcp">
+  <h1>Servidores MCP</h1>
+  <p class="lead">Los servidores MCP dan herramientas extra a los agentes. <b>+ Servidor MCP</b> en el mapa o bajo las
+  tarjetas abre la página para añadir: una lista a la izquierda y la página del servidor elegido a la derecha.</p>
+
+  <h2 id="mcp-sources">De dónde vienen los servidores</h2>
+  <table>
+    <thead><tr><th>Pestaña</th><th>Contenido</th></tr></thead>
+    <tbody>
+      <tr><td><b>Recomendados</b></td><td>Los servidores de referencia del proyecto MCP (Filesystem, Fetch, Git, Memory, Sequential Thinking, Time, Everything) y servidores oficiales de empresas conocidas (GitHub, Playwright, Chrome DevTools, Brave Search, Context7), agrupados por propósito y fijados a su versión más reciente.</td></tr>
+      <tr><td><b>Registro MCP</b></td><td>Una búsqueda en el registro oficial de MCP. Cada resultado nombra a su editor tal como lo verificó el registro. La búsqueda puede tardar diez segundos o más. Los resultados llegan de 20 en 20; la línea bajo la lista pasa de página y muestra dónde estás, por ejemplo <b>‹ 20 anteriores</b> · 21 – 40 / 200 · <b>20 siguientes ›</b> (con <i>/ 40+</i> cuando el registro no dice cuántos hay).</td></tr>
+      <tr><td><b>En este PC</b></td><td>Programas de este ordenador que ofrecen un servidor MCP, encontrados leyendo sus archivos — no se inicia nada. Solo se mira dentro de los AppImages cuando haces clic en <b>Mirar dentro…</b>; se desempaquetan encerrados por bubblewrap (sin red, sin carpeta personal), así que <code>bwrap</code> debe estar instalado.</td></tr>
+      <tr><td><b>A mano</b></td><td>Una línea de comandos o una dirección web con cabeceras.</td></tr>
+    </tbody>
+  </table>
+  <p>¿No sabes qué servidor necesitas? En la pestaña <b>Registro MCP</b>, la tarjeta <b>Preguntar a un agente</b> bajo la búsqueda acepta una petición con tus propias palabras — por ejemplo <i>leer y escribir mis páginas de Notion</i>. <b>Preguntar</b> (o <kbd>Ctrl</kbd>+<kbd>Intro</kbd>) hace que el agente para las comprobaciones de IA la convierta en algunas palabras de búsqueda; la app busca con ellas en la lista del registro que ha descargado, como la búsqueda normal, y el agente elige entre lo encontrado los servidores que encajan, cada uno con su motivo. No busca en la web, solo ve tu petición y los textos públicos del registro, y solo puede elegir servidores que estén de verdad en la lista. Mientras trabaja se muestran un indicador giratorio y el tiempo transcurrido; tras unos segundos o un minuto, las sugerencias aparecen en la lista de resultados, hasta 10 (<b>Sugerencias</b> a la derecha de la línea del agente: 5, 10, 15 o 20). Una búsqueda que escribas después las reemplaza.</p>
+
+  <p><b>En este PC</b> también busca en las carpetas añadidas con <b>Añadir carpeta…</b> en
+  Configuración › <b>Servidores MCP locales</b>: en cada carpeta misma y en las carpetas de aplicaciones
+  que contiene, como <code>photocraft-0.16.0/usr/bin</code>.</p>
+
+  <h2 id="mcp-setup">Configurar un servidor</h2>
+  <p>La página del servidor dice quién lo hizo y lo verificado que está, qué hace (con cosas que puedes pedirle a un
+  agente), cómo se ejecuta — como programa mediante <code>npx</code>, <code>uvx</code> o Docker, o como servicio web — y
+  qué necesita, como una carpeta o una clave de API con un enlace a dónde conseguirla. Debajo, <b>Configurar</b>:</p>
+  <ol>
+    <li>Rellena los campos que necesita el servidor.</li>
+    <li>Marca los agentes que deben recibirlo.</li>
+    <li>Haz clic en <b>Probar</b> para pedir al servidor sus herramientas.</li>
+    <li>Haz clic en <b>Añadir</b>: todos los agentes marcados se escriben a la vez, con vista previa y un Deshacer.</li>
+  </ol>
+  <div class="note"><p><b>Nota</b> Los valores secretos, como las claves de API, se pasan en el entorno o en cabeceras,
+  nunca en una línea de comandos donde otros usuarios del ordenador podrían leerlos. Un servidor que necesitaría un
+  secreto en su línea de comandos tiene que configurarse a mano.</p></div>
+  <p><b>Buscar servidores MCP…</b> en <b>Conexiones</b> abre las pestañas <b>Recomendados</b> (fijados a su versión más reciente al abrirse) y <b>Registro MCP</b> (20 resultados a la vez con <b>‹ 20 anteriores</b> y <b>20 siguientes ›</b>; la lista del registro se descarga en segundo plano para buscar más rápido). La página de un servidor dice quién lo hizo, qué hace, qué necesita y <b>Cómo funciona</b>; la forma que puede funcionar en este PC aparece como <b>recomendado</b>, y se nombra un <code>npx</code>, <code>uvx</code> o Docker que falte. Rellena los campos que necesita (los secretos se ocultan), revisa el <b>Nombre</b>, marca los agentes y pulsa <b>Vista previa</b>: la vista previa, <b>Aplicar</b> y <b>Deshacer</b> son los de un cambio de conexión. Al servicio solo van los valores que escribiste; el comando viene de la entrada del servidor y se vuelve a comprobar allí. Un secreto que acabaría en una línea de comandos se rechaza; un servidor así se configura a mano.</p>
+
+  <p><b>Probar</b> inicia una vez la forma elegida (o consulta su dirección) y lista las herramientas que ofrece, antes de escribir nada. Un servidor ya configurado muestra <b>Herramientas</b> en su tarjeta en <b>Conexiones</b>: la última respuesta con su fecha y <b>Preguntar al servidor</b> (o <b>Preguntar de nuevo</b>), que lo inicia una vez como lo hace su primer agente y lo detiene después. También aparecen sus <b>Prompts</b>. La respuesta se guarda para la próxima vez; las claves de sus ajustes van en privado al proceso que pregunta y nunca se muestran.</p>
+
+  <h2 id="mcp-manage">Gestionar servidores</h2>
+  <p><b>ⓘ Detalles</b> en la tarjeta de un servidor MCP muestra el archivo de ajustes de cada agente, el comando o la
+  dirección y, si lo pides, las herramientas del servidor; los valores de las claves nunca se muestran. <b>Quitar</b> lo
+  quita de todos los agentes. Los servidores siguen en la lista aunque ningún agente los use, para que una línea pueda
+  volver a conectarlos.</p>
+  <p>Cuando aparece en <code>~/Applications</code> una versión más nueva de una app que ofrece un servidor MCP, una
+  sugerencia lo dice. <b>Actualizar…</b> desempaqueta la versión nueva, apunta cada agente a ella y guarda la antigua siete
+  días como copia de seguridad. <b>Buscar actualizaciones</b> (en <b>En este PC</b>) lo hace para todas esas apps a la vez
+  tras tu clic: mira dentro de las versiones nuevas, ofrece todas las actualizaciones en una vista previa con una copia de
+  seguridad y un Deshacer, y luego prueba cada servidor actualizado; una sugerencia nombra a cualquiera que no responda.</p>
+</section>
+
+<!-- ============================== 9 Skills ============================== -->
+<section class="chapter" id="skills">
+  <h1>Skills</h1>
+  <p class="lead">Una skill es una carpeta de instrucciones que enseña a un agente una tarea concreta. <b>+ Skills</b>
+  abre una página organizada como la de MCP.</p>
+
+  <h2 id="skills-sources">Encontrar skills</h2>
+  <ul>
+    <li><b>En este PC</b>: carpetas de skills que trajeron las apps y que ningún agente lee todavía.</li>
+    <li><b>De la web</b>: una búsqueda en el directorio skills.sh, en otro sitio con la misma API o en un repositorio de
+      GitHub con skills. Una skill se trae desde su repositorio de GitHub a una carpeta que elijas, por defecto
+      <code>~/.agents/skills</code>.</li>
+  </ul>
+  <div class="warn"><p><b>Atención</b> Las skills pueden contener scripts que un agente puede ejecutar después. La página
+  muestra el repositorio y lista los scripts antes de traer nada — revísalos.</p></div>
+
+  <p><b>En este PC</b> también busca en las carpetas añadidas con <b>Añadir carpeta…</b> en
+  Configuración › <b>Skills</b>.</p>
+
+  <h2 id="skills-flutter">Skills de la web</h2>
+  <p><b>Buscar skills en la web…</b> en <b>Conexiones</b> busca en skills.sh. Un resultado indica su repositorio de GitHub y cuántas veces se instaló; al elegirlo se descargan los archivos del skill —150 archivos y 30 MB como máximo, sin enlaces, nada fuera de su carpeta— y no se ejecuta ninguno. La tarjeta muestra su descripción, cuántos archivos tiene y qué scripts podría ejecutar un agente más adelante. Elige la carpeta a la que va (<b>En</b>: la compartida <code>~/.agents/skills</code> o una de tus carpetas de skills), marca los agentes en <b>También para</b> y pulsa <b>Vista previa</b>: se listan los archivos nuevos, y <b>Aplicar</b> los escribe con una copia de seguridad, así que <b>Deshacer</b> los vuelve a quitar. Un skill cuya carpeta ya existe no se sobrescribe. Hasta entonces, los archivos descargados esperan en una carpeta privada; cada uno se compara con lo que mostró la vista previa antes de escribirlo.</p>
+
+  <h2 id="skills-details">Carpetas de skills</h2>
+  <p>Cada tarjeta de carpeta de skills muestra sus skills y los agentes que la leen. Una carpeta compartida mediante
+  enlaces aparece una sola vez, donde realmente está. <b>ⓘ Detalles</b> lista cada skill con su descripción y cómo recibe
+  la carpeta cada agente.</p>
+</section>
+
+<!-- ============================== 10 Settings ============================== -->
+<section class="chapter" id="settings">
+  <h1>Ajustes y ayuda</h1>
+
+<h2 id="omarchy-data-flutter">Cifras de uso y esquinas de Omarchy</h2>
+<p>Cuando se abren los detalles de un agente cuyo uso recoge Omarchy (plan, límites y cuándo se reinician), la aplicación pide a Omarchy cifras nuevas en segundo plano si las últimas tienen más de diez minutos o son anteriores al último inicio de sesión del agente, y luego las muestra; como mucho una vez cada diez minutos por agente. Ajustes › <b>Esquinas</b> fija las esquinas de las tarjetas, los diálogos y las cajas del mapa: <b>Como las ventanas</b> sigue el redondeo de ventanas de Hyprland (con el número de píxeles), <b>Ligeramente redondeadas (6 px)</b>, <b>Redondeadas (12 px)</b> o <b>Rectas</b>. Cada control sigue en tres tamaños: botones, listas y campos como mucho 8 px, casillas y barras de progreso como mucho 4 px.</p>
+
+<h2 id="settings-list">Ajustes</h2>
+  <p>El engranaje (<kbd>Ctrl</kbd>+<kbd>,</kbd>) abre los ajustes. <kbd>Retroceso</kbd> o <kbd>Esc</kbd> vuelve atrás. Las secciones están a la izquierda (General, Apariencia, Mapa, Agentes, LLM locales, Dictado, Cambios recientes); <b>Buscar en Ajustes</b>, encima, muestra los ajustes de todas las secciones que mencionan lo que escribes.</p>
+  <table>
+    <thead><tr><th>Ajuste</th><th>Qué hace</th></tr></thead>
+    <tbody>
+      <tr><td><b>Idioma</b></td><td>El idioma del sistema o English, Deutsch, Français, Español, Italiano, Português, Nederlands, Polski.</td></tr>
+      <tr><td><b>Aspecto</b> </td><td>Los colores del tema de Omarchy o el aspecto Adwaita de GNOME con el modo claro/oscuro y el color de acento del sistema.</td></tr>
+      <tr><td><b>Animaciones del mapa</b></td><td>Una luz recorre las líneas del mapa: <b>Agentes y otros programas</b> (la línea de un agente que trabaja y la línea de un LLM local a un modelo que usa otro programa), <b>Solo mis agentes</b> o <b>Desactivado</b>. Un pequeño mapa animado bajo el ajuste muestra qué mueve cada opción.</td></tr>
+      <tr><td><b>Recuadro de estadísticas de uso</b></td><td>Los números a lo largo de la línea de un agente que trabaja (ver <a href="#map">Trabajar con el mapa</a>): activado o no, cuáles de <b>Tokens por segundo</b>, <b>Tamaño del contexto</b> y <b>Contexto usado</b> muestra, y su <b>Tamaño del texto</b> (7&nbsp;pt por defecto).</td></tr>
+      <tr><td><b>Subagentes</b></td><td>Para la página <a href="#subagents">Subagentes</a>: cuánto tiempo se quedan los subagentes terminados (<b>30 minutos</b> por defecto; 10, 30, 60 o 120) y cuántos como máximo (<b>10</b> por defecto; 5, 10, 20 o 40). Los que trabajan se muestran siempre.</td></tr>
+      <tr><td><b>Costes</b></td><td><b>Moneda</b>: dólar estadounidense, o euro al tipo de referencia diario del Banco Central Europeo (obtenido una vez al día de ecb.europa.eu). <b>Límite diario</b> para un agente que se paga por token (<b>100</b> por defecto; de 10 a 500). <b>Amarillo desde</b> y <b>Rojo desde</b>: la parte usada a partir de la cual una etiqueta de coste o una batería se vuelve amarilla (75&nbsp;% por defecto) y roja (90&nbsp;%). <b>Avisar al llegar al rojo</b> (activado por defecto): una notificación de escritorio cuando un agente se vuelve rojo — una vez por cada límite hasta que se restablece, o una vez al día para un coste.</td></tr>
+      <tr><td><b>Pestañas de terminal sobre el mapa</b></td><td>Una pestaña por cada terminal de agente dentro de la ventana.</td></tr>
+      <tr><td><b>Esquinas</b></td><td>Como las ventanas, ligeramente redondeadas (6 px), redondeadas (12 px) o rectas; botones, listas y campos como mucho 8 px, casillas y barras de progreso como mucho 4 px.</td></tr>
+      <tr><td><b>Iniciar los LLM locales con sus agentes</b></td><td>El vigilante en segundo plano de <a href="#start-with-agents">Iniciar y detener con los agentes</a>.</td></tr>
+      <tr><td><b>En el lanzador</b></td><td>La entrada del lanzador; desactivado la quita.</td></tr>
+      <tr><td><b>Los agentes arrancan en</b></td><td>La carpeta en la que arrancan los agentes.</td></tr>
+      <tr><td><b>Funciones de IA</b>: <b>Buscar agentes nuevos</b></td><td>Preguntar a un agente instalado dónde guarda sus ajustes un agente desconocido (activado por defecto).</td></tr>
+      <tr><td><b>Funciones de IA</b>: <b>Comprobaciones IA diarias</b></td><td>Una vez al día, un agente busca en la web versiones nuevas de tus servidores MCP (desactivado por defecto; usa los tokens del agente). Ver <a href="#smart-check">Smart Check</a>.</td></tr>
+      <tr><td><b>Funciones de IA</b>: <b>Agente para las comprobaciones IA</b></td><td>Claude Code o Codex: hace las comprobaciones y consultas IA y se encarga de las tareas <b>Hacerlo con …</b> y <b>Arreglarlo con …</b>.</td></tr>
+      <tr><td><b>Funciones de IA</b>: <b>Ayudante local</b></td><td>Un agente con un modelo de tu LLM local para la ayuda IA que no necesita la web (desactivado hasta que elijas uno). Ver <a href="#local-helper">El ayudante local</a>.</td></tr>
+      <tr><td><b>Carpeta de modelos</b></td><td>Una carpeta para todos los modelos, con <b>Ordenar modelos…</b>.</td></tr>
+      <tr><td><b>Complementos</b> </td><td><b>Buscar complementos en línea</b>, la página de complementos y <b>Configuración</b>.</td></tr>
+      <tr><td><b>Acerca de</b></td><td>La versión, el autor y la licencia; <b>Sitio web</b> abre el proyecto en GitHub y <b>Informar de un problema</b> su lista de incidencias.</td></tr>
+    </tbody>
+  </table>
+  <div class="figure narrow">
+    <img src="images/about.jpg" alt="El diálogo Acerca de: el icono de AI Agents Map, el nombre, Uwe Bruckhaus, versión 0.7.1 y las filas Sitio web, Informar de un problema y Legal">
+    <p class="caption">Ajustes › Acerca de.</p>
+  </div>
+
+  <h2 id="red-flutter">Límites en rojo</h2>
+  <p>La aplicación mira una vez por minuto los límites del plan de tus agentes instalados (una sesión de 5 horas, una semana…). Cuando uno se ha consumido hasta el nivel rojo de Ajustes › Costes, una notificación de escritorio lo dice, con la parte consumida y cuándo se reinicia el límite: una vez por límite hasta que se reinicie, también tras un reinicio. <b>Avisar al llegar al rojo</b> en Ajustes la desactiva. El coste de un agente que paga por token aún no se muestra en la vista previa, así que tampoco su notificación.</p>
+
+  <h2 id="dictation">Dictado en Preguntar a la IA</h2>
+  <p>Un botón de micrófono en el campo de <b>Preguntar a la IA</b> te permite decir tu petición en lugar de
+  escribirla: un clic empieza, otro termina. Ajustes › <b>Usar dictado en Preguntar a la IA</b> elige
+  <b>Automático</b> (el dictado de Omarchy donde existe, si no Superwhisper), <b>Dictado de
+  Omarchy</b> (<code>omarchy-dictation</code> con la herramienta de dictado predeterminada de Omarchy;
+  escribe las palabras en el campo por sí misma), <b>Superwhisper</b> (su línea de comandos; al
+  terminar, el texto de ese dictado se pone en el campo) o <b>Desactivado</b>. Sin ninguno de los dos,
+  el botón está oculto. La aplicación no graba ni guarda nada por sí misma; las herramientas llevan su
+  propio historial según sus ajustes.</p>
+
+  <h2 id="help">Ayuda</h2>
+  <p><b>?</b> (<kbd>F1</kbd>) abre la ayuda: <b>Abrir el manual</b> abre este manual (la edición que vino con tu versión,
+  en tu idioma) en tu visor de PDF; <b>Espacio en disco</b> (abajo); una animación sobre configurar dibujando; y LLM
+  Monitor, un plugin de barra complementario que muestra lo que hace un LLM local (una pequeña animación de su entrada en
+  la barra y su panel). Ambas animaciones se dibujan con los colores de tu tema y siguen al instante un cambio de tema. La leyenda <b>ⓘ</b>
+  de la cabecera explica cada punto, línea y marca del mapa.</p>
+  <p>La <b>i</b> rellena de la cabecera abre <b>Información</b>: tarjetas de los otros plugins del autor, leídas del
+  Omarchy Plugin Marketplace al abrir la página, como mucho una vez por hora (sin red, la lista que conoce esta versión).
+  Un clic en una tarjeta abre la página del plugin en el marketplace.</p>
+  <p><b>?</b> en la cabecera (o <kbd>F1</kbd>) abre la <b>Ayuda</b>: <b>Abrir el manual</b> abre este manual en tu idioma (la copia que vino con la app, si no, la inglesa) en el visor de PDF del escritorio. Las pestañas de arriba de la Ayuda llevan a <b>Tu primer agente</b>, <b>Lo que puedes hacer con ello</b>, <b>Agentes</b> (la lista de agentes), <b>Proveedores y modelos</b> y <b>Conexiones</b>; <b>Uso</b> muestra las ejecuciones de IA de los últimos 30 días. <b>Por dónde empezar</b> lleva a <b>Buscar IA existente</b>. <b>Mapa de IA</b> en la cabecera vuelve al mapa desde cualquiera de estas páginas.</p>
+
+  <h2 id="disk-space">Espacio en disco</h2>
+  <p><b>Espacio en disco: agentes, LLM locales y modelos</b> muestra cuánto espacio ocupa tu configuración de IA y dónde.
+  Se mide en segundo plano cada vez que se abre la ayuda (de nuevo tras diez minutos o con <b>Medir de nuevo</b>) y solo
+  se lee — desde aquí no se borra nada. El título muestra siempre los totales en una línea
+  (<i>Agentes · LLM locales · Modelos · En total</i>); un clic pliega la sección. <b>Discos</b>, <b>Agentes</b>,
+  <b>LLM locales</b> y <b>Carpetas de modelos</b> empiezan plegados, cada uno con su total y los elementos más grandes;
+  un clic los abre.</p>
+  <div class="figure wide">
+    <img src="images/disk-space.jpg" alt="Espacio en disco en la ayuda: cuatro mosaicos (en total, agentes, LLM locales, modelos), la línea 103,7 GB de 2,5 TB en estos 2 discos para IA (4,1 %), una barra a lo largo de todo el espacio de los discos repartida entre programas de agentes, datos de agentes, LLM locales, modelos, otros archivos y espacio libre, y las secciones plegadas con sus totales">
+    <p class="caption">Los totales, la parte de IA de todo el espacio en disco y las secciones plegadas con sus totales.</p>
+  </div>
+  <ul>
+    <li><b>Mosaicos</b>: todo junto, luego programas de agentes, datos de agentes (ajustes, sesiones, historial), LLM
+      locales (programas y sus propios datos) y modelos.</li>
+    <li><b>Barra</b>: todo el espacio de los discos en los que está la configuración de IA. Las partes de color son la
+      configuración de IA, el gris es todo lo demás en esos discos y el resto vacío está libre; la línea de encima da la
+      parte de IA en porcentaje. Pasa el ratón sobre la barra para ver los tamaños exactos.</li>
+    <li><b>Discos</b>: cada disco con lo que ocupa en él la configuración de IA y cuánto queda libre.</li>
+    <li><b>Agentes</b>, <b>LLM locales</b>, <b>Carpetas de modelos</b>: una fila cada uno, los más grandes primero. Abre una
+      fila para ver cada carpeta con su tamaño y número de archivos, y abrirla en el gestor de archivos. Una carpeta de
+      programa dice cuántas versiones se guardan; para un agente con varias versiones antiguas en mise, un consejo
+      menciona <code>mise prune</code>, que quita las que no se usan. Una carpeta de modelos dice qué LLM locales la usan
+      o que solo contiene enlaces a modelos de otra carpeta.</li>
+  </ul>
+  <div class="tip"><p><b>Consejo</b> Los programas se pueden reinstalar y los modelos volver a descargar; los datos de los
+  agentes contienen tus sesiones y ajustes. Cuando el espacio escasee, mira primero las versiones antiguas de programas y
+  los modelos que ya no usas.</p></div>
+  <p>Los tamaños son espacio en disco: un archivo guardado en dos sitios cuenta una vez, y los enlaces no se siguen.</p>
+</section>
+
+<!-- ============================== Smart Check ============================== -->
+<section class="chapter" id="smart-check">
+  <h1>Smart Check</h1>
+  <p class="lead">Smart Check deja que un agente en línea instalado — Claude Code o Codex — revise la
+  configuración de IA de este PC, encuentre actualizaciones para tus servidores MCP y haga arreglos por ti,
+  y muestra cuánto costó en tokens.
+  Un <a href="#local-helper">ayudante local</a> — un agente con un modelo de tu propio LLM local — puede
+  encargarse de las preguntas que no necesitan la web, en este PC y sin tokens. Cada ejecución muestra su
+  progreso en un recuadro sobre la ventana y se guarda en el <a href="#smart-protocol">Protocolo</a>.
+  Los dos destellos de la cabecera lo abren; solo aparecen mientras uno de
+  estos agentes está instalado. Ajustes › <b>Agente para las comprobaciones IA</b> elige cuál.</p>
+
+  <div class="figure wide">
+    <img src="images/smart-check.jpg" alt="La página Smart Check: el resumen de la última comprobación, la tarjeta Bajo tu propia responsabilidad, Resumen de la configuración del PC con Comprobar ahora y sus hallazgos (tres problemas y cuatro consejos con Arreglarlo con Claude Code…, cuatro puntos buenos) y la tarjeta plegada Actualizaciones encontradas">
+    <p class="caption">Smart Check tras una comprobación de Claude Code: problemas (!), consejos (·) y lo que está bien (✓).</p>
+  </div>
+
+  <div class="warn"><p><b>Bajo tu propia responsabilidad</b> Los hallazgos, respuestas y cambios de un agente
+  pueden ser erróneos, incompletos o estar desactualizados. Lee lo que propone antes de aceptar un paso, y
+  guarda copias de seguridad. Sus consultas y tareas usan tus tokens o los límites de tu plan. La app no da
+  ninguna garantía sobre lo que hace un agente. La misma nota encabeza Ajustes › <b>Funciones de IA</b>.</p></div>
+
+  <h2 id="smart-summary">Resumen de la configuración del PC</h2>
+  <p><b>Comprobar ahora</b> da al agente un texto breve sobre la configuración — la tarjeta gráfica y la
+  memoria, los agentes con sus modelos, los LLM locales, los servidores MCP con sus versiones, las skills y lo
+  que encontró <a href="#health">Estado de las columnas</a> — y le deja buscar cosas en la web. No contiene claves,
+  cabeceras ni valores de ajustes. Tarda un minuto o más en segundo plano; la línea bajo el botón dice cuántos
+  tokens usó la última comprobación. La respuesta es un resumen breve y una lista de hallazgos:
+  <b>!</b> problemas, <b>·</b> consejos y <b>✓</b> lo que está bien. Las respuestas que no se sostienen se descartan.</p>
+  <p><b>Arreglarlo con …</b> junto a un problema o consejo abre el agente en una pestaña de terminal de la
+  ventana con ese hallazgo como tarea: comprueba si es así, lo explica y te pregunta antes de cada paso que
+  cambie algo. La app lo inicia de forma que tenga que preguntar — Codex en un sandbox de solo lectura que pide
+  más permisos, Claude Code con cada comando y edición configurados para preguntar, diga lo que diga su propia
+  lista de permitidos — y sin sus servidores MCP. El hallazgo se le entrega como datos que comprobar, no como
+  instrucciones. Pasar los servidores MCP a una versión nueva se deja a <b>Actualizar</b> de la app (más abajo),
+  que cambia los ajustes de todos los agentes a la vez, con copia de seguridad y Deshacer.</p>
+
+  <h2 id="smart-updates">Actualizaciones encontradas</h2>
+  <p>Versiones nuevas de tus servidores MCP, de dos fuentes:</p>
+  <ul>
+    <li><b>Las comprobaciones IA diarias</b> (Ajustes › <b>Comprobaciones IA diarias</b>, desactivadas por
+      defecto): una vez al día el agente busca en las páginas oficiales de versiones si hay versiones más
+      nuevas de los servidores cuya versión la app puede saber — apps desempaquetadas en
+      <code>~/Applications/&lt;app&gt;-&lt;version&gt;/</code> o como AppImage desempaquetado en cualquier otra carpeta (el programa en <code>&lt;folder&gt;/&lt;app&gt;-&lt;version&gt;/usr/bin/</code>) y paquetes npm o PyPI fijados a una versión.
+      <b>Comprobar ahora</b> en esta tarjeta pregunta en el acto, también con las comprobaciones diarias
+      desactivadas. Cada hallazgo tiene <b>Página de la versión</b> y <b>Hacerlo con …</b>: el agente descarga
+      el AppImage nuevo en una pestaña de terminal, preguntando antes de cada paso.</li>
+    <li><b>La búsqueda propia de la app</b>: ya hay una versión más nueva en este PC, pero un agente sigue
+      iniciando la antigua (lo mismo que la actualización en la tarjeta del servidor en Configuración).</li>
+  </ul>
+  <p>Cuando la versión nueva está en este PC, su línea lo dice y ofrece <b>Usarlo…</b>: la vista previa de la
+  actualización muestra qué agentes pasan a ella; <b>Actualizar</b> los cambia todos, guarda la versión antigua
+  con la copia de seguridad y después prueba cada servidor. Un servidor cuyos agentes inician todos la versión
+  nueva sale de la lista.</p>
+  <div class="tip"><p><b>Consejo</b> Después de una acción iniciada aquí — una actualización o una tarea en una
+  pestaña de terminal —, <b>Atrás</b> te devuelve a Smart Check, ya al día.</p></div>
+
+  <h2 id="ai-progress">Mientras un agente trabaja</h2>
+  <p>Cada ejecución de ayuda IA que inicias — Comprobar ahora, Preguntar a un agente en las páginas Modelos y
+  Añadir servidor MCP, Comprobar ahora para las actualizaciones, Preguntar en la tarjeta
+  <a href="#performance">Rendimiento</a> de un LLM local — muestra un recuadro en el centro de la ventana:
+  a quién se pregunta (el agente y su modelo), sus pasos (un indicador giratorio que se convierte en
+  <b>✓</b>, o en <b>✗</b> cuando uno falló), el tiempo transcurrido y, al final, los tokens que usó.</p>
+  <ul>
+    <li><b>En segundo plano</b> oculta el recuadro; la ejecución continúa y un mensaje avisa cuando termina.</li>
+    <li><b>Cancelar</b> detiene el agente en el acto (su programa y todo lo que inició).</li>
+    <li>Cuando falla, el recuadro se queda con lo que salió mal hasta que lo cierres; el texto se puede
+      seleccionar y copiar.</li>
+  </ul>
+  <p>Las consultas en la web (consejos sobre modelos, actualizaciones MCP) se ejecutan con la web y nada más:
+  sin los servidores MCP, conectores, plugins ni hooks del agente.</p>
+
+  <h2 id="local-helper">El ayudante local</h2>
+  <p>Un agente conectado a un LLM local puede responder a la ayuda IA con uno de los modelos de ese LLM: en este
+  PC, sin web, sin tokens de un plan y sin que nada salga del ordenador. Responde a lo que no necesita la web:
+  el resumen de Smart Check, qué servidor MCP encaja y los consejos de la tarjeta Rendimiento de un LLM local.
+  Los consejos sobre modelos y las actualizaciones de servidores MCP siguen yendo al agente en línea, porque
+  necesitan la web.</p>
+  <p>La app sugiere uno — el modelo de chat más grande que admite tu tarjeta gráfica (se dejan fuera los modelos
+  de voz, de embeddings y de tokenizador) — en Smart Check, con <b>Usarlo</b>. Ajustes › <b>Funciones de IA</b> ›
+  <b>Ayudante local</b> lista todos los agentes y modelos que pueden serlo, primero el sugerido, y
+  <b>Desactivado</b>. No se usa nada hasta que lo eliges. Antes de que responda, la app inicia el LLM local y
+  carga el modelo (un paso en el recuadro de progreso). El ayudante funciona sin herramientas, sin servidores
+  MCP, sin extensiones y sin archivos de proyecto. Cualquier agente cuyo complemento indique cómo hacerle una
+  pregunta sin conexión puede ser el ayudante; Pi es el primero.</p>
+
+  <h2 id="ai-checks-flutter">Comprobaciones con IA y el ayudante local</h2>
+  <p>Ajustes › <b>Funciones de IA</b> tiene <b>Comprobaciones IA diarias</b> (desactivadas por defecto) y, debajo, el resultado de la última comprobación con <b>Comprobar ahora</b>, que pregunta al momento, también con las comprobaciones diarias desactivadas. La comprobación se ejecuta en segundo plano al abrir la ventana y se revisa cada hora; al agente de las comprobaciones con IA se le pregunta como mucho una vez al día (tras una búsqueda fallida, de nuevo a las seis horas). Lo que encuentra aparece en el estado de la columna MCP: <b>Página de la versión</b> abre la publicación en el navegador, <b>Hacerlo con …</b> muestra primero la tarea tal como se enviará y solo la inicia en una pestaña de terminal tras <b>Continuar</b>, y <b>Usarlo…</b> abre lo encontrado en este PC cuando la versión nueva ya está aquí. Solo se comprueban los servidores cuya versión la aplicación puede saber (véase <a href="#smart-updates">Actualizaciones encontradas</a>); los demás no se envían.</p>
+  <p>El ayudante local se elige en Ajustes › <b>Funciones de IA</b> › <b>Ayudante local</b>; la sugerencia para tu tarjeta gráfica lleva la marca <b>(sugerido)</b>. Una vez elegido, se ofrece primero en <b>Preguntar</b> en la tarjeta de rendimiento de un LLM local.</p>
+
+  <h2 id="smart-protocol">Protocolo</h2>
+  <p>Cada ejecución de ayuda IA se guarda, para que tú — o alguien que conozca bien la configuración — podáis
+  revisar lo que se hizo. Cada entrada muestra cuándo se ejecutó, el agente y el modelo, el resultado (funcionó,
+  falló, cancelada), el tiempo y los tokens. Abierta, muestra el texto completo: las opciones que encerraron al
+  agente, los pasos, cada pregunta tal como se envió con la respuesta del agente, lo que la app cambió a partir
+  de la respuesta (con la copia de seguridad, para Deshacer a mano) y, en una tarea en una pestaña de terminal,
+  lo que mostraba la terminal al terminar. <b>Copiar</b> pone una entrada en el portapapeles para un informe o
+  una segunda opinión; <b>Abrir la carpeta del protocolo</b> muestra los archivos.</p>
+  <p>El protocolo guarda las últimas 200 ejecuciones en <code>~/.local/state/ai-agents-map/ai-help/</code>,
+  legibles solo por ti. Las preguntas contienen nombres, números y ajustes, nunca claves; el texto de una
+  terminal contiene lo que había en la pantalla.</p>
+
+  <h2 id="smart-tokens">Estadísticas de tokens</h2>
+  <p>Los tokens usados hoy y en los últimos 30 días, un gráfico por día y los totales por agente y por plugin
+  (otros plugins de Omarchy que usan el mismo asistente de IA también aparecen aquí). <b>Valor en API</b> es lo
+  que costarían las ejecuciones a precios de API, y la línea de debajo dice si tu suscripción lo cubre o se
+  carga a una clave de API. Una tarea en una pestaña de terminal cuenta en la propia sesión de su agente; la
+  página de detalles del agente muestra esos tokens.</p>
+  <p>Debajo, una tarjeta por cada tipo de tarea — la comprobación de la configuración, las actualizaciones de
+  servidores MCP, la búsqueda de agentes nuevos, los arreglos — con sus ejecuciones, tokens y los últimos resultados.</p>
+</section>
+
+<!-- ============================== 11 Healthy & Security check ============================== -->
+<section class="chapter" id="map-groups">
+<h1>Tarjetas de grupo y complementos en el mapa</h1>
+<h2 id="map-groups-expand">Ampliar una categoría</h2>
+<p>Cada columna del mapa de IA tiene una tarjeta de grupo. El borde discontinuo indica que no hay nada configurado; el recuento procede de la detección local. Los marcadores son solo visuales, nunca nodos conectados ni datos para IA. Usa Ampliar, doble clic o Intro con la tarjeta enfocada. El grupo aparece solo en el centro. Atrás, Esc, Retroceso o el fondo restaura el zoom y la selección.</p>
+<p>Una tarjeta de servidores MCP, una de skills y una carpeta de modelos que sirve un LLM local terminan con una tarjeta discontinua <b>+</b>: <b>Añadir servidor MCP</b> abre el catálogo MCP (servidores recomendados, el registro y lo que hay en este PC), <b>Añadir skills</b> la búsqueda de skills en la web y <b>Añadir modelo</b> la descarga de modelos para el LLM local que sirve esa carpeta. Desplegadas, la columna de servidores MCP y skills y la columna de modelos muestran estas mismas acciones en lugar de complementos, que solo existen para agentes y proveedores.</p>
+<p>Un agente cuyo complemento está activado pero cuyo programa aún no está en este PC (por ejemplo Codex después de activar su complemento) recibe una tarjeta discontinua al final de la tarjeta Agentes del mapa, con su nombre y <b>No instalado</b>. Un clic en ella, o <b>Instalar …</b> en su menú <b>⋯</b>, abre la revisión de instalación habitual; la instalación se ejecuta en un terminal que puedes ver. El menú también tiene <b>Complemento…</b> y <b>Desactivar</b>. Cuando el programa está instalado, la tarjeta pasa a ser la caja normal del agente. Una tarjeta plegada omite estas tarjetas. Ayuda › Agentes y Preguntar a la IA también siguen instalando agentes.</p>
+<p>El mapa muestra los agentes en dos tarjetas: <b>Agentes en línea</b> y, debajo, <b>Agentes locales</b> para los agentes hechos para un LLM local (como Pi). Los programas por instalar van al final de la tarjeta de agentes en línea. Un LLM local cuyo complemento está activado pero que aún no está instalado (por ejemplo vLLM) recibe la misma tarjeta discontinua al final de la tarjeta de proveedores locales; un clic abre la revisión de instalación del LLM local. Una caja cuyo complemento acabas de activar aparece enseguida, incluso en una tarjeta que solo muestra lo conectado o fijado.</p>
+<h2 id="map-groups-addons">Gestionar complementos</h2>
+<p>Los grupos muestran Activos, Desactivados, Encontrados en este PC y No instalados según corresponda. El menú o clic derecho permite cambiar el estado, consultar detalles, actualizar a una versión firmada o iniciar sesión del proveedor mediante un agente instalado. Detalles indica lecturas, envíos y capacidades. Los cambios son inmediatos y ofrecen Deshacer. Se bloquean mientras esta aplicación tiene sesiones de agentes activas o una instalación en curso. Los agentes de otros terminales no bloquean los complementos. Buscar complementos en línea carga explícitamente el catálogo firmado; ampliar no lo carga. Revisa cada instalación o actualización. Los nuevos complementos quedan desactivados. Quitar uno de usuario crea una copia y conserva programas y datos; puedes deshacer hasta cerrar la aplicación. Los incluidos pertenecen a su paquete.</p>
+<p>Una tarjeta que dice <b>Hecho para Asterism</b> contiene un complemento de antes de que esta app cambiara de nombre, firmado con la clave antigua. Nunca se carga y oculta la copia que trae AI Agents Map: quítalo desde el menú de la tarjeta y AI Agents Map usará la suya.</p>
+<p>Tras una eliminación confirmada, las copias de más de 30 días pueden limpiarse. Las copias con Deshacer activo se conservan; se omiten enlaces, carpetas ajenas y de otros usuarios. Deshacer dura hasta cerrar la aplicación. En el primer uso, Agentes en Bienvenida vuelve al mismo grupo con Activar / Más tarde fijo abajo; no finaliza la bienvenida ni abre una vista normal.</p>
+<p><b>Instalar desde archivo…</b> toma un complemento .zip que descargaste tú mismo. Decide su propia firma, como en una descarga del catálogo: el archivo se comprueba primero y se muestra como una entrada del catálogo (nombre, versión, tipo, qué lee y envía, y si sustituye una versión instalada), y no se instala nada hasta que confirmas. Entonces el archivo se vuelve a leer y debe seguir siendo el que revisaste. Por ahora solo se pueden usar complementos de agentes y de proveedores.</p>
+<h2 id="map-groups-welcome">Primer uso y flujos existentes</h2>
+<p>Bienvenida aparece sobre el mapa con Examinar este PC / Omitir. Monta discos existentes antes de buscar. Agentes se abre con las detecciones marcadas y Activar / Más tarde siempre visible abajo. Activar es una acción conjunta con un Deshacer; Más tarde conserva las opciones. Se mantienen los demás tipos ya activos. Los siguientes inicios no amplían automáticamente. Modelos enlaza a descarga/importación y reutilización de carpetas; MCP y habilidades a Conexiones. Crear definiciones MCP e instalar nuevas carpetas de habilidades sigue pendiente. El cohete abre la guía del primer agente. Los grupos sustituyen las páginas Configuración y Complementos.</p>
+</section>
+
+<section class="chapter" id="flutter-map-editor">
+<h1>Editar el mapa de IA</h1>
+<p>Arrastra un agente a un proveedor, servidor MCP o conjunto de habilidades, o dibuja en sentido contrario. Dibuja de un agente a un modelo de un proveedor conectado para elegir ese modelo. Un clic normal solo selecciona. Un segundo clic en la caja seleccionada la deselecciona. Dibujar del proveedor a su modelo abre la selección de agentes; un proveedor local compatible también puede cargar sin agentes. Cada cambio pasa por Vista previa, Aplicar, progreso y resultado con Deshacer. Cancelar no escribe nada.</p>
+<p>Un servidor sin agentes permanece como un cuadro atenuado: traza una línea hacia él para volver a conectarlo, o quítalo con Quitar en su menú. Una línea a una carpeta de skills que un agente lee por sí mismo o a través de otra carpeta no tiene tirador; haz clic en ella para ver el motivo. Selecciona un cuadro o haz clic en una línea para mostrar los tiradores naranjas. Con bordes alrededor de las tarjetas, las líneas terminan en el borde de una tarjeta en vez de cruzarla. Ajustes › Mapa da un color a cada tipo de línea, y el color del borde puede ser uno del tema. Las esquinas de una tarjeta siguen Ajustes › Esquinas. El símbolo de filtro en la cabecera de una tarjeta muestra solo los cuadros conectados o fijados, y de nuevo todos. Arrastra un tirador a otro proveedor o modelo compatible, o al espacio vacío para desconectar. El tirador de modelo del proveedor cambia todos sus usuarios configurados, o los desconecta y descarga si es compatible. Un sistema ocupado rechaza la descarga. Las líneas de proveedores en línea usan el comando registrado de inicio o cierre de sesión en un terminal revisado.</p>
+<p>Trazar un agente hasta su propio proveedor en línea inicia su sesión; mientras no haya iniciado sesión (no hay ningún archivo de inicio de sesión ni clave suya), esa línea se dibuja como una que puede usar, no como una que usa. Un agente cuyo inicio de sesión la aplicación no puede iniciar, como Grok, que solo lee su clave de API, se rechaza con ese motivo. Otro proveedor en línea que un agente puede usar por su configuración se elige trazando el agente hasta uno de los modelos de ese proveedor; un proveedor que no puede usar se rechaza con una nota breve. Un modelo al que está configurado un agente y que su LLM local ya no tiene sigue en el mapa, marcado como ausente, con su línea. Los modelos que usan los agentes y el modelo elegido de un proveedor se muestran aunque estén después de los diez primeros de un proveedor. Los modelos de una carpeta reutilizada desde Encontrado en este PC que ningún LLM local lista tienen una tarjeta propia.</p>
+<p>Al pasar el puntero se resaltan los vecinos. Mayús-clic amplía la selección, con un agente como máximo. Fijar mantiene el resaltado. Una caja seleccionada atenúa todas las demás y sus líneas; las cajas fijadas y sus líneas se mantienen. Una caja seleccionada tiene un contorno más grueso. Pliega una tarjeta con la flecha, mueve su cabecera o usa su menú. Arrastra el tirador de orden o elige Mover arriba / Mover abajo. Diseño y elementos fijados se guardan separados de las conexiones; las tarjetas de tareas conservan selección y zoom.</p>
+<p>Arrastra el borde izquierdo o derecho de una columna para cambiar su ancho y el de sus cajas. La aplicación lo recuerda; un doble clic en el borde restaura el predeterminado. En Ajustes › Mapa están ambos anchos de cada columna. Allí también puedes dibujar un borde alrededor de las tarjetas de categoría y elegir su grosor y color.</p>
+</section>
+
+<section class="chapter" id="task-cards">
+<h1>Tarjetas de tareas en el mapa</h1>
+<p>Las conexiones, acciones de agentes, eliminación de modelos y cambios de complementos se abren en una ventana centrada sobre la página atenuada. Arrastre sus bordes o esquinas para cambiar el tamaño; un doble clic en un borde lo restaura. El tamaño se mantiene hasta cerrar la aplicación, y el terminal y Preguntar a la IA lo comparten. Al desconectar una línea con el ratón, si no hay nada que advertir, solo se pide Aplicar o Cancelar y después se ofrece Deshacer. Páginas como la vista general de proveedores, Ajustes y Conexiones siguen siendo páginas completas.</p>
+<p>Revise los cambios antes de confirmar. La misma ventana muestra progreso y resultado; use Deshacer cuando esté disponible. Atrás o Esc cancela una revisión o cierra una ventana terminada. No cierran tareas en curso; solo las operaciones cancelables muestran Cancelar. Mientras haya una ventana abierta, los botones de la cabecera y las teclas de la aplicación esperan.</p>
+<p><b>Ajustes › Qué se puede hacer</b> contiene sus reglas sobre lo que se puede hacer, para Preguntar a la IA y para lo que dibuja en el mapa: una lista Permitir y una lista Denegar, cada una con un <b>+</b>. Una regla indica una acción y, si quiere, una categoría, un elemento y un agente. Decide la regla más específica: un elemento cuenta más, luego un agente, una categoría, una acción. En caso de empate gana permitir, y una solicitud sin regla aplicable se rechaza. Así, con «denegar desconectar, skills» añadida a los valores por defecto, «permitir desconectar, skills, Pi» deja que Pi continúe. <b>Restaurar valores</b> recupera permitir todo, y la barra inferior prueba una solicitud. Cuando algo se rechaza, la aplicación nombra la regla, salvo que lo desactive. Estas reglas son una salvaguarda, no un candado: quien pueda abrir Ajustes puede cambiarlas, y un agente en un terminal se ejecuta con su cuenta.</p>
+</section>
+
+<section class="chapter" id="security">
+  <h1>Chequeo de salud y seguridad</h1>
+  <p>Un agente de programación lee y escribe archivos y ejecuta comandos en tu ordenador. Cuánto puede hacer <i>sin
+  preguntarte</i> está en sus propios ajustes, con palabras distintas en cada agente. El <b>Chequeo de salud y
+  seguridad</b> lo reúne: en la página de detalles de cada agente y de cada LLM local, cuatro tarjetas muestran si
+  funciona, qué puede hacer, qué significa eso en palabras sencillas y qué reduce el riesgo.</p>
+
+  <div class="figure wide">
+    <img src="images/security-check.jpg" alt="La tarjeta Ajustes de seguridad de OpenCode abierta con Riesgo alto: Editar archivos, Ejecutar comandos abierto con las opciones Preguntar (recomendado), Permitir En uso con Riesgo alto, Nunca, luego Obtener páginas web y Fuera del proyecto; debajo, la tarjeta Gestión de riesgos con botones Reducirlo">
+    <p class="caption">Los ajustes de seguridad de OpenCode con <b>Ejecutar comandos</b> abierto, y el comienzo de su gestión de riesgos.</p>
+  </div>
+
+  <h2 id="security-card">Leer las tarjetas</h2>
+  <p>Los distintivos de las tarjetas plegadas lo resumen: <b>Sano</b>, <b>Conviene revisarlo</b> o <b>Sin configurar</b>
+  en Estado, y <b>Riesgo bajo</b>, <b>Riesgo medio</b> o <b>Riesgo alto</b> en Ajustes de seguridad y Gestión de riesgos.
+  Abre una tarjeta para los detalles:</p>
+  <table>
+    <thead><tr><th>Tarjeta</th><th>Qué muestra</th></tr></thead>
+    <tbody>
+      <tr><td><b>Estado</b></td><td>Cada comprobación de la configuración con un ✓, o qué hacer a continuación: instalado, sesión iniciada, su modelo y LLM local, servidores MCP y skills.</td></tr>
+      <tr><td><b>Ajustes de seguridad</b></td><td>Los ajustes del agente que deciden qué puede hacer por su cuenta, cada uno con su valor actual y una frase sobre lo que significa. El signo delante indica el riesgo: <b>✓</b> seguro, <b>·</b> bajo, un <b>!</b> amarillo medio, un <b>!</b> rojo alto.</td></tr>
+      <tr><td><b>Gestión de riesgos</b></td><td>Lo que significan los ajustes en conjunto, lo más serio primero, cada uno con el motivo y <b>→</b> lo que lo reduce. Las protecciones existentes aparecen con un ✓.</td></tr>
+      <tr><td><b>Qué significan las palabras</b></td><td>Sandbox, aprobación, reglas de permitir y denegar y las demás palabras de las tarjetas, explicadas (ver <a href="#security-words">Las palabras explicadas</a>).</td></tr>
+    </tbody>
+  </table>
+  <p>Las reglas de permitir y denegar y las carpetas de confianza del agente (por ejemplo la lista
+  <code>permissions.allow</code> de Claude Code) aparecen bajo los ajustes, una regla por línea.</p>
+
+  <h2 id="security-change">Cambiar un ajuste</h2>
+  <ol>
+    <li>Haz clic en un ajuste para abrirlo. Ves qué controla y cada opción con su riesgo; la que se usa lleva la marca <b>En uso</b> y la opción más segura <b>recomendado</b>.</li>
+    <li>Haz clic en <b>Usar …</b> junto a una opción o en <b>Reducirlo …</b> junto a un riesgo. Una página muestra el cambio en palabras (antes → después), el riesgo antes y después, y <b>Qué cambia</b>: las líneas del archivo de ajustes del agente.</li>
+    <li>Haz clic en <b>Cambiar</b>. El archivo se respalda y se escribe; un aviso ofrece <b>Deshacer</b> durante 30 segundos. El agente usa el nuevo ajuste la próxima vez que arranca.</li>
+  </ol>
+  <div class="note"><p><b>Nota</b> Solo cambia esa clave; los comentarios y todo lo demás del archivo quedan como están.
+  Un ajuste que necesita más de una línea en un archivo — como Hermes, que ejecuta sus comandos en Docker — se muestra y
+  se explica, con dónde cambiarlo, pero no se cambia desde aquí.</p></div>
+
+  <h2 id="security-flutter">La seguridad</h2>
+  <p>Los detalles de un agente instalado tienen <b>Ajustes de seguridad</b>. La tarjeta muestra la insignia de riesgo, cada ajuste con sus opciones en una lista (un punto de color indica el riesgo de cada opción, el valor predeterminado más seguro dice <b>recomendado</b>; un ajuste que el archivo no nombra indica que se aplica el valor predeterminado del propio agente), las reglas de permitir y denegar, el archivo de ajustes y la <b>Gestión de riesgos</b> con <b>Reducirlo…</b> donde un ajuste reduce un riesgo. Elegir otro valor o <b>Reducirlo…</b> abre la <b>Vista previa</b> que usa un cambio de conexión: las líneas del archivo de ajustes que cambian. <b>Aplicar</b> hace una copia del archivo y lo escribe, con <b>Deshacer</b> después; solo cambia esa clave, los comentarios y el resto del archivo se quedan como estaban.</p>
+
+  <h2 id="health-flutter">El estado</h2>
+  <p>Los detalles de un agente instalado y cada LLM local de <b>Proveedores y modelos</b> tienen una tarjeta <b>Estado</b>: <b>Sano</b>, <b>Conviene revisarlo</b> o <b>Sin configurar</b>, una frase y cada comprobación —instalado, con sesión (solo se mira si hay un archivo de acceso o una clave), modelo, sus LLM locales, conexiones que fallan, servidores MCP y skills; en un LLM local, si funciona, sus modelos y los agentes conectados. Una comprobación que no está bien dice qué hacer a continuación, con un comando para <b>Copiar</b> cuando lo hay. Se abre sola cuando hay algo que hacer.</p>
+
+  <h2 id="security-agents">Qué se comprueba en cada agente</h2>
+  <table>
+    <thead><tr><th>Agente</th><th>Ajustes mostrados y modificables</th><th>Archivo</th></tr></thead>
+    <tbody>
+      <tr><td><b>Claude Code</b></td><td>Modo de permisos (Preguntar primero, Solo planificar, Solo lo permitido, Editar sin preguntar, Revisión automática, Saltar todas las comprobaciones), sandbox para comandos, bloquear el modo de omisión; reglas de permitir/preguntar/denegar</td><td><code>~/.claude/settings.json</code></td></tr>
+      <tr><td><b>Codex</b></td><td>Cuándo pregunta Codex, sandbox (solo lectura, carpeta del proyecto, ninguna), red en la sandbox; carpetas de confianza</td><td><code>~/.codex/config.toml</code></td></tr>
+      <tr><td><b>GitHub Copilot</b></td><td>Modo de permisos (Preguntar primero, Revisión automática, Permitir todo); carpetas de confianza, sitios sin preguntar</td><td><code>~/.copilot/settings.json</code></td></tr>
+      <tr><td><b>Cursor CLI</b></td><td>Aprobación, sandbox, red en la sandbox, búsqueda web sin preguntar; reglas de permitir/denegar</td><td><code>~/.config/cursor/cli-config.json</code></td></tr>
+      <tr><td><b>Hermes</b></td><td>Comandos peligrosos (preguntar siempre, revisión automática, no preguntar nunca), ocultar secretos; dónde se ejecutan los comandos (solo se muestra)</td><td><code>~/.hermes/config.yaml</code></td></tr>
+      <tr><td><b>OpenCode</b></td><td>Preguntar, permitir o nunca para editar archivos, ejecutar comandos, obtener páginas web y trabajar fuera del proyecto</td><td><code>~/.config/opencode/opencode.json</code></td></tr>
+      <tr><td><b>Pi</b></td><td>Sus herramientas: leer, escribir y ejecutar comandos, o solo leer. Pi nunca pregunta por diseño, así que sus herramientas son sus permisos.</td><td><code>~/.pi/agent/settings.json</code></td></tr>
+    </tbody>
+  </table>
+  <p>Para otros agentes, la tarjeta muestra su estado y sus servidores MCP, y dice dónde mirar en los propios ajustes del
+  agente. Para un <b>LLM local</b> muestra quién puede alcanzarlo: solo este PC (<code>127.0.0.1</code>, como debe ser) o
+  cualquier dispositivo de tu red.</p>
+
+  <h2 id="security-risks">Controlar el riesgo</h2>
+  <p>El nivel de riesgo es el punto más serio que encuentra la tarjeta:</p>
+  <ul>
+    <li><b>Riesgo alto</b> — puede hacer cosas serias sin preguntar: ejecutar cualquier comando, o trabajar sin sandbox y
+      sin preguntas. Está bien en un contenedor desechable o una máquina virtual; en tu propio PC, haz que pregunte primero.</li>
+    <li><b>Riesgo medio</b> — algunas cosas pasan sin preguntar, como editar archivos del proyecto, o una revisión
+      automática decide por ti.</li>
+    <li><b>Riesgo bajo</b> — pregunta antes de todo lo que importa, o no puede hacerlo en absoluto.</li>
+  </ul>
+  <p>Buenas costumbres, sean cuales sean los ajustes:</p>
+  <ul>
+    <li><b>Preguntar primero con los comandos</b> en tu propio ordenador; permite comandos sueltos e inofensivos (como
+      <code>git status</code>) con una regla de permitir en lugar de toda la shell.</li>
+    <li><b>Activa la sandbox</b> donde el agente tenga una (Claude Code, Codex, Cursor CLI) y deja la red dentro
+      desactivada salvo que una tarea la necesite.</li>
+    <li><b>Inicia los agentes en la carpeta del proyecto</b>, no en tu carpeta personal, y mantén lejos las claves y contraseñas.</li>
+    <li><b>Pocos servidores MCP</b>: solo los que usas y en los que confías. Cada uno se ejecuta con tus permisos.</li>
+    <li><b>El trabajo sin supervisión</b> (modo de omisión, «YOLO», Pi con todas las herramientas) ejecútalo en un contenedor o una máquina virtual.</li>
+    <li><b>LLM locales en <code>127.0.0.1</code></b>: sus servidores no tienen contraseña.</li>
+  </ul>
+  <div class="warn"><p><b>Atención</b> Una revisión automática (el modo <i>auto</i> de Claude Code, <i>assisted</i> de
+  Copilot, <i>auto-review</i> de Cursor, <i>smart</i> de Hermes) es una segunda IA que juzga cada paso. Ahorra preguntas,
+  pero es un juicio, no un muro.</p></div>
+
+  <h2 id="security-words">Las palabras explicadas</h2>
+  <div class="figure wide">
+    <img src="images/sandbox.svg" alt="Dos cajas. Sin sandbox, el agente alcanza la carpeta del proyecto, las claves SSH y los documentos, los datos del navegador e internet. Con sandbox solo alcanza la carpeta del proyecto; el resto está tachado.">
+    <p class="caption">Lo que cambia una sandbox: los comandos solo alcanzan la carpeta del proyecto y lo que tú permitas.</p>
+  </div>
+  <dl>
+    <dt>Sandbox</dt><dd>Un espacio aislado donde se ejecutan los comandos del agente. Dentro, un comando solo puede tocar la
+      carpeta del proyecto (y lo que tú permitas) — no el resto de tu carpeta personal, tus claves SSH ni los datos del
+      navegador, y a menudo tampoco internet. Sin sandbox, un comando del agente puede hacer todo lo que puedes hacer tú.</dd>
+    <dt>Aprobación (preguntar primero)</dt><dd>Antes de que el agente edite un archivo o ejecute un comando, muestra lo que
+      quiere hacer y espera tu sí o tu no. Cuanto menos pueda hacer sin preguntar, más control conservas — y más a menudo
+      te pregunta.</dd>
+    <dt>Reglas de permitir y denegar</dt><dd>Listas de comandos o herramientas que el agente puede usar sin preguntar
+      (permitir) o nunca (denegar). Denegar gana a permitir. Una regla que permite cualquier comando de shell desactiva la
+      aprobación para la shell.</dd>
+    <dt>Carpeta de confianza</dt><dd>Una carpeta en la que has dicho que el agente puede trabajar. Allí también usa las
+      propias instrucciones y ajustes de la carpeta, que pueden venir de otra persona cuando clonas un proyecto.</dd>
+    <dt>Acceso a la red</dt><dd>Si los comandos pueden alcanzar internet. Un código que lee tus archivos y puede enviar
+      datos podría filtrarlos; instalar paquetes también necesita la red.</dd>
+    <dt>Omisión («YOLO»)</dt><dd>Todo sin preguntar y sin límites. Solo para una VM o un contenedor desechables.</dd>
+    <dt>Revisión automática</dt><dd>Un segundo modelo de IA deja pasar las acciones inofensivas y pregunta por las demás.</dd>
+    <dt>Inyección de prompts</dt><dd>Instrucciones escondidas en una página web, un archivo o la respuesta de una
+      herramienta que intentan que el agente haga algo que no pediste. Preguntar primero, una sandbox y nada de red las detienen.</dd>
+    <dt>Ocultar secretos</dt><dd>El texto que parece una contraseña, un token o una clave se enmascara antes de que el modelo lo vea o acabe en un registro.</dd>
+    <dt>Herramientas</dt><dd>Lo que el agente puede hacer en absoluto: leer, escribir, ejecutar comandos, buscar en la web. Una herramienta que no tiene no se puede usar mal.</dd>
+    <dt>Servidor MCP</dt><dd>Un pequeño programa que da herramientas extra al agente. Se ejecuta como tú, con tus permisos.</dd>
+    <dt>127.0.0.1 (localhost)</dt><dd>Una dirección a la que solo llegan los programas de este PC. Un servidor en
+      <code>0.0.0.0</code> es accesible desde cualquier dispositivo de tu red.</dd>
+  </dl>
+</section>
+
+<!-- ============================== Add-ons ============================== -->
+<section class="chapter" id="addons">
+  <h1>Complementos</h1>
+  <p>Todo lo que AI Agents Map entiende de un agente o un proveedor de LLM es un <b>adaptador</b>: cómo se encuentra y se
+  instala, sus sesiones, sus ajustes de seguridad, sus servidores MCP y sus skills. En AI Agents Map cada adaptador es un
+  <b>complemento</b>: los paquetes los traen todos, firmados y desactivados, y tú activas los que usas. Los complementos
+  también traen agentes nuevos, proveedores nuevos y funciones más allá de las cifras, como <b>Insights</b> (temas de las
+  sesiones y un resumen de Claude). El plugin AI Agents Map tiene los adaptadores integrados y no tiene complementos.</p>
+
+  <h2 id="addons-setup">Configurar AI Agents Map</h2>
+  <p>Un AI Agents Map nuevo se abre en su <b>página de bienvenida</b>. Cada agente y LLM local que conoce AI Agents Map es una
+  tarjeta con su propio icono, en tres grupos: <b>Agentes de IA</b>, <b>LLM locales</b> y <b>Proveedores en línea</b> (los
+  nombres de Anthropic, OpenAI y los demás en el mapa). Cada tarjeta dice si el programa está aquí:</p>
+  <ul>
+    <li><b>Instalado</b> (verde) — encontrado del mismo modo que lo encuentra el mapa; la tarjeta ya está marcada;</li>
+    <li><b>Usado antes</b> — ahora no está instalado, pero sus ajustes siguen ahí;</li>
+    <li><b>No instalado</b> — márcalo para instalarlo después desde su tarjeta.</li>
+  </ul>
+  <div class="figure wide">
+    <img src="images/setup-welcome.jpg" alt="La página de bienvenida: el icono de AI Agents Map y Bienvenido a AI Agents Map, luego los agentes de IA como tarjetas con sus iconos; diez instalados están marcados con borde azul y una marca, los usados antes o no instalados en gris; abajo Más tarde y Activar 14">
+    <p class="caption">La página de bienvenida: los programas encontrados van primero y están marcados.</p>
+  </div>
+  <p>Haz clic en una tarjeta (o pulsa <kbd>Espacio</kbd> sobre ella) para marcarla o desmarcarla; una tarjeta marcada tiene
+  borde azul y una marca. <b>Activar</b> (con el número de tarjetas marcadas) los carga y muestra el mapa; si marcaste
+  programas que no están instalados, se abre <b>Configuración</b>: <b>⋯</b> en sus tarjetas › <b>Instalar…</b>.
+  <b>Más tarde</b> empieza con un mapa vacío. Mientras no haya nada activado, AI Agents Map vuelve a abrirse en la página de
+  bienvenida en cada inicio. Después, las mismas tarjetas están en <b>Configuración</b> (el botón de la cabecera),
+  donde los agentes y proveedores se activan y desactivan cuando quieras.</p>
+  <p>En cada inicio posterior, AI Agents Map vuelve a mirar qué está instalado y activa por sí mismo el complemento de cada agente, LLM local y proveedor en línea que encuentra, para que todos estén en el mapa. Uno que hayas desactivado tú (aquí, en la página de complementos o sin marcar en la página de bienvenida) sigue desactivado; actívalo de nuevo para recuperarlo.</p>
+
+  <h2 id="addons-page">La página de complementos</h2>
+  <p>Ábrela con el botón de la pieza de puzle de la cabecera, desde Ajustes › <b>Complementos</b> o desde cualquier
+  sugerencia «complemento disponible». Muestra, en tarjetas de grupo plegables que empiezan abiertas:</p>
+  <ul>
+    <li><b>Sugeridos para este PC</b> — un complemento cuyo agente o proveedor está instalado aquí pero aún no se muestra;</li>
+    <li><b>Complementos instalados</b> — activado, desactivado o <i>no cargado</i> con el motivo (por ejemplo un archivo
+      modificado); los agentes y los proveedores separados por una línea;</li>
+    <li><b>Disponibles</b> — el resto de los complementos del catálogo;</li>
+    <li><b>Incluido en AI Agents Map</b> — agentes y proveedores que no trae ningún complemento instalado (cuando ejecutas
+      AI Agents Map desde su carpeta de código sin complementos).</li>
+  </ul>
+  <div class="figure wide">
+    <img src="images/addons-page.jpg" alt="La página de complementos: campo de búsqueda, filtros Todos, Agentes, Proveedores, Funciones, Instalados, Actualizaciones y los complementos instalados como tarjetas; Claude Code, Codex, OpenCode, Pi, llama.cpp, LM Studio y Ollama activados, con Instalar en gris y Desinstalar, los demás desactivados con Activar">
+    <p class="caption">Complementos instalados: activados o desactivados, con Instalar y Desinstalar para el programa.</p>
+  </div>
+  <p>La tarjeta de un agente o LLM local activado tiene <b>Instalar</b> y <b>Desinstalar</b> para el propio programa (el que
+  no corresponde aparece en gris), y cada tarjeta con página web tiene un botón con un globo que la abre en tu navegador.</p>
+  <p>La búsqueda encuentra nombres, descripciones y lo que lee un complemento; los filtros de arriba reducen la lista a
+  agentes, proveedores, funciones, los instalados o los que tienen actualización. Haz clic en una tarjeta para sus
+  detalles: qué lee, qué envía, qué puede hacer y su nivel de privacidad.</p>
+
+  <h2 id="addons-install">Instalar, activar y desactivar, actualizar, quitar</h2>
+  <p><b>Instalar</b> (u <b>Obtener complemento</b>) muestra primero qué lee, envía y puede hacer el complemento; solo
+  después de tu OK se descarga, se comprueba y se activa. <b>Desactivar</b> y <b>Activar</b> actúan al momento, sin
+  reiniciar: sus agentes, proveedores, secciones y tarjetas aparecen o desaparecen en todas partes. <b>Actualizar</b> lo
+  sustituye por la versión más nueva del catálogo después de comprobar la nueva; <b>Quitar</b> lo mueve a la papelera.
+  <b>Instalar desde archivo…</b> acepta un zip de complemento que hayas descargado tú; se aplican las mismas comprobaciones.</p>
+  <p>Cuando el catálogo tiene versiones nuevas de complementos instalados, las tarjetas de <b>Configuración</b> dicen <i>Actualización del complemento</i>, el estado de la columna muestra <b>Actualizaciones de complementos listas</b> con <b>Actualizar todo</b> y <b>Complementos</b>, y la página de complementos muestra una barra con <b>Actualizar todo</b>. El menú ⋯ de la tarjeta (o un clic derecho en ella) tiene además <b>Actualizar el complemento a</b> <i>versión</i>, para ese complemento. Actualizar todo los actualiza uno tras otro, con las mismas comprobaciones, y dice en un solo mensaje cuáles se actualizaron. Solo se ejecuta una instalación o actualización a la vez; otra iniciada mientras tanto pide volver a intentarlo en un momento.</p>
+
+  <div class="tip"><p><b>Solo del autor.</b> AI Agents Map solo carga complementos firmados por Uwe Bruckhaus (huella de la
+  clave <code>SHA256:e5cC634Ke3Our5LAeSc88qs22NKZEHTncBW5Ig3amWQ</code>). Antes de que se ejecute nada de un complemento,
+  la firma se comprueba con <code>ssh-keygen</code> de OpenSSH, cada archivo se compara con su suma SHA-256 y no puede
+  haberse añadido ningún archivo. Una descarga además debe coincidir con la suma SHA-256 del catálogo firmado.</p></div>
+
+  <h2 id="addons-privacy">Niveles de privacidad</h2>
+  <table class="first-nowrap">
+    <thead><tr><th>Nivel</th><th>Qué puede leer o enviar el complemento</th></tr></thead>
+    <tbody>
+      <tr><td><b>Solo cifras</b></td><td>Recuentos, tiempos, tokens, líneas cambiadas, coste — lo que AI Agents Map muestra sin complementos.</td></tr>
+      <tr><td><b>Títulos de sesión</b></td><td>Los títulos que el propio agente dio a sus sesiones (nunca las conversaciones).</td></tr>
+      <tr><td><b>Títulos y un resumen de Claude</b></td><td>Esos títulos y cifras, enviados a tu propio Claude Code — solo con un clic, tras una vista previa de exactamente lo que se envía.</td></tr>
+    </tbody>
+  </table>
+  <p>Un complemento nunca puede hacer más de lo que permite su nivel. Añadir un agente o un proveedor, o instalar un
+  programa, son permisos aparte que nombra su tarjeta.</p>
+
+  <h2 id="addons-kinds">Tipos de complementos</h2>
+  <table class="first-nowrap">
+    <thead><tr><th>Tipo</th><th>Qué trae</th></tr></thead>
+    <tbody>
+      <tr><td><b>Agente</b></td><td>Un agente de programación: dónde guarda sus ajustes, sesiones, servidores MCP y skills, cómo se instala y cómo inicia sesión. Todo lo demás lo construye AI Agents Map a partir de ello — la tarjeta en Configuración, su caja en el mapa, Uso y tokens, Proyectos, Estado y Seguridad.</td></tr>
+      <tr><td><b>Proveedor</b></td><td>Un programa de LLM local o los proveedores en línea: cómo se encuentra y se instala y cómo lo alcanzan los agentes. AI Agents Map construye su tarjeta, su caja en el mapa y su página de detalles — incluido <b>Uso y tokens</b>: lo que tus agentes enviaron a través de él, a partir de sus propias cifras de sesión.</td></tr>
+      <tr><td><b>Extensión</b></td><td>Más datos sobre un agente o proveedor que trae otro complemento, sin sustituirlo — por ejemplo su plan y sus límites, o una tarjeta en su página de detalles. Solo rellena lo que deja vacío el complemento del agente; la página del complemento dice qué añade y qué de ello no se usa.</td></tr>
+      <tr><td><b>Función</b></td><td>Algo que abarca varios agentes, como Insights (la tarjeta Temas).</td></tr>
+    </tbody>
+  </table>
+  <p>La sección de un complemento en la página de detalles de un agente o LLM local va a la tarjeta de la que trata: Uso y
+  tokens, Estado, Temas (solo en agentes) o una tarjeta propia con su nombre.</p>
+  <p>Un complemento de agente describe su agente como datos (un archivo llamado <code>agent.toml</code>);
+  la mayoría no trae ningún código, y la página del complemento lo dice: <i>No trae código</i> o, para los
+  pocos agentes que lo necesitan (por ejemplo, su propia base de datos de sesiones), <i>Datos sobre el agente y
+  un poco de código para lo que los datos no pueden decir</i>.</p>
+
+  <h2 id="addons-new-harness">Un agente nuevo en tu ordenador</h2>
+  <p>Cuando instalas un agente que AI Agents Map aún no conoce, lo busca en el catálogo (Ajustes ›
+  <b>Buscar complementos en línea</b>, activado por defecto: la lista se lee de GitHub cada pocas horas, y solo
+  se envía la petición). Si un complemento conoce ese agente, el estado de la columna lo dice (<i>«Kilo Code está en este PC pero no en el mapa»</i>), y aparece una
+  tarjeta en <b>Sugerencias para este PC</b>; un clic lo instala. Si aún no hay complemento, los detalles del
+  agente lo dicen, con un enlace para pedir uno.</p>
+
+  <h2 id="addons-make">Crear un complemento</h2>
+  <p>Un LLM local nuevo o un agente nuevo solo necesita un complemento: AI Agents Map construye su tarjeta, su
+  caja y sus líneas en el mapa, sus detalles, la página de Modelos y la de Seguridad a partir de lo que el
+  complemento dice de él. Si sabes programar un poco, empieza por las plantillas del repositorio de AI Agents Map
+  (<code>templates/</code>, explicadas en <code>docs/addons.md</code>): un archivo para un LLM local, un
+  archivo de datos para un agente. Envía el complemento a <code>github.com/uBruckhaus/asterism-addons</code>;
+  cuando esté revisado y firmado, aparecerá para todos en <b>Disponibles</b>.</p>
+</section>
+
+<section class="chapter" id="privacy">
+  <h1>Privacidad y seguridad</h1>
+  <ul>
+    <li><b>Sin permisos de administrador para la app.</b> Nunca se ejecuta como root ni ve una contraseña.
+      Instalar un agente que viene como paquete del sistema (como Hermes u OpenClaw) ejecuta el gestor de
+      paquetes del sistema con <code>sudo</code> en un terminal que ves, después de mostrarte el comando.</li>
+    <li><b>No lee credenciales.</b> Lee los ajustes de los agentes, pero nunca sus archivos de credenciales. Si un agente
+      tiene sesión iniciada se sabe por la existencia de ese archivo. Los valores de claves y cabeceras nunca se muestran.</li>
+    <li><b>No lee conversaciones.</b> Las cifras de uso se leen solo como números y tiempos. La única
+      excepción es seguir una instancia <i>En segundo plano</i> (<a href="#running-agents">Terminales…</a>),
+      con tu clic, solo para esa instancia; no se guarda nada de ello.</li>
+    <li><b>Red solo cuando la pides</b> — buscar o instalar modelos, servidores MCP o skills, probar un servidor —, más una
+      comprobación de actualizaciones cada pocas horas.</li>
+    <li><b>Descargas comprobadas.</b> Los programas solo se instalan si la descarga coincide con la suma que publica su versión.</li>
+    <li><b>Vista previa y Deshacer.</b> Cada cambio en los ajustes de otro programa se muestra antes, se respalda y se puede
+      deshacer. Los ajustes que pueden contener claves se escriben legibles solo por ti.</li>
+    <li><b>Acotado.</b> Cada programa se ejecuta sin shell, y cada respuesta se lee con límite de tamaño y de tiempo.</li>
+    <li><b>Funciones de IA solo cuando las eliges.</b> Las consultas de Smart Check se hacen con un clic, las
+      comprobaciones IA diarias solo cuando están activadas. El agente recibe un resumen breve (nombres,
+      versiones, modelos), nunca claves ni valores de ajustes, y se le entrega de forma que otros usuarios del ordenador no
+      pueden leerlo; sus respuestas se comprueban antes de mostrarse y
+      nunca se ejecutan. Las tareas se ejecutan en un terminal que ves, y el agente pregunta antes de cada paso.
+      Las usas bajo tu propia responsabilidad.</li>
+  </ul>
+  <p>El README de cada repositorio lista por completo qué se lee, se inicia y se escribe.</p>
+</section>
+
+<!-- ============================== 13 Troubleshooting ============================== -->
+<section class="chapter" id="troubleshooting">
+  <h1>Solución de problemas</h1>
+  <table class="faq">
+    <thead><tr><th>Problema</th><th>Qué hacer</th></tr></thead>
+    <tbody>
+      <tr><td>El mapa está apretado o cortado.</td><td>Hasta el 55&nbsp;% de la pantalla (menos de 1150 píxeles) el mapa muestra <b>Agentes</b> y <b>Proveedores</b>; hasta el 80&nbsp;% (menos de 1600 píxeles) añade <b>Modelos</b>; ensancha la ventana o activa más columnas con los botones sobre el mapa, o usa <b>Ajustar a la ventana</b> (<kbd>Ctrl</kbd>+<kbd>0</kbd>).</td></tr>
+      <tr><td>Falta en el mapa una caja que espero.</td><td>El mapa solo muestra lo que está configurado: mira en <b>Configuración</b> (un complemento desactivado, un servidor MCP que ningún agente usa) y los botones de filtro de columnas sobre el mapa.</td></tr>
+      <tr><td><b>Iniciar aquí</b> falta o no hace nada.</td><td>Instala VTE para GTK&nbsp;4 (<code>vte4</code>), o usa <b>Iniciar en terminal</b>.</td></tr>
+      <tr><td>Una línea es roja de puntos.</td><td>Haz clic en ella para ver sugerencias, arregla lo que dicen y luego <b>Probar de nuevo</b>. Ver <a href="#failed">Cuando una conexión falla</a>.</td></tr>
+      <tr><td>El LLM local no arranca con el agente.</td><td>Comprueba Ajustes › <b>Iniciar los LLM locales con sus agentes</b> y que el agente esté conectado en el mapa. <code>systemctl --user status ai-agents-map-providers</code> muestra el vigilante.</td></tr>
+      <tr><td>No aparece la luz de color de un LLM local a su modelo.</td><td>Solo aparece mientras un programa que no está en el mapa genera con ese LLM, y se apaga unos diez segundos después de su última petición. Comprueba que el mapa se ve (una ventana ancha) y que el programa realmente envía algo.</td></tr>
+      <tr><td>El agente responde mal o se corta con un modelo local.</td><td>Puede que el contexto sea demasiado pequeño. Abre el modelo en <b>Modelos… › Instalados</b> y usa <b>Fijar contexto</b> con el mejor valor para tu tarjeta.</td></tr>
+      <tr><td>Una descarga se ha detenido.</td><td>Tras un corte de conexión continúa sola. Tras un reinicio, usa <b>Continuar</b> en la franja de arriba.</td></tr>
+      <tr><td>Quiero deshacer un cambio anterior.</td><td>Las copias de seguridad están en <code>~/.local/state/ai-agents-map/backups/</code>.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ============================== Appendix ============================== -->
+<section class="chapter appendix" id="reference">
+  <h1>Referencia</h1>
+
+  <h2 id="shortcuts">Atajos de teclado</h2>
+  <table class="keys">
+    <tbody>
+      <tr><th scope="row"><kbd>F1</kbd></th><td>Ayuda</td></tr>
+      <tr><th scope="row"><kbd>F12</kbd></th><td>F12 guarda una captura de pantalla. Una imagen de la ventana va a <code>~/Pictures/AI Agents Map</code>, activado por defecto. En un terminal, usa el símbolo de la cámara debajo. Puedes añadir una nota, que se guarda como archivo de texto junto a la imagen. En Ajustes puedes elegir otra carpeta. Solo cuenta F12 sola (no con Ctrl, Mayús, Alt o Super). Solo tú puedes abrir la carpeta (0700) y sus archivos (0600); nunca se sobrescribe una imagen o nota existente y no se sube nada.</td></tr>
+      <tr><th scope="row"><kbd>Ctrl</kbd>+<kbd>,</kbd></th><td>Ajustes</td></tr>
+      <tr><th scope="row"><kbd>F5</kbd></th><td>Actualizar (el mapa y Configuración)</td></tr>
+      <tr><th scope="row"><kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>Ctrl</kbd>+<kbd>−</kbd> / <kbd>Ctrl</kbd>+<kbd>0</kbd></th><td>Acercar el mapa, alejarlo o ajustarlo a la ventana</td></tr>
+      <tr><th scope="row">Rueda del ratón</th><td>Desplazar el mapa</td></tr>
+      <tr><th scope="row"><kbd>Mayús</kbd>+clic</th><td>Añadir a la selección o quitar de ella</td></tr>
+      <tr><th scope="row"><kbd>Esc</kbd></th><td>Quitar la selección; volver de una página</td></tr>
+      <tr><th scope="row"><kbd>Retroceso</kbd></th><td>Volver de una página</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="files">Archivos y carpetas</h2>
+  <table>
+    <thead><tr><th>Ruta</th><th>Contenido</th></tr></thead>
+    <tbody>
+      <tr><td><code>~/.config/omarchy/ai-agents-map/</code></td><td>Ajustes, la lista de servidores MCP, agentes consultados, conexiones fallidas.</td></tr>
+      <tr><td><code>~/.local/state/ai-agents-map/backups/</code></td><td>Copias de seguridad de cada archivo que cambió la app.</td></tr>
+      <tr><td><code>~/.local/state/ai-agents-map/jobs.json</code></td><td>Descargas e instalaciones interrumpidas.</td></tr>
+      <tr><td><code>~/.local/state/ai-agents-map/reorganize.json</code></td><td>El registro de la última ordenación, para Deshacer.</td></tr>
+      <tr><td><code>~/.cache/ai-agents-map/</code></td><td>Resultados de búsqueda, listas de herramientas, comprobaciones de actualizaciones, la última Smart Check (<code>smart-check.json</code>) y las actualizaciones MCP de las comprobaciones IA (<code>mcp-updates.json</code>).</td></tr>
+      <tr><td><code>~/.local/state/ai-agents-map/ai-help/</code></td><td>El <a href="#smart-protocol">Protocolo</a>: un archivo por cada ejecución de ayuda IA (las últimas 200).</td></tr>
+      <tr><td><code>~/.local/state/omarchy-plugin-ai/runs.json</code></td><td>Las consultas y tareas IA de esta app y de otros plugins, con sus tokens: las estadísticas de Smart Check.</td></tr>
+      <tr><td><code>~/.config/systemd/user/ai-agents-map-providers.service</code></td><td>El vigilante que inicia los LLM locales con sus agentes.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="glossary">Glosario</h2>
+  <dl>
+    <dt>Aprobación</dt><dd>Un agente pregunta antes de cambiar un archivo o ejecutar un comando (ver <a href="#security-words">Las palabras explicadas</a>).</dd>
+    <dt>Contexto</dt><dd>Cuántos tokens de texto puede tener en cuenta un modelo a la vez.</dd>
+    <dt>GGUF</dt><dd>El formato de archivo de modelos que usan llama.cpp, LM Studio, Ollama y KoboldCpp.</dd>
+    <dt>Inyección de prompts</dt><dd>Instrucciones ocultas en una página, un archivo o la respuesta de una herramienta que intentan dirigir a un agente.</dd>
+    <dt>Cuantización</dt><dd>Guardar un modelo con menos bits por peso (por ejemplo <i>Q4_K_M</i>, unos 4,8 bits) para que sea más pequeño, con poca pérdida de calidad.</dd>
+    <dt>Mezcla de expertos</dt><dd>Un modelo en el que solo trabaja una parte de los parámetros en cada token (<i>35B-A3B</i>: 35 mil millones en total, 3 mil millones activos), lo que lo hace rápido para su tamaño.</dd>
+    <dt>Sandbox</dt><dd>Un espacio aislado donde se ejecutan los comandos de un agente, que solo alcanzan la carpeta del proyecto y lo permitido.</dd>
+    <dt>Token</dt><dd>Un trozo de texto, más o menos tres cuartos de palabra, que los modelos leen y escriben.</dd>
+    <dt>Servicio de usuario</dt><dd>Un programa en segundo plano que systemd inicia solo para tu usuario, sin permisos de administrador.</dd>
+  </dl>
+</section>
+
+</body>
+</html>

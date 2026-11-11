@@ -1,0 +1,1414 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AI Agents Map &amp; AI Agents Map — User Manual</title>
+<link rel="stylesheet" href="manual.css">
+</head>
+<body>
+<!--
+  The source of the user manual. Edit this file, then run  python3 docs/manual/build.py
+  (see docs/manual/README.md). Rules:
+  - every chapter is <section class="chapter" id="…"> with one <h1>; sections inside are <h2 id="…">;
+    the contents page, the PDF bookmarks and the running headers are made from these;
+  - {{MAPRISMA_VERSION}}, {{PLUGIN_VERSION}} and {{DATE}} are filled in by the build;
+  - button and menu names in <b>, paths and commands in <code>, keys in <kbd>.
+-->
+
+<!-- ============================== Cover ============================== -->
+<section class="cover">
+  <img class="cover-icon" src="images/icon.svg" alt="AI Agents Map icon">
+  <p class="cover-kicker">User Manual</p>
+  <h1 class="cover-title">AI Agents Map</h1>
+  <p class="cover-sub">Your AI agents, local models, MCP servers and skills on one map</p>
+  <div class="cover-meta">
+    <p>AI Agents Map {{PLUGIN_VERSION}}</p>
+    <p>{{DATE}}</p>
+  </div>
+</section>
+
+<!-- ============================== About ============================== -->
+<section class="front" id="about">
+  <h2 class="front-title">About this manual</h2>
+  <p>This manual describes <b>AI Agents Map</b>, a plugin for the Omarchy desktop: a button in the
+  bar opens it. It uses the Omarchy theme's colours (or GNOME's Adwaita look) and keeps its settings in
+  <code>~/.config/omarchy/ai-agents-map/</code>.</p>
+
+  <h3>Conventions</h3>
+  <table class="conventions">
+    <tbody>
+      <tr><th scope="row"><b>Add</b></th><td>A button, tab or menu item in the window.</td></tr>
+      <tr><th scope="row">Settings › <b>Look</b></th><td>A path through the interface: open Settings, then <b>Look</b>.</td></tr>
+      <tr><th scope="row"><code>~/.agents/skills</code></th><td>A file, folder or command. <code>~</code> is your home folder.</td></tr>
+      <tr><th scope="row"><kbd>Ctrl</kbd>+<kbd>,</kbd></th><td>A keyboard shortcut.</td></tr>
+    </tbody>
+  </table>
+  <div class="note"><p><b>Note</b> Notes add useful background.</p></div>
+  <div class="tip"><p><b>Tip</b> Tips show a quicker way or a good habit.</p></div>
+  <div class="warn"><p><b>Caution</b> Cautions point out something that is hard to undo.</p></div>
+</section>
+
+<!-- ============================== Contents (filled by the build) ============================== -->
+<section class="front toc" id="contents">
+  <h2 class="front-title">Contents</h2>
+  <!-- TOC -->
+</section>
+
+<!-- ============================== 1 Introduction ============================== -->
+<section class="chapter" id="introduction">
+  <h1>Introduction</h1>
+  <p class="lead">AI Agents Map shows the AI setup on your computer as cards and as a map: which coding
+  agents are installed, which language models they use — cloud services and local runtimes — the
+  models those serve, and which MCP servers and skills each agent has. And it lets you change that
+  setup by drawing lines.</p>
+
+  <div class="figure wide">
+    <img src="images/main-window.jpg" alt="The main window: in the header Setup, Map and a red ! for open problems; the GPU card, and the map across the whole width: MCP servers and skills, agents with a start button, LLM providers and models">
+    <p class="caption">The main window: the map across the whole width, the GPU card above it, the ! for open problems in the header.</p>
+  </div>
+
+  <h2 id="what-it-does">What it does</h2>
+  <ul>
+    <li><b>Coding agents</b> — Claude Code, Codex, GitHub Copilot, Cursor CLI, Gemini, OpenCode, Pi,
+      Hermes and more: their version, plan, limits and usage, and what each one still needs, with
+      the command that fixes it.</li>
+    <li><b>Local LLMs</b> — llama.cpp, Ollama, LM Studio, vLLM, Jan, KoboldCpp and Strata: install them,
+      download models, set the context size that fits your graphics card, and start them together
+      with the agents that use them.</li>
+    <li><b>MCP servers and skills</b> — found on your computer or on the web, with recommended
+      servers and a search of the official MCP registry.</li>
+    <li><b>Column status</b> — a symbol on each column's Ask AI bar, each problem with the way to where it is fixed; what your setup is good for is on the welcome page and in Help.</li>
+  </ul>
+
+  <h2 id="key-ideas">Key ideas</h2>
+  <dl>
+    <dt>Agent</dt><dd>A program you talk to that writes code or does tasks, such as Claude Code.</dd>
+    <dt>LLM provider</dt><dd>Where an agent's model runs: a cloud service (Anthropic, OpenAI, …)
+      or a local LLM runtime on this computer (llama.cpp, Ollama, …).</dd>
+    <dt>Model</dt><dd>The language model itself. Local models are files, usually in GGUF format.</dd>
+    <dt>MCP server</dt><dd>A small program or web service that gives agents extra tools — reading
+      files, searching the web, controlling a browser. MCP is the Model Context Protocol.</dd>
+    <dt>Skill</dt><dd>A folder with instructions (a <code>SKILL.md</code>) and sometimes scripts that
+      teach an agent how to do a particular job.</dd>
+  </dl>
+
+  <h2 id="safety-promise">Nothing changes without a preview</h2>
+  <p>Every change to an agent's settings is shown first, line by line, before anything is written.
+  The old file is kept as a backup, and the bar that appears after the change has <b>Undo</b>. The
+  app itself never runs with administrator rights; only installing an agent that comes as a system
+  package asks for your password, in a terminal you watch.</p>
+</section>
+
+<!-- ============================== 2 Installation ============================== -->
+<section class="chapter" id="installation">
+  <h1>Installation</h1>
+
+  <h2 id="install-plugin">Installing the plugin</h2>
+  <p>Install AI Agents Map from the Omarchy Plugin Marketplace, or from a terminal:</p>
+  <pre>omarchy plugin add https://github.com/uBruckhaus/omarchy-ai-agents-map.git --enable</pre>
+  <p>A robot button appears in the bar. Everything else it needs comes with a standard Omarchy
+  install, its signed add-ons included. To run agents inside the window, install VTE:
+  <code>sudo pacman -S vte4</code>. Optional: <code>mise</code> installs and updates agents.</p>
+
+  <h2 id="first-start">First start</h2>
+  <p>A fresh install opens on the <b>welcome page</b>: the agents and local LLMs installed on this
+  computer are cards that are already ticked, and <b>Switch on</b> puts them on the map (see
+  <a href="#addons-setup">Setting up AI Agents Map</a>). After an update from an earlier version of the
+  plugin, your settings stay, and the add-ons of the agents and local LLMs on this computer are
+  switched on by themselves, so the map shows what it showed before.</p>
+  <p>The bar button opens the window, brings it to the front, or hides it when it is already in front.
+  Closing the window hides it; the program keeps running in the background so it opens again at once.
+  Settings › <b>In the app launcher</b> adds an entry to Omarchy's app launcher.</p>
+  <div class="note"><p><b>Note</b> While an agent runs inside the window, closing it asks first:
+  <b>Stop and close</b> (the agent's local LLM then stops too and frees the graphics card's memory)
+  or <b>Keep running</b>.</p></div>
+  <p>While the app looks at what is on this computer on the first open, an animated overlay lists
+  what it finds, kind by kind: agents, local LLMs, MCP servers and skills, each with a spinner that
+  turns into ✓ and a number, and how many of them are not connected yet. It fades out by itself after
+  a moment; a click closes it at once.</p>
+
+  <h2 id="remove">Removing the plugin</h2>
+  <p><code>omarchy plugin remove ubruckhaus.ai-agents-map</code>.</p>
+  <p>Before removing, switch off Settings › <b>Start local LLMs with their agents</b> so the
+  background watcher is removed too, and Settings › <b>In the app launcher</b> to delete the
+  launcher entry. Changes you made with the app stay: agents' settings, MCP servers, skills and
+  installed local LLMs. Uninstall a local LLM first (right-click › <b>Uninstall…</b>) if you want it
+  gone. To delete the app's own state as well:</p>
+  <pre>rm -rf ~/.config/omarchy/ai-agents-map ~/.local/state/ai-agents-map \
+       ~/.cache/ai-agents-map ~/.local/share/ai-agents-map</pre>
+</section>
+
+<!-- ============================== 3 The window ============================== -->
+<section class="chapter" id="window">
+  <h1>The window at a glance</h1>
+
+  <div class="figure wide annotated">
+    <div class="shot">
+      <img src="images/main-window.jpg" alt="The main window with numbered areas">
+      <span class="pin" style="left:63.2%;top:2.6%">1</span>
+      <span class="pin" style="left:79.5%;top:2.6%">2</span>
+      <span class="pin" style="left:1.3%;top:12.9%">3</span>
+      <span class="pin" style="left:0.6%;top:27.9%">4</span>
+      <span class="pin" style="left:50.0%;top:34.9%">5</span>
+      <span class="pin" style="left:40.7%;top:43.6%">6</span>
+    </div>
+    <p class="caption">The main window. The numbers match the list below.</p>
+  </div>
+
+  <ol class="legend-list">
+    <li><b>Setup</b> and <b>Map</b> — the two views, on every page; the one in view is highlighted.
+      Setup has every agent, local LLM, MCP server, skill folder and model as a card: install, update,
+      sign in, remove (see below).</li>
+    <li>The header's symbols: <b>⟳</b> refresh (<kbd>F5</kbd>: look again, as on start), <b>!</b> the overall state (green: all fine; yellow: tips or updates; red: something to fix; a click goes to the first column concerned), <b>ⓘ</b> the legend (what every dot, line and mark on the map
+      means), <b>⇅</b> the network traffic of the running agents (see <a href="#network">Network
+      traffic</a>), the add-ons , the filled <b>i</b> for Information
+      (see <a href="#help">Help</a>), <b>?</b> Help (<kbd>F1</kbd>) and the gear for Settings
+      (<kbd>Ctrl</kbd>+<kbd>,</kbd>). Hold the left mouse button on a symbol and drag it sideways to put
+      it elsewhere: a bar shows where it lands, and the order is kept.</li>
+    <li><b>GPU</b> — GPU memory and GPU activity: how the graphics card is used right now, in a card that
+      folds (folded, its line keeps the numbers).</li>
+    <li><b>Column filters and zoom</b> — filter the map's columns (<b>MCP servers</b>, <b>Agents</b>,
+      <b>Providers</b>, <b>Models</b>) and zoom or fit to the window above the map.</li>
+    <li><b>The map</b> — MCP servers and skills ← agents → LLM providers → models, across the whole width,
+      under its heading <b>MAP</b>.</li>
+    <li><b>▶</b> on an agent's box starts it in a terminal in the window; while it runs there, the button
+      brings its terminal back.</li>
+  </ol>
+
+  <h2 id="my-setup">Setup</h2>
+  <p>The map shows what is set up — installed agents and local LLMs, the MCP servers and skill
+  folders agents use, and models — and, faded, the MCP servers and skill folders found on this
+  computer that no agent uses yet, ready to connect with a line (see <a href="#found-on-pc">Found on
+  this PC</a>). Everything else is done on <b>Setup</b> (the button in the header, beside <b>Map</b>),
+  one card per item, in sections that fold away with a click on their bar:</p>
+  <ul>
+    <li><b>How things get onto your map</b> — a folded card at the top; open it for five numbered steps:
+      switch on (or find) what you use, install what is missing, sign in to an online agent, connect by
+      drawing, and what shows up by itself.</li>
+    <li><b>What you can do with this</b> — what the setup is good for (everyday help, coding, images,
+      voice, research and writing), one tile each with what is there and the next step; folded, its line
+      says how many are ready.</li>
+    <li><b>AI agents, Local LLMs</b> — every one the app knows. A card with a blue frame is installed on
+      this PC; a grey one is not, and has <b>Install</b> where installed ones have <b>Uninstall</b>.
+      A click ticks or unticks the card (✓), then <b>Apply</b>
+      switches its add-on on or off. Switching off takes it off the map; nothing is deleted. While an
+      agent runs in one of AI Agents Map's terminals (<b>Ask AI</b>'s included), its own add-on cannot be
+      switched off, updated or removed; all other add-ons can be changed. The page says which agent
+      holds it and has <b>Show terminal</b>.</li>
+    <li><b>Online providers</b> — the online providers' add-on; its
+      menu has <b>Sign in to …</b> for each installed agent that uses them.</li>
+    <li><b>MCP servers, Skills, Models</b> — a card for each one that is installed. A click opens its
+      details (a model: its menu). The card with a <b>+</b> at the end of a section adds one:
+      <b>Add MCP server</b>, <b>Add skills</b>, <b>Add model</b>, <b>Get add-ons</b>.</li>
+    <li><b>⋯</b> or a right-click on a card opens the same menu as the box on the map: update, sign in,
+      start or stop, details, uninstall or remove, move a model.</li>
+    <li>A yellow <b>↑ version</b> on a card means an update is waiting; its menu has <b>Update</b>.</li>
+    <li>A red <b>!</b> on a card means an open problem there; hover it for what it is.</li>
+    <li>An agent's details show <b>Additional usage</b> under its plan: whether it can cost extra money beyond the plan's limits. Claude Code tells this on your PC (and the page to change it); for other agents the app says it does not know, so check with the provider.</li>
+    <li>A small battery on an online agent's card shows what is left of its limits (a session, a week):
+      the tightest one counts, yellow at a quarter or less, red under a tenth; hover it for each limit
+      and when it resets. On a running local LLM's card the battery is the GPU memory still free, with
+      the same colours; hover it for how much that local LLM uses.</li>
+    <li>The refresh symbol (<kbd>F5</kbd>) in the header row looks again at what is installed,
+      set up and signed in, and runs the checks of a start again (new apps, add-ons, updates, open problems).</li>
+  </ul>
+  <div class="figure">
+    <img src="images/my-setup.jpg" alt="Setup: the folded cards How things get onto your map and What you can do with this (4 of 5 ready), the bar AI agents 16, then the agents as cards with a blue frame and a check mark; Claude Code and DeepSeek Harness with a yellow update badge, Claude Code and Codex with a battery for their limits, Cursor CLI and Hermes with a red !; the menu of Claude Code is open with Update to 2.1.303, Uninstall, Update, Sign in, Start here, Start in terminal, Details and Add-on">
+    <p class="caption">Setup: installed agents have a blue frame, switched-on ones a ✓, updates a yellow and problems a red badge; the menu of Claude Code.</p>
+  </div>
+  <div class="figure">
+    <img src="images/my-setup-tools.jpg" alt="Setup further down: MCP servers and skill folders as cards with the agents that use them, and the cards Add MCP server and Add skills">
+    <p class="caption">MCP servers and skills, each section with a card to add one.</p>
+  </div>
+  <p>There is nothing to hide: what you do not want on the map is switched off or removed here. When an
+  install or a sign-in runs in a terminal in the window, <b>Back</b> (or <b>×</b> on its tab) returns to
+  the page it was started from.</p>
+
+  <p><b>Local MCP servers</b> and <b>Online MCP servers</b> (those reached at a web address) are two
+  sections. <b>Add folder…</b> in <b>Local MCP servers</b> and in <b>Skills</b> adds a folder where the
+  app looks for them too — for example a shared disk with unpacked apps that offer an MCP server, or a
+  folder of your own skills. The folders added are listed beside the button; <b>✕</b> on one stops
+  looking there (nothing in it is deleted). What is found in them shows on the map, faded, until a line
+  connects it: Setup only has cards for what is set up.</p>
+
+  <h2 id="views">Choosing what the map shows</h2>
+  <p>The map shows everything that is set up. The <b>MCP servers</b>, <b>Agents</b>,
+  <b>Providers</b> and <b>Models</b> filter buttons above the map (and Settings › <b>Map</b>)
+  leave whole columns out of it and are remembered.</p>
+  <p>In a small window (up to 55&nbsp;% of the screen, or below 1150 pixels) the map shows
+  <b>Agents</b> and <b>Providers</b>; in a medium window (up to 80&nbsp;% of the screen, or below
+  1600 pixels) it adds <b>Models</b>; in a larger window all four columns show. A
+  column the view leaves out can still be turned on with its button above the map, and the map
+  rearranges to fit it; the filter hides columns in every view. The shown columns are centred and adjust their width
+  (266 to 560 pixels) and gap to the free space, and the map fits the window's width until you zoom
+  (<kbd>Ctrl</kbd>+<kbd>0</kbd> fits it again).</p>
+
+  <h2 id="map">Working with the map</h2>
+  <p>An agent’s model is a chain: one line from the agent to its provider, one from the provider to the model it uses. Models nobody uses stay boxes without a line, and a card’s filter (only what is connected or pinned) hides them. Drawing a local provider onto one of its models is one short step: the provider uses that model, and an agent you connect to the provider later gets it. If a drop cannot work, a short note says why, for example which provider the agent must be connected to first. A simple drawn connection or disconnection asks for Apply in a small dialog, then a short note confirms it, with Undo; an error says what went wrong. Changes requiring further steps use the detailed review. When one agent calls another, the called agent’s active path and the arrow between them use a separate collaboration colour, including deeper calls. The arrow points to the agent that is used; once the work is done, it stays dim. The tree symbol on an agent card opens its recent subagents; it is bright while one works and dim when only finished ones remain.</p>
+  <p>Ask AI can propose the same map edits, including switching an existing model, connecting an existing skill folder, repairing a failed connection and signing an agent in or out. It shows the same preview and asks before applying. For local LLM speed, GPU memory, context size, Vulkan or ROCm questions, Ask AI opens Performance, which uses this PC’s hardware and measurements before suggesting a change.</p>
+  <p>Below the question, a scrollable card suggests requests for MCP servers and skills, agents, providers and models. Choosing one fills the question with its category at the start (for example, Models:) and switches to that category; it does not send anything. You can edit the question or type a category yourself. Only Ask sends it. The status view still lets you inspect each category’s findings.</p>
+  <p>You can shape these suggestions: the bookmark button in the question field keeps what you typed as a new suggestion of the chosen category (up to 12 per category), the pencil next to a suggestion edits it in place (Enter keeps it, Esc cancels, an empty text removes it), its × removes it, and the arrow at the end of the line brings back the built-in suggestions.</p>
+  <ul>
+    <li><b>Hover</b> a box to light it up together with everything it is joined to: their frames turn the accent colour. Nothing fades.</li>
+    <li><b>Click</b> a box to select it; <kbd>Shift</kbd>+click adds more. A selected box has a stronger frame, everything joined to it stays lit, and all other boxes and lines fade. A second click on it, or a click on empty map, ends the selection. To hide the faded lines instead, turn off <b>Settings › Map › Show faded lines</b>.</li>
+    <li>The <b>pin</b> at a box's bottom right keeps the box and its lines lit, also while something else is selected.</li>
+    <li><b>Right-click</b> a box for everything its card on Setup offers: start or stop, details,
+      install, sign in, models, update, remove, and more.</li>
+    <li><b>▶</b> on an agent's box starts it in a terminal in the window.</li>
+    <li>The agents always stay in the middle of the map's visible part while you scroll.</li>
+    <li>Each agent's active path — agent → provider in use → its model — is drawn bold. While an
+      agent is working, light runs along that line.</li>
+    <li>The <b>usage statistics box</b>: while an agent is working, small numbers are written along its
+      line to the provider, in the line's colour: how fast its latest reply came (<b>t/s</b>, tokens per
+      second), its context size (<b>1M</b>) and how much of it is in use (<b>%</b>, yellow from 75&nbsp;%,
+      red over 90&nbsp;%, like the batteries). They come from the agent's own session files (numbers
+      only; Claude Code, Codex and Pi). What it shows, and its text size, are in Settings.</li>
+    <li>A red dotted line joins an agent to a provider it is set up for but does not use now (no model
+      of it in use).</li>
+    <li>When agents use different models of one local LLM, the lines to those models are violet: it
+      keeps them loaded at once, or swaps them (see <a href="#models-at-once">Models at once</a>).</li>
+    <li>An online agent's box has the same battery as its card on Setup: what is left of its limits; a
+      running local LLM's box, the GPU memory still free.</li>
+    <li>An agent paid per token — signed in with an API key, so it has no plan limits for a battery —
+      shows instead what its sessions active today cost at API prices, as a small <b>“$3.40 today”</b>
+      on its box and card: green, yellow from 75&nbsp;% of the day's limit and red over it (Settings ›
+      <b>Costs</b>), refreshed every minute. Its details show the whole <a href="#api-cost">API cost</a>.</li>
+    <li>When a program that is not on the map uses a local LLM, the line from that LLM to the model
+      turns bold in a colour of its own (purple or cyan, whichever stands out from the theme's other
+      colours), and light runs along it. See <a href="#outside-use">Used by other apps</a>.</li>
+    <li>When an agent started another one — Claude Code running <code>pi -p …</code> or
+      <code>codex exec …</code> through its shell, for example — an <b>arrow</b> runs along the left of
+      the agents' card from the agent that uses the other to the one it uses, with light running along
+      it; its tooltip names both. An agent can use several others at once, each with an arrow of its
+      own. While it is used, the agent it uses has its lines to its provider and on to its model in the
+      arrow's colour too, and the light on them runs in that colour: you see at a glance which provider
+      and model work for whom.</li>
+    <li>The refresh symbol (<kbd>F5</kbd>) in the header row looks again at what is installed,
+      set up and signed in, and runs the checks of a start again (new apps, add-ons, updates, open problems).</li>
+    <li>Until the first line is drawn, a card above the map shows how, in three steps; <b>Watch how</b>
+      plays the animation from Help. It goes for good after the first connection, or with ×.</li>
+    <li>Filter the map's columns with the <b>MCP servers</b>, <b>Agents</b>, <b>Providers</b> and
+      <b>Models</b> buttons above the map. The mouse wheel scrolls the map; zoom with the
+      <b>− 100&nbsp;% +</b> and <b>Fit to window</b> buttons at the top right or
+      <kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>−</kbd> / <kbd>0</kbd>.</li>
+    <li>The boxes sit in one card per category (agents, online providers, local LLMs, a card per
+      model folder, MCP servers, skills). Drag a card by its header to change the order in its column, and
+      a box inside its card to change the order.</li>
+    <li><b>Click a card's header</b> to fold the card to its header (<b>▸</b> at the header's right) and
+      again to open it (<b>▾</b>). The lines of a folded card's boxes end at its header, so you still see
+      what is joined to it (the arrows between agents hide while the agents' card is folded). Opening a card moves the cards below it in its column down.</li>
+    <li>The <b>pin</b> right of the zoom keeps the map's layout — the order of the cards and
+      boxes and which cards are folded — after <b>Refresh</b> (<kbd>F5</kbd>) and a restart. Unpinned,
+      as it starts, the map comes back in its default layout on every refresh and start; your changes
+      last until then. <b>Default layout</b> puts everything back at once.</li>
+    <li><b>Faded boxes</b> in the MCP servers and skills cards are on this computer but used by no
+      agent. Drag a line from an agent to one to connect it (see <a href="#found-on-pc">Found on this
+      PC</a>). MCP servers reached at a web address have a card of their own, <b>Online MCP servers</b>,
+      beside <b>Local MCP servers</b>; both fold like any other card.</li>
+  </ul>
+  <div class="tip"><p><b>Tip</b> The map fits the window's width until you zoom (<kbd>Ctrl</kbd>+<kbd>0</kbd>
+  fits it again). Up to 55&nbsp;% of the screen (below 1150 pixels) it shows <b>Agents</b> and
+  <b>Providers</b>; up to 80&nbsp;% (below 1600 pixels) it adds <b>Models</b>; above that, all
+  four columns. The buttons above the map turn on any column in any view.</p></div>
+
+  <h2 id="health">Column status</h2>
+  <p>Every column's <b>Ask AI…</b> bar shows that column's state at its left, and the header shows the worst state of all columns, also of a hidden one: a green check mark when all is fine, a yellow triangle for tips, updates or suggestions, a red <b>!</b> when something needs fixing. A click on the symbol opens the column's list, worst first: an agent not signed in, a local LLM without models, a connection that does not work, little free space for models, each with a button to where it is fixed. <b>Ask AI</b> on a line puts it into the prompt; only <b>Ask</b> sends it. A click on the header's symbol goes to the first column concerned. The check only reads; it never changes, starts or sends anything.</p>
+  <p>The list also shows new programs or skills found on this PC, what is on this PC but not on the map, and updates for installed agents, local LLMs and MCP servers, each with its button. Updates are checked in the background when the window opens, at most every six hours. An update starts only when you click <b>Update</b> (see <a href="#smart-updates">Updates found</a>). What your setup is good for is on the welcome page and in Help, under <b>What you can do with it</b>.</p>
+
+  <h2 id="smart-card">Smart cards on the map</h2>
+  <p>A collapsed <b>Ask AI…</b> bar sits at the top of every map column, with a status symbol at its left: a green check mark when all is fine, a yellow triangle for tips, updates or suggestions, or a red <b>!</b> when something in that column needs fixing. The header bar shows the overall status across all four columns (even hidden ones) and opens the first column that needs attention. Clicking a column’s status symbol opens its status list: each finding for that column with the button that opens where it is fixed and <b>Ask AI</b> to pre-fill the prompt, newer versions of installed agents and local LLMs (<b>Update</b> runs <code>mise upgrade</code> or the agent’s own updater in a terminal, or opens the install review; checked at most every six hours), MCP server updates from the daily AI checks, and <b>Check again</b>. On the welcome page, <b>What you can do with it</b> shows the use cases (everyday help, vibe coding, images, voice, research and writing) as <b>Ready</b>, <b>Almost</b> or <b>Not yet</b>, with what is there for each and the next step.</p>
+  <p>The app reads the signed add-on catalog in the background at start: from its cache, and online only when <b>Look for add-ons online</b> is on. Each column’s status list then also shows agents and local LLMs on this PC whose add-on is switched off or not installed yet (<b>Get add-ons</b> or <b>Add-ons</b> opens the add-ons to switch on or get), new programs or skills found on this PC (<b>Add MCP server…</b>, <b>Add skills…</b>), and installed add-ons with a newer version in the catalog. <b>Update all</b> shows them with their versions and, once confirmed, updates them one after the other, each checked against the catalog; one message says what was updated and what was not.</p>
+  <p>Clicking the <b>Ask AI…</b> part of the bar opens the prompt in a centred window over the map, with the helper and its cost in the header and the buttons in the footer (or offers <b>Get started</b> when no AI helper is set up yet). Before anything is sent, the card shows which helper answers (with a menu when more than one is ready) and whether it runs locally (<b>Local, no tokens</b>) or <b>Uses plan/tokens</b>; only clicking <b>Ask</b> sends your one-line request. The helper either asks one clarifying question, offers to move the request to the right column, or proposes checked candidates from real search results. In the <b>Models</b> column, the card shows this PC’s VRAM, RAM and free disk space and marks each candidate as <b>Fits in VRAM</b>, <b>Uses RAM offload</b> or <b>Too large for this PC</b>. <b>Review</b> opens the download preview before anything is downloaded or changed, and once a model is ready you can optionally connect it to an agent through the connection preview with <b>Undo</b>.</p>
+  <p>In the <b>MCP servers and skills</b> column the helper can add an MCP server from the official registry, connect a server to an agent, or disconnect it. It can disconnect several or all servers in one step, with one preview and one Undo. You choose the agents, fill in what the server needs (keys stay on this PC and never reach the helper), and approve the normal review; then the change is made and the map shows it. It turns down anything else and names the right column. It can also disconnect skill folders in the same step. It cannot add or update skills yet, update programs, or delete a server from the PC.</p>
+  <p>In the <b>Models</b> column the helper can also remove a model of a local LLM: you see the normal removal review first, and files go to Trash where that is possible. It can also move a model folder to another disk, with a preview and <b>Undo</b> in the header. Each folder gets its own review. It can also disconnect agents from one, several or all models of a local LLM, in one preview with one Undo; no file is deleted.</p>
+  <p>In the <b>Agents</b> column the helper can install, update or remove an agent, where the Agents page offers that. You see its normal review; the step then runs in a terminal you can watch. It does not start agents or change their settings.</p>
+  <p>In the <b>Providers</b> column the helper can install or update a local LLM, and start or stop it, where the app offers that; the app's normal review opens for the step. It cannot uninstall a provider or sign in to an online one.</p>
+  <p>Ask AI also offers the other steps of the app’s menus, each through the same menu with its own review and Undo. In the <b>Agents</b> column: the test question, the API key card (you type the key there; the helper never sees it), security settings, starting an agent or stopping one that runs outside the app, its connections and details, and an add-on’s details, switching it on or off, installing, updating or removing it. In the <b>Providers</b> column: the same add-on steps for local LLMs, and <b>Find existing AI</b>, which looks for programs and model folders already on this PC; the app does not uninstall a local LLM program itself. In the <b>Models</b> column: loading, unloading or importing a model, and the model a local LLM uses itself, checked by the same rules as a model switch and with its own Undo, as when you draw it on the map. In the <b>MCP servers and skills</b> column: what <b>Found on this PC</b> shows. Connecting an agent to an online provider signs it in to its own provider; another agent’s provider is refused with the reason. When agents leave a local LLM, only their configuration changes, as when you take the line away. After a download, Ask AI offers the agents that can use a local LLM, and the model becomes that agent’s model, as when you draw the connection.</p>
+  <p>When a column cannot do something but the web can tell how, an online helper searches the web and the card shows its answer with sources; a local helper cannot search the web and says so. After such an answer, <b>Do it with …</b> shows the prompt, and the agent then works in a terminal and asks before each step that changes files. The task itself waits in a private file in AI Agents Map’s cache; the agent’s command line only names that file, so other accounts on this PC cannot read it.</p>
+</section>
+
+<!-- ============================== 4 Agents ============================== -->
+<section class="chapter" id="agents">
+  <h1>Agents</h1>
+
+  <h2 id="agent-cards">Agent details</h2>
+  <p>Every coding agent has a card on Setup, installed ones with their version. Click an installed
+  agent's card (<b>⋯</b> › <b>Details</b>), or right-click its box on
+  the map › <b>Details</b>. At the top, one line says whether the agent is ready (and if not, why) and
+  whether it is running now or when it was last used. Below it, every category is a card that folds:
+  click its heading to open or close it. They start folded, each with a one-line summary and badges; a
+  category you open stays open on the next details pages.</p>
+  <div class="figure wide">
+    <img src="images/agent-details.jpg" alt="OpenCode's details page: Set up and ready, then folded cards Usage and tokens, Projects last 30 days, Topics with a Privacy badge, Health with Healthy, Security settings and Risk management with High risk, What the words mean and Configuration, each with a one-line summary">
+    <p class="caption">An agent's details: every category folded, with its summary and badges.</p>
+  </div>
+  <table>
+    <thead><tr><th>Card</th><th>What it shows</th></tr></thead>
+    <tbody>
+      <tr><td><b>Usage and tokens</b></td><td>Where the agent records it: today's and the last seven days' tokens and sessions, the plan, a chart of tokens per day, rate limits with reset times and tokens by model.</td></tr>
+      <tr><td><b>API cost</b> / <b>API value</b></td><td>What its tokens cost at the providers' API prices: today, the last 7 and 30 days, and per model the split into input, output, cache read and cache write (tokens and amount). <b>API cost</b> for an agent paid per token (with its share of the day's limit), <b>API value</b> for one on a plan (the plan covers it). See <a href="#api-cost">API cost</a>.</td></tr>
+      <tr><td><b>Projects, last 30 days</b></td><td>Per project folder: working time, sessions, tokens, subagent runs, lines changed and the API value.</td></tr>
+      <tr><td><b>Topics</b> (Privacy)</td><td>What the sessions were about. It goes beyond numbers, so it is marked <b>Privacy</b> and filled only by an add-on (see below); the add-on names the card and its badge says how much it reads.</td></tr>
+      <tr><td><b>Health</b></td><td>Every setup check with a ✓, or what to do next: sign in, install or start its local LLM, download a model, add MCP servers or skills.</td></tr>
+      <tr><td><b>Security settings</b>, <b>Risk management</b>, <b>What the words mean</b></td><td>What the agent may do without asking you, and what lowers the risk (see <a href="#security">Healthy &amp; Security check</a>).</td></tr>
+      <tr><td><b>Configuration</b></td><td>The agent's settings, MCP servers, skills and settings folder.</td></tr>
+    </tbody>
+  </table>
+  <p>Projects are shown for every agent whose sessions the app reads — Claude Code, Codex, Pi, Oh My Pi,
+  OpenCode, Hermes, DeepSeek Harness, Goose, Gemini CLI and OpenClaw:
+  working time, sessions, tokens, subagent runs, lines changed and what the tokens would cost at API
+  prices. The numbers come from each agent's own session files or database; no text is read.</p>
+  <p id="api-cost"><b>API cost.</b> The amounts are an estimate: the token counts the agent keeps (input,
+  output, cache read and cache write, per model) at the providers' published API prices — Anthropic,
+  OpenAI, DeepSeek, xAI and Google, with the date they were taken. A session counts on the day of its
+  last reply; local models cost nothing. Crush keeps no token counts that add up, so its card shows the
+  cost Crush itself reports. For an agent that keeps no token counts on the PC (Cursor CLI, Antigravity,
+  Muse) the card says the cost is not known; its provider's account page has it. Amounts are shown in
+  US dollars, or in euros at the European Central Bank's daily rate (Settings › <b>Costs</b>).</p>
+  <p> With the <b>Insights</b> add-on (see <a href="#addons">Add-ons</a>) the <b>Topics</b> card shows first
+  which topics took the most tokens in the last 30 days (<b>Most tokens</b>: sessions with the same title are one
+  topic, each with its share of all tokens), then the titles the agent gave its sessions itself, per project
+  (<b>By project</b>), and offers <b>Summarize with Claude…</b> (when Claude Code is installed). Its tokens come
+  from the agent's own session files without cache reads, so they can be far lower than in <b>Usage and
+  tokens</b>, which may count cache reads. Before anything is sent, you see exactly what will be sent: the titles
+  and numbers, never the conversations.</p>
+
+  <h2 id="running-agents">Starting and stopping agents</h2>
+  <p>The last 50 project folders are kept per agent.</p>
+  <p>Each agent’s <b>Start</b> submenu has three sections separated by lines: <b>Start</b> with the current folder, <b>Choose folder…</b>, and a searchable <b>Recent projects</b> drop-down. The drop-down scrolls and lists all folders used to start this agent from the map, newest first. Choose a past project, then Start. Choosing a folder in the folder picker starts one session there. No pinned folder is required: without one, Start uses Settings › <b>Agents start in</b>, or your home folder. The agent’s details page has a scrollable <b>Recent projects</b> card with every recorded folder. Click a row to open Start with that folder selected. Its pin sets this agent’s next default; only one folder per agent can be pinned, and unpinning restores the general default. The trash button removes the entry and its pin from this agent’s history, never the folder or its files. The same submenu, history and pins apply to <b>Start here</b> and <b>Start in terminal</b>. <b>Start again</b> offers the submenu again. Running sessions keep their existing folder; cancelled choices and failed launches add no history.</p>
+  <ul>
+    <li><b>▶</b> on the agent's box, or <b>Start here</b> in its menu, runs the agent in a terminal inside
+      the window, in place of the map. This needs VTE (<code>vte4</code>).</li>
+    <li><b>Start in terminal</b> opens it in a terminal window of its own.</li>
+    <li>While it runs inside the window: <b>Show terminal</b> and <b>Stop</b>. Stop ends the agent and
+      everything it started, such as its MCP servers.</li>
+    <li><b>Terminals…</b> lists where else the agent runs: <i>Here, in this window</i>, each
+      <i>Terminal window</i> (a click brings it to the front) and each instance <i>In the background</i>
+      — one with no window, such as <code>claude -p …</code> run by a script or by another agent. A
+      click on a background instance opens a terminal tab that shows what it writes, as it writes it:
+      questions, answers and the tools it uses (from its session file, or its output when that goes to
+      a file). The tab ends when the instance ends. This is the one place where the app shows
+      conversation text, and only for the instance you click.</li>
+    <li><b>Stop…</b> — also the small stop button left of <b>▶</b> on the agent's box — stops one of its
+      instances outside this window. Pick it from the list, which says where and when each one was
+      started. It is asked to end (SIGTERM) and, if it is still there after 3 seconds, ended. Only that
+      very process is stopped: if it has ended in the meantime and its process number now belongs to
+      another program, nothing happens.</li>
+  </ul>
+  <p>When agents have terminals in the window, a tab line above the map shows one tab per terminal
+  with a dot for <i>working</i>, <i>running</i> or <i>ended</i>. Click a tab to show that terminal;
+  <b>×</b> closes an ended one.</p>
+  <p>An agent with an open instance anywhere on the computer gets a green dot and <i>running</i>,
+  and the model box it runs with says <i>in use · &lt;agent&gt;</i>.</p>
+
+  <h2 id="network">Network traffic</h2>
+  <p>A running agent's box and card show what it receives and sends (↓ in, ↑ out). Click that line,
+  or <b>⇅</b> in the header for all running agents, to open its network page: <b>Now</b>, <b>The last
+  5 minutes</b> as a chart (in green, out blue), <b>Where it goes</b> — online APIs, local LLMs, this PC
+  and your local network, each with its share — and <b>Programs</b>: the agent itself and the
+  programs started by it, such as its MCP servers. It is counted from the agent's own TCP connections
+  while the app is open (no administrator rights needed; UDP is not counted) and stays on this PC.</p>
+
+  <h2 id="subagents">Subagents</h2>
+  <p>Claude Code and OpenCode can hand parts of a task to <b>subagents</b>. While one of an agent's
+  subagents works, its box on the map shows a small tree mark next to ⇅; while it has only finished
+  ones listed, the mark is dimmed. Click the mark to open the agent's <b>Subagents</b> page: a map of
+  its own, laid out like the big one, with the agent's card at the left and a <b>Subagents</b> card at
+  the right. Each box shows the subagent's task, its type, the folder its session works in, and
+  <b>working</b> or <b>done … minutes ago</b>. Light runs on the lines to the working ones; finished
+  ones are dimmed. Hover a box to read its whole task.</p>
+  <div class="figure wide">
+    <img src="images/subagents.jpg" alt="The Subagents page's map: Claude Code's card at the left with its subagents mark and network symbol, at the right a Subagents card with three boxes: two working subagents with light on their lines, one finished one dimmed">
+    <p class="caption">An agent's subagents: two at work, one finished.</p>
+  </div>
+  <p>How long finished subagents stay listed (30 minutes) and how many at most (10) is set in
+  Settings › <b>Subagents</b>; working ones are always shown. The page reads only each subagent's type
+  and the one-line description of its task, from the agent's own files (Claude Code's session
+  folders, OpenCode's database), never what the subagents say.</p>
+
+  <h2 id="together-flutter">Agents working together</h2>
+  <p>An agent that started another one and uses it — Claude Code running <code>pi -p …</code> through its shell, for example — is joined to it on the map by a line bent along the right of the agents’ boxes. Light runs on it while either of them works. It is found from the process tree only (the agents’ own processes and their parents), and the line is shown, never edited. The subagents of Claude Code, Codex, GitHub Copilot, OpenCode and Goose are read as in the app.</p>
+
+
+  <h2 id="costs-flutter">Costs</h2>
+  <p>An agent’s details show what its tokens cost at the providers’ API prices: today, in the last 7 and 30 days, and per model split into input, output, cache read and cache write. <b>API cost</b> for an agent paid per token (with the share of the day’s limit), <b>API value</b> for one on a plan (which covers it). It is an estimate from the numbers in its own session files; no text of them is read. Settings › <b>Costs</b> sets the <b>Currency</b> (euros at the European Central Bank’s daily rate, fetched once a day), <b>A day’s limit</b> and the levels <b>Yellow from</b> and <b>Red from</b> (red always above yellow). Claude Code’s session files are read on from where the last look stopped, so very long sessions are counted whole; a first look on a PC with very many of them may take two looks to be complete.</p>
+  <p>On the map, an agent with plan limits shows a small battery in its box with what is left of the tightest limit, and one paid per token shows today’s cost there, with a battery beside it of what is left of the day’s limit; green, yellow or red at the levels of Settings › Costs, the details in its tooltip. Both are looked at again every minute. A battery whose numbers may be out of date (the collector kept them after a failed check, or they were measured more than 30 minutes ago) is faded, and its tooltip says when they were measured; a limit without a reset time is no longer shown then. The limits come from Omarchy’s usage collector for that agent (<code>omarchy-agent-usage-claude</code>, <code>-codex</code>, …): on Omarchy through Omarchy itself, on another desktop when the collector is on your PATH. Without a collector, Codex is asked itself while it is signed in: its own <code>codex app-server</code> tells its plan’s limits (no prompt is sent, and it is closed again right away). Only Codex as it is installed is asked, never a launcher that would install or update it first; a sign-in in the keyring or in the folder that <code>CODEX_HOME</code> names counts too. While the app is open, the limits are asked for again every ten minutes; after a sign-out they are no longer shown. AI Agents Map reads no sign-in files itself; the collector or the agent does that. An agent whose own session store says what its sessions cost (Hermes, OpenCode) counts as paid per token; an estimated cost alone does not. With <b>Notify when red</b> on, a cost in the red gets one desktop notification a day.</p>
+
+  <h2 id="details-flutter">Details</h2>
+  <p>An agent’s details also show <b>Projects, last 30 days</b>: per project folder the working time, sessions, tokens, lines changed and API value, the subagent runs per type and the busiest hour, from the numbers in its session files. A local LLM’s card says whether it runs, how much GPU memory it holds and which models are loaded, shows its models, agents and address, <b>Usage and tokens</b> that agents sent through it (matched by model name), and under <b>Risk management</b> who can reach it. On the map, a running local LLM shows the GPU memory still free as a battery. Clicking an MCP server’s or a skill set’s box opens its details: which agents have it and how each starts, calls or reads it (values of keys, tokens and query parameters are never shown), who has not got it yet, and the server’s tools as last asked or each skill’s description.</p>
+
+  <h2 id="tabs-usage-flutter">Terminal tabs, the usage box and the starter model</h2>
+  <p>Terminals open in a centred window over the map. While agents run in terminals in the window, a tab for each sits above the map, with a dot for <b>working</b>, <b>running</b> or <b>ended</b>; a click shows the terminal, the one in view is marked (Settings: <b>Terminal tabs above the map</b>). A working agent’s box on the map shows the <b>Usage statistics box</b>: how fast its latest reply came (tokens per second), its context size and how much of it is in use (yellow from 75 %, red over 90 %), read from its own session files, numbers only; Settings says which of these show and how big. In <b>Your first agent</b>, a route with a local LLM suggests the starter model that fits your graphics card (<b>A model</b>), and <b>Download it</b> starts its download as the Models page does.</p>
+  <h2 id="configure">Configure…</h2>
+  <p>Right-click an agent or a local LLM › <b>Configure…</b> opens its own setup in a terminal tab of
+  the window, for what the app does not set itself — for example <code>hermes setup</code> or Ollama's
+  own menu; LM Studio opens its window. A program without a setup command shows its
+  <code>--help</code>. When it ends, the map looks again and shows what changed, and a running local LLM
+  is offered a restart.</p>
+
+  <h2 id="sign-in">Signing in</h2>
+  <p><b>Sign in…</b> in an agent's menu (on Setup or on the map) shows what the agent needs and its
+  own ways to sign in:</p>
+  <ul>
+    <li><b>A subscription or an account</b> — the agent's own sign-in runs in a terminal in the window
+      (for example <code>claude auth login</code> or <code>codex login</code>). Your password or browser
+      login stays between you and the agent; the app never sees it. Where the agent asks for it,
+      the terminal says what to type (Pi and Copilot: <code>/login</code>).</li>
+    <li><b>An API key</b> — for agents that read one: the key goes into a password field, then
+      straight to the agent's own command (Codex stores it itself) or into the file the agent reads
+      (Gemini: <code>~/.gemini/.env</code>, readable only by you). It never goes into a command line,
+      a log or the app's settings, and the app does not keep it. Claude Code's API billing is its own
+      Anthropic Console sign-in, so no key passes through the app.</li>
+  </ul>
+  <div class="figure">
+    <img src="images/sign-in.jpg" alt="The Sign in to Claude Code dialog: what Claude Code needs, a note that the agent's own sign-in runs in a terminal, and the buttons API billing (Anthropic Console), Claude subscription and Cancel">
+    <p class="caption">Signing in to Claude Code: a subscription or API billing, both with Claude Code's own sign-in.</p>
+  </div>
+  <p>Afterwards the map shows the agent's online provider and its models.</p>
+
+  <h2 id="sign-in-flutter">API keys</h2>
+  <p>An agent that reads an API key shows <b>API key…</b> in its details. The card says where the key goes before you type it: to the agent’s own command (Codex: <code>codex login --with-api-key</code>), or into the file the agent reads (Gemini: <code>~/.gemini/.env</code>, written as a new file readable only by you; other lines in it stay). The field hides what you type, and <b>Save</b> becomes available only for something shaped like a key. The key goes to a separate worker process on its standard input; it never goes into a command line, a log, a backup or the app’s settings, and the app does not keep it. When the agent’s own command answers, its last line is shown, with the key cut out.</p>
+
+  <h2 id="agent-updates">Updating agents</h2>
+  <p>When a newer version of an installed agent is out, its card on Setup gets a yellow <b>↑ version</b>,
+  and the column’s status names it. <b>Update</b> runs
+  the update the same way the agent was installed — for example <code>mise upgrade &lt;tool&gt;</code>
+  or <code>claude update</code> — in a terminal window of its own, so you can follow it.</p>
+
+  <h2 id="installed-agents">Agents the app can install</h2>
+  <p>Four agents can be installed, updated and uninstalled from the map (right-click the agent ›
+  <b>Install…</b>):</p>
+  <ul>
+    <li><b>Goose</b> (<code>goose</code>, from the Agentic AI Foundation, formerly Block), its GitHub release
+      through mise. It works with many providers and with local LLMs; <b>Configure…</b> runs
+      <code>goose configure</code>.</li>
+    <li><b>DeepSeek Harness</b> (<code>dsh</code>, developer preview), from npm. It can use local LLMs.</li>
+    <li><b>Antigravity CLI</b> (<code>agy</code>, Google), from Google's release manifest; the
+      download is checked against its SHA-512.</li>
+    <li><b>LM Studio Bionic</b> cannot be installed from here (no published checksum); get it from
+      lmstudio.ai. It always uses LM Studio's engine and models.</li>
+  </ul>
+
+  <h2 id="new-agents">New agents</h2>
+  <p>When an agent turns up that the app does not know yet, it asks an installed agent (Claude Code,
+  else Codex) once to find out on the web where that agent keeps its skills and MCP servers. The
+  answer is checked before use, and nothing in it is ever run. Settings › <b>Look up new agents</b>
+  switches this off.</p>
+</section>
+
+<!-- ============================== 5 Local LLMs ============================== -->
+<section class="chapter" id="local-llms">
+  <h1>Local LLMs</h1>
+  <p class="lead">A local LLM runtime runs language models on your own graphics card, so prompts
+  never leave the computer. The app installs, starts and stops them for you.</p>
+
+  <h2 id="install-runtime">Installing a local LLM</h2>
+  <p>Right-click a grey (not installed) local LLM on the map › <b>Install…</b>. You choose the
+  program folder, the model folder (the one your other local LLMs use is suggested) and whether it
+  starts at login. It is installed for your user only, with a user service, so no password is
+  needed. Every download must match the SHA-256 checksum its release publishes before it is unpacked
+  or run.</p>
+  <table>
+    <thead><tr><th>Runtime</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><b>Ollama</b></td><td>The official release (with ROCm for AMD cards).</td></tr>
+      <tr><td><b>llama.cpp</b></td><td>The build of your choice (Vulkan, ROCm, CUDA, CPU), run as a model router: every GGUF in the model folder, one loaded at a time.</td></tr>
+      <tr><td><b>LM Studio</b></td><td>Not installed from here (no published checksum); get it from lmstudio.ai. Shown and managed once installed.</td></tr>
+      <tr><td><b>vLLM</b></td><td>For NVIDIA cards, in its own Python environment.</td></tr>
+      <tr><td><b>Jan</b></td><td>Its AppImage, unpacked, with Jan's engine as a background service for agents.</td></tr>
+      <tr><td><b>KoboldCpp</b></td><td>The official single-file build, run as a model router.</td></tr>
+      <tr><td><b>Strata</b></td><td>Its own installer (<code>install.sh</code> of the latest release, checked against the SHA-256 the release lists), which puts Strata’s terminal in <code>~/.local/share/strata/terminal</code>. Its engine and models come later, in Strata’s own screens (see <a href="#strata">Strata</a>). AI Agents Map offers no <b>Uninstall…</b> for it; how to remove it is in that section too.</td></tr>
+    </tbody>
+  </table>
+  <p>Installed this way, a local LLM also offers <b>Update…</b> (the previous version is kept as a
+  fallback), <b>Model folder…</b> and <b>Uninstall…</b>, which removes the program, command, service
+  and settings but never the models. Local LLMs you installed yourself are shown, but never changed.</p>
+  <p>A local LLM that is not installed yet shows <b>Install</b> under Providers and models, and the first-agent guide offers <b>Install mise</b>, <b>Install Node.js</b> and <b>Install</b> for the local LLM its route needs. AI Agents Map first looks up the latest release and shows it on a card: its files and their size, the program folder (<code>~/.local/share/ai-agents-map/&lt;name&gt;</code>, one folder per version), the model folder inside it and your graphics card. For llama.cpp and KoboldCpp, choose the build there (Vulkan, ROCm, CUDA or CPU); another build is looked up again before anything is installed. A local LLM with a user service also offers <b>Start now</b> and <b>Start at login</b>.</p>
+  <p><b>Install</b> downloads the files, checks each one against the checksum its release lists, and unpacks them; nothing of the download runs while it is installed (Jan’s AppImage unpacks itself in a closed-in sandbox). Strata is the exception: its own <code>install.sh</code>, checked against its release’s checksum, runs and installs it under your home folder. A program that is already installed some other way, or a settings file or service that already exists, is never replaced: the card refuses it. Ollama, llama.cpp, KoboldCpp, Jan, Strata and mise install this way; LM Studio and vLLM do not, because no checksummed release can be taken for them.</p>
+  <p>Every step you start from the first-agent guide — installing, signing in, the test question, Providers and models, Connections — brings you back to the guide with <b>Back</b>, refreshed, so the step just done shows as done.</p>
+
+  <h2 id="start-with-agents">Starting and stopping with agents</h2>
+  <p>Connect an agent to a local LLM once, then just start the agent — even with the app closed or
+  after a reboot. Its local LLM starts with it, and when the last agent using it closes, the LLM
+  stops about five seconds later, so its graphics memory is free again.</p>
+  <p>A small background service, <code>ai-agents-map-providers.service</code>, does this. It is set up
+  with the first connection to a local LLM and removed when the last one goes, or when you switch off
+  Settings › <b>Start local LLMs with their agents</b>.</p>
+  <div class="note"><p><b>Note</b> KoboldCpp takes a few seconds to start, longer than some agents
+  wait. So it starts at login, and when the last agent closes only its model is unloaded.</p></div>
+  <div class="note"><p><b>Note</b> Strata is not started with its agents. Start it on the map
+  (the ▶ button on its box) or in Strata itself before you work with an agent connected to it.</p></div>
+
+  <h2 id="strata">Strata</h2>
+  <p>Strata is a local inference engine with a terminal app of its own. It serves one model at a time on
+  <code>127.0.0.1:8080</code> and speaks the OpenAI and Anthropic APIs, so agents connect to it like to
+  the other local LLMs. AI Agents Map finds it by its own <code>strata</code> command (another program with
+  that name, such as the Strata file manager in <code>/usr/bin</code>, is not taken for it), by its
+  running server, and by its models: the run configs Strata keeps in
+  <code>~/.local/share/strata/install</code>.</p>
+  <p>Choosing, downloading and tuning a model happens in Strata’s own screens: run
+  <code>~/.local/bin/strata launch</code> in a terminal (<code>~/.local/bin/strata launch --status</code> shows what is serving).
+  Once Strata has started a model this way, it remembers it as a launch preset. From then on
+  <b>Start</b> on the map (the ▶ button on Strata’s box) starts the preset used last
+  (<code>strata launch --preset … --no-tui</code>, which returns when the model serves; large models take
+  a few minutes), and <b>Stop</b> stops it (<code>strata launch --stop</code>).</p>
+  <p>Strata and llama.cpp both use port 8080 unless told otherwise. An agent connected from the map
+  names its local LLM (<code>strata-local</code>), so it stays Strata’s even when llama.cpp uses that port
+  too; only one of them can serve on a port at a time.</p>
+  <p>AI Agents Map does not remove Strata. To remove it yourself, delete its terminal (<code>~/.local/share/strata/terminal</code>) and the link <code>~/.local/bin/strata</code>. Its engines and run configs are in <code>~/.local/share/strata</code> (<code>components</code>, <code>install</code>), its models in the folders you chose in Strata, and the desktop app’s chats in <code>~/.strata</code>; delete those only if you no longer want them.</p>
+
+  <h2 id="llm-details">A local LLM's details</h2>
+  <p>Click a local LLM's card on Setup, or right-click its box on the map › <b>Details</b>. Below the
+  tiles (models, agents, address) the same folding cards as for agents: <b>Usage and tokens</b> —
+  what your agents sent through it in the last days, per agent and model, taken from the agents' own
+  session numbers and matched by model name — then Health, Risk management, What the words mean and
+  Configuration.</p>
+
+  <h2 id="performance">Performance</h2>
+  <p>A local LLM whose settings the app knows (llama.cpp, Ollama installed by the app) has a
+  <b>Performance</b> card on its details page:</p>
+  <ul>
+    <li><b>Build</b>, <b>GPU stacks</b> and <b>Video memory</b>: what runs it — ROCm, Vulkan, CUDA or the
+      CPU (for llama.cpp read from its own device list, also for a build you made yourself), which of
+      these stacks this PC has, and the card's memory.</li>
+    <li><b>Context per model</b>: each model's file size, the context set now, the context the card holds
+      for it — its file plus the context's cache, read from the model's header — and what it was trained
+      for. <b>!</b> marks a context larger than the card holds (the model would not load, or spill into
+      RAM), <b>↑</b> one the card could make larger; <b>Set to …</b> changes it.</li>
+    <li><b>Ask …</b>: the local helper (or the online agent) looks at these facts — names and numbers
+      only — and suggests changes: settings such as flash attention, the context's cache type, the GPU
+      layers, parallel requests and batch sizes; contexts; another build when it would clearly help.
+      The app keeps only suggestions it can stand behind (a known setting with an allowed value, a
+      context the card holds) and shows each with why. <b>Apply</b> writes it with a backup; the message
+      offers <b>Undo</b>, or <b>Restart now</b> when it counts only after a restart. Another build is
+      only suggested: install it from the local LLM's menu.</li>
+  </ul>
+  <p>For Ollama, its settings are for every model at once (its server's environment file).</p>
+  <p>A local LLM with settings the app can tune (llama.cpp, Ollama) has <b>Performance</b> in <b>Providers and models</b>. It shows the build it runs as, the GPU stacks on this PC and the video memory, then <b>Context per model</b>: each model’s size, its context now, what the card holds for it and what it was trained for. A model with more context than the card holds is marked, and so is one the card has room for; for llama.cpp, <b>Set to …</b> sets it. <b>Settings for every model</b> lists the engine’s settings with what each does; one with a list of values can be changed there. Every change is shown first and written with a backup, so <b>Undo</b> puts it back; it counts after the local LLM restarts. Under <b>Tips from an agent</b>, <b>Ask …</b> has the agent for AI checks look at these facts (names and numbers only, through the web alone): it suggests settings, contexts, another build or notes, each with why. The app keeps only what it can stand behind — an allowed value, a context the card holds, a build the local LLM has — and <b>Apply</b> goes through the same preview. Its tokens are the agent’s; the run is listed in the Smart Check. For llama.cpp, the app also measures each model on this card with the build its service runs (ROCm or Vulkan): after a download, when the build changes, and with <b>Measure and tune</b>. It tries batch sizes, keeps the fastest and gives the model the largest context the measured video memory leaves, with a q8_0 cache and flash attention unless you chose otherwise; agents connected to llama.cpp get the new context too. It waits while a model is loaded, and <b>Undo</b> puts the old settings back.</p>
+
+  <h2 id="gpu">GPU memory and Free GPU memory</h2>
+  <p>In the <b>GPU</b> card above the map, <b>GPU memory</b> shows how much is in use, split into local LLMs, desktop and
+  apps, and free; <b>GPU activity</b> shows load, temperature and power. Each local LLM's box shows
+  how much memory it holds, and loaded models get a green dot.</p>
+  <p>Right-click a local LLM for <b>Start</b>, <b>Stop</b>, start at login, and <b>Free GPU memory</b>:
+  its models are unloaded, it keeps running and loads one again when asked.</p>
+  <p>When the last agent that used a local LLM closes and the LLM still holds its models, a message asks
+  whether to give the memory back: <b>Free it</b> unloads them, <b>Keep</b> leaves them loaded.</p>
+
+  <p>A local LLM that holds GPU memory gets a red stop button on its box. It asks first: <b>Free GPU memory</b> unloads its models; <b>Stop</b> ends it. For LM Studio the button is <b>Stop server</b>: only its server ends, and the app stays open with its models loaded. A model that a local LLM has loaded, but no agent uses, is joined to it by a solid light line.</p>
+  <p>LM Studio can be open without its server. Its box then says <i>server off</i> with a yellow dot, agents cannot reach it, and its menu offers <b>Start server</b> (<code>lms server start</code>).</p>
+
+  <h2 id="models-at-once">Models at once</h2>
+  <p>llama.cpp, LM Studio and Ollama can keep more than one model loaded. When you connect agents to
+  different models of one local LLM, the app sets how many it keeps loaded at once to the number its
+  agents use — with the same preview, backup and Undo as the connection — and offers to restart it
+  if it is running, because it reads the number when it starts. Where that number is not the app's
+  to change (a system install, or your own start command), a note says where to set it.</p>
+  <p>When the models together do not fit in the GPU's memory, a warning says so: the local LLM then
+  swaps them, which is slow, or part of a model runs on the processor. Starting an agent checks the
+  same: if loading its model needs more GPU memory than is free, you are asked first, with what holds
+  the memory now — <b>Free GPU memory, then start</b>, <b>Start anyway</b> or <b>Cancel</b>.</p>
+  <p>After a change of an agent’s local LLM or model is applied, the app looks at how many different models each local LLM’s agents now use. Where it may set the number — llama.cpp’s and Ollama’s settings files of the app’s own installs, LM Studio’s one-or-many setting — a second <b>Preview</b> shows the change, with what it means and any warning; <b>Apply</b> writes it with a backup, and <b>Undo</b> takes it back. A number fixed in your own start script is left as it is. When the models are too many for what is kept loaded, or too big together for the graphics card, the status of the Providers column says so as well.</p>
+
+  <h2 id="outside-use">Used by other apps</h2>
+  <p>Local LLMs are not only used by agents. A plugin such as Video Trans, a chat app or your own
+  script can send requests to them too. The app notices this and shows it:</p>
+  <div class="figure wide">
+    <img src="images/outside-use.jpg" alt="The map: a cyan line with light from llama.cpp to the model gemma-4-12B-it-QAT-Q4_0, whose box says in use · curl; Claude Code's blue accent line to opus above it">
+    <p class="caption">A program that is not on the map (here <code>curl</code>) generating with llama.cpp: the cyan line and box (Tokyo Night theme). Claude Code's own path to opus stays in the accent colour.</p>
+  </div>
+  <ul>
+    <li><b>On the map</b>, the line from the local LLM to the model it is generating with turns bold in
+      its own colour, light runs along it, and the model box gets a dot in that colour and says who
+      is using it, for example <i>in use · Video Trans</i>.</li>
+    <li><b>The local LLM's right-click menu</b> and its <b>ⓘ Details</b> page say
+      <i>In use by Video Trans · now</i>, or how many seconds ago it was last used.</li>
+    <li>The <b>ⓘ</b> legend shows both marks.</li>
+  </ul>
+  <p>The app looks at which of your own programs have a connection open to the local LLM. It never
+  reads what they send. A plugin is named by its own name, an agent by its name, anything else by its
+  program name. The app itself and LLM Monitor, which only read the status, are not counted.</p>
+  <div class="note"><p><b>Note</b> The light shows only while the program is generating, and fades
+  about ten seconds after its last request. A program that is open but idle — Video Trans with no
+  speech to translate — shows nothing. A program stays listed in the menu for half a minute after its
+  last request.</p></div>
+</section>
+
+<!-- ============================== 6 Models ============================== -->
+<section class="chapter" id="models">
+  <h1>Models</h1>
+  <p class="lead">Right-click an installed local LLM › <b>Models…</b>, or click <b>Add model</b> on
+  <b>Setup</b>. The page has a list on the left and the chosen model on the right,
+  in three tabs.</p>
+
+  <div class="figure wide">
+    <img src="images/models-download.jpg" alt="The models page: search results and download options">
+    <p class="caption">Get from Hugging Face: what a model can do, and which size fits your graphics card.</p>
+  </div>
+
+  <h2 id="get-models">Get from Hugging Face</h2>
+  <p>Browse the trending GGUF chat models or search. Each result shows its author, size, downloads,
+  likes, age and what it can do: <b>Vision</b>, <b>Tools</b>, <b>Reasoning</b>, <b>MTP</b>. The model's
+  page shows its parameters, architecture, context, license and model card. <b>What the name
+  means</b> explains the parts of the name, such as <i>35B-A3B</i> or <i>Q4_K_M</i>.</p>
+  <p><b>Download options</b> lists every size with how it fits: in the graphics card, partly in
+  system memory (works, but slower), or likely too large. The best fit is chosen for you;
+  <b>Download</b> gets it into the model folder. For Ollama, which downloads by the size's name, only the sizes it can download are offered: a split file, one in a sub-folder or one Hugging Face refuses for Ollama is dimmed, with the reason, and never recommended.</p>
+  <p>Downloads run in the background and show in a strip at the top of the main page. A broken
+  connection is retried and the download resumes. If the app was closed during a download, it is
+  listed as interrupted, with <b>Continue</b> or <b>Discard</b>.</p>
+
+  <h2 id="jobs-flutter">Interrupted downloads</h2>
+  <p>A model download or an Ollama pull whose connection breaks off is tried again after 5, 15, 30, 60 and 120 seconds and goes on where it stopped. If the app ends before it does, the next start shows a banner with each interrupted download, where it stopped, <b>Continue</b> (it goes on from the part already downloaded) and <b>Discard</b>. Only how to start it again is kept, in <code>~/.local/state/ai-agents-map/jobs.json</code>, readable only by you; a download that is still running elsewhere is not started twice.</p>
+
+  <h2 id="ask-model">Ask an agent which model fits</h2>
+  <p>Not sure which model to take? When an agent for AI checks is set up (Settings › <b>Agent for AI
+  checks</b>), the <b>Ask an agent</b> card under the search takes a question in your own words — for
+  example <i>a coding model with a long context that fits my graphics card</i>. <b>Ask</b> (or
+  <kbd>Ctrl</kbd>+<kbd>Enter</kbd>) sends it, together with your graphics card, its memory, the
+  computer's memory and the models you already have, to that agent, which looks on the web; a spinner
+  and the time taken so far show while it works. After a minute or two the card shows its short
+  summary, and the models it suggests appear in the result list below, headed <i>Suggested by …</i>:
+  each found on Hugging Face, with its size and why it fits, opening its page and download options on
+  a click like any search result. A suggestion Hugging Face does not have is named under the heading. It
+  suggests up to 10 models; <b>Suggestions</b>, at the right of the agent line, sets another number
+  (5, 10, 15 or 20). It uses the agent's tokens; the question is not kept, and each local LLM's page
+  asks on its own.</p>
+
+  <h2 id="installed-models">Installed</h2>
+  <div class="figure wide">
+    <img src="images/models-installed.jpg" alt="The Installed tab with a model's context sizes and name explained">
+    <p class="caption">Installed: context now, best for your card and trained for; what the name means; Remove.</p>
+  </div>
+  <p>Each model shows its size, file and context — <i>now</i>, <i>best for your card</i> and
+  <i>trained for</i>. <b>Remove</b> asks first and moves the files to the trash, where you can restore
+  them. A model that is only a link loses only the link.</p>
+
+  <h2 id="context">Context size</h2>
+  <p>The context is how much text the model can keep in mind at once. The app calculates the
+  largest context that fits your graphics card from the model file itself. <b>Set context</b> writes
+  it to the local LLM's settings, with a backup and Undo. Agents need a fairly large context; when you
+  connect an agent to an LM Studio model without a context set, the best one is set in the same step.</p>
+
+  <h2 id="on-this-pc">On this PC</h2>
+  <p>Lists GGUF files the local LLM does not read yet — in its models folder, the other local LLMs'
+  folders, <code>~/Downloads</code> and <code>~/Models</code>. <b>Add</b> makes one its model without a
+  second copy (a link), except for Ollama, which imports its own copy.</p>
+
+  <h2 id="move-models">Moving and deleting models</h2>
+  <p>Right-click a model of llama.cpp, KoboldCpp or LM Studio › <b>Move to…</b>, or drag the model
+  box onto another local LLM's folder. First you see how much moves and which agent uses the model.
+  Undo moves the files back. <b>Delete…</b> asks first and moves the files to the trash.</p>
+
+  <h2 id="reorganize">One models folder</h2>
+  <p>Settings › <b>Models folder</b> sets one folder for every local LLM's models.
+  <b>Reorganize models…</b> previews how the files would be sorted
+  (<code>&lt;folder&gt;/&lt;publisher&gt;/&lt;model&gt;/</code>), and nothing changes until you press
+  <b>Reorganize</b>. With <b>Keep old paths working</b> (on by default), a link stays at every old
+  place. <b>Undo the last reorganize</b> puts everything back.</p>
+  <div class="warn"><p><b>Caution</b> Moving models to another disk copies them first and removes
+  the originals only when the copy is complete. Make sure the target disk has enough free space; the
+  app refuses the move if it has not.</p></div>
+</section>
+
+<!-- ============================== 7 Connecting ============================== -->
+<section class="chapter" id="connecting">
+  <h1>Connecting by drawing</h1>
+  <p class="lead">Press on a box on the map and drag to another to connect them. Every change shows
+  exactly which lines of which file change before anything is written, keeps a backup, and can be
+  undone from the bar that follows.</p>
+
+  <h2 id="connect-llm">Agent ↔ local LLM</h2>
+  <p>Drag from an agent to a local LLM, or back. To change a connection, select its agent (or click the line): every line that can be moved or removed shows an <b>orange hook</b> at its end. Drag the hook to another local LLM — or onto empty space to remove it; hovering a hook says what dragging it does. Draw a line from an agent to a model of a connected local LLM to make it the agent's model.</p>
+  <p>Supported agents: Hermes, Pi, Oh My Pi, OpenCode, OpenClaw and DeepSeek Harness.</p>
+
+  <h2 id="connect-mcp">Agent ↔ MCP server</h2>
+  <p>Drag from an agent to an MCP server. The server's settings are copied into that agent's own
+  format. Supported: Claude Code, Codex, Copilot, Crush, Cursor, Gemini, Goose, Grok, Hermes, Muse,
+  Oh My Pi, OpenClaw, OpenCode and Pi. Settings files that may hold keys are always written so that
+  only you can read them.</p>
+
+  <h2 id="connect-skills">Agent ↔ skill folder</h2>
+  <p>Drag from an agent to a skill folder. Pi and Hermes get the folder in their settings; every
+  other agent gets one link per skill in its own skills folder. A folder an agent reads by itself
+  (most read <code>~/.agents/skills</code>) cannot be taken away from just that agent.</p>
+
+  <h2 id="found-on-pc">Found on this PC</h2>
+  <p>Every time the window opens (and with <b>Refresh</b>), the app looks for MCP servers and skill
+  folders on this computer, without starting anything: programs that offer an MCP server in
+  <code>~/.local/bin</code>, <code>~/Applications</code>, <code>/opt</code> and the folders added on
+  Setup, and skill folders that apps brought along or that are in an added folder. What no agent uses
+  yet is on the map as a faded box without lines. Nothing is connected by itself.</p>
+  <ol>
+    <li>Drag from an agent to the faded box.</li>
+    <li>The connect page shows how the server will be started — the command its own help text names,
+      for example with a folder it may read and write — and exactly what changes in the agent's
+      settings.</li>
+    <li><b>Connect</b> writes it. The box is no longer faded, and the app checks right away that the
+      server answers (see <a href="#failed">When a connection fails</a>).</li>
+  </ol>
+  <p>An app's MCP server runs on its own: the app's window does not have to be open. Programs inside an
+  AppImage that has not been unpacked are not on the map; <b>Add MCP server</b> › <b>On this PC</b>
+  unpacks them first.</p>
+  <div class="tip"><p><b>Tip</b> Keep apps with an MCP server and your own skills in one folder each —
+  for example on a disk that several systems share — and add those folders on Setup. On another
+  computer, add the same folders there, and everything in them is on its map too.</p></div>
+
+  <h2 id="connect-local-flutter">Local connections</h2>
+  <p>Open Connections, then Add MCP server. Enter a name, choose stdio, HTTP or SSE, and select the installed agents that should receive it. For stdio, enter the executable separately and put one argument on each line; spaces within a line stay in that argument. Add environment variables or HTTP headers as name/value pairs. Values are obscured. Preview lists recipients and file-change counts, without returning configuration values. Existing definitions with the same name are disclosed before replacement. Apply saves through the existing backup and Undo flow. AI Agents Map does not start or test the server here; agents may start it when they read the saved configuration.</p>
+  <p>Add skills selects an existing folder containing skill folders, each with SKILL.md. Choose the parent skill-set folder, then the agents. Preview shows links or adapter settings before Apply. Original files stay in place; links follow later edits, and skills can include scripts agents may run. Native folders already read automatically need no new link. Discovery checks at most 200 entries per directory, one category level deep, with 1,000 entries in total; choose a smaller folder if needed. A preview supports up to 32 agents and 200 links. Undo removes added links or restores settings while preserving later changes. Online catalogs, downloading skills and MCP tool checks are not part of these local forms.</p>
+  <p>The app looks at start, in the background and without running anything, for programs on this PC that offer an MCP server (their files hold the protocol’s own words; how to start them comes from their own usage text) and for skill sets that apps brought along. Big programs are read once and remembered. The MCP column’s status says <b>New on this PC</b> for what was not shown yet; <b>Add MCP server…</b> or <b>Add skills…</b>, or <b>Found on this PC</b> in Connections, lists them, the new ones with a ★. <b>Add…</b> opens the form filled in with the name and the start command, or the folder, to check and change before the preview. AppImages are never run by the look itself. <b>Look inside…</b> unpacks only each one’s programs, closed in by bubblewrap (no network, no home folder, only a temporary folder writable), reads them and deletes them again; what was found is remembered. Adding a server that lives in an AppImage first asks to unpack the whole AppImage into <code>~/Applications/&lt;app&gt;-&lt;version&gt;/</code> (<b>Unpack</b>), the same way. A newer AppImage of an app looked into or unpacked before is only named (<b>New version found</b>): a file with a newer name is no proof of an update, so it is looked into like any other.</p>
+  <p>When an app is found in a newer version while agents, the list of MCP servers or a link in <code>~/.local/bin</code> still start the older one, the list shows it with its versions and who uses it. <b>Update…</b> (after unpacking the newer AppImage, if it is one) previews one change for all of it: each entry gets the new program (arguments into the old folder move along), the links point into the new folder, and the old folder goes into the backup. It is kept there for 7 days; Undo brings everything back.</p>
+
+  <h2 id="failed">When a connection fails</h2>
+  <p>Right after a connection is written, the app checks whether it will work: whether a local LLM
+  is installed and offers the model, whether an MCP server answers, whether the skill links are
+  intact. A connection that fails stays on the map as a <span class="red">dotted red line</span>
+  with a <b>!</b>; one with only warnings is <span class="yellow">dotted yellow</span>. Click the line
+  or its <b>!</b> for hints:</p>
+  <ul>
+    <li><b>Test again</b> checks once more; when it passes, the line becomes normal.</li>
+    <li><b>Try again…</b> opens the connect page for a connection that was never written.</li>
+    <li><b>Remove connection</b> removes it.</li>
+  </ul>
+</section>
+
+<!-- ============================== 8 MCP servers ============================== -->
+<section class="chapter" id="mcp">
+  <h1>MCP servers</h1>
+  <p class="lead">MCP servers give agents extra tools. <b>+ MCP server</b> on the map or under the
+  cards opens the page for adding one: a list on the left, the chosen server's page on the right.</p>
+
+  <h2 id="mcp-sources">Where servers come from</h2>
+  <table>
+    <thead><tr><th>Tab</th><th>Contents</th></tr></thead>
+    <tbody>
+      <tr><td><b>Recommended</b></td><td>The MCP project's reference servers (Filesystem, Fetch, Git, Memory, Sequential Thinking, Time, Everything) and official servers of well-known makers (GitHub, Playwright, Chrome DevTools, Brave Search, Context7), grouped by purpose and pinned to their newest version.</td></tr>
+      <tr><td><b>MCP registry</b></td><td>A search of the official MCP registry. Each result names its publisher as the registry checked it. The search can take ten seconds or more. The results come 20 at a time; the line under the list pages through them and shows where you are, for example <b>‹ Previous 20</b> · 21 – 40 / 200 · <b>Next 20 ›</b> (with <i>/ 40+</i> when the registry does not say how many there are).</td></tr>
+      <tr><td><b>On this PC</b></td><td>Programs on this computer that offer an MCP server, found by reading their files — nothing is started. AppImages are only looked into when you click <b>Look inside…</b>; they are unpacked closed in by bubblewrap (no network, no home folder), so <code>bwrap</code> must be installed.</td></tr>
+      <tr><td><b>By hand</b></td><td>A command line, or a web address with headers.</td></tr>
+    </tbody>
+  </table>
+  <p>Not sure which server you need? On the <b>MCP registry</b> tab, the <b>Ask an agent</b> card under the search takes a request in your own words — for example <i>read and write my Notion pages</i>. <b>Ask</b> (or <kbd>Ctrl</kbd>+<kbd>Enter</kbd>) has the agent for AI checks turn it into a few search words; the app searches the registry list it has downloaded with them, as the normal search does, and the agent picks the servers that fit from what was found, each with why. It does not search the web, sees only your request and the servers' public registry texts, and can only pick servers that are really in the list. A spinner and the time taken show while it works; after a few seconds to a minute the picks appear in the result list, up to 10 (<b>Suggestions</b> at the right of the agent line: 5, 10, 15 or 20). A search you type afterwards replaces them.</p>
+
+  <p><b>On this PC</b> also looks in the folders added with <b>Add folder…</b> on Setup › <b>Local MCP
+  servers</b>: in each folder itself and in the app folders in it, such as
+  <code>photocraft-0.16.0/usr/bin</code>.</p>
+
+  <h2 id="mcp-setup">Setting a server up</h2>
+  <p>The server's page says who made it and how well that is checked, what it does (with things to
+  ask an agent once it has it), how it runs — a program through <code>npx</code>, <code>uvx</code> or
+  Docker, or a web service — and what it needs, such as a folder or an API key with a link to where
+  you get one. Below it, <b>Set it up</b>:</p>
+  <ol>
+    <li>Fill in the fields the server needs.</li>
+    <li>Tick the agents that should get it.</li>
+    <li>Click <b>Test</b> to ask the server for its tools.</li>
+    <li>Click <b>Add</b>: all ticked agents are written at once, with one preview and one Undo.</li>
+  </ol>
+  <div class="note"><p><b>Note</b> Secret values such as API keys are passed in the environment or
+  in headers, never on a command line where other users of the computer could read them. A server
+  that would need a secret on its command line has to be set up by hand.</p></div>
+  <p><b>Find MCP servers…</b> in <b>Connections</b> opens the tabs <b>Recommended</b> (pinned to their newest version when the card opens) and <b>MCP registry</b> (20 results at a time with <b>‹ Previous 20</b> and <b>Next 20 ›</b>; the registry’s list is downloaded in the background for a faster search). A server’s page says who made it, what it does, what it needs and <b>How it runs</b>; the way that can run on this PC is marked <b>recommended</b>, and a missing <code>npx</code>, <code>uvx</code> or Docker is named. Fill in the fields it needs (secret ones are hidden), check the <b>Name</b>, tick the agents and click <b>Preview</b>: the preview, <b>Apply</b> and <b>Undo</b> are the ones of a connection change. Only the values you typed go to the service; the command itself comes from the server’s entry and is checked there again. A secret that would end up on a command line is refused; such a server has to be set up by hand.</p>
+
+  <p><b>Test</b> starts the chosen way once (or asks its address) and lists the tools it offers, before anything is written. A server already set up shows <b>Tools</b> in its card under <b>Connections</b>: the answer it gave last time, with the date, and <b>Ask the server</b> (or <b>Ask again</b>), which starts it once the way its first agent does and stops it again. Its <b>Prompts</b> are listed too. The answer is kept for the next time; keys in its settings go to the asking process privately and are never shown.</p>
+
+  <h2 id="mcp-manage">Managing servers</h2>
+  <p><b>ⓘ Details</b> on an MCP server card shows each agent's settings file, the command or
+  address, and on request the server's tools; values of keys are never shown. <b>Remove</b> takes the
+  server from every agent. Servers stay in the list when no agent uses them any more, so a line can
+  connect them again.</p>
+  <p>When a newer version of an app that provides an MCP server turns up in
+  <code>~/Applications</code>, a note names it. <b>Update…</b> unpacks the new version, points every
+  agent at it and keeps the old one as a backup for seven days. <b>Check for updates</b> (in
+  <b>On this PC</b>) does it for every such app at once after your click: it looks inside the new
+  versions, offers all updates in one preview with one backup and one Undo, and then tests each
+  updated server; a note names any that does not answer.</p>
+</section>
+
+<!-- ============================== 9 Skills ============================== -->
+<section class="chapter" id="skills">
+  <h1>Skills</h1>
+  <p class="lead">A skill is a folder with instructions that teach an agent a particular job.
+  <b>+ Skills</b> opens a page laid out like the MCP page.</p>
+
+  <h2 id="skills-sources">Finding skills</h2>
+  <ul>
+    <li><b>On this PC</b>: skill folders that apps brought along and no agent reads yet.</li>
+    <li><b>From the web</b>: a search of the skills.sh directory, another site with the same API, or
+      a GitHub repository with skills. A skill is fetched from its GitHub repository into a folder of
+      your choice, by default <code>~/.agents/skills</code>.</li>
+  </ul>
+  <div class="warn"><p><b>Caution</b> Skills can contain scripts that an agent may run later. The page
+  shows the repository and lists the scripts before anything is fetched — check them.</p></div>
+
+  <p><b>On this PC</b> also looks in the folders added with <b>Add folder…</b> on Setup ›
+  <b>Skills</b>.</p>
+
+  <h2 id="skills-flutter">Skills from the web</h2>
+  <p><b>Find skills on the web…</b> in <b>Connections</b> searches skills.sh. A result names its GitHub repository and how often it was installed; choosing it fetches the skill’s files — at most 150 files and 30 MB, no links, nothing outside its folder — and runs none of them. The card shows its description, how many files it has and which scripts an agent could run later. Choose the folder it goes <b>Into</b> (the shared <code>~/.agents/skills</code> or one of your own skill folders), tick the agents under <b>Also for</b> and click <b>Preview</b>: the new files are listed, and <b>Apply</b> writes them with a backup, so <b>Undo</b> removes them again. A skill whose folder is there already is not overwritten. The fetched files wait in a private folder until then; each is checked against what the preview showed before it is written.</p>
+
+  <h2 id="skills-details">Skill folders</h2>
+  <p>Each skill folder card shows its skills and the agents that read it. A folder that is shared
+  through links shows up once, where it really lives. <b>ⓘ Details</b> lists every skill with its
+  description and how each agent gets the folder.</p>
+</section>
+
+<!-- ============================== 10 Settings ============================== -->
+<section class="chapter" id="settings">
+  <h1>Settings and Help</h1>
+
+<h2 id="omarchy-data-flutter">Usage figures and corners from Omarchy</h2>
+<p>When an agent's details open and Omarchy collects that agent's usage (plan, limits and when they reset), the app asks Omarchy for fresh figures in the background if the last ones are older than ten minutes or older than the agent's last sign-in, then shows them; at most once every ten minutes per agent. Settings › <b>Corners</b> sets the corners of the window's cards, dialogs and the map's boxes: <b>Like windows</b> follows Hyprland's window rounding (with the number of pixels shown), <b>Slightly rounded (6 px)</b>, <b>Rounded (12 px)</b> or <b>Square</b>. Every control follows in three sizes: buttons, drop-downs, fields and chips at most 8 px, check boxes and progress bars at most 4 px.</p>
+
+<h2 id="settings-list">Settings</h2>
+  <p>The gear (<kbd>Ctrl</kbd>+<kbd>,</kbd>) opens the settings. <kbd>Backspace</kbd> or <kbd>Esc</kbd> goes back. The sections are listed on the left (General, Appearance, Map, Agents, Local LLMs, Dictation, Recent changes); <b>Find in Settings</b> above them shows the settings of every section that mention what you type.</p>
+  <table>
+    <thead><tr><th>Setting</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><b>Language</b></td><td>The system language, or English, Deutsch, Français, Español, Italiano, Português, Nederlands, Polski.</td></tr>
+      <tr><td><b>Look</b> </td><td>The Omarchy theme colours, or GNOME's Adwaita look with the system's light/dark mode and accent colour.</td></tr>
+      <tr><td><b>Map animations</b></td><td>Light runs along the lines on the map: <b>Agents and other programs</b> (a working agent's line, and a local LLM's line to a model another program uses), <b>Only my agents</b>, or <b>Off</b>. A small animated map under the setting shows what each choice moves.</td></tr>
+      <tr><td><b>Usage statistics box</b></td><td>The numbers along a working agent's line (see <a href="#map">Working with the map</a>): on or off, which of <b>Tokens per second</b>, <b>Context size</b> and <b>Context used</b> it shows, and its <b>Text size</b> (7&nbsp;pt by default).</td></tr>
+      <tr><td><b>Subagents</b></td><td>For the <a href="#subagents">Subagents</a> page: how long finished subagents stay (<b>30 minutes</b> by default; 10, 30, 60 or 120) and how many at most (<b>10</b> by default; 5, 10, 20 or 40). Working ones are always shown.</td></tr>
+      <tr><td><b>Costs</b></td><td><b>Currency</b>: US dollar, or Euro at the European Central Bank's daily reference rate (fetched once a day from ecb.europa.eu). <b>A day's limit</b> for an agent paid per token (<b>100</b> by default; 10 to 500). <b>Yellow from</b> and <b>Red from</b>: the share used at which a cost label or a battery turns yellow (75&nbsp;% by default) and red (90&nbsp;%). <b>Notify when red</b> (on by default): a desktop notification when an agent turns red — once for each limit until it resets, or once a day for a cost.</td></tr>
+      <tr><td><b>Terminal tabs above the map</b></td><td>One tab per agent terminal in the window.</td></tr>
+      <tr><td><b>Corners</b></td><td>Like windows, slightly rounded (6 px), rounded (12 px) or square; buttons, drop-downs and fields take at most 8 px, check boxes and progress bars at most 4 px.</td></tr>
+      <tr><td><b>Start local LLMs with their agents</b></td><td>The background watcher described in <a href="#start-with-agents">Starting and stopping with agents</a>.</td></tr>
+      <tr><td><b>In the app launcher</b></td><td>The launcher entry; off removes it.</td></tr>
+      <tr><td><b>Agents start in</b></td><td>The folder agents start in.</td></tr>
+      <tr><td><b>AI features</b>: <b>Look up new agents</b></td><td>Ask an installed agent where an unknown agent keeps its settings (on by default).</td></tr>
+      <tr><td><b>AI features</b>: <b>Daily AI checks</b></td><td>Once a day, an agent looks on the web for new versions of your MCP servers (off by default; it uses the agent's tokens). See <a href="#smart-check">Smart Check</a>.</td></tr>
+      <tr><td><b>AI features</b>: <b>Agent for AI checks</b></td><td>Claude Code or Codex: does the AI checks and look-ups and takes the <b>Do it with …</b> and <b>Fix it with …</b> tasks.</td></tr>
+      <tr><td><b>AI features</b>: <b>Local helper</b></td><td>An agent with a model of your local LLM for the AI help that needs no web (off until you choose one). See <a href="#local-helper">The local helper</a>.</td></tr>
+      <tr><td><b>Models folder</b></td><td>One folder for all models, with <b>Reorganize models…</b>.</td></tr>
+      <tr><td><b>Add-ons</b> </td><td><b>Look for add-ons online</b>, the Add-ons page, and <b>Setup</b>.</td></tr>
+      <tr><td><b>About</b></td><td>The version, the author and the license; <b>Website</b> opens the project on GitHub and <b>Report an Issue</b> its issue list.</td></tr>
+    </tbody>
+  </table>
+  <div class="figure narrow">
+    <img src="images/about.jpg" alt="The About dialog: the AI Agents Map icon, name, Uwe Bruckhaus, version 0.7.1, and the rows Website, Report an Issue and Legal">
+    <p class="caption">Settings › About.</p>
+  </div>
+
+  <h2 id="red-flutter">Red limits</h2>
+  <p>The app looks once a minute at the plan limits of your installed agents (a 5-hour session, a week…). When one is used up to the red level of Settings › Costs, a desktop notification says so, with the share used and when the limit resets: once for each limit until it resets, also after a restart. <b>Notify when red</b> in Settings turns it off. A cost of an agent paid per token is not shown yet in the preview, so neither is its notification.</p>
+
+  <h2 id="dictation">Dictation in Ask AI</h2>
+  <p>A microphone button in the <b>Ask AI</b> prompt lets you speak your request instead of typing
+  it: click it to start, click it again to stop. Settings › <b>Use dictation in Ask AI</b> chooses
+  <b>Automatic</b> (Omarchy's dictation where it is there, else Superwhisper), <b>Omarchy dictation</b>
+  (<code>omarchy-dictation</code> with Omarchy's default dictation tool; it types the words into the
+  prompt itself), <b>Superwhisper</b> (its command line; when you stop, the text of that dictation is
+  put into the prompt) or <b>Off</b>. Without either of them the button is hidden. The app records and
+  keeps nothing itself; the engines keep their own history as set up there.</p>
+
+  <h2 id="help">Help</h2>
+  <p><b>?</b> (<kbd>F1</kbd>) opens Help: <b>Open user manual</b> opens this manual (the copy that
+  came with your version) in your PDF viewer; <b>Disk space</b> (below); an animation of setting up by
+  drawing; and LLM Monitor, a companion bar plugin that shows what a local LLM is doing (a small
+  animation of its bar item and panel). Both animations are drawn in your theme's colours and follow
+  a theme change at once. The <b>ⓘ</b> legend in the header explains every dot, line and mark of the
+  map.</p>
+  <p>The filled <b>i</b> in the header opens <b>Information</b>: cards for the author's other plugins,
+  read from the Omarchy Plugin Marketplace when the page opens, at most once an hour (without the
+  network, the list this version knows). Clicking a card opens the plugin's page in the marketplace.</p>
+  <p><b>?</b> in the header (or <kbd>F1</kbd>) opens <b>Help</b>: <b>Open user manual</b> opens this manual in your language (the copy that came with the app, else the English one) in the desktop’s PDF viewer. The tabs at the top of Help lead to <b>Your first agent</b>, <b>What you can do with it</b>, <b>Agents</b> (the list of agents), <b>Providers and models</b> and <b>Connections</b>; <b>Usage</b> shows the AI runs of the last 30 days. <b>Where to start</b> leads to <b>Find existing AI</b>. <b>AI Map</b> in the header leads back to the map from any of these pages.</p>
+
+  <h2 id="disk-space">Disk space</h2>
+  <p><b>Disk space: agents, local LLMs and models</b> shows how much room your AI setup takes and where
+  it is. It is measured in the background each time Help opens (again after ten minutes, or with
+  <b>Measure again</b>), and only read — nothing is deleted from here. Its heading always shows the
+  totals in one line (<i>Agents · Local LLMs · Models · In all</i>); click it to fold the section away.
+  <b>Disks</b>, <b>Agents</b>, <b>Local LLMs</b> and <b>Models folders</b> inside start folded, each
+  showing its sum and largest entries; click one to open it.</p>
+  <div class="figure wide">
+    <img src="images/disk-space.jpg" alt="Disk space in Help: four tiles (in all, agents, local LLMs, models), the line 103.7 GB of 2.5 TB on these 2 disks for AI (4.1 %), a bar across the whole disk space split into agent programs, agent data, local LLMs, models, other files and free space, and the folded sections with their sums">
+    <p class="caption">The totals, the AI share of the whole disk space, and the folded sections with their sums.</p>
+  </div>
+  <ul>
+    <li><b>Tiles</b>: everything together, then agent programs, agent data (settings, sessions, history),
+      local LLMs (programs and their own data) and models.</li>
+    <li><b>Bar</b>: the whole space of the disks the AI setup is on. The coloured parts are the AI setup,
+      grey is everything else on those disks, and the empty rest is free; the line above it gives the AI
+      share in percent. Hover over the bar for exact sizes.</li>
+    <li><b>Disks</b>: each disk with what the AI setup takes on it and how much is free.</li>
+    <li><b>Agents</b>, <b>Local LLMs</b>, <b>Models folders</b>: one row each, largest first. Open a row
+      to see every folder with its size and number of files, and open it in the file manager. A program
+      folder says how many versions are kept; for an agent with several old versions in mise, a tip
+      names <code>mise prune</code>, which removes the unused ones. A models folder says which local
+      LLMs use it, or that it holds only links to models in another folder.</li>
+  </ul>
+  <div class="tip"><p><b>Tip</b> Programs can be installed again and models downloaded again; the agents'
+  data holds your sessions and settings. When space runs out, look at old program versions and at
+  models you no longer use first.</p></div>
+  <p>Sizes are space on disk: a file kept in two places counts once, and links are not followed.</p>
+</section>
+
+<!-- ============================== Smart Check ============================== -->
+<section class="chapter" id="smart-check">
+  <h1>Smart Check</h1>
+  <p class="lead">Smart Check lets an installed online agent — Claude Code or Codex — look at this PC's
+  AI setup, find updates for your MCP servers and do fixes for you, and shows what that cost in tokens.
+  A <a href="#local-helper">local helper</a> — an agent with a model of your own local LLM — can take
+  the questions that need no web, on this PC and without tokens. Every run shows its progress in a box
+  over the window and is kept in the <a href="#smart-protocol">Protocol</a>.
+  The two sparkles in the header open it; they show only while one of these agents is installed.
+  Settings › <b>Agent for AI checks</b> picks which one.</p>
+
+  <div class="figure wide">
+    <img src="images/smart-check.jpg" alt="The Smart Check page: the summary of the last check, the At your own risk card, PC setup summary with Check now and its findings (three problems and four tips with Fix it with Claude Code…, four good points), and the folded Updates found card">
+    <p class="caption">Smart Check after a check by Claude Code: problems (!), tips (·) and what is good (✓).</p>
+  </div>
+
+  <div class="warn"><p><b>At your own risk</b> An agent's findings, answers and changes can be wrong,
+  incomplete or out of date. Read what it proposes before you agree to a step, and keep backups. Its
+  look-ups and tasks use your tokens or plan limits. The app gives no warranty for what an agent does.
+  The same note heads Settings › <b>AI features</b>.</p></div>
+
+  <h2 id="smart-summary">PC setup summary</h2>
+  <p><b>Check now</b> gives the agent a short text about the setup — the graphics card and memory, the
+  agents with their models, the local LLMs, the MCP servers with their versions, the skills and what
+  <a href="#health">Column status</a> found — and lets it look things up on the web. No keys, headers or
+  settings values are in it. It takes a minute or more in the background; the line under the button
+  says how many tokens the last check used. The answer is a short summary and a list of findings:
+  <b>!</b> problems, <b>·</b> tips and <b>✓</b> what is good. Answers that do not hold up are left out.</p>
+  <p><b>Fix it with …</b> next to a problem or tip opens the agent in a terminal tab in the window with
+  that finding as its task: it looks whether it is so, explains, and asks you before each step that
+  changes anything. The app starts it so that it must ask — Codex in a read-only sandbox that asks
+  for more, Claude Code with every command and edit set to ask, whatever its own allow-list says —
+  and without its MCP servers. The finding is handed over as data to check, not as instructions. Moving MCP servers to a new version is left to the app's <b>Update</b> (below),
+  which changes every agent's settings at once, with a backup and Undo.</p>
+
+  <h2 id="smart-updates">Updates found</h2>
+  <p>New versions of your MCP servers, from two sources:</p>
+  <ul>
+    <li><b>The daily AI checks</b> (Settings › <b>Daily AI checks</b>, off by default): once a day the
+      agent looks on the official release pages for newer versions of servers whose version the app can
+      tell — apps unpacked in <code>~/Applications/&lt;app&gt;-&lt;version&gt;/</code> or as an unpacked AppImage in any other folder (the program in <code>&lt;folder&gt;/&lt;app&gt;-&lt;version&gt;/usr/bin/</code>) and npm or PyPI
+      packages pinned to a version. <b>Check now</b> on this card asks at once, also while the daily
+      checks are off. Each find has <b>Release page</b> and <b>Do it with …</b>: the agent downloads
+      the new AppImage in a terminal tab, asking before each step.</li>
+    <li><b>The app's own scan</b>: a newer version is already on this PC, but an agent still starts the
+      old one (the same as the update on the server's card on Setup).</li>
+  </ul>
+  <p>Once the new version is on this PC, its line says so and offers <b>Use it…</b>: the update
+  preview shows which agents move to it; <b>Update</b> changes them all, keeps the old version with the
+  backup and tests each server afterwards. A server whose agents all start the new version drops off
+  the list.</p>
+  <div class="tip"><p><b>Tip</b> After an action started here — an update, or a task in a terminal tab —
+  <b>Back</b> brings you to Smart Check again, up to date.</p></div>
+
+  <h2 id="ai-progress">While an agent works</h2>
+  <p>Every AI help run you start — Check now, Ask an agent on the Models and Add MCP server pages, Check
+  now for updates, Ask on a local LLM's <a href="#performance">Performance</a> card — shows a box in the
+  middle of the window: who is asked (the agent and its model), its steps (a spinner that turns into
+  <b>✓</b>, or <b>✗</b> when one failed), the time so far and, at the end, the tokens it used.</p>
+  <ul>
+    <li><b>In the background</b> hides the box; the run goes on, and a message says when it is done.</li>
+    <li><b>Cancel</b> ends the agent at once (its program and everything it started).</li>
+    <li>When it fails, the box stays with what went wrong until you close it; the text can be selected
+      and copied.</li>
+  </ul>
+  <p>Look-ups on the web (model advice, MCP updates) run with the web and nothing else: without the
+  agent's MCP servers, connectors, plugins and hooks.</p>
+
+  <h2 id="local-helper">The local helper</h2>
+  <p>An agent connected to a local LLM can answer AI help with one of that LLM's models: on this PC, with
+  no web, no tokens of a plan and nothing leaving the computer. It answers what needs no web: Smart
+  Check's summary, which MCP server fits, and the tips on a local LLM's Performance card. Model advice
+  and MCP server updates still go to the online agent, since they need the web.</p>
+  <p>The app suggests one — the largest chat model your graphics card holds (speech, embedding and
+  tokenizer models are left out) — on Smart Check, with <b>Use it</b>. Settings › <b>AI features</b> ›
+  <b>Local helper</b> lists every agent and model that can be it, the suggested one first, and
+  <b>Off</b>. Nothing is used until you choose it. Before it answers, the app starts the local LLM and
+  loads the model (a step in the progress box). The helper runs with no tools, no MCP servers, no
+  extensions and no project files. Any agent whose add-on says how to ask it one question offline can
+  be the helper; Pi is the first.</p>
+
+  <h2 id="ai-checks-flutter">AI checks and the local helper</h2>
+  <p>Settings › <b>AI features</b> has <b>Daily AI checks</b> (off by default) and, below it, the result of the last check with <b>Check now</b>, which asks at once, also while the daily checks are off. The check runs in the background when the window opens and is looked at every hour; the agent for AI checks is asked at most once a day (after a failed look-up, again after six hours). What it finds is listed in the MCP column’s status: <b>Release page</b> opens the release in the browser, <b>Do it with …</b> first shows the task as it will be sent and starts it in a terminal tab only after <b>Continue</b>, and <b>Use it…</b> opens what was found on this PC when the newer version is already here. Checked are only servers whose version the app can tell (see <a href="#smart-updates">Updates found</a>); other servers are not sent.</p>
+  <p>The local helper is chosen in Settings › <b>AI features</b> › <b>Local helper</b>; the suggestion for your graphics card is marked <b>(suggested)</b>. Once chosen, it is offered first under <b>Ask</b> on a local LLM's Performance card.</p>
+
+  <h2 id="smart-protocol">Protocol</h2>
+  <p>Every AI help run is kept, so that you — or someone who knows the setup well — can look over what
+  was done. Each entry shows when it ran, the agent and model, the result (worked, failed, cancelled),
+  the time and the tokens. Opened, it shows the whole text: the options that closed the agent in, the
+  steps, each question exactly as it was sent with the agent's answer, what the app changed from the
+  answer (with the backup, for Undo by hand) and, for a task in a terminal tab, what the terminal showed
+  when it ended. <b>Copy</b> puts an entry on the clipboard for a report or a second opinion;
+  <b>Open the protocol folder</b> shows the files.</p>
+  <p>The protocol keeps the last 200 runs in <code>~/.local/state/ai-agents-map/ai-help/</code>, readable
+  only by you. Questions hold names, numbers and settings, never keys; a terminal's text holds what was
+  on the screen.</p>
+
+  <h2 id="smart-tokens">Token statistics</h2>
+  <p>Tokens used today and in the last 30 days, a chart per day, and the totals by agent and by plugin
+  (other Omarchy plugins that use the same AI helper show up here too). <b>API value</b> is what the
+  runs would cost at API prices, and the line under it says whether your subscription covers it or it
+  is charged to an API key. A task in a terminal tab counts in its agent's own session; the agent's
+  details page shows those tokens.</p>
+  <p>Below, one card per kind of task — the setup check, MCP server updates, looking up new agents,
+  fixes — with its runs, tokens and the latest results.</p>
+</section>
+
+<!-- ============================== 11 Healthy & Security check ============================== -->
+<section class="chapter" id="map-groups">
+<h1>Group cards and add-ons on the map</h1>
+<h2 id="map-groups-expand">Expand a category</h2>
+<p>Every AI Map column has one group card. A dashed card means nothing is set up; its found count reports local detection. These placeholders are display elements, never connected nodes or AI input. Click Expand, double-click the card or press Enter while it has focus. The group appears alone in the centre. Back, Esc, Backspace or the surrounding background restores the map’s zoom and selection.</p>
+<p>An MCP servers card, a skills card and a model folder a local LLM serves end with a dashed <b>+</b> card: <b>Add MCP server</b> opens the MCP catalog (recommended servers, the registry and what is on this PC), <b>Add skills</b> the search for skills on the web, and <b>Add model</b> the download of models for the local LLM that serves that folder. Expanded, the MCP servers and skills column and the Models column show the same actions instead of add-ons, which exist only for agents and providers.</p>
+<p>An agent whose add-on is on but whose program is not on this PC yet (for example Codex after you switched its add-on on) gets a dashed card at the end of the Agents card on the map, with its name and <b>Not installed</b>. A click on it, or <b>Install …</b> in its <b>⋯</b> menu, opens the normal install review; the install runs in a terminal you can watch. The menu also has <b>Add-on…</b> and <b>Switch off</b>. Once the program is installed, the card turns into the agent's normal box. A folded card leaves these cards out. Help › Agents and Ask AI still install agents too.</p>
+<p>The map shows agents in two cards: <b>Online agents</b> and, below it, <b>Local agents</b> for agents made for a local LLM (such as Pi). Programs to install end the online agents card. A local LLM whose add-on is on but which is not installed yet (for example vLLM) gets the same dashed card at the end of the local providers card; a click opens the install review of the local LLM. A box whose add-on you have just switched on shows right away, even in a card set to show only what is connected or pinned.</p>
+<h2 id="map-groups-addons">Manage add-ons</h2>
+<p>Focus groups show On, Off, Found on this PC and Not installed as applicable. Use the overflow menu or right-click for switching, Add-on details, a newer signed version or provider sign-in through an installed agent. Details disclose reads, sends and capabilities. Switches apply immediately with one Undo snackbar. Changes are blocked while this app owns running agent sessions or an installation is active. Agents in other terminals do not block add-on management. Look for add-ons online explicitly loads the signed catalog; merely expanding never requests it. Review Install or Update before execution. New add-ons stay off. Removing a user add-on makes a backup and preserves programs and data; Undo is available until the app closes. Bundled add-ons stay with their package.</p>
+<p>A card that says <b>Made for Asterism</b> holds an add-on from before this app was renamed, signed with the old key. It is never loaded and hides the copy that comes with AI Agents Map: remove it from the card’s menu, and AI Agents Map uses its own.</p>
+<p>After a confirmed removal, old backups become eligible for cleanup after 30 days. Backups with an active Undo are kept; links, unrelated folders and foreign-owned folders are skipped. Undo lasts until this app closes. During first use, Welcome’s Agents button reopens the same Agents focus with its fixed Switch on / Later footer; it does not finish welcome or open a plain group view.</p>
+<p><b>Install from file…</b> takes an add-on .zip you downloaded yourself. Its own signature decides, as for a catalog download: the file is checked first and shown like a catalog entry (name, version, kind, what it reads and sends, and whether it replaces an installed version), and nothing is installed until you confirm. The file is read again then and must still be the one you reviewed. Only agent and provider add-ons can be used so far.</p>
+<h2 id="map-groups-welcome">First use and existing flows</h2>
+<p>Welcome appears above the map, with local Look at this PC / Skip. Mount existing data disks before searching. The Agents group opens with detected agents marked. Its fixed Switch on / Later footer stays visible while the list scrolls. Switch on is one batch with one Undo; Later preserves choices. Other enabled add-on kinds are preserved. Later starts do not auto-expand. Models links to existing download/import controls and model-folder reuse; MCP servers and skills links to Connections. New MCP definitions and new skill-folder installation remain unported. The rocket button retains the first-agent guide. Setup and Add-ons pages have been replaced by these groups.</p>
+</section>
+
+<section class="chapter" id="flutter-map-editor">
+<h1>Editing the AI Map</h1>
+<p>Drag an agent box to a provider, MCP server or skill set, or draw in the opposite direction. Draw an agent to a model of a connected provider to choose that model. A plain click only selects. A second click on the selected box deselects it. Drawing a provider to its own model opens an agent selection; local providers that support loading can also load without choosing an agent. Every configuration edit opens Preview, then Apply, progress and a result with Undo. Cancel writes nothing.</p>
+<p>A server without agents stays as a faded box: draw a line to it to connect it again, or use Remove in its menu to forget it. A line to a skill folder that an agent reads by itself or through another folder has no hook; click it to see why. Select a box or click a line to reveal orange connection hooks. With borders around the cards, lines stop at a card's border instead of crossing it. Settings › Map gives each kind of line a colour, and the border's colour can be one of the theme's. A card's corners follow Settings › Corners. The filter symbol in a card's header shows only the boxes that are connected or pinned, and shows all again. Drag a hook to another compatible provider or model, or to empty space to disconnect. A provider’s model hook switches all configured users together, or disconnects them and unloads where supported. Busy runtimes refuse unloading. Online provider lines use the agent’s registered sign-in or sign-out command in a reviewed terminal.</p>
+<p>Drawing an agent onto its own online provider signs it in; while it is not signed in (no sign-in file or key of it is there), that line is drawn as one it can use, not one it uses. An agent whose sign-in the app cannot start, such as Grok, which reads only its API key, is refused with that reason. Another online provider an agent can use through its settings is chosen by drawing the agent to one of that provider's models; a provider it cannot use is refused with a short note. A model an agent is set to that its local LLM no longer has stays on the map, marked as missing, with its line. The models agents use and a provider's chosen model are shown even past the first ten of a provider. Models in a folder reused from Found on this PC that no local LLM lists get a card of their own.</p>
+<p>Hover highlights neighbours. Shift-click adds boxes, with at most one agent selected. Pin keeps a box highlighted. A selected box grays out all others and their lines; pinned boxes and their lines stay. A selected box has a stronger outline. Fold a card with its arrow, drag its header to move it, or use the card menu. Drag a box’s reorder handle or choose Move up / Move down. Layout and pins are saved separately from connections; task cards retain selection and zoom.</p>
+<p>Drag the left or right border of a column to change its width, and the width of the boxes in it. The app remembers it; a double click on the border restores the default. Settings › Map has both widths for each column. There you can also draw a border around the category cards and choose its thickness and colour.</p>
+</section>
+
+<section class="chapter" id="task-cards">
+<h1>Task cards on the map</h1>
+<p>Connections, agent actions, model removal and add-on changes open in a centred window over the dimmed page. Drag its edges or corners to change its size; a double click on an edge restores it. The size holds until the app closes, and the terminal and Ask AI share it. Disconnecting a line with the mouse asks only for Apply or Cancel when there is nothing to warn about, and then offers Undo. Pages such as the provider overview, Settings and Connections stay full pages.</p>
+<p>Review the proposed changes before confirming. The same window shows progress and the result; use Undo where offered. Back or Esc cancels a review or closes a finished window. Running work cannot be closed with Back or Esc; only operations that support cancellation show Cancel. While a window is open, the header buttons and the app's keys wait.</p>
+<p><b>Settings › What may be done</b> holds your rules for what may be done, by Ask AI and by what you draw on the map: an Allow list and a Deny list, each with a <b>+</b>. A rule names an action, and if you like a category, one item and an agent. The most specific rule decides: an item counts most, then an agent, a category, an action. On a tie allow wins, and a request no rule matches is refused. So with “deny disconnect, skills” added to the defaults, “allow disconnect, skills, Pi” lets Pi go on. <b>Restore defaults</b> brings back allow all, and the bar at the bottom tries a request. When something is refused the app names the rule, unless you turn that off. These rules are a safeguard, not a lock: anyone who can open Settings can change them, and an agent in a terminal runs with your account.</p>
+</section>
+
+<section class="chapter" id="security">
+  <h1>Healthy &amp; Security check</h1>
+  <p>A coding agent reads and writes files and runs commands on your computer. How much it may do
+  <i>without asking you</i> is set in the agent's own settings, with different words in every
+  agent. The <b>Healthy &amp; Security check</b> brings this together: on the details page of every
+  agent and of every local LLM, four cards show whether it works, what it may do, what that means in
+  plain words, and what lowers the risk.</p>
+
+  <div class="figure wide">
+    <img src="images/security-check.jpg" alt="OpenCode's Security settings card opened with High risk: Edit files, Run commands opened with its choices Ask recommended, Allow in use with High risk, Never, then Fetch web pages and Outside the project; below it the Risk management card with Lower it buttons">
+    <p class="caption">OpenCode's Security settings, with <b>Run commands</b> opened, and the start of its Risk management.</p>
+  </div>
+
+  <h2 id="security-card">Reading the cards</h2>
+  <p>The badges on the folded cards sum it up: <b>Healthy</b>, <b>Needs a look</b> or <b>Not set up</b>
+  on Health, and <b>Low risk</b>, <b>Medium risk</b> or <b>High risk</b> on Security settings and Risk
+  management. Open a card for its details:</p>
+  <table>
+    <thead><tr><th>Card</th><th>What it shows</th></tr></thead>
+    <tbody>
+      <tr><td><b>Health</b></td><td>Every setup check with a ✓, or what to do next: installed, signed in, its model and local LLM, MCP servers and skills.</td></tr>
+      <tr><td><b>Security settings</b></td><td>The agent's settings that decide what it may do on its own, each with its value now and one sentence on what that means. The mark in front tells the risk: <b>✓</b> safe, <b>·</b> low, a yellow <b>!</b> medium, a red <b>!</b> high.</td></tr>
+      <tr><td><b>Risk management</b></td><td>What the settings mean together, most serious first, each with why it matters and <b>→</b> what lowers it. Protections that are in place are listed with a ✓.</td></tr>
+      <tr><td><b>What the words mean</b></td><td>Sandbox, approval, allow and deny rules and the other words the cards use, explained (see <a href="#security-words">The words explained</a>).</td></tr>
+    </tbody>
+  </table>
+  <p>Allow and deny rules and trusted folders the agent has (for example Claude Code's
+  <code>permissions.allow</code> list) are listed below the settings, one rule per line.</p>
+
+  <h2 id="security-change">Changing a setting</h2>
+  <ol>
+    <li>Click a setting to open it. You see what it controls and every choice, each with its risk; the one in use is marked <b>In use</b>, the safer default <b>recommended</b>.</li>
+    <li>Click <b>Use…</b> beside a choice, or <b>Lower it…</b> beside a risk. A page shows the change in words (old → new), the risk before and after, and <b>What changes</b>: the lines of the agent's settings file.</li>
+    <li>Click <b>Change</b>. The file is backed up and written; a message offers <b>Undo</b> for 30 seconds. The agent uses the new setting the next time it starts.</li>
+  </ol>
+  <div class="note"><p><b>Note</b> Only the one key changes; comments and everything else in the file stay
+  as they are. A setting that needs more than a line in a file — such as Hermes running its commands in
+  Docker — is shown and explained, with where to change it, but not changed from here.</p></div>
+
+  <h2 id="security-flutter">Security</h2>
+  <p>An installed agent’s details have <b>Security settings</b>. The card shows the risk badge, every setting with its choices in a list (a coloured dot gives each choice’s risk, the safer default says <b>recommended</b>; a setting the file does not name says that the agent’s own default applies), the allow and deny rules, the settings file, and <b>Risk management</b> with <b>Lower it…</b> where one setting lowers a risk. Choosing another value or <b>Lower it…</b> opens the <b>Preview</b> a connection change uses: the lines of the settings file that change. <b>Apply</b> backs the file up and writes it, with <b>Undo</b> afterwards; only the one key changes, comments and the rest of the file stay as written.</p>
+
+  <h2 id="health-flutter">Health</h2>
+  <p>An installed agent’s details and each local LLM in <b>Providers and models</b> have a <b>Health</b> card: <b>Healthy</b>, <b>Needs a look</b> or <b>Not set up</b>, one sentence, and every check — installed, signed in (only whether a credential file or key is there is looked at), model, its local LLMs, failed connections, MCP servers and skills; for a local LLM whether it runs, its models and the agents connected to it. A check that is not ok says what to do next, with a command to <b>Copy</b> where there is one. It opens by itself when something needs doing.</p>
+
+  <h2 id="security-agents">What is checked for each agent</h2>
+  <table>
+    <thead><tr><th>Agent</th><th>Settings shown and changeable</th><th>File</th></tr></thead>
+    <tbody>
+      <tr><td><b>Claude Code</b></td><td>Permission mode (Ask first, Plan only, Only what is allowed, Edit without asking, Automatic review, Bypass all checks), sandbox for commands, block bypass mode; allow / ask / deny rules</td><td><code>~/.claude/settings.json</code></td></tr>
+      <tr><td><b>Codex</b></td><td>When Codex asks, sandbox (read only, project folder, none), network in the sandbox; trusted folders</td><td><code>~/.codex/config.toml</code></td></tr>
+      <tr><td><b>GitHub Copilot</b></td><td>Permission mode (Ask first, Automatic review, Allow everything); trusted folders, sites without asking</td><td><code>~/.copilot/settings.json</code></td></tr>
+      <tr><td><b>Cursor CLI</b></td><td>Approval, sandbox, network in the sandbox, web search without asking; allow / deny rules</td><td><code>~/.config/cursor/cli-config.json</code></td></tr>
+      <tr><td><b>Hermes</b></td><td>Dangerous commands (always ask, automatic review, never ask), hide secrets; where commands run (shown only)</td><td><code>~/.hermes/config.yaml</code></td></tr>
+      <tr><td><b>OpenCode</b></td><td>Ask, allow or never for editing files, running commands, fetching web pages and working outside the project</td><td><code>~/.config/opencode/opencode.json</code></td></tr>
+      <tr><td><b>Pi</b></td><td>Its tools: read, write and run commands, or read only. Pi never asks by design, so its tools are its permissions.</td><td><code>~/.pi/agent/settings.json</code></td></tr>
+    </tbody>
+  </table>
+  <p>For other agents the card shows their health and their MCP servers, and says where to look in the
+  agent's own settings. For a <b>local LLM</b> it shows who can reach it: only this PC
+  (<code>127.0.0.1</code>, as it should be) or every device on your network.</p>
+
+  <h2 id="security-risks">Managing the risk</h2>
+  <p>The risk level is the most serious point the card finds:</p>
+  <ul>
+    <li><b>High risk</b> — it can do serious things without asking: run any command, or work with no
+      sandbox and no questions. Fine in a throwaway container or virtual machine; on your own PC, let it ask first.</li>
+    <li><b>Medium risk</b> — some things happen without asking, such as editing files in the project,
+      or an automatic review decides for you.</li>
+    <li><b>Low risk</b> — it asks before anything that matters, or cannot do it at all.</li>
+  </ul>
+  <p>Good habits, whatever the settings:</p>
+  <ul>
+    <li><b>Ask first for commands</b> on your own computer; allow single, harmless commands (such as
+      <code>git status</code>) with an allow rule instead of allowing the whole shell.</li>
+    <li><b>Switch the sandbox on</b> where the agent has one (Claude Code, Codex, Cursor CLI), and leave
+      the network in it off unless a task needs it.</li>
+    <li><b>Start agents in the project folder</b>, not in your home folder, and keep keys and passwords out of it.</li>
+    <li><b>Keep MCP servers few</b>: only the ones you use and trust. Each runs with your rights.</li>
+    <li><b>Run unattended work</b> (bypass mode, “YOLO”, Pi with all tools) in a container or virtual machine.</li>
+    <li><b>Local LLMs on <code>127.0.0.1</code></b>: their servers have no password.</li>
+  </ul>
+  <div class="warn"><p><b>Caution</b> An automatic review (Claude Code's <i>auto</i> mode, Copilot's
+  <i>assisted</i>, Cursor's <i>auto-review</i>, Hermes's <i>smart</i>) is a second AI judging each step.
+  It saves questions, but it is a judgement, not a wall.</p></div>
+
+  <h2 id="security-words">The words explained</h2>
+  <div class="figure wide">
+    <img src="images/sandbox.svg" alt="Two boxes. Without a sandbox, the agent reaches the project folder, SSH keys and documents, browser data and the internet. With a sandbox, the agent reaches only the project folder; the rest is crossed out.">
+    <p class="caption">What a sandbox changes: commands reach only the project folder and what you allow.</p>
+  </div>
+  <dl>
+    <dt>Sandbox</dt><dd>A fenced-off area the agent's commands run in. Inside it a command can touch
+      only the project folder (and what you allow) — not the rest of your home folder, your SSH keys or
+      browser data, and often not the internet. Without one, a command the agent runs can do anything you can.</dd>
+    <dt>Approval (asking first)</dt><dd>Before the agent edits a file or runs a command, it shows what it
+      wants to do and waits for Yes or No. The less it may do without asking, the more control you keep,
+      and the more often you are asked.</dd>
+    <dt>Allow and deny rules</dt><dd>Lists of commands or tools the agent may use without asking (allow)
+      or never (deny). Deny wins over allow. A rule that allows every shell command switches approval off for the shell.</dd>
+    <dt>Trusted folder</dt><dd>A folder you said the agent may work in. There it also uses the folder's
+      own instructions and settings, which can come from someone else when you clone a project.</dd>
+    <dt>Network access</dt><dd>Whether commands may reach the internet. Code that reads your files and
+      can send data out could leak them; installing packages needs the network too.</dd>
+    <dt>Bypass (“YOLO”)</dt><dd>Everything without asking and without limits. Only for a throwaway virtual machine or container.</dd>
+    <dt>Automatic review</dt><dd>A second AI model lets harmless actions through and asks about the rest.</dd>
+    <dt>Prompt injection</dt><dd>Instructions hidden in a web page, file or tool answer that try to make the
+      agent do something you did not ask for. Asking first, a sandbox and no network stop it.</dd>
+    <dt>Secret redaction</dt><dd>Text that looks like a password, token or key is masked before the model sees it or it reaches a log.</dd>
+    <dt>Tools</dt><dd>What the agent can do at all: read, write, run commands, search the web. A tool it does not have cannot be misused.</dd>
+    <dt>MCP server</dt><dd>A small program that gives the agent extra tools. It runs as you, with your rights.</dd>
+    <dt>127.0.0.1 (localhost)</dt><dd>An address only programs on this PC can reach. A server on
+      <code>0.0.0.0</code> can be reached from every device on your network.</dd>
+  </dl>
+</section>
+
+<!-- ============================== 12 Privacy ============================== -->
+<!-- ============================== Add-ons ============================== -->
+<section class="chapter" id="addons">
+  <h1>Add-ons</h1>
+  <p>Everything AI Agents Map understands about an agent or an LLM provider is an <b>adapter</b>: how it
+  is found and installed, its sessions, security settings, MCP servers and skills. In AI Agents Map every
+  adapter is an <b>add-on</b>: the packages bring all of them, signed and switched off, and you switch
+  on the ones you use. Add-ons also bring new agents, new providers, and features beyond the numbers,
+  such as <b>Insights</b> (session topics and a summary by Claude). The AI Agents Map plugin has the
+  adapters built in and no add-ons.</p>
+
+  <h2 id="addons-setup">Setting up AI Agents Map</h2>
+  <p>A new AI Agents Map opens on its <b>welcome page</b>. Every agent and local LLM AI Agents Map knows is a
+  card with its own icon, in three groups: <b>AI agents</b>, <b>Local LLMs</b> and <b>Online
+  providers</b> (the names of Anthropic, OpenAI and the others on the map). Each card says whether the
+  program is here:</p>
+  <ul>
+    <li><b>Installed</b> (green) — found the same way the map finds it; the card is already ticked;</li>
+    <li><b>Used before</b> — not installed now, but its settings are still here;</li>
+    <li><b>Not installed</b> — tick it to install it afterwards from its card.</li>
+  </ul>
+  <div class="figure wide">
+    <img src="images/setup-welcome.jpg" alt="The welcome page: the AI Agents Map icon and Welcome to AI Agents Map, then AI agents as cards with their icons; ten installed ones are ticked with a blue frame and a check mark, the ones used before or not installed are grey; Later and Switch on 14 at the bottom">
+    <p class="caption">The welcome page: found programs come first and are ticked.</p>
+  </div>
+  <p>Click a card (or press <kbd>Space</kbd> on it) to tick or untick it; a ticked card has a blue frame
+  and a check mark. <b>Switch on</b> (with the number of ticked cards) loads them and shows the map; when
+  you ticked programs that are not installed, <b>Setup</b> opens: <b>⋯</b> on their cards ›
+  <b>Install…</b>. <b>Later</b> starts with an empty map. As long as nothing is switched on, AI Agents Map opens
+  on the welcome page again at every start. Afterwards the same cards are on <b>Setup</b> (the header
+  button), where agents and providers are switched on and off at any time.</p>
+  <p>At every later start AI Agents Map looks again at what is installed and switches on, by itself, the add-on of every agent, local LLM and online provider it finds, so that all of them are on the map. One you switched off yourself (here, on the Add-ons page, or left unticked on the welcome page) stays off; switch it on again to have it back.</p>
+
+  <h2 id="addons-page">The Add-ons page</h2>
+  <p>Open it with the puzzle button in the header, from Settings › <b>Add-ons</b>, or from any
+  "add-on available" hint. It shows, as cards:</p>
+  <ul>
+    <li><b>Suggested for this PC</b> — an add-on whose agent or provider is installed here but not
+      shown yet;</li>
+    <li><b>Installed add-ons</b> — on, off, or <i>not loaded</i> with the reason (for example a changed file);</li>
+    <li><b>Available</b> — the other add-ons of the catalog;</li>
+    <li><b>Built into AI Agents Map</b> — agents and providers that no installed add-on brings (when you
+      run AI Agents Map from its source folder without add-ons).</li>
+  </ul>
+  <div class="figure wide">
+    <img src="images/addons-page.jpg" alt="The Add-ons page: search field, filter chips All, Agents, Providers, Features, Installed, Updates, and the Installed add-ons as cards; Claude Code, Codex, OpenCode, Pi, llama.cpp, LM Studio and Ollama are On with Install greyed out and Uninstall, the others Off with Switch on">
+    <p class="caption">Installed add-ons: on or off, with Install and Uninstall for the program.</p>
+  </div>
+  <p>The card of an agent or local LLM that is switched on has <b>Install</b> and <b>Uninstall</b> for
+  the program itself (the one that does not apply is greyed out), and every card with a homepage has a
+  globe button that opens it in your browser.</p>
+  <p>Search finds names, descriptions and what an add-on reads; the chips above narrow the list to
+  agents, providers, features, the installed ones or those with an update. Click a card for its
+  details: what it reads, what it sends, what it may do, and its privacy level.</p>
+
+  <h2 id="addons-install">Installing, switching on and off, updating, removing</h2>
+  <p><b>Install</b> (or <b>Get add-on</b>) first shows what the add-on reads, sends and may do; only
+  after your OK is it downloaded, checked and switched on. <b>Switch off</b> and <b>Switch on</b>
+  work at once, without a restart: its agents, providers, sections and cards appear or disappear
+  everywhere. <b>Update</b> replaces it with the newer version from the catalog, after the new one
+  was checked; <b>Remove</b> moves it to the trash. <b>Install from file…</b> takes an add-on zip
+  you downloaded yourself; the same checks apply.</p>
+  <p>When the catalog has newer versions of installed add-ons, <b>Setup</b>'s cards say <i>Add-on update</i>, the column’s status lists <b>Add-on updates ready</b> with <b>Update all</b> and <b>Add-ons</b>, and the Add-ons page shows a bar with <b>Update all</b>. The card's ⋯ menu (or a right-click on it) also has <b>Update add-on to</b> <i>version</i>, for that one add-on. Update all updates every one of them in turn, with the same checks, and says in one message which were updated. One install or update runs at a time; another one started meanwhile asks you to try again in a moment.</p>
+
+  <div class="tip"><p><b>Only from the author.</b> AI Agents Map loads only add-ons signed by Uwe
+  Bruckhaus (key fingerprint <code>SHA256:e5cC634Ke3Our5LAeSc88qs22NKZEHTncBW5Ig3amWQ</code>). Before
+  anything of an add-on runs, the signature is checked with OpenSSH's <code>ssh-keygen</code>, every
+  file is compared with its SHA-256, and no file may have been added. A download must also match the
+  SHA-256 in the signed catalog.</p></div>
+
+  <h2 id="addons-privacy">Privacy levels</h2>
+  <table class="first-nowrap">
+    <thead><tr><th>Level</th><th>What the add-on may read or send</th></tr></thead>
+    <tbody>
+      <tr><td><b>Numbers only</b></td><td>Counts, times, tokens, lines changed, cost — what AI Agents Map shows without add-ons.</td></tr>
+      <tr><td><b>Session titles</b></td><td>The titles an agent gave its sessions itself (never the conversations).</td></tr>
+      <tr><td><b>Titles and a summary by Claude</b></td><td>Those titles and numbers, sent to your own Claude Code — only on a click, after a preview of exactly what is sent.</td></tr>
+    </tbody>
+  </table>
+  <p>An add-on can never do more than its level allows. Adding an agent or a provider, or installing a
+  program, are separate permissions that the card names.</p>
+
+  <h2 id="addons-kinds">Kinds of add-ons</h2>
+  <table class="first-nowrap">
+    <thead><tr><th>Kind</th><th>What it brings</th></tr></thead>
+    <tbody>
+      <tr><td><b>Agent</b></td><td>One coding agent: where it keeps its settings, sessions, MCP servers and skills, how it is installed and how it signs in. AI Agents Map builds everything else from that — the card on Setup, its box on the map, Usage and tokens, Projects, Health and Security.</td></tr>
+      <tr><td><b>Provider</b></td><td>A local LLM program, or the online providers: how it is found and installed, and how agents reach it. AI Agents Map builds its card, its box on the map and its details page — including <b>Usage and tokens</b>: what your agents sent through it, taken from their own session numbers.</td></tr>
+      <tr><td><b>Extension</b></td><td>More facts for an agent or a provider another add-on brings, without replacing it — for example its plan and limits, or a card on its details page. It only fills what the agent's add-on leaves empty; the add-on's page says what it adds to and anything it adds that is not used.</td></tr>
+      <tr><td><b>Feature</b></td><td>Something across agents, such as Insights (the Topics card).</td></tr>
+    </tbody>
+  </table>
+  <p>An add-on's section on an agent's or a local LLM's details page joins the card it is about: Usage
+  and tokens, Health, Topics (agents only), or a card of its own with its name.</p>
+  <p>An agent add-on describes its agent as facts (a file named <code>agent.toml</code>); most bring no
+  code at all, and the add-on's page says so: <i>Brings no code</i>, or, for the few agents that need
+  some (their own session database, say), <i>Facts about the agent, and a little code for what facts
+  cannot say</i>.</p>
+
+  <h2 id="addons-new-harness">A new agent on your computer</h2>
+  <p>When you install an agent AI Agents Map does not know yet, it looks in the catalog (Settings ›
+  <b>Look for add-ons online</b>, on by default: the list is read from GitHub every few hours, nothing
+  is sent but the request). If an add-on knows that agent, the column’s status says so (<i>"Kilo Code is on this PC but not on the map"</i>) and a card under <b>Suggested for this PC</b>; one click installs it. If no add-on exists yet, the
+  agent's details say so, with a link to ask for one.</p>
+
+  <h2 id="addons-make">Making an add-on</h2>
+  <p>A new local LLM or a new agent needs nothing but an add-on: AI Agents Map builds its card, its box and
+  lines on the map, its details, the Models page and the Security page from what the add-on says about
+  it. If you can program a little, start from the templates in the AI Agents Map repository
+  (<code>templates/</code>, explained in <code>docs/addons.md</code>): one file for a local LLM, a file
+  of facts for an agent. Send the add-on to <code>github.com/uBruckhaus/asterism-addons</code>; once it
+  is reviewed and signed, it appears under <b>Available</b> for everyone.</p>
+</section>
+
+<section class="chapter" id="privacy">
+  <h1>Privacy and safety</h1>
+  <ul>
+    <li><b>No administrator rights for the app.</b> It never runs as root and never sees a password.
+      Installing an agent that comes as a system package (such as Hermes or OpenClaw) runs the system's
+      package manager through <code>sudo</code> in a terminal you watch, after showing you the command.</li>
+    <li><b>No credentials read.</b> It reads the agents' settings, but never their credential files.
+      Whether an agent is signed in is judged from whether such a file exists. Values of keys and
+      headers are never shown.</li>
+    <li><b>No conversations read.</b> Usage figures are read as numbers and times only. The one
+      exception is watching an instance <i>In the background</i> (<a href="#running-agents">Terminals…</a>),
+      on your click, for that instance only; nothing of it is stored.</li>
+    <li><b>Network only when asked</b> — searching models, MCP servers or skills, installing, testing
+      a server — plus an update check every few hours.</li>
+    <li><b>Checked downloads.</b> Programs are installed only when the download matches the checksum
+      its release publishes.</li>
+    <li><b>Previews and Undo.</b> Every change to another program's settings is previewed, backed up
+      and can be undone. Settings that may hold keys are written readable only by you.</li>
+    <li><b>Bounded.</b> Every program runs without a shell, and every answer is read with a size and
+      time limit.</li>
+    <li><b>AI features only when you choose them.</b> Smart Check's look-ups run on a click, the daily
+      AI checks only when switched on. The agent gets a short summary (names, versions, models), never
+      keys or settings values, handed over in a way other users of the computer cannot read; its answers are checked before they are shown and never run. Tasks run
+      in a terminal you watch, and the agent asks before each step. You use them at your own risk.</li>
+  </ul>
+  <p>The README in each repository lists in full what is read, started and written.</p>
+</section>
+
+<!-- ============================== 13 Troubleshooting ============================== -->
+<section class="chapter" id="troubleshooting">
+  <h1>Troubleshooting</h1>
+  <table class="faq">
+    <thead><tr><th>Problem</th><th>What to do</th></tr></thead>
+    <tbody>
+      <tr><td>The map is cramped or cut off.</td><td>Up to 55&nbsp;% of the screen (below 1150 pixels) the map shows <b>Agents</b> and <b>Providers</b>; up to 80&nbsp;% (below 1600 pixels) it adds <b>Models</b>; widen the window or turn on more columns with the buttons above the map, or use <b>Fit to window</b> (<kbd>Ctrl</kbd>+<kbd>0</kbd>).</td></tr>
+      <tr><td>A box I expect is not on the map.</td><td>The map shows only what is set up: check <b>Setup</b> (an add-on switched off, an MCP server no agent uses) and the column filter buttons above the map.</td></tr>
+      <tr><td><b>Start here</b> is missing or does nothing.</td><td>Install VTE for GTK&nbsp;4 (<code>vte4</code>), or use <b>Start in terminal</b>.</td></tr>
+      <tr><td>A line is dotted red.</td><td>Click it for hints, fix what it says, then <b>Test again</b>. See <a href="#failed">When a connection fails</a>.</td></tr>
+      <tr><td>The local LLM does not start with the agent.</td><td>Check Settings › <b>Start local LLMs with their agents</b>, and that the agent is connected on the map. <code>systemctl --user status ai-agents-map-providers</code> shows the watcher.</td></tr>
+      <tr><td>The coloured light from a local LLM to its model does not show.</td><td>It shows only while a program that is not on the map is generating with that LLM, and fades about ten seconds after its last request. Check the map is visible (a wide window) and that the program is actually sending something.</td></tr>
+      <tr><td>The agent answers badly or cuts off with a local model.</td><td>The context may be too small. Open the model under <b>Models… › Installed</b> and use <b>Set context</b> with the best value for your card.</td></tr>
+      <tr><td>A download stopped.</td><td>It resumes by itself after a broken connection. After a restart, use <b>Continue</b> in the strip at the top.</td></tr>
+      <tr><td>I want to undo a change from earlier.</td><td>Backups are kept in <code>~/.local/state/ai-agents-map/backups/</code>.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ============================== Appendix ============================== -->
+<section class="chapter appendix" id="reference">
+  <h1>Reference</h1>
+
+  <h2 id="shortcuts">Keyboard shortcuts</h2>
+  <table class="keys">
+    <tbody>
+      <tr><th scope="row"><kbd>F1</kbd></th><td>Help</td></tr>
+      <tr><th scope="row"><kbd>F12</kbd></th><td>F12 saves a screenshot. A picture of the window goes to <code>~/Pictures/AI Agents Map</code>, on by default. In a terminal, use the camera symbol below it. You can add a note, saved as a text file next to the picture. Settings can send the pictures to another folder. Only F12 alone counts (not with Ctrl, Shift, Alt or Super). Only you can open the folder (0700) and its files (0600); an existing picture or note is never overwritten, and nothing is uploaded.</td></tr>
+      <tr><th scope="row"><kbd>Ctrl</kbd>+<kbd>,</kbd></th><td>Settings</td></tr>
+      <tr><th scope="row"><kbd>F5</kbd></th><td>Refresh (the map and Setup)</td></tr>
+      <tr><th scope="row"><kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>Ctrl</kbd>+<kbd>−</kbd> / <kbd>Ctrl</kbd>+<kbd>0</kbd></th><td>Zoom the map in, out, or fit to window</td></tr>
+      <tr><th scope="row">Mouse wheel</th><td>Scroll the map</td></tr>
+      <tr><th scope="row"><kbd>Shift</kbd>+click</th><td>Add to or remove from the selection</td></tr>
+      <tr><th scope="row"><kbd>Esc</kbd></th><td>Clear the selection; go back from a page</td></tr>
+      <tr><th scope="row"><kbd>Backspace</kbd></th><td>Go back from a page</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="files">Files and folders</h2>
+  <table>
+    <thead><tr><th>Path</th><th>Contents</th></tr></thead>
+    <tbody>
+      <tr><td><code>~/.config/omarchy/ai-agents-map/</code></td><td>Settings, the MCP server list, looked-up agents, failed connections.</td></tr>
+      <tr><td><code>~/.local/state/ai-agents-map/backups/</code></td><td>Backups of every file the app changed.</td></tr>
+      <tr><td><code>~/.local/state/ai-agents-map/jobs.json</code></td><td>Interrupted downloads and installs.</td></tr>
+      <tr><td><code>~/.local/state/ai-agents-map/reorganize.json</code></td><td>The journal of the last reorganize, for Undo.</td></tr>
+      <tr><td><code>~/.cache/ai-agents-map/</code></td><td>Scan results, tool lists, update checks, the last Smart Check (<code>smart-check.json</code>) and the AI checks' MCP updates (<code>mcp-updates.json</code>).</td></tr>
+      <tr><td><code>~/.local/state/ai-agents-map/ai-help/</code></td><td>The <a href="#smart-protocol">Protocol</a>: one file per AI help run (the last 200).</td></tr>
+      <tr><td><code>~/.local/state/omarchy-plugin-ai/runs.json</code></td><td>The AI look-ups and tasks of this app and other plugins, with their tokens: Smart Check's statistics.</td></tr>
+      <tr><td><code>~/.config/systemd/user/ai-agents-map-providers.service</code></td><td>The watcher that starts local LLMs with their agents.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="glossary">Glossary</h2>
+  <dl>
+    <dt>Approval</dt><dd>An agent asking before it changes a file or runs a command (see <a href="#security-words">The words explained</a>).</dd>
+    <dt>Context</dt><dd>How many tokens of text a model can keep in mind at once.</dd>
+    <dt>GGUF</dt><dd>The file format for models used by llama.cpp, LM Studio, Ollama and KoboldCpp.</dd>
+    <dt>Prompt injection</dt><dd>Hidden instructions in a page, file or tool answer that try to steer an agent.</dd>
+    <dt>Quantization</dt><dd>Storing a model with fewer bits per weight (for example <i>Q4_K_M</i>, about 4.8 bits) so it is smaller, with a small loss of quality.</dd>
+    <dt>Mixture of experts</dt><dd>A model where only part of the parameters work for each token (<i>35B-A3B</i>: 35 billion in all, 3 billion active), which makes it fast for its size.</dd>
+    <dt>Sandbox</dt><dd>A fenced-off area an agent's commands run in, reaching only the project folder and what you allow.</dd>
+    <dt>Token</dt><dd>A piece of text, roughly three quarters of a word, that models read and write.</dd>
+    <dt>User service</dt><dd>A background program started by systemd for your user only, without administrator rights.</dd>
+  </dl>
+</section>
+
+</body>
+</html>

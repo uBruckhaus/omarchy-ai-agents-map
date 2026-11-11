@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 250" font-family="Inter, 'Noto Sans', sans-serif" font-size="14">
+  <title>Without and with a sandbox</title>
+  <!-- left: without a sandbox -->
+  <text x="20" y="24" font-size="15" font-weight="700" fill="#343b58">Without a sandbox</text>
+  <rect x="20" y="40" width="340" height="190" rx="8" fill="#fde9ef" stroke="#f52a65" stroke-width="1.5"/>
+  <text x="34" y="62" fill="#b5174a" font-weight="600">Everything you can reach</text>
+  <rect x="40" y="80" width="120" height="40" rx="6" fill="#fff" stroke="#5f6687"/>
+  <text x="100" y="105" text-anchor="middle" fill="#343b58">Agent</text>
+  <rect x="196" y="76" width="156" height="30" rx="5" fill="#fff" stroke="#9aa1c2"/>
+  <text x="274" y="96" text-anchor="middle" fill="#343b58">Project folder</text>
+  <rect x="196" y="114" width="156" height="30" rx="5" fill="#fff" stroke="#9aa1c2"/>
+  <text x="274" y="134" text-anchor="middle" fill="#343b58">SSH keys, documents</text>
+  <rect x="196" y="152" width="156" height="30" rx="5" fill="#fff" stroke="#9aa1c2"/>
+  <text x="274" y="172" text-anchor="middle" fill="#343b58">Browser data</text>
+  <rect x="196" y="190" width="156" height="30" rx="5" fill="#fff" stroke="#9aa1c2"/>
+  <text x="274" y="210" text-anchor="middle" fill="#343b58">Internet</text>
+  <g stroke="#f52a65" stroke-width="1.6" fill="none">
+    <path d="M160 100 L200 91"/><path d="M160 100 L200 129"/><path d="M160 100 L200 167"/><path d="M160 100 L200 205"/>
+  </g>
+  <!-- right: with a sandbox -->
+  <text x="400" y="24" font-size="15" font-weight="700" fill="#343b58">With a sandbox</text>
+  <rect x="400" y="40" width="380" height="190" rx="8" fill="#f1f2f7" stroke="#9aa1c2" stroke-width="1"/>
+  <rect x="412" y="68" width="186" height="80" rx="8" fill="#eef4e6" stroke="#587539" stroke-width="1.8"/>
+  <text x="420" y="62" fill="#3d5a1f" font-weight="600">Sandbox</text>
+  <rect x="422" y="88" width="70" height="40" rx="6" fill="#fff" stroke="#5f6687"/>
+  <text x="457" y="113" text-anchor="middle" fill="#343b58">Agent</text>
+  <rect x="502" y="90" width="86" height="36" rx="5" fill="#fff" stroke="#9aa1c2"/>
+  <text x="545" y="105" text-anchor="middle" fill="#343b58" font-size="12">Project</text>
+  <text x="545" y="119" text-anchor="middle" fill="#343b58" font-size="12">folder</text>
+  <path d="M492 108 L502 108" stroke="#587539" stroke-width="1.6"/>
+  <rect x="628" y="76" width="144" height="30" rx="5" fill="#fff" stroke="#c4c8da"/>
+  <text x="700" y="96" text-anchor="middle" fill="#8990b3" font-size="13">SSH keys, documents</text>
+  <rect x="628" y="114" width="144" height="30" rx="5" fill="#fff" stroke="#c4c8da"/>
+  <text x="700" y="134" text-anchor="middle" fill="#8990b3" font-size="13">Browser data</text>
+  <rect x="628" y="152" width="144" height="30" rx="5" fill="#fff" stroke="#c4c8da"/>
+  <text x="700" y="172" text-anchor="middle" fill="#8990b3" font-size="13">Internet</text>
+  <g stroke="#f52a65" stroke-width="2.2">
+    <path d="M608 85 L616 97 M616 85 L608 97"/><path d="M608 123 L616 135 M616 123 L608 135"/><path d="M608 161 L616 173 M616 161 L608 173"/>
+  </g>
+  <text x="412" y="190" fill="#4c5372" font-size="13">Commands reach only the project</text>
+  <text x="412" y="208" fill="#4c5372" font-size="13">folder and what you allow.</text>
+</svg>
