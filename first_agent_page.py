@@ -121,7 +121,7 @@ class FirstAgentPage:
         card = self.info_card(_("Get one agent working"), "info")
         self.card_text(card.body, _("An agent is the program you talk to: it reads, writes and runs things for you. "
                                     "It needs either an online account (a plan or an API key) or a model running "
-                                    "on this PC. Pick one way; Asterism shows every step and asks before each one."))
+                                    "on this PC. Pick one way; AI Agents Map shows every step and asks before each one."))
         body.append(card)
         vram = self.first_hw[0].vram
         for kind, title, hint in (("online", _("With an online account"),
@@ -528,7 +528,7 @@ class FirstAgentPage:
         route = self.first_route()
         card = self.info_card(_("Set up your first agent") if route is None else
                               _("Finish setting up {0}").format(route.title), "info")
-        self.card_text(card.body, _("No agent works on this PC yet. Asterism guides you to one, online (a plan or "
+        self.card_text(card.body, _("No agent works on this PC yet. AI Agents Map guides you to one, online (a plan or "
                                     "an API key) or on this PC (a local LLM), and asks before each step."))
         line = Gtk.Box(spacing=ai_core.GAP_INLINE)
         line.append(self.action_button(_("Get started") if route is None else _("Continue"), role="primary",

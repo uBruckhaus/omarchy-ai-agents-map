@@ -89,13 +89,16 @@ def _run(argv: list, timeout: int, cancel=None) -> tuple[str, bool]:
     except OSError:
         return "", False
     deadline = time.time() + timeout
-    while process.poll() is None:
-        if time.time() > deadline or (cancel is not None and cancel.is_set()):
-            process.kill()
-            process.wait()
-            return "", False
-        time.sleep(0.2)
-    out = process.stdout.read() if process.stdout else ""
+    while True:
+        try:
+            out, _err = process.communicate(timeout=0.2)    # read while it runs: a full pipe never blocks it
+            break
+        except subprocess.TimeoutExpired:
+            if time.time() > deadline or (cancel is not None and cancel.is_set()):
+                process.kill()
+                process.communicate()
+                return "", False
+    out = (out or "")[:1024 * 1024]
     return out, process.returncode == 0
 
 

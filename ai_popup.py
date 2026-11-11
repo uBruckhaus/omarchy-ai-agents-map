@@ -1661,13 +1661,13 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         if self.map_empty:
             # An empty Asterism: nothing switched on yet (above the empty map).
             empty = self.empty_state("application-x-addon-symbolic", _("Nothing on the map yet"),
-                                     _("Asterism shows the agents and local LLMs you switch on. Set up switches on "
+                                     _("AI Agents Map shows the agents and local LLMs you switch on. Set up switches on "
                                        "the ones found on this PC with one click."))
             row = Gtk.Box(spacing=ai_core.GAP_INLINE, halign=Gtk.Align.CENTER, margin_top=12)
             # No agent works yet: the first-agent guide is the main way in; Setup and Add-ons beside it.
             first = self.first_agent_wanted()
             choices = ([(_("Set up your first agent"), self.open_first_agent)] if first else []) + \
-                [(_("Set up Asterism"), self.open_setup), (_("Add-ons"), self.open_addons)]
+                [(_("Set up AI Agents Map"), self.open_setup), (_("Add-ons"), self.open_addons)]
             for index, (label, run) in enumerate(choices):
                 row.append(self.action_button(label, role="primary" if index == 0 else "secondary", size="page",
                                               on_click=run))

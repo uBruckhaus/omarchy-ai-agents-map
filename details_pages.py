@@ -164,11 +164,11 @@ class DetailsPages:
             self.fill_addon_cards(body, harness, sessions or {}, time.time() - 30 * 86400, topics=bool(sessions))
         if harness is None and hasattr(self, "open_addons"):
             # No adapter, built in or from an add-on: say so, and where to ask for one.
-            self.note(body, _("No add-on for {0} yet: Asterism only shows that it is installed (no sessions, "
+            self.note(body, _("No add-on for {0} yet: AI Agents Map only shows that it is installed (no sessions, "
                               "security settings, MCP servers or skills).").format(agent.name))
             import urllib.parse
             title = urllib.parse.quote(f"Add-on for {agent.name} ({agent.command})")
-            body.append(Gtk.LinkButton(uri=f"https://github.com/uBruckhaus/asterism-addons/issues/new?title={title}",
+            body.append(Gtk.LinkButton(uri=f"https://github.com/maprisma/maprisma-addons/issues/new?title={title}",
                                        label=_("Ask for an add-on"), halign=Gtk.Align.START))
 
         self.health_security_groups(body, agent, checks, security)

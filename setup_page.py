@@ -243,7 +243,7 @@ class SetupPage:
                 flow.append(self.add_tile(_("Get add-ons"), more, "package", self.open_addons))
             box.append(flow)
         if welcome and (missing or before):
-            self.note(outer, _("Ticked but not installed: after Switch on, Asterism shows you how to install it."))
+            self.note(outer, _("Ticked but not installed: after Switch on, AI Agents Map shows you how to install it."))
 
     @staticmethod
     def setup_flow() -> Gtk.FlowBox:
@@ -1021,7 +1021,7 @@ class SetupPage:
         or a model on the map, as numbered steps (folded until opened, like a section)."""
         if self.with_addons():
             first = (_("Switch on what you use"),
-                     _("Every agent and local LLM Asterism knows is a card below. A blue frame means it is on "
+                     _("Every agent and local LLM AI Agents Map knows is a card below. A blue frame means it is on "
                        "this PC: tick its card and Apply, and it is on the map. A program on this PC without "
                        "an add-on gets one suggested."))
         else:
