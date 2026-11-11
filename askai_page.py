@@ -577,6 +577,8 @@ class AskAiPage:
                 self.open_reorganize()                   # Tidy up: each move shown first
             elif area == "addons":
                 if step in ("on", "off"):
+                    if step == "off" and self.addon_locked([key]):
+                        return
                     addon_store.set_enabled(key, step == "on")
                     self.reload_addons()
                 else:

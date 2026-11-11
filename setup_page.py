@@ -395,6 +395,8 @@ class SetupPage:
         if not changed:
             return
         for on, addon in changed:
+            if not on and self.addon_locked([addon.id]):
+                return
             addon_store.set_enabled(addon.id, on)
         self.reload_addons()
         on = [a.name for wanted, a in changed if wanted]

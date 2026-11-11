@@ -744,8 +744,24 @@ class AddonsPage:
             self.run_addon_job(work, done)
         self.addon_confirm(item, _("Install {0}?").format(item.name), _("Install and switch on"), go)
 
+    def addon_locked(self, ids) -> bool:
+        """Maprisma's add-on lock (tasks 027/028): the add-on of an agent running in a terminal here waits;
+        switching it off, updating or removing it is refused with why. Others stay free."""
+        running = {command for command, pane in getattr(self, "sessions", {}).items()
+                   if getattr(pane, "running", False)}
+        locked = [a for a in getattr(self, "addons", []) if a.id in set(ids) and a.kind == "agent"
+                  and running.intersection(a.provides)]
+        if not locked:
+            return False
+        names = [self.item_name(f"agent:{a.provides[0]}") for a in locked if a.provides]
+        self.toast(_("{0} is running in a terminal. Its add-on can be switched off, updated or removed when it has "
+                     "finished.").format(names[0]) if len(names) == 1 else
+                   _("{0} are running in terminals. Their add-ons can be switched off, updated or removed when "
+                     "they have finished.").format(", ".join(names)), 8)
+        return True
+
     def update_addon(self, item: Item):
-        if item.entry is None or self.addons_busy():
+        if item.entry is None or self.addons_busy() or self.addon_locked([item.id]):
             return
 
         def work():
@@ -779,6 +795,14 @@ class AddonsPage:
         items = self.addon_update_items()
         if not items or self.addons_busy():
             return
+        # A running agent's own add-on waits; the others are updated (Maprisma's Update all).
+        running = {c for c, p in getattr(self, "sessions", {}).items() if getattr(p, "running", False)}
+        waiting = {a.id for a in getattr(self, "addons", []) if a.kind == "agent" and running.intersection(a.provides)}
+        if waiting:
+            self.addon_locked(waiting)
+            items = [i for i in items if i.id not in waiting]
+            if not items:
+                return
         if hasattr(self, "addons_update_bar"):
             self.addons_update_bar.set_visible(False)
 
@@ -809,10 +833,14 @@ class AddonsPage:
         self.addon_confirm(item, _("Switch on {0}?").format(item.name), _("Switch on"), go)
 
     def switch_addon_off(self, item: Item):
+        if self.addon_locked([item.id]):
+            return
         addon_store.set_enabled(item.id, False)
         self.addons_changed(_("{0} is off.").format(item.name), item.id)
 
     def remove_addon(self, item: Item):
+        if self.addon_locked([item.id]):
+            return
         dialog = Adw.AlertDialog(heading=_("Remove {0}?").format(item.name),
                                  body=_("It goes to the trash; you can install it again any time."))
         dialog.add_response("cancel", _("Cancel"))
