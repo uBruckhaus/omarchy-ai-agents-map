@@ -2571,8 +2571,12 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         hook_hint = " · " + _("drag an orange hook to move or remove a connection (hover it to see what it does)") \
             if nodes and self.side_map.hooked_edges() else ""
         if nodes:
-            self.side_filter.set_label(_("Selected: {0} · hold Shift and click to add or remove one")
-                                       .format(", ".join(n.label for n in nodes)) + pick_hint + hook_hint)
+            # Short, beside Clear selection; what can be done with it is in the tooltip.
+            self.side_filter.set_label(_("Selected: {0}").format(", ".join(n.label for n in nodes)))
+            self.side_filter.set_tooltip_text(_("Selected: {0} · hold Shift and click to add or remove one")
+                                              .format(", ".join(n.label for n in nodes)) + pick_hint + hook_hint)
+            self.map_show_all.set_visible(True)
+            return
         else:
             self.side_filter.set_label("")          # as in Maprisma: no hint line over the map
         self.side_filter.set_tooltip_text(self.side_filter.get_label() or None)

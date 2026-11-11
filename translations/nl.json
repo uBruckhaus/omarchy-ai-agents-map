@@ -3473,5 +3473,6 @@
  "All fine": "Alles in orde",
  "{0} looks at what changes and does the update in a terminal tab, asking before each step": "{0} kijkt wat er verandert en voert de update uit in een terminaltab, en vraagt vóór elke stap",
  "Update now": "Nu bijwerken",
- "Update with AI…": "Bijwerken met AI…"
+ "Update with AI…": "Bijwerken met AI…",
+ "Selected: {0}": "Geselecteerd: {0}"
 }

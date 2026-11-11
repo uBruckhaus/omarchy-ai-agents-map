@@ -725,7 +725,7 @@ class MapView(Gtk.DrawingArea):
                                            self.mode_hidden)
         if not self.selected or self.shift:
             return off
-        return off | self.selection_hidden()
+        return off      # a selection hides nothing: it grays the rest out (Maprisma), see highlighted()
 
     def selection_hidden(self) -> set:
         by_id = {n.id: n for n in self.graph.nodes}

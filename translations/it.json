@@ -3473,5 +3473,6 @@
  "All fine": "Tutto a posto",
  "{0} looks at what changes and does the update in a terminal tab, asking before each step": "{0} guarda cosa cambia e fa l’aggiornamento in una scheda del terminale, chiedendo prima di ogni passo",
  "Update now": "Aggiorna ora",
- "Update with AI…": "Aggiorna con l’IA…"
+ "Update with AI…": "Aggiorna con l’IA…",
+ "Selected: {0}": "Selezionato: {0}"
 }

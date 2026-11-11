@@ -3554,5 +3554,6 @@
  "All fine": "Wszystko w porządku",
  "{0} looks at what changes and does the update in a terminal tab, asking before each step": "{0} sprawdza, co się zmienia, i wykonuje aktualizację w karcie terminala, pytając przed każdym krokiem",
  "Update now": "Zaktualizuj teraz",
- "Update with AI…": "Zaktualizuj z AI…"
+ "Update with AI…": "Zaktualizuj z AI…",
+ "Selected: {0}": "Zaznaczone: {0}"
 }
