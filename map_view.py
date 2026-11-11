@@ -3145,7 +3145,26 @@ class LegendSample(Gtk.DrawingArea):
             cr.set_source_rgba(*self.colors("accent" if value == "moving" else "dim"))
             MapView.traffic_arrows(cr, (width - 14) / 2, (height - 12) / 2, 14, 12)
             return
-        if kind in ("dot", "ring"):
+        if kind == "dot":
+            # As the boxes now (Maprisma's): running filled in the accent colour, installed plain,
+            # not installed a dashed row.
+            MapView.rounded(cr, 1, 1, width - 2, height - 2, 4)
+            if value == "muted":
+                cr.set_source_rgba(*self.colors("fg", 0.45))
+                cr.set_line_width(1)
+                cr.set_dash([3, 2])
+                cr.stroke()
+                cr.set_dash([])
+                return
+            cr.set_source_rgba(*self.colors("bg"))
+            cr.fill_preserve()
+            cr.set_source_rgba(*self.colors("accent", 0.25) if value == "green" else self.colors("fg", 0.06))
+            cr.fill_preserve()
+            cr.set_source_rgba(*self.colors("accent", 0.6) if value == "green" else self.colors("fg", 0.2))
+            cr.set_line_width(1.2)
+            cr.stroke()
+            return
+        if kind == "ring":
             # As on a box: the icon tile with the status dot on its corner.
             self.box(cr, width, height)
             size = height - 6
@@ -3182,24 +3201,13 @@ class LegendSample(Gtk.DrawingArea):
                 cr.arc(cx, mid, 4, 0, 2 * math.pi)
                 cr.fill()
         elif kind == "check":
+            # A selected box: framed 3 px in the accent colour (Maprisma), no badge.
             self.box(cr, width, height)
-            MapView.rounded(cr, 1, 1, width - 2, height - 2, 4)
-            cr.set_source_rgba(*self.colors("accent", 0.2))
-            cr.fill_preserve()
+            MapView.rounded(cr, 1.5, 1.5, width - 3, height - 3, 4)
             cr.set_source_rgba(*self.colors("accent"))
-            cr.set_line_width(1.5)
+            cr.set_line_width(3)
             cr.stroke()
-            badge = height - 6
-            MapView.rounded(cr, width - badge - 4, 3, badge, badge, badge / 2)
-            cr.set_source_rgba(*self.colors("accent"))
-            cr.fill()
-            layout = PangoCairo.create_layout(cr)
-            layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 7"))
-            layout.set_text("✓", -1)
-            text_w, text_h = layout.get_pixel_size()
-            cr.set_source_rgba(*self.colors("bg"))
-            cr.move_to(width - badge - 4 + (badge - text_w) / 2, 3 + (badge - text_h) / 2)
-            PangoCairo.show_layout(cr, layout)
+            return
         elif kind == "line":
             if value in ("error", "warning"):
                 color = "red" if value == "error" else "yellow"
@@ -3248,8 +3256,10 @@ class LegendSample(Gtk.DrawingArea):
                 cr.fill()
                 return
             active = value == "active"
-            cr.set_source_rgba(*self.colors("accent" if active else EDGE_COLORS.get(value, "muted"),
-                                            1.0 if active else 0.8))
+            # As the map's lines (Maprisma): the accent colour, except agents on different models of one LLM
+            # (violet) and a model loaded without an agent (light).
+            tone = "accent" if active or value not in ("models", "loaded") else EDGE_COLORS[value]
+            cr.set_source_rgba(*self.colors(tone, 1.0 if active else 0.8))
             cr.set_line_width(2.8 if active else 2.2 if value == "loaded" else 1.6)
             cr.set_dash([5, 4] if value == "available" else [])
             cr.move_to(2, mid)
