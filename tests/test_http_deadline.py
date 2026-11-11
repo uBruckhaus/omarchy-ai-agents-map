@@ -46,8 +46,9 @@ class Server:
                 body = b'{"ok": true}'
                 conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: %d\r\nConnection: close\r\n\r\n" % len(body)
                              + body)
-            elif self.mode == "trickle":
-                conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 100000\r\n\r\n")
+            elif self.mode in ("trickle", "close-trickle"):
+                conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 100000\r\n"
+                             + (b"Connection: close\r\n" if self.mode == "close-trickle" else b"") + b"\r\n")
                 while not self.stop.is_set():
                     conn.sendall(b" ")
                     time.sleep(0.05)
@@ -81,6 +82,18 @@ class DeadlineTest(unittest.TestCase):
         self.assertIsNone(reply)
         self.assertLess(time.monotonic() - started, 1.5)
         self.assertTrue(server.closed.wait(2))      # the socket was really closed
+
+    def test_trickle_after_connection_close_headers(self):
+        server = self.serve("close-trickle")     # getresponse() drops connection.sock here
+        started = time.monotonic()
+        self.assertIsNone(loopback.bounded_request(server.port, "GET", "/x", None, total=0.6, max_bytes=1 << 20))
+        self.assertLess(time.monotonic() - started, 1.5)
+        entry = {"unload": {"path": "/u", "body": {}}}
+        started = time.monotonic()
+        with mock.patch.object(provider_watch, "own_listener", return_value=True), \
+                mock.patch.object(provider_watch, "UNLOAD_TOTAL", 0.5):
+            self.assertFalse(provider_watch.unload(entry, server.port))
+        self.assertLess(time.monotonic() - started, 1.5)
 
     def test_silent_server_stops_at_the_total_budget(self):
         server = self.serve("silent")

@@ -403,10 +403,11 @@ def unload(entry: dict, port: int) -> bool:
     started = time.monotonic()
     connection = http.client.HTTPConnection("127.0.0.1", port, timeout=UNLOAD_TOTAL)
     expired = threading.Event()
+    held = {}                     # the socket itself: getresponse() may drop connection.sock
 
     def expire():
         expired.set()
-        sock = connection.sock
+        sock = held.get("sock")
         if sock is not None:
             try:
                 sock.shutdown(socket.SHUT_RDWR)
@@ -417,6 +418,10 @@ def unload(entry: dict, port: int) -> bool:
     timer.daemon = True
     timer.start()
     try:
+        connection.connect()
+        held["sock"] = connection.sock
+        if expired.is_set():
+            return False
         connection.request("POST", path, body=json.dumps(body), headers={"Content-Type": "application/json"})
         response = connection.getresponse()
         response.read(64 * 1024)

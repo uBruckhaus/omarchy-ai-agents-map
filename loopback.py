@@ -24,10 +24,11 @@ def bounded_request(port: int, method: str, path: str, data: bytes | None, *, to
     started = time.monotonic()
     connection = http.client.HTTPConnection("127.0.0.1", port, timeout=total)
     expired = threading.Event()
+    held = {}                     # the socket itself: getresponse() may drop connection.sock
 
     def expire():
         expired.set()
-        sock = connection.sock
+        sock = held.get("sock")
         if sock is not None:
             try:
                 sock.shutdown(socket.SHUT_RDWR)
@@ -38,6 +39,10 @@ def bounded_request(port: int, method: str, path: str, data: bytes | None, *, to
     timer.daemon = True
     timer.start()
     try:
+        connection.connect()
+        held["sock"] = connection.sock
+        if expired.is_set():
+            return None
         connection.request(method, path, body=data, headers=headers or {})
         response = connection.getresponse()
         raw = response.read(max_bytes + 1)

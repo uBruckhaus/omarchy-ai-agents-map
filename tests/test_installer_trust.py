@@ -103,6 +103,15 @@ class VerifiedTest(unittest.TestCase):
         finally:
             os.close(verified.fd)
 
+    def test_a_file_others_can_write_is_refused(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        file = Path(tmp.name) / "a"
+        file.write_bytes(b"x")
+        file.chmod(0o666)
+        with self.assertRaises(RuntimeError):
+            ic.open_verified(file, hashlib.sha256(b"x").hexdigest())
+
     def test_wrong_bytes_or_link_refused(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)

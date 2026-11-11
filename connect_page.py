@@ -141,9 +141,21 @@ class ConnectPage:
                 return False
             if model and not self.rule_allows("connect", "models", model, command):
                 return False
-            if old and old != model and not self.rule_allows("disconnect", "models", old, command):
-                return False                # moved off (or disconnected from) its model
+            # Moved off (or disconnected from) the model it uses now: that model's disconnect rule.
+            for leaving in {old, *self.models_used_by(agent)} - {"", model}:
+                if not self.rule_allows("disconnect", "models", leaving, command):
+                    return False
         return True
+
+    def models_used_by(self, agent) -> set:
+        """The local models the agent uses now (its active provider's model, from the map)."""
+        import model_slots
+        name = getattr(agent, "name", "")
+        try:
+            in_use = model_slots.models_in_use(getattr(getattr(self, "side_map", None), "graph", None))
+        except (AttributeError, TypeError, ValueError):
+            return set()
+        return {model for models in in_use.values() for model, users in models.items() if name in users}
 
     def on_map_remodel(self, runtime_id: str, old_id: str, new_id: str | None):
         """A local LLM's model line moved: every agent that uses the old model uses the new one

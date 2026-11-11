@@ -67,6 +67,15 @@ class MapModelRulesTest(unittest.TestCase):
         self.assertFalse(page.model_change_allowed(page.agent_list[:1], "runtime:llamacpp", None, "old"))
         self.assertTrue(page.model_change_allowed(page.agent_list[1:], "runtime:llamacpp", "new", "old"))
 
+    def test_the_model_in_use_needs_its_disconnect_rule_on_every_route(self):
+        rules = action_rules.default_rules() + [
+            {"effect": "deny", "action": "disconnect", "category": "models", "item": "old", "agent": "hermes"}]
+        page = self.page(rules)
+        with mock.patch.object(type(page), "models_used_by", lambda self, agent: {"old"} if agent.command == "hermes" else set()):
+            self.assertFalse(page.model_change_allowed(page.agent_list[:1], "runtime:llamacpp", "new"))
+            self.assertTrue(page.model_change_allowed(page.agent_list[:1], "runtime:llamacpp", "old"))   # stays
+            self.assertTrue(page.model_change_allowed(page.agent_list[1:], "runtime:llamacpp", "new"))
+
     def test_allowed_by_default_rules(self):
         page = self.page(action_rules.default_rules())
         self.assertTrue(page.model_change_allowed(page.agent_list, "runtime:llamacpp", "qwen"))

@@ -247,6 +247,8 @@ def open_verified(path: Path, digest: str) -> VerifiedFile:
         st = os.fstat(fd)
         if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid() or st.st_nlink != 1:
             raise RuntimeError(f"{path.name} is not this account's own download; nothing was installed")
+        if st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):      # others could change its bytes in place
+            raise RuntimeError(f"other accounts can write {path.name}; nothing was installed")
         if _sha256_of_fd(fd, digest) != digest:
             raise RuntimeError(f"{path.name} does not match the release's checksum; nothing was installed")
         return VerifiedFile(fd, path.name)
