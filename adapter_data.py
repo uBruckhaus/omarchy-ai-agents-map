@@ -570,9 +570,14 @@ def hooks_from(source: bytes, name: str):
 
 
 def hooks_module(command: str):
-    """adapters/<command>.py of a built-in adapter, or None (tests reach its readers this way)."""
-    path = ADAPTERS / f"{command}.py"
-    if not path.is_file():
+    """adapters/<command>.py of a built-in adapter, or None (tests reach its readers this way).
+    Only a name that is exactly one of the hook modules listed in adapters/ is loaded: the command
+    comes from an add-on's data, and no path is ever built from it."""
+    if not isinstance(command, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,40}", command):
+        return None
+    built_in = {p.name: p for p in ADAPTERS.glob("*.py") if p.parent == ADAPTERS}
+    path = built_in.get(f"{command}.py")
+    if path is None or not path.is_file() or path.is_symlink():
         return None
     spec = importlib.util.spec_from_file_location(f"adapter_hooks_{command.replace('-', '_')}", path)
     assert spec is not None             # a .py file always has a loader

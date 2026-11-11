@@ -241,6 +241,20 @@ class Round6Test(unittest.TestCase):
             self.assertEqual((user / "demo" / "keep").read_text(), "old")
 
 
+class HookNamesTest(unittest.TestCase):
+    """Round 10: an add-on's command never becomes a path; only built-in hook modules load."""
+
+    def test_only_built_in_hook_names(self):
+        import adapter_data
+        with tempfile.TemporaryDirectory() as folder:
+            evil = Path(folder) / "evil.py"
+            evil.write_text("raise SystemExit('add-on code ran')\n")
+            rel = os.path.relpath(evil.with_suffix(""), adapter_data.ADAPTERS)
+            for command in (rel, "../tests/x", "/tmp/evil", "pi/../pi", "PI", "", None, "a" * 60):
+                self.assertIsNone(adapter_data.hooks_module(command), command)
+        self.assertIsNotNone(adapter_data.hooks_module("pi"))          # a built-in one still loads
+
+
 class TrustedChainTest(unittest.TestCase):
     def test_a_folder_higher_up_that_others_can_write(self):
         import llama_tune

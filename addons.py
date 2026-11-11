@@ -375,7 +375,10 @@ def load(addon: Addon, hooks: addon_api.Hooks = addon_api.HOOKS) -> Addon:
             facts = tomllib.loads(addon.files["agent.toml"].decode("utf-8"))
             # Agent add-ons are data: the agent keeps the hooks the app has built in (an add-on's
             # hooks.py, when there is one, is never run).
-            agent_hooks = adapter_data.hooks_module(str(facts.get("command", "")))
+            command = facts.get("command")
+            # Only the add-on's own declared agent, and only hooks the app has built in.
+            agent_hooks = adapter_data.hooks_module(command) \
+                if isinstance(command, str) and (not addon.provides or command in addon.provides) else None
             api.add_harness(adapter_data.harness(facts, f"{addon.id}/agent.toml", agent_hooks))
         if addon.kind == "provider":
             # A data add-on: the built-in providers it names, shown through it (an addon.py is never run).
