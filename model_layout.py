@@ -114,26 +114,43 @@ def model_dir_name(file_name: str) -> str:
     return (_NAME_RE.sub("-", stem).strip(" .-") or "model")[:120]
 
 
-def walk_gguf(folder: Path, skip: set, depth: int = 0, found=None) -> tuple[list, list]:
-    """(real .gguf files, symlinks to .gguf) under folder; skip = folders left out."""
+def walk_gguf(folder: Path, skip: set, depth: int = 0, found=None, budget=None) -> tuple[list, list]:
+    """(real .gguf files, symlinks to .gguf) under folder; skip = folders left out. Entries are read
+    one at a time and charged to `budget` (scan_budget.Budget, shared by a whole scan: visited
+    entries, time, cancel) before anything is kept; at most MAX_FILES results in all."""
+    import scan_budget
     files, links = found if found is not None else ([], [])
-    if depth > MAX_DEPTH or len(files) + len(links) > MAX_FILES:
+    budget = budget if budget is not None else scan_budget.Budget()
+    if depth > MAX_DEPTH:
         return files, links
     try:
-        entries = sorted(folder.iterdir())
+        listing = os.scandir(folder)
     except OSError:
         return files, links
-    for entry in entries:
-        if entry.name.startswith(".") or entry in skip:
-            continue
-        if entry.is_symlink():
-            if entry.name.lower().endswith(".gguf"):
-                links.append(entry)
-            continue
-        if entry.is_dir():
-            walk_gguf(entry, skip, depth + 1, (files, links))
-        elif entry.is_file() and entry.name.lower().endswith(".gguf"):
-            files.append(entry)
+    with listing:
+        for entry in listing:
+            if len(files) + len(links) >= MAX_FILES:
+                budget.stopped = True
+                break
+            if not budget.take():
+                break
+            path = Path(entry.path)
+            if entry.name.startswith(".") or path in skip:
+                continue
+            try:
+                if entry.is_symlink():
+                    if entry.name.lower().endswith(".gguf"):
+                        links.append(path)
+                    continue
+                if entry.is_dir(follow_symlinks=False):
+                    walk_gguf(path, skip, depth + 1, (files, links), budget)
+                elif entry.is_file(follow_symlinks=False) and entry.name.lower().endswith(".gguf"):
+                    files.append(path)
+            except OSError:
+                continue
+    if depth == 0 and found is None:
+        files.sort()
+        links.sort()
     return files, links
 
 
@@ -191,10 +208,17 @@ def plan(root: Path, providers: list, keep_old_paths: bool = True) -> Plan:
         if p.folder:
             skip |= {Path(os.path.realpath(p.folder)) / name for name in p.store}
     bases = [Path(os.path.realpath(p.folder)) for p in gguf_providers] + [root]
+    import scan_budget
     files, links = [], []
+    budget = scan_budget.Budget()           # one for all model folders
     for base in dict.fromkeys(bases):
         if base.is_dir():
-            walk_gguf(base, skip, 0, (files, links))
+            walk_gguf(base, skip, 0, (files, links), budget)
+    if budget.stopped:                      # a partial picture is no base for moving files
+        result.problems.append("too-many")
+        return result
+    files.sort()
+    links.sort()
     # Files the links point at (a link folder's models can live anywhere).
     for link in links:
         target = Path(os.path.realpath(link))

@@ -113,7 +113,12 @@ class Engine(llm_engine.Engine):
 
     def _lms(self, *args):
         binary = lms_binary()
-        return llm_engine._run([binary, *args]) if binary else (False, "lms not found")
+        # `lms server start` leaves the server running: it is not cleaned up with the command.
+        if not binary:
+            return False, "lms not found"
+        if args[:2] == ("server", "start"):
+            return llm_engine._run([binary, *args], keep_children=True)
+        return llm_engine._run([binary, *args])
 
     def start(self, rt):
         return super().start(rt) if rt.service else self._lms("server", "start")

@@ -141,27 +141,28 @@ def read_file(path: Path, state: dict, budget: int) -> int:
         offset = state.get("offset", 0)
         handle.seek(offset)
         read = 0
+        # Inside a line longer than MAX_LINE (from an earlier run, too): its bytes are skipped, each
+        # chunk charged against the budget and the offset moved on, so a huge line is never read
+        # twice and never beyond the budget.
+        skipping = state.get("skipping") is True
         while read < budget:
+            if skipping:
+                chunk = handle.readline(max(1, min(MAX_LINE + 1, budget - read)))
+                if not chunk:
+                    break                       # still being written: the next run goes on from here
+                read += len(chunk)
+                offset += len(chunk)
+                skipping = not chunk.endswith(b"\n")
+                continue
             line = handle.readline(MAX_LINE + 1)
             if not line:
                 break
             if not line.endswith(b"\n"):
                 if len(line) <= MAX_LINE:
                     break                       # a line still being written: read it next time
-                # Longer than MAX_LINE: skip to its end and keep nothing of it.
-                skipped, done = len(line), False
-                while True:
-                    more = handle.readline(MAX_LINE + 1)
-                    if not more:
-                        break                   # still being written: the next run starts at it again
-                    skipped += len(more)
-                    if more.endswith(b"\n"):
-                        done = True
-                        break
-                if not done:
-                    break
-                read += skipped
-                offset += skipped
+                skipping = True                 # longer than MAX_LINE: keep nothing of it
+                read += len(line)
+                offset += len(line)
                 continue
             read += len(line)
             offset += len(line)
@@ -183,6 +184,7 @@ def read_file(path: Path, state: dict, budget: int) -> int:
             else:
                 add_cost(session, entry)
         state["offset"] = offset
+        state["skipping"] = skipping
         return read
 
 
@@ -207,6 +209,7 @@ def _save_cache(files: dict, cache: Path | None):
         return
     import ai_core
     plain = {path: {"inode": s.get("inode"), "offset": s.get("offset", 0),
+                    **({"skipping": True} if s.get("skipping") is True else {}),
                     **({"type": s["type"]} if isinstance(s.get("type"), str) else {}),
                     "sessions": {sid: asdict(x) if isinstance(x, Session) else x
                                  for sid, x in s.get("sessions", {}).items()}}

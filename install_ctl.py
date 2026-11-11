@@ -168,6 +168,79 @@ def check_folder(text: str) -> Path:
     return path
 
 
+def check_trusted(path: Path) -> None:
+    """The program folder and every folder above it must be safe from other accounts: each one
+    belongs to this account or root; the program folder itself is writable only by this account;
+    a folder above it that others may write must have the sticky bit (as /tmp), so they cannot
+    rename or replace what is in it. Raises RuntimeError (nothing is installed)."""
+    try:
+        real = Path(os.path.realpath(path))
+    except OSError as error:
+        raise RuntimeError(f"{path}: {error}") from error
+    me = os.getuid()
+    current = real
+    first = True
+    while True:
+        try:
+            st = os.lstat(current)
+        except FileNotFoundError:
+            if first and current != current.parent:   # not there yet: claim() creates it, checks again
+                current = current.parent
+                continue
+            raise RuntimeError(f"{current} is missing; nothing was installed") from None
+        except OSError as error:
+            raise RuntimeError(f"{current}: {error}") from error
+        if not stat.S_ISDIR(st.st_mode):
+            raise RuntimeError(f"{current} is not a folder; nothing was installed")
+        if st.st_uid not in (0, me):
+            raise RuntimeError(f"{current} belongs to another account; choose a folder of your own")
+        others_write = st.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+        if others_write and (current == real or not st.st_mode & stat.S_ISVTX):
+            raise RuntimeError(f"other accounts can change {current}; choose a folder only you can write")
+        first = False
+        if current == current.parent:
+            return
+        current = current.parent
+
+
+class VerifiedFile(type(Path())):
+    """A downloaded release file that was opened once and checked through that descriptor: its
+    path is /proc/<pid>/fd/<n>, so every later read (archive checks, tar, a copy, running an
+    AppImage to unpack it) gets those very bytes, whatever happens to the name meanwhile.
+    `asset_name` is the release file's name (its kind: .tar.zst, .AppImage…)."""
+
+    def __init__(self, fd: int, asset_name: str):
+        super().__init__(f"/proc/{os.getpid()}/fd/{fd}")
+        self.fd = fd
+        self.asset_name = asset_name
+
+    @property
+    def name(self):                     # the release file's name, not the descriptor number
+        return self.asset_name
+
+    def with_segments(self, *parts):    # derived paths are plain paths
+        return Path(*parts)
+
+
+def open_verified(path: Path, digest: str) -> VerifiedFile:
+    """Open a downloaded file (no link, this account's own regular file with one name) and check
+    its bytes against `digest` through that descriptor. Close it with os.close(file.fd)."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except OSError as error:
+        raise RuntimeError(f"{path.name}: {error}; nothing was installed") from error
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid() or st.st_nlink != 1:
+            raise RuntimeError(f"{path.name} is not this account's own download; nothing was installed")
+        if _sha256_of_fd(fd, digest) != digest:
+            raise RuntimeError(f"{path.name} does not match the release's checksum; nothing was installed")
+        return VerifiedFile(fd, path.name)
+    except BaseException:
+        os.close(fd)
+        raise
+
+
 # --- downloads ------------------------------------------------------------------------------------
 
 def _curl_json(url: str) -> dict:
@@ -268,19 +341,23 @@ def download(url: str, target: Path, size: int, progress, cancelled, done_before
             os.ftruncate(fd, 0)
             have = 0
         # The size from the release list caps the download (a wrong or endless body stops there).
+        # Deadlines in curl itself: connection setup, a transfer that stalls or only trickles (below
+        # 1 KiB/s for a minute), and the whole transfer (resumable: Install again continues).
         argv = ["curl", "-fsSL", "--proto", "=https", "--proto-redir", "=https", "--max-redirs", "5",
-                "--max-filesize", str(limit_bytes)]
+                "--max-filesize", str(limit_bytes), "--connect-timeout", str(CONNECT_TIMEOUT),
+                "--speed-limit", "1024", "--speed-time", str(STALL_SECONDS), "--max-time", str(TRANSFER_TIMEOUT)]
         if have:
             argv += ["-C", str(have)]           # resume at the checked size of our own file
         proc = subprocess.Popen([*argv, "--", url], stdin=subprocess.DEVNULL, stdout=fd, stderr=subprocess.PIPE)
+        deadline = time.monotonic() + TRANSFER_TIMEOUT + 60      # curl's own --max-time, plus a margin
         try:
             while proc.poll() is None:
                 if cancelled():
-                    proc.kill()
                     raise Cancelled()
+                if time.monotonic() > deadline:
+                    raise DownloadError("the download took too long; Install again continues it")
                 have = os.fstat(fd).st_size
                 if have > limit_bytes:
-                    proc.kill()
                     raise RuntimeError("the download is larger than announced")
                 if total or size:
                     progress((done_before + have) / max(1, total or size), None)
@@ -291,8 +368,13 @@ def download(url: str, target: Path, size: int, progress, cancelled, done_before
         finally:
             if proc.poll() is None:
                 proc.kill()
+                proc.wait()                     # reaped on cancel, error and deadline alike
+        try:
+            error_text = proc.stderr.read(400).decode("utf-8", "replace").strip()
+        finally:
+            proc.stderr.close()
         if proc.returncode != 0:
-            raise DownloadError(f"download failed: {proc.stderr.read(400).decode('utf-8', 'replace').strip()}")
+            raise DownloadError(f"download failed: {error_text}")
         st = os.fstat(fd)
         if size and st.st_size != size:
             raise DownloadError("download incomplete")
@@ -322,6 +404,9 @@ def _remove_if_same(path: Path, st):
 
 
 MAX_ENTRIES = 200_000            # files, folders and links in one release archive
+CONNECT_TIMEOUT = 30             # seconds for curl to reach the release server
+STALL_SECONDS = 60               # a download slower than 1 KiB/s for this long stops
+TRANSFER_TIMEOUT = 6 * 3600      # seconds for one release file in all (the largest are a few GB)
 
 
 def check_archive(archive: Path, limit: int = 0, max_entries: int = MAX_ENTRIES):
@@ -580,8 +665,11 @@ class Installer:
 
     def claim(self, folder: Path, models: Path | None = None):
         """Make `folder` this runtime's program folder: a new or empty folder (the model folder may be
-        in it: a reinstall), or one it already owns. A folder with other things in it is refused."""
-        folder.mkdir(parents=True, exist_ok=True)
+        in it: a reinstall), or one it already owns. A folder with other things in it is refused, and
+        so is one that other accounts could change (check_trusted, before and after creating it)."""
+        check_trusted(folder)
+        folder.mkdir(parents=True, exist_ok=True, mode=0o755)
+        check_trusted(folder)
         if folder.is_symlink() or not folder.is_dir():
             raise RuntimeError(f"{folder} is not a folder of its own; nothing was installed")
         mark = self.marker(folder)
@@ -691,7 +779,11 @@ class Installer:
         self.make_room(folder, partial, models)
         partial.mkdir()
         for asset_name, _url, _size in release.assets:
-            self.unpack(downloads / asset_name, partial)
+            verified = open_verified(downloads / asset_name, release.digests[asset_name])
+            try:
+                self.unpack(verified, partial)     # the checked bytes, not whatever has that name now
+            finally:
+                os.close(verified.fd)
         if not (partial / self.bin_rel).exists():
             flatten(partial)         # llama-b11658/llama-server → llama-server
         if not (partial / self.bin_rel).exists():
@@ -1256,6 +1348,7 @@ class Strata(Installer):
             raise RuntimeError(f"{link} belongs to another program or install; nothing was installed")
         if folder.is_symlink() or (folder.exists() and not folder.is_dir()):
             raise RuntimeError(f"{folder} is not a folder of its own; nothing was installed")
+        check_trusted(folder)
         if folder.is_dir() and any(folder.iterdir()) and self.marker(folder) is None:
             raise RuntimeError(f"Strata is installed already in {folder}; update it with `~/.local/bin/strata update`")
         name, url, size = release.assets[0]
@@ -1270,8 +1363,12 @@ class Strata(Installer):
             # folders): what was checked is what installs.
             env = {k: v for k, v in os.environ.items() if not k.startswith("STRATA_")}
             env["STRATA_FEED"] = f"{self.DOWNLOADS}{release.version}"
-            out, ok = ai_core.read_bounded_output(["sh", str(script)], max_bytes=256 * 1024, timeout=self.TIMEOUT,
-                                                  merge_stderr=True, env=env)
+            verified = open_verified(script, release.digests[name])     # the checked bytes run
+            try:
+                out, ok = ai_core.read_bounded_output(["sh", str(verified)], max_bytes=256 * 1024,
+                                                      timeout=self.TIMEOUT, merge_stderr=True, env=env)
+            finally:
+                os.close(verified.fd)
         if not ok:
             raise RuntimeError(out.decode("utf-8", "replace").strip()[-300:] or "install.sh failed")
         version = self.current_version_in(folder)

@@ -3473,5 +3473,8 @@
  "{0}: tuned for this card": "{0}: für diese Karte eingestellt",
  "Names local LLMs the app has built in (its addon.py is never run)": "Nennt lokale LLMs, die die App eingebaut hat (ihre addon.py wird nie ausgeführt)",
  "Facts about the agent; the app uses its own built-in code for it (hooks.py is never run)": "Fakten über den Agenten; die App nutzt dafür ihren eigenen eingebauten Code (hooks.py wird nie ausgeführt)",
- "Add-ons come with AI Agents Map and are updated with it.": "Add-ons kommen mit AI Agents Map und werden mit ihm aktualisiert."
+ "Add-ons come with AI Agents Map and are updated with it.": "Add-ons kommen mit AI Agents Map und werden mit ihm aktualisiert.",
+ "Too many files in the model folders to look through at once; nothing is moved.": "Zu viele Dateien in den Modellordnern, um sie auf einmal durchzusehen; nichts wird verschoben.",
+ "The search stopped at its limit (too many files or folders), so this list may be incomplete.": "Die Suche hat an ihrer Grenze angehalten (zu viele Dateien oder Ordner); diese Liste ist eventuell unvollständig.",
+ "Looking at the model…": "Modell wird angesehen…"
 }

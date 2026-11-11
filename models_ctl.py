@@ -437,7 +437,8 @@ def seen_by(runtime_key: str, folder: Path) -> set:
     elif kind == "blobs":
         paths = (folder / "blobs").glob("sha256-*")
     else:
-        paths = [*folder.glob("*.gguf"), *folder.glob("*/*.gguf")]
+        import itertools
+        paths = itertools.chain(folder.glob("*.gguf"), folder.glob("*/*.gguf"))     # lazily, one by one
     found = set()
     for count, path in enumerate(paths):
         if count > 5000:
@@ -446,19 +447,24 @@ def seen_by(runtime_key: str, folder: Path) -> set:
     return found - {None}
 
 
-def local_ggufs(roots: list, have: set) -> list[LocalFile]:
+def local_ggufs(roots: list, have: set, budget=None) -> list[LocalFile]:
     """GGUF models under roots (real files and what links point at) that the local
     LLM does not read yet (have = seen_by(...): same file = same inode, so hard
     links and symlinks count as had). No vision projectors, a split model by its
-    first part."""
+    first part. `budget` (scan_budget.Budget): one for all roots; its `stopped` says the list is
+    partial (a limit or a cancel)."""
     import model_layout
+    import scan_budget
+    budget = budget if budget is not None else scan_budget.Budget()
     had = set(have)
     found, seen = [], set()
     for root in roots:
         root = Path(root)
+        if budget.stopped:
+            break
         if not root.is_dir():
             continue
-        files, links = model_layout.walk_gguf(root, set())
+        files, links = model_layout.walk_gguf(root, set(), budget=budget)
         for path in files + [Path(os.path.realpath(l)) for l in links]:
             name = path.name.lower()
             ident = _identity(path)

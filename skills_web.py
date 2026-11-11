@@ -3,6 +3,10 @@ local skills folder, without running anything.
 
 - search: skills.sh/api/search -> skill name, its GitHub repository
   ("anthropics/skills") and how often it was installed;
+- one snapshot: the repository's HEAD is resolved to a full commit once
+  (api.github.com …/commits/HEAD); the file list and every file come from that
+  commit, and each file's bytes must have the Git blob id the list names, so an
+  install never mixes files of two versions;
 - the skill's folder in that repository: GitHub's file list (one request),
   the folder whose name is the skill's and holds a SKILL.md;
 - its files: raw.githubusercontent.com, at most MAX_FILES files and
@@ -13,14 +17,17 @@ Skills can hold scripts an agent may run later: the page says so and shows
 the repository before anything is fetched.
 """
 
+import hashlib
 import json
 import re
 import urllib.parse
 from dataclasses import dataclass
 
 SEARCH = "https://skills.sh/api/search"
-TREE = "https://api.github.com/repos/{repo}/git/trees/HEAD?recursive=1"
-RAW = "https://raw.githubusercontent.com/{repo}/HEAD/{path}"
+COMMIT = "https://api.github.com/repos/{repo}/commits/HEAD"
+TREE = "https://api.github.com/repos/{repo}/git/trees/{ref}?recursive=1"
+RAW = "https://raw.githubusercontent.com/{repo}/{ref}/{path}"
+_SHA = re.compile(r"^[0-9a-f]{40}$")
 TIMEOUT = 20
 MAX_FILES = 150
 MAX_FILE = 5 * 1024 * 1024
@@ -36,6 +43,7 @@ class Skill:
     skill_id: str
     repo: str                 # "owner/name" on GitHub
     installs: int = 0
+    commit: str = ""          # the commit its files were fetched from (fetch)
 
 
 def _get(url: str, limit: int, accept: str = "application/json", site: str = "") -> bytes:
@@ -97,12 +105,12 @@ def skills_in_tree(tree: dict, repo: str, query: str = "", limit: int = 30) -> l
 def repo_skills(repo: str, query: str = "", limit: int = 30) -> list[Skill]:
     if not _REPO.fullmatch(repo):
         raise ValueError("not a GitHub repository")
-    tree = json.loads(_get(TREE.format(repo=repo), 8 * 1024 * 1024, "application/vnd.github+json"))
+    tree = json.loads(_get(TREE.format(repo=repo, ref="HEAD"), 8 * 1024 * 1024, "application/vnd.github+json"))
     return skills_in_tree(tree, repo, query, limit)
 
 
 def files_of(tree: dict, skill_id: str) -> tuple[str, list]:
-    """(folder in the repository, [(path inside the skill, repo path, size)]) of
+    """(folder in the repository, [(path inside the skill, repo path, size, executable, blob id)]) of
     the skill named skill_id; raises ValueError when it is not there or too big."""
     entries = tree.get("tree") if isinstance(tree, dict) else None
     if not isinstance(entries, list):
@@ -130,8 +138,11 @@ def files_of(tree: dict, skill_id: str) -> tuple[str, list]:
         size = v if isinstance(v := entry.get("size"), int) and not isinstance(v, bool) else MAX_FILE + 1
         if size > MAX_FILE:
             raise ValueError(f"{inner} is too large")
+        blob = entry.get("sha")
+        if not isinstance(blob, str) or not _SHA.fullmatch(blob):
+            raise ValueError(f"{inner}: the file list names no Git blob id")
         total += size
-        files.append((inner, path, size, entry.get("mode") == "100755"))
+        files.append((inner, path, size, entry.get("mode") == "100755", blob))
     if len(files) > MAX_FILES or total > MAX_TOTAL:
         raise ValueError("the skill is too large")
     if not any(f[0] == "SKILL.md" for f in files):
@@ -139,14 +150,35 @@ def files_of(tree: dict, skill_id: str) -> tuple[str, list]:
     return folder, files
 
 
+def blob_id(data: bytes) -> str:
+    """Git's id of a file's bytes (SHA-1 of "blob <size>\\0" and the bytes)."""
+    return hashlib.sha1(b"blob %d\0" % len(data) + data, usedforsecurity=False).hexdigest()
+
+
+def resolve(repo: str) -> str:
+    """The full commit the repository's HEAD is now."""
+    sha = _get(COMMIT.format(repo=repo), 1024, "application/vnd.github.sha").decode("ascii", "replace").strip()
+    if not _SHA.fullmatch(sha):
+        raise ValueError("GitHub did not name the current commit")
+    return sha
+
+
 def fetch(skill: Skill) -> list:
-    """[(path inside the skill, bytes, executable)] of the skill's files."""
-    tree = json.loads(_get(TREE.format(repo=skill.repo), 8 * 1024 * 1024, "application/vnd.github+json"))
+    """[(path inside the skill, bytes, executable)] of the skill's files, all from one commit (set as
+    skill.commit), each checked against its Git blob id before anything is returned."""
+    commit = resolve(skill.repo)
+    tree = json.loads(_get(TREE.format(repo=skill.repo, ref=commit), 8 * 1024 * 1024, "application/vnd.github+json"))
+    if isinstance(tree, dict) and tree.get("truncated") is True:
+        raise ValueError("the repository's file list is too long")
     _folder, files = files_of(tree, skill.skill_id)
     result = []
-    for inner, path, size, executable in files:
-        url = RAW.format(repo=skill.repo, path=urllib.parse.quote(path))
-        result.append((inner, _get(url, max(size, 1) + 1024, "*/*"), executable))
+    for inner, path, size, executable, blob in files:
+        url = RAW.format(repo=skill.repo, ref=commit, path=urllib.parse.quote(path))
+        data = _get(url, max(size, 1) + 1024, "*/*")
+        if blob_id(data) != blob:
+            raise ValueError(f"{inner} is not the file of commit {commit[:12]}; nothing was added")
+        result.append((inner, data, executable))
+    skill.commit = commit
     return result
 
 

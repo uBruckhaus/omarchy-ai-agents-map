@@ -20,7 +20,10 @@ class StopTest(unittest.TestCase):
         agent = subprocess.Popen(["sh", "-c", "sleep 60 & echo $!; wait"], stdout=subprocess.PIPE,
                                  start_new_session=True, text=True)
         child = int(agent.stdout.readline())
-        terminal_pane.TerminalPane.signal_group(agent.pid, signal.SIGTERM)
+        import process_group
+        group = process_group.Group(agent.pid, os.pidfd_open(agent.pid))
+        self.addCleanup(group.close)
+        group.signal(signal.SIGTERM)
         agent.wait(timeout=5)
         for _ in range(50):
             try:

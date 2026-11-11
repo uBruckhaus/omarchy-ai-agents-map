@@ -398,11 +398,13 @@ def run_with_disk_budget(argv: list[str], cwd: str, budget: int, timeout: float,
 
 def read_bounded_output(argv: list[str], max_bytes: int = 64 * 1024, timeout: float = 5.0,
                         stdin: bytes | None = None, cwd: str | None = None, env: dict | None = None,
-                        merge_stderr: bool = False, cancel=None) -> tuple[bytes, bool]:
-    """Run argv (no shell), read stdout with a byte cap and one deadline.
+                        merge_stderr: bool = False, cancel=None, keep_children: bool = False) -> tuple[bytes, bool]:
+    """Run argv (no shell), read stdout with a byte cap and one deadline; afterwards (also after
+    success) everything it started in its process group is ended (process_group.end_child).
     `stdin`: bytes handed to the program (private data never goes into argv);
     `merge_stderr`: read error messages too (same cap);
-    `cancel`: an Event; once it is set the program and its children are ended (not ok)."""
+    `cancel`: an Event; once it is set the program and its children are ended (not ok);
+    `keep_children`: a launcher whose server is meant to keep running after it ends."""
     try:
         proc = subprocess.Popen(list(argv), stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
                                 stdout=subprocess.PIPE,
@@ -439,18 +441,26 @@ def read_bounded_output(argv: list[str], max_bytes: int = 64 * 1024, timeout: fl
         deadline = time.monotonic() + timeout
         while thread.is_alive() and not cancel.is_set() and time.monotonic() < deadline:
             thread.join(min(0.2, max(0.0, deadline - time.monotonic())))
+    import process_group
     if thread.is_alive() or state["over"]:
-        try:
-            os.killpg(proc.pid, 9)          # its children too (curl, npx, …)
-        except OSError:
-            proc.kill()
-        thread.join(2.0)
         state["over"] = True
-    try:
-        code = proc.wait(timeout=2.0)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        code = proc.wait()
+        if keep_children:
+            proc.kill()
+            proc.wait()
+        else:
+            process_group.end_child(proc, grace=0.0)   # its children too (curl, npx, …)
+        thread.join(2.0)
+        code = proc.returncode
+    elif keep_children:              # it starts a server that is meant to stay (a launcher)
+        try:
+            code = proc.wait(timeout=2.0)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            code = proc.wait()
+    else:
+        # Its output is closed; it may take a moment to end. Then whatever it left in its group
+        # (a child with other output streams) ends too, before the program is reaped.
+        code = process_group.end_child(proc, wait=2.0)
     return b"".join(chunks)[:max_bytes], code == 0 and not state["over"]
 
 
@@ -510,12 +520,17 @@ MAX_PASTE_BYTES = 8192                 # text pasted into a field
 _TEXT_MIMES = ("text/plain;charset=utf-8", "text/plain", "UTF8_STRING", "TEXT", "STRING")
 
 
-def clipboard_text(max_bytes: int = MAX_PASTE_BYTES, timeout: float = 2.0, lines: bool = False) -> str | None:
+MAX_TERMINAL_PASTE = 1024 * 1024       # text pasted into the embedded terminal
+
+
+def clipboard_text(max_bytes: int = MAX_PASTE_BYTES, timeout: float = 2.0, lines: bool = False,
+                   terminal: bool = False) -> str | None:
     """Plain text from the Wayland clipboard, read with `wl-paste` under a
     byte cap and a deadline (GTK's own paste buffers the whole offer with
     neither). Control characters become spaces (line breaks stay when
     `lines`). '' when the clipboard has no text; None when the offer was too
-    long, too slow or failed."""
+    long, too slow or failed. `terminal`: for the embedded terminal (tabs stay, nothing else
+    of the control characters)."""
     types_raw, _ = read_bounded_output(["wl-paste", "--list-types"], max_bytes=65536, timeout=timeout)
     # An empty clipboard makes wl-paste fail: nothing to paste, not an error.
     offered = {line.strip() for line in types_raw.decode("utf-8", "replace").splitlines()}
@@ -527,6 +542,9 @@ def clipboard_text(max_bytes: int = MAX_PASTE_BYTES, timeout: float = 2.0, lines
         if not ok:
             return None
         text = data.decode("utf-8", "replace")
+        if terminal:              # line breaks and tabs stay; other control characters (ESC…) go
+            return "".join(ch if ch in "\n\t" or not (ord(ch) < 32 or 127 <= ord(ch) < 160) else ""
+                           for ch in text.replace("\r\n", "\n"))
         if lines:
             return "".join(ch if ch == "\n" or not (ord(ch) < 32 or 127 <= ord(ch) < 160) else " "
                            for ch in text.replace("\r\n", "\n"))

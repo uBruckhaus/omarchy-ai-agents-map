@@ -391,20 +391,44 @@ def own_listener(port: int, proc: str = "/proc/net") -> bool:
 
 
 def unload(entry: dict, port: int) -> bool:
-    """Free the GPU memory of a runtime that stays up (its config entry's "unload" request)."""
+    """Free the GPU memory of a runtime that stays up (its config entry's "unload" request), within
+    UNLOAD_TOTAL seconds for the whole exchange. (This service runs as `python3 -I` on its own,
+    so the bounded exchange is written out here, as loopback.bounded_request.)"""
     import http.client
+    import socket
+    import threading
     path, body = entry["unload"]["path"], entry["unload"]["body"]
     if not port or not own_listener(port):
         return False
+    started = time.monotonic()
+    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=UNLOAD_TOTAL)
+    expired = threading.Event()
+
+    def expire():
+        expired.set()
+        sock = connection.sock
+        if sock is not None:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+    timer = threading.Timer(UNLOAD_TOTAL, expire)
+    timer.daemon = True
+    timer.start()
     try:
-        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=30)
         connection.request("POST", path, body=json.dumps(body), headers={"Content-Type": "application/json"})
         response = connection.getresponse()
         response.read(64 * 1024)
-        connection.close()
-        return response.status < 400
-    except (OSError, http.client.HTTPException):
+        return response.status < 400 and not expired.is_set() and time.monotonic() - started <= UNLOAD_TOTAL
+    except (OSError, ValueError, http.client.HTTPException):
         return False
+    finally:
+        timer.cancel()
+        connection.close()
+
+
+UNLOAD_TOTAL = 15.0          # seconds for a whole unload request (the watcher's tick waits for it)
 
 
 # --- start / stop ---------------------------------------------------------------------------

@@ -27,7 +27,6 @@ HOME = Path.home()
 DAYS = 7
 MAX_ROWS = 20000            # sessions read from a database
 MAX_FILES = 5000            # session files looked at
-DB_TIMEOUT = 2.0            # seconds to wait for a database another program is writing
 
 
 @dataclass
@@ -177,12 +176,13 @@ def from_record(record: dict, today: dt.date | None = None) -> Usage | None:
 
 
 def _connect(path: Path):
-    """Read-only, never creating anything; None when it cannot be opened."""
-    if not path.is_file():
-        return None
+    """The bounded read-only connection every session reader uses (readonly_sqlite.connect: this
+    account's own regular files in private folders, database and WAL read up to their caps into a
+    read-only image, a two-second query budget); None when it cannot be opened."""
+    import readonly_sqlite
     try:
-        return sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=DB_TIMEOUT)
-    except sqlite3.Error:
+        return readonly_sqlite.connect(path)
+    except (sqlite3.Error, OSError, ValueError):
         return None
 
 
@@ -254,7 +254,7 @@ def hermes(today: dt.date | None = None, root: Path = HOME) -> Usage | None:
         return None
     try:
         rows = db.execute(
-            "SELECT started_at, model, input_tokens, output_tokens,"
+            "SELECT started_at, substr(model, 1, 200), input_tokens, output_tokens,"
             " COALESCE(cache_read_tokens, 0) + COALESCE(cache_write_tokens, 0), estimated_cost_usd"
             " FROM sessions ORDER BY started_at DESC LIMIT ?", (MAX_ROWS,)).fetchall()
     except sqlite3.Error:
@@ -351,7 +351,7 @@ def opencode(today: dt.date | None = None, root: Path = HOME) -> Usage | None:
         return None
     try:
         rows = db.execute(
-            "SELECT time_created / 1000.0, model, tokens_input, tokens_output,"
+            "SELECT time_created / 1000.0, substr(model, 1, 200), tokens_input, tokens_output,"
             " COALESCE(tokens_cache_read, 0) + COALESCE(tokens_cache_write, 0), cost"
             " FROM session_v2 WHERE parent_id IS NULL ORDER BY time_created DESC LIMIT ?", (MAX_ROWS,)).fetchall()
     except sqlite3.Error:

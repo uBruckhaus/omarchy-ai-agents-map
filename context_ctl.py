@@ -62,10 +62,27 @@ class Fit:
 
 # --- GGUF header -----------------------------------------------------------------------------
 
+def open_regular(path: Path):
+    """The file for reading, only when the opened descriptor is a regular file. Opened without
+    blocking, so a FIFO (or device) with a .gguf name returns at once instead of waiting for a
+    writer, and checked on the descriptor itself (no race with a replaced name). Links to a
+    regular file are fine. Raises ValueError for anything else, OSError when it cannot be opened."""
+    import stat as stat_module
+    fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+    try:
+        if not stat_module.S_ISREG(os.fstat(fd).st_mode):
+            raise ValueError("not a regular file")
+        os.set_blocking(fd, True)
+        return os.fdopen(fd, "rb")
+    except BaseException:
+        os.close(fd)
+        raise
+
+
 def read_gguf(path: Path) -> dict:
     """The header values needed here; arrays only for the per-layer head counts."""
     meta = {}
-    with open(path, "rb") as f:
+    with open_regular(path) as f:
         if f.read(4) != b"GGUF":
             raise ValueError("not a GGUF file")
         version = struct.unpack("<I", f.read(4))[0]
@@ -311,7 +328,7 @@ def ini_sections(path: Path | None = None) -> dict:
 
 def llama_model_file(models_dir: Path, name: str) -> Path | None:
     for candidate in (models_dir / f"{name}.gguf", *models_dir.glob(f"{name}*.gguf")):
-        if candidate.exists():
+        if candidate.is_file():             # a regular file (or a link to one), not a FIFO
             return Path(os.path.realpath(candidate))
     return None
 

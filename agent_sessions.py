@@ -387,6 +387,15 @@ MAX_EVENT = 1024 * 1024     # bytes of one OpenClaw transcript event, packed or 
 MAX_EVENTS = 20_000         # events read per database
 
 
+_HAS_JSON = "(event_json IS NOT NULL AND octet_length(event_json) > 0)"
+OPENCLAW_EVENTS = (
+    f"SELECT session_id, CASE WHEN {_HAS_JSON} THEN event_json END AS event_json,"
+    f" CASE WHEN NOT {_HAS_JSON} THEN event_zstd END AS event_zstd FROM transcript_events"
+    f" WHERE ({_HAS_JSON} AND octet_length(event_json) <= ?)"
+    f" OR (NOT {_HAS_JSON} AND event_zstd IS NOT NULL AND octet_length(event_zstd) <= ?)"
+    " ORDER BY rowid DESC LIMIT ?")
+
+
 def openclaw_db(root: Path | None = None, now: float | None = None) -> dict:
     """{"openclaw:<session>": Session}: each agent's openclaw-agent.sqlite (transcript_events) and its
     older sessions/*.jsonl, the last DAYS days."""
@@ -395,12 +404,17 @@ def openclaw_db(root: Path | None = None, now: float | None = None) -> dict:
     found = {}
     for _mtime, db, _info in _files(root, "*/agent/openclaw-agent.sqlite", now):
         since = (now - DAYS * 86400)
-        rows = _sqlite_rows(db, "SELECT session_id, event_json, event_zstd FROM transcript_events"
-                                " WHERE length(event_json) <= ? OR length(event_zstd) <= ?"
-                                " ORDER BY rowid DESC LIMIT ?", (MAX_EVENT, MAX_EVENT, MAX_EVENTS))
+        # Only the representation that is used is returned, and only when it is small enough: the
+        # JSON when there is one (not empty), else the packed copy; sizes in bytes (octet_length),
+        # checked before SQLite hands the cell over. An unused copy is never fetched.
+        rows = _sqlite_rows(db, OPENCLAW_EVENTS, (MAX_EVENT, MAX_EVENT, MAX_EVENTS))
         for row in rows:
             raw = row.get("event_json")
+            if isinstance(raw, (str, bytes)) and len(raw.encode() if isinstance(raw, str) else raw) > MAX_EVENT:
+                continue                                              # never a too large event
             if not raw and isinstance(row.get("event_zstd"), bytes):
+                if len(row["event_zstd"]) > MAX_EVENT:
+                    continue
                 raw = _unzstd(row["event_zstd"], MAX_EVENT)          # one event: at most MAX_EVENT unpacked
             try:
                 entry = json.loads(raw) if raw else None

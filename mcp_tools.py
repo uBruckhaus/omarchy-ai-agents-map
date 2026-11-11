@@ -18,7 +18,6 @@ import json
 import os
 import re
 import select
-import signal
 import subprocess
 import time
 from pathlib import Path
@@ -126,12 +125,14 @@ class _Stdio:
                 raise RuntimeError("answer too large")
 
     def close(self):
-        try:
-            os.killpg(self.proc.pid, signal.SIGTERM)
-            self.proc.wait(timeout=5)
-        except (OSError, subprocess.TimeoutExpired):
+        """The server and everything it started: SIGTERM to its group, a short grace, SIGKILL to
+        whatever is left, also when the server itself ended first; the server is reaped."""
+        import process_group
+        process_group.end_child(self.proc)
+        for pipe in (self.proc.stdin, self.proc.stdout):
             try:
-                os.killpg(self.proc.pid, signal.SIGKILL)
+                if pipe is not None:
+                    pipe.close()
             except OSError:
                 pass
 

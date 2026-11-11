@@ -102,6 +102,8 @@ class TerminalPane(Gtk.Box):
         self.cwd = cwd
         self.on_state = on_state          # called when it starts or ends
         self.pid = None
+        self.leader_fd = None             # pidfd of the agent, taken when it started
+        self.stopping = None              # process_group.Group while Stop escalates
         self.running = False
         self.started = 0.0
         self.exit_code = None
@@ -136,6 +138,10 @@ class TerminalPane(Gtk.Box):
         self.terminal.add_css_class("am-terminal")
         self.apply_colors(colors)
         self.terminal.connect("child-exited", self.on_exited)
+        # VTE's own paste reads the whole clipboard offer (no size limit, no deadline): every
+        # paste, also the native action, goes through the bounded read instead.
+        self.terminal.connect("paste-clipboard", self.on_native_paste)
+        self.pasting = False
         keys = Gtk.EventControllerKey()
         keys.connect("key-pressed", self.on_key)
         self.terminal.add_controller(keys)
@@ -165,11 +171,17 @@ class TerminalPane(Gtk.Box):
             self.set_state(False, _("could not start: {0}").format(getattr(error, "message", "") or "?"))
             return
         self.pid = pid
+        self.close_leader_fd()
+        try:
+            self.leader_fd = os.pidfd_open(pid)      # VTE reaps it; the pidfd keeps it ours
+        except OSError:
+            self.leader_fd = None
         self.set_state(True, _("running in {0}").format(self.short_cwd()))
         self.terminal.grab_focus()
 
     def on_exited(self, _terminal, status):
         self.pid = None
+        self.close_leader_fd()          # a Stop in progress holds its own copy (self.stopping)
         code = os.waitstatus_to_exitcode(status) if status >= 0 else status
         self.exit_code = code
         self.set_state(False, _("ended") + (f" ({code})" if code else ""))
@@ -189,37 +201,55 @@ class TerminalPane(Gtk.Box):
 
     def stop(self):
         """End the agent and what it started (its MCP servers, tools): SIGHUP to its process
-        group, as a terminal closing would; SIGTERM after 3 s and SIGKILL after 6 s if it is
-        still there. It was spawned here as a session of its own and is reaped by VTE, so
-        the pid (and its group) cannot have been reused while we still hold it."""
-        if self.pid is not None and self.running:
-            pid = self.pid
-            self.signal_group(pid, signal.SIGHUP)
-            self.set_state(True, _("stopping…"))
-            GLib.timeout_add(3000, self.force_stop, pid, signal.SIGTERM)
-            GLib.timeout_add(6000, self.force_stop, pid, signal.SIGKILL)
+        group, as a terminal closing would; SIGTERM after 3 s and SIGKILL after 6 s to whatever
+        of the group is still there, also when the agent itself ended on SIGHUP and VTE reaped
+        it. The members are held by pidfds (process_group.Group), so a reused pid is never hit."""
+        if self.pid is None or not self.running or self.leader_fd is None:
+            return
+        import process_group
+        if self.stopping is None:
+            self.stopping = process_group.Group(self.pid, os.dup(self.leader_fd))
+        group = self.stopping
+        group.signal(signal.SIGHUP)
+        self.set_state(True, _("stopping…"))
+        GLib.timeout_add(3000, self.force_stop, group, signal.SIGTERM)
+        GLib.timeout_add(6000, self.force_stop, group, signal.SIGKILL)
 
-    def force_stop(self, pid: int, sig) -> bool:
-        if self.pid == pid and self.running:
-            self.signal_group(pid, sig)
+    def force_stop(self, group, sig) -> bool:
+        group.signal(sig)
+        if sig == signal.SIGKILL or not group.alive():
+            group.close()
+            if self.stopping is group:
+                self.stopping = None
         return False
 
-    @staticmethod
-    def signal_group(pid: int, sig):
-        """Its whole process group when it leads one (VTE starts it as a session), else itself."""
-        try:
-            if os.getpgid(pid) == pid:
-                os.killpg(pid, sig)
-            else:
-                os.kill(pid, sig)
-        except (ProcessLookupError, PermissionError):
-            pass
-
     def stop_now(self):
-        """When AI Agents Map ends: the agent and its group get SIGHUP, then SIGTERM."""
-        if self.pid is not None and self.running:
-            self.signal_group(self.pid, signal.SIGHUP)
-            self.signal_group(self.pid, signal.SIGTERM)
+        """When AI Agents Map ends: the agent and its group get SIGHUP and SIGTERM, a second to
+        end, then SIGKILL to what is left (also a Stop still escalating)."""
+        import process_group
+        groups = [self.stopping] if self.stopping is not None else []
+        if self.pid is not None and self.running and self.leader_fd is not None and not groups:
+            groups.append(process_group.Group(self.pid, os.dup(self.leader_fd)))
+        if not groups:
+            return
+        for group in groups:
+            group.signal(signal.SIGHUP)
+            group.signal(signal.SIGTERM)
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline and any(group.alive() for group in groups):
+            time.sleep(0.05)
+        for group in groups:
+            group.signal(signal.SIGKILL)
+            group.close()
+        self.stopping = None
+
+    def close_leader_fd(self):
+        if self.leader_fd is not None:
+            try:
+                os.close(self.leader_fd)
+            except OSError:
+                pass
+            self.leader_fd = None
 
     def set_state(self, running: bool, text: str):
         self.running = running
@@ -242,9 +272,39 @@ class TerminalPane(Gtk.Box):
                 self.terminal.copy_clipboard_format(vte().Format.TEXT)
                 return True
             if keyval in (Gdk.KEY_V, Gdk.KEY_v):
-                self.terminal.paste_clipboard()
+                self.bounded_paste()
                 return True
         return False
+
+    def on_native_paste(self, terminal):
+        terminal.stop_emission_by_name("paste-clipboard")
+        self.bounded_paste()
+
+    def bounded_paste(self):
+        """The clipboard's text read with a byte cap and a deadline (ai_core.clipboard_text, on a
+        worker), then handed to VTE with paste_text (its bracketed paste stays). One at a time:
+        a paste while one is being read is dropped."""
+        import threading
+        import ai_core
+        if self.pasting:
+            return
+        self.pasting = True
+
+        def worker():
+            text = ai_core.clipboard_text(max_bytes=ai_core.MAX_TERMINAL_PASTE, terminal=True)
+            GLib.idle_add(self.finish_paste, text)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def finish_paste(self, text):
+        import ai_core
+        self.pasting = False
+        if text is None:
+            self.state_label.set_label(_("Clipboard text is too long to paste (max {0} KiB)")
+                                       .format(ai_core.MAX_TERMINAL_PASTE // 1024))
+        elif text and self.running:
+            self.terminal.paste_text(text)
+        return GLib.SOURCE_REMOVE
 
     def apply_colors(self, colors: dict):
         theme = {**theme_colors(), **{k: v for k, v in colors.items() if k in ("background", "foreground", "accent")}}

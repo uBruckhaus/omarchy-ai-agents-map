@@ -214,7 +214,8 @@ class SkillsPage:
                 return False
             self.skills_choice = {"web": skill, "files": files}
             scripts = [f for f, _d, _x in files if f.endswith((".py", ".sh", ".js", ".ts", ".rb", ".pl"))]
-            text = f"{skill.name} · github.com/{skill.repo}\n{skills_web.description(files)}"
+            source = f"github.com/{skill.repo}" + (f" @ {skill.commit[:12]}" if skill.commit else "")
+            text = f"{skill.name} · {source}\n{skills_web.description(files)}"
             if scripts:
                 text += "\n" + ngettext("Holds 1 script an agent may run: {1}", "Holds {0} scripts an agent may run: {1}",
                                         len(scripts)).format(len(scripts), ", ".join(scripts[:6]))

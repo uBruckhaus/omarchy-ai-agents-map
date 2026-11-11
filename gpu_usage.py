@@ -13,7 +13,6 @@ Blocking, ~10 ms; the popup runs it on a thread every few seconds while shown.
 """
 
 import glob
-import http.client
 import json
 import os
 import re
@@ -194,20 +193,22 @@ def _own_port(port: int) -> bool:
 
 
 def http_json(port: int, path: str, method: str = "GET", body: dict | None = None, timeout: float = 1.5):
-    """A JSON reply from our own server on 127.0.0.1:port, or None."""
+    """A JSON reply from our own server on 127.0.0.1:port, or None. `timeout` is the budget for
+    the whole exchange (loopback.bounded_request), not per socket read."""
+    import loopback
     if not port or not _own_port(port):
         return None
+    data = json.dumps(body).encode() if body is not None else None
+    reply = loopback.bounded_request(port, method, path, data, total=timeout, max_bytes=MAX_REPLY,
+                                     headers={"Content-Type": "application/json"} if data else {})
+    if reply is None:
+        return None
+    status, raw = reply
+    if status >= 400 or len(raw) > MAX_REPLY:
+        return None
     try:
-        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)
-        data = json.dumps(body).encode() if body is not None else None
-        connection.request(method, path, body=data, headers={"Content-Type": "application/json"} if data else {})
-        response = connection.getresponse()
-        raw = response.read(MAX_REPLY + 1)
-        connection.close()
-        if response.status >= 400 or len(raw) > MAX_REPLY:
-            return None
         return json.loads(raw or b"null")
-    except (OSError, ValueError, http.client.HTTPException):
+    except ValueError:
         return None
 
 

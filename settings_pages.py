@@ -1007,6 +1007,8 @@ class SettingsPages:
             return _("Not enough free space for the copies to another disk.")
         if problem.startswith("running:"):
             return _("Quit {0} first: it writes its settings when it closes.").format(problem[8:])
+        if problem == "too-many":
+            return _("Too many files in the model folders to look through at once; nothing is moved.")
         if problem.startswith("conflict:"):
             return _("Already there, a different file: {0}").format(inventory.tilde(problem[9:]))
         return problem

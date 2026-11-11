@@ -214,7 +214,8 @@ class Engine(llm_engine.Engine):
         if not preset:
             return False, "no saved launch preset; start one model with `~/.local/bin/strata launch` first"
         out, ok = ai_core.read_bounded_output([binary, "launch", "--preset", preset, "--yes", "--no-tui"],
-                                              max_bytes=64 * 1024, timeout=START_TIMEOUT, merge_stderr=True)
+                                              max_bytes=64 * 1024, timeout=START_TIMEOUT, merge_stderr=True,
+                                              keep_children=True)     # the server it starts stays
         lines = out.decode("utf-8", "replace").strip().splitlines()
         return ok, (lines[-1] if lines else "")[:300]
 

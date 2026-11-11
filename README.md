@@ -428,7 +428,12 @@ this way: **Update…** (new version folder, the previous one is kept as a fallb
 (change it later) and **Uninstall…** (program, command, service and settings; never the models).
 Installs made by hand are shown but never changed. Every download must match the SHA-256 checksum
 its GitHub release lists before it is unpacked or run; a release without one, or a file that does
-not match, is not installed.
+not match, is not installed. The checked file is opened once and unpacked or run from that open
+file, so a file swapped in under its name afterwards is never used. The program folder must be
+yours and writable only by you, and every folder above it yours or root's (one others may write,
+such as `/tmp`, only with the sticky bit); a shared folder is refused. Downloads stop when the
+server cannot be reached in 30 s, sends less than 1 KiB/s for a minute, or one file takes over six
+hours (**Install** again continues it).
 
 - **Ollama**: the official release (with ROCm for AMD cards), user service `ollama`.
 - **llama.cpp**: the official build of your choice (Vulkan, preselected for AMD unless ROCm is
@@ -925,7 +930,16 @@ the backup and Undo), and the agent is told the same context. A context you set 
   `~/.cache/ai-agents-map/` (scan results, tool lists, `updates.json`).
 - Text pasted into its fields is read with `wl-paste` (at most 8 KiB, 2 s deadline) instead of
   GTK's built-in paste, which buffers whatever another app offers with no limit; middle-click paste
-  is off and the fields take no drops.
+  is off and the fields take no drops. The embedded terminal pastes the same way (Ctrl+Shift+V and
+  VTE's own paste action: at most 1 MiB, then handed to the terminal with bracketed paste).
+- Programs run for a finite job (look-ups, MCP queries, unpacking) end with everything they started:
+  their process group gets SIGTERM, then SIGKILL, also when the program itself ended first. **Stop**
+  in the embedded terminal holds the agent's processes by pidfd, so SIGTERM and SIGKILL still reach
+  what is left after the agent ended on SIGHUP (and never a process that reused a number).
+- Local HTTP requests have one deadline for the whole exchange; folder scans read entries one at a
+  time within a budget of entries and time (a list cut short says so); model files must be regular
+  files (a FIFO named `.gguf` is skipped at once); skills from the web come from one commit, each
+  file checked against its Git blob id.
 - The PID file lives in `$XDG_RUNTIME_DIR` (or a private 0700 fallback); the popup is only signalled
   after full process identity checks (uid, interpreter, exact script path, kernel start time).
 

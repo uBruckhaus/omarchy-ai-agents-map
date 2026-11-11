@@ -12,6 +12,45 @@ from pathlib import Path
 from typing import cast
 
 
+def bounded_request(port: int, method: str, path: str, data: bytes | None, *, total: float,
+                    max_bytes: int, headers: dict | None = None) -> tuple[int, bytes] | None:
+    """One HTTP exchange with 127.0.0.1:port under one monotonic deadline for all of it
+    (connect, headers and body): at `total` seconds a timer shuts the socket down, which ends
+    a read in progress (a reply that trickles in below the socket timeout too). The body is read
+    up to max_bytes + 1. The connection is closed on every path. (status, body) or None."""
+    import http.client
+    import socket
+    import threading
+    started = time.monotonic()
+    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=total)
+    expired = threading.Event()
+
+    def expire():
+        expired.set()
+        sock = connection.sock
+        if sock is not None:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+    timer = threading.Timer(total, expire)
+    timer.daemon = True
+    timer.start()
+    try:
+        connection.request(method, path, body=data, headers=headers or {})
+        response = connection.getresponse()
+        raw = response.read(max_bytes + 1)
+        if expired.is_set() or time.monotonic() - started > total:
+            return None
+        return response.status, raw
+    except (OSError, ValueError, http.client.HTTPException):
+        return None
+    finally:
+        timer.cancel()
+        connection.close()
+
+
 def loopback_listeners(port: int, proc: str = "/proc/net") -> list[int]:
     """UIDs of the sockets listening on a loopback-reachable address on this
     TCP port, from /proc/net/tcp{,6} (which shows every socket's owner)."""

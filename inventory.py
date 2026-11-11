@@ -22,6 +22,7 @@ import mcp_ctl
 import providers
 import skills_ctl
 import ai_core
+import scan_budget
 
 HOME = Path.home()
 MAX_ITEMS = 500          # models, skills or servers listed per source
@@ -193,7 +194,7 @@ def arg_value(argv: list[str], *flags: str) -> str:
 def unit_files() -> list[Path]:
     root = HOME / ".config/systemd/user"
     try:
-        return sorted(p for p in root.glob("*.service") if p.is_file())[:200]
+        return [p for p in scan_budget.entries(root, 2000) if p.suffix == ".service" and p.is_file()][:200]
     except OSError:
         return []
 
@@ -221,7 +222,7 @@ def unit_for(binary: str) -> tuple[str, dict]:
         text = ad._read(unit) or ""
         drop_in = unit.with_name(unit.name + ".d")
         try:
-            for extra in sorted(drop_in.glob("*.conf"))[:20]:
+            for extra in [p for p in scan_budget.entries(drop_in, 200) if p.suffix == ".conf"][:20]:
                 text += "\n" + (ad._read(extra) or "")
         except OSError:
             pass
@@ -250,20 +251,27 @@ def gguf_names(folder: Path) -> list[str]:
 
 
 def gguf_files(folder: Path) -> list[Path]:
-    """The GGUF files of a folder (or symlinks to them), one level deep."""
+    """The GGUF files of a folder (or symlinks to them), one level deep: regular files only (a FIFO
+    or device with a .gguf name is not a model), listed within one scan budget."""
     found = []
+    budget = scan_budget.Budget()
     try:
-        entries = sorted(folder.iterdir())[:MAX_ITEMS * 2]
+        entries = budget.entries(folder, MAX_ITEMS * 2)
     except OSError:
         return found
+
+    def model(path: Path) -> bool:
+        name = path.name.lower()
+        return name.endswith(".gguf") and not name.startswith("mmproj") and path.is_file()
+
     for entry in entries:
-        name = entry.name
-        if name.lower().endswith(".gguf") and not name.lower().startswith("mmproj"):
+        if len(found) >= MAX_ITEMS * 2:
+            break
+        if model(entry):
             found.append(entry)
         elif entry.is_dir() and not entry.name.startswith("."):
             try:
-                inner = [p for p in list(entry.iterdir())[:50] if p.name.lower().endswith(".gguf")
-                         and not p.name.lower().startswith("mmproj")]
+                inner = [p for p in budget.entries(entry, 50) if model(p)]
             except OSError:
                 inner = []
             found.extend(inner)
@@ -363,16 +371,17 @@ def ollama_models(root: Path) -> list[str]:
     registries keep their path). Newer Ollama keeps new pulls in manifests-v2
     (ollama.com/library/<name>/<tag>), older ones stay in manifests."""
     names = []
+    budget = scan_budget.Budget()          # all stores and levels together
     for store in ("manifests", "manifests-v2"):
         try:
-            hosts = sorted((root / store).iterdir())[:20]
+            hosts = budget.entries(root / store, 20)
         except OSError:
             continue
         for host in hosts:
             try:
-                for owner in sorted(host.iterdir())[:200]:
-                    for model in sorted(owner.iterdir())[:MAX_ITEMS]:
-                        for tag in sorted(model.iterdir())[:50]:
+                for owner in budget.entries(host, 200):
+                    for model in budget.entries(owner, MAX_ITEMS):
+                        for tag in budget.entries(model, 50):
                             prefix = "" if host.name in OLLAMA_HOSTS and owner.name == "library" \
                                 else f"{owner.name}/" if host.name in OLLAMA_HOSTS else f"{host.name}/{owner.name}/"
                             name = f"{prefix}{model.name}:{tag.name}"
@@ -407,7 +416,7 @@ def ollama(processes) -> Runtime:
 
 def has_model_files(folder: Path) -> bool:
     try:
-        return any(p.suffix.lower() in (".gguf", ".safetensors") for p in list(folder.iterdir())[:200])
+        return any(p.suffix.lower() in (".gguf", ".safetensors") for p in scan_budget.entries(folder, 200))
     except OSError:
         return False
 
@@ -431,10 +440,11 @@ def lmstudio(processes) -> Runtime:
     folder = settings.get("downloadsFolder") if isinstance(settings.get("downloadsFolder"), str) else ""
     path = Path(os.path.expanduser(folder)) if folder else root / "models"
     names = []
+    budget = scan_budget.Budget()
     try:
-        for publisher in sorted(path.iterdir())[:200]:
+        for publisher in budget.entries(path, 200):
             if publisher.is_dir() and not publisher.name.startswith("."):
-                for repo in sorted(publisher.iterdir())[:MAX_ITEMS]:
+                for repo in budget.entries(publisher, MAX_ITEMS):
                     # Only folders with model files: the downloads folder may be
                     # shared with Ollama's or llama.cpp's own.
                     if repo.is_dir() and has_model_files(repo):
@@ -534,8 +544,9 @@ def jan_model_ids(models: Path) -> list[str]:
     """Model ids: folders under llamacpp/models holding a model.yml (ids may
     have one slash: "janhq/Jan-v3-4B-gguf")."""
     found = []
+    budget = scan_budget.Budget()
     try:
-        entries = sorted(models.iterdir())[:MAX_ITEMS]
+        entries = budget.entries(models, MAX_ITEMS)
     except OSError:
         return found
     for entry in entries:
@@ -545,7 +556,7 @@ def jan_model_ids(models: Path) -> list[str]:
             found.append(entry.name)
             continue
         try:
-            found += [f"{entry.name}/{inner.name}" for inner in sorted(entry.iterdir())[:100]
+            found += [f"{entry.name}/{inner.name}" for inner in budget.entries(entry, 100)
                       if inner.is_dir() and (inner / "model.yml").is_file()]
         except OSError:
             continue
@@ -604,7 +615,7 @@ def koboldcpp(processes) -> Runtime:
     if folder:
         rt.models_dir = tilde(folder)
     try:
-        configs = sorted(p.name for p in KOBOLD_CONFIGS.glob("*.kcpps"))[:MAX_ITEMS]
+        configs = [p.name for p in scan_budget.entries(KOBOLD_CONFIGS, MAX_ITEMS * 4) if p.suffix == ".kcpps"][:MAX_ITEMS]
     except OSError:
         configs = []
     rt.models = dedupe_models(configs)
@@ -720,7 +731,7 @@ def skills_in(folder: Path, depth: int = 0) -> list[tuple[Path, Path]]:
     category folders count as one set."""
     found = []
     try:
-        entries = sorted(folder.iterdir())[:MAX_ITEMS]
+        entries = scan_budget.entries(folder, MAX_ITEMS)
     except OSError:
         return found
     for entry in entries:

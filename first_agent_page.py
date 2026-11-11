@@ -61,6 +61,7 @@ class FirstAgentPage:
             self.first_return = self.view if self.page_name() in ai_core.VIEWS else "main"
         self.first_catalog = first_agent.load(loaded_addons=getattr(self, "addons", ()))
         self.first_hw = None
+        self.first_fits = {}                     # model headers read again on every open
         self.first_look()
         self.fill_first_agent()
         self.empty_area.set_visible(False)       # its "set up your first agent" is this page
@@ -282,18 +283,43 @@ class FirstAgentPage:
         now, cache, model_file = found
         best = model.context
         if model_file is not None and vram:
-            try:
-                fit = context_ctl.fit(model_file, vram, cache or "f16")
-                if fit.known:
-                    best = min(best, fit.best)      # 0: the model leaves no room at all (blocked below)
-            except Exception:
-                pass
+            fit = self.first_fit(model_file, vram, cache or "f16")
+            if fit is None:                         # being read on a thread; the page fills again then
+                return (title, False, _("Looking at the model…"), "", None, "")
+            if fit.known:
+                best = min(best, fit.best)          # 0: the model leaves no room at all (blocked below)
         if best < first_agent.MIN_CONTEXT:
             return (title, False, "", "", None,
                     _("This model leaves too little room for an agent on this card; choose a smaller one."))
         done = bool(now) and now >= first_agent.MIN_CONTEXT
         return (title, done, _("now {0} tokens; an agent needs at least {1}").format(now or "?", first_agent.MIN_CONTEXT),
                 _("Set to {0}").format(best), lambda: self.first_set_context(rt, name, best), "")
+
+    def first_fit(self, model_file, vram: int, cache: str):
+        """context_ctl.fit for the guide, read on a thread (a model's header is a file read: never on
+        GTK's main loop), once per model, card and cache type. None while it is being read; a model
+        that cannot be read counts as unknown."""
+        import context_ctl
+        fits = self.__dict__.setdefault("first_fits", {})
+        key = (str(model_file), vram, cache)
+        if key in fits:
+            return fits[key]
+        fits[key] = None
+
+        def work():
+            try:
+                fit = context_ctl.fit(model_file, vram, cache)
+            except Exception:
+                fit = context_ctl.Fit(0, 0, 0, 0, known=False)
+            GLib.idle_add(done, fit)
+
+        def done(fit):
+            fits[key] = fit
+            if self.page_name() == "firstagent":
+                self.fill_first_agent()
+            return False
+        threading.Thread(target=work, daemon=True).start()
+        return None
 
     def first_set_context(self, rt, name: str, ctx: int):
         """As the Performance card does: the settings change with its backup (Undo), or the local

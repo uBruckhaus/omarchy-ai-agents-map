@@ -29,9 +29,11 @@ MODEL_KEY = re.compile(r"[A-Za-z0-9][\w.:/@+-]{0,199}")
 BY_NAME, BY_PATH = 1, 2
 
 
-def _run(argv: list) -> tuple[bool, str]:
+def _run(argv: list, keep_children: bool = False) -> tuple[bool, str]:
+    """keep_children: a launcher that leaves its server running (lms server start)."""
     import ai_core
-    out, ok = ai_core.read_bounded_output(argv, max_bytes=64 * 1024, timeout=30, merge_stderr=True)
+    out, ok = ai_core.read_bounded_output(argv, max_bytes=64 * 1024, timeout=30, merge_stderr=True,
+                                          keep_children=keep_children)
     message = out.decode("utf-8", "replace").strip().splitlines()
     return ok, (message[-1] if message else "")[:300]
 

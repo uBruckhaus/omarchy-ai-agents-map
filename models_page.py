@@ -1297,18 +1297,30 @@ class ModelsPage:
         roots += [Path(os.path.expanduser(self.models_root())), Path.home() / "Downloads"]
         roots = [r for r in dict.fromkeys(Path(os.path.realpath(r)) for r in roots) if r != own and r.is_dir()]
 
+        # One scan at a time across page visits: a new one cancels the one before (it stops at its
+        # next entry); every scan has a budget of entries and time (scan_budget).
+        import scan_budget
+        previous = getattr(self, "local_scan_cancel", None)
+        if previous is not None:
+            previous.set()
+        cancel = self.local_scan_cancel = threading.Event()
+        budget = scan_budget.Budget(cancel=cancel)
+
         def work():
             try:
                 have = models_ctl.seen_by(rt.key, own) if own is not None and own.is_dir() else set()
-                found = models_ctl.local_ggufs(roots, have)
+                found = models_ctl.local_ggufs(roots, have, budget)
             except OSError:
                 found = []
             GLib.idle_add(done, found)
 
         def done(found):
-            if self.models_state is not state:
+            if getattr(self, "local_scan_cancel", None) is cancel:
+                self.local_scan_cancel = None
+            if self.models_state is not state or cancel.is_set():
                 return False
             state["scanning"], state["scanned"] = False, True
+            state["scan_partial"] = budget.stopped
             for item in found[:500]:
                 row = Gtk.ListBoxRow()
                 row.local = item
@@ -1335,6 +1347,9 @@ class ModelsPage:
             else:
                 self.models_local_status.set_label(_("No other GGUF models on this PC (looked in: {0}).").format(
                     ", ".join(inventory.tilde(str(r)) for r in roots) or "—"))
+            if state["scan_partial"]:
+                self.models_local_status.set_label(self.models_local_status.get_label() + " " + _(
+                    "The search stopped at its limit (too many files or folders), so this list may be incomplete."))
             self.update_model_buttons()
             return False
 

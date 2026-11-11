@@ -128,6 +128,21 @@ class ConnectPage:
         else:
             self.on_map_link(agent_id, new_id, replaces_id=old_id)
 
+    def model_change_allowed(self, agents: list, runtime_id: str, model: str | None) -> bool:
+        """The user's rules, checked where an agent's model setting is written (also after a
+        dialog, which may have been open while the rules changed): for every agent of a batch,
+        connecting to (or, model None, disconnecting from) the provider, and using the model.
+        One refusal and nothing is written."""
+        import action_rules
+        provider = action_rules.node_check(runtime_id) or ("providers", runtime_id.partition(":")[2])
+        for agent in agents:
+            command = getattr(agent, "command", agent)
+            if not self.rule_allows("disconnect" if model is None else "connect", provider[0], provider[1], command):
+                return False
+            if model and not self.rule_allows("connect", "models", model, command):
+                return False
+        return True
+
     def on_map_remodel(self, runtime_id: str, old_id: str, new_id: str | None):
         """A local LLM's model line moved: every agent that uses the old model uses the new one
         (backups, one Undo for all). Dropped on empty space (new_id None): after a question, those
@@ -258,6 +273,8 @@ class ConnectPage:
     def attach_apply(self, agents: list, runtime, model: str):
         """The ticked agents get the model (one Undo for all); then the model is loaded (the local
         LLM started first if needed), on a thread; one message says both."""
+        if not self.model_change_allowed(agents, f"runtime:{runtime.key}", model):
+            return
         context = llm_engine.of(runtime).agent_context(runtime)
         backups = []
         try:
@@ -298,6 +315,8 @@ class ConnectPage:
         """Agents switch to an online model (their own setting; backup, one Undo); it counts from
         each agent's next start."""
         import online_models
+        if not self.model_change_allowed(agents, cloud_id, model):
+            return
         provider = next((n.label for n in self.side_map.graph.nodes if n.id == cloud_id), cloud_id)
         plans, stuck, switched = [], [], []
         for agent in agents:
@@ -403,6 +422,8 @@ class ConnectPage:
         threading.Thread(target=work, daemon=True).start()
 
     def remodel_apply(self, agents: list, runtime, model: str | None, names: str, old: str, free: bool = False):
+        if not self.model_change_allowed(agents, f"runtime:{runtime.key}", model):
+            return
         context = llm_engine.of(runtime).agent_context(runtime)
         backups = []
         try:
@@ -516,6 +537,8 @@ class ConnectPage:
             return
         if agent.command not in connect.SUPPORTED:
             self.show_note(self.not_connectable_text(agent, runtime, model))
+            return
+        if not self.model_change_allowed([agent], runtime_id, model):
             return
         try:
             context = llm_engine.of(runtime).agent_context(runtime)
@@ -975,6 +998,13 @@ class ConnectPage:
 
             threading.Thread(target=work, daemon=True).start()
             return
+        runtime, agent = info.get("runtime"), info.get("agent")
+        if runtime is not None and agent is not None:      # the rules again: the dialog may have been open long
+            removing = remove or info.get("remove_only")
+            models = self.connect_models
+            chosen = models[self.connect_model.get_selected()] if models and not removing else ""
+            if not self.model_change_allowed([agent], f"runtime:{runtime.key}", None if removing else chosen):
+                return
         link = self.link_of(info)
         drawn = link is not None and not remove and not info.get("remove_only")
         try:
