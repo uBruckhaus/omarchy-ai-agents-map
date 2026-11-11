@@ -37,7 +37,7 @@ Status: HAVE · PART · MISS · N/A. Source: py = copy from Maprisma's Python, d
 | Status per column (green / yellow / red) | 006 | PART | py (health.py) + ui | M |
 | Ask AI: propose → check → review → apply, per column, helper choice, cost first, examples | 004, 007, 014, 018, 020, 026, 050c, 051, 063d | MISS | dart → py | XL |
 | Rules for what may be done (allow / deny), on every change route | 019 | MISS | dart → py | L |
-| Dictation in Ask AI and Settings | 024 | MISS | dart → py | L |
+| Dictation in Ask AI and Settings, with Superwhisper as an engine of its own (Uwe, 2026-11-11) | 024 | MISS | dart → py | L |
 | Best context per local model, measure and tune | 029 | PART | py (rules) + dart (measure) | M |
 | Settings: sections on the left, Find in Settings, group headings, new keys | 057, 058 | MISS | ui | M |
 | Disconnect all at once, one Undo | 017, 020 | PART | dart | M |
@@ -66,8 +66,10 @@ changes, one commit per step, Uwe looks at it before the next phase.
    with note; status symbol per column.
 4. **Ask AI (dart → py).** The smart card engine and its plans (MCP, models, agents, providers, menu actions,
    disconnect all), the review/apply/Undo path, helper choice, examples, Update with AI…; action rules with
-   their window, enforced on every change route.
-5. **Settings and the rest.** Sections + Find in Settings and the new keys; dictation; measure and tune;
+   their window, enforced on every change route. Dictation comes with it (Ask AI is where it is used):
+   Maprisma's engines (Omarchy's dictation, whisper.cpp, a local LLM, an online API) plus Superwhisper
+   directly through its own CLI (Uwe, 2026-11-11), not only when Omarchy's default tool is Superwhisper.
+5. **Settings and the rest.** Sections + Find in Settings and the new keys; measure and tune;
    remaining 063 details.
 6. **Release.** Manual (8 languages + PDFs), preview.png, publishing skill preflight, Codex until CLEAN, then
    ask Uwe before push and [Verify].
