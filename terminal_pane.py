@@ -103,7 +103,7 @@ class TerminalPane(Gtk.Box):
         self.on_state = on_state          # called when it starts or ends
         self.pid = None
         self.leader_fd = None             # pidfd of the agent, taken when it started
-        self.stopping = None              # process_group.Group while Stop escalates
+        self.stopping = {}                # launch (pid, start time) -> process_group.Group while its Stop escalates
         self.running = False
         self.started = 0.0
         self.exit_code = None
@@ -207,16 +207,17 @@ class TerminalPane(Gtk.Box):
         if self.pid is None or not self.running or self.leader_fd is None:
             return
         import process_group
-        if self.stopping is None:
-            self.stopping = process_group.Group(self.pid, os.dup(self.leader_fd))
-        group = self.stopping
+        launch = (self.pid, self.started)            # per launch: Start again → Stop is its own
+        group = self.stopping.get(launch)
+        if group is None:
+            group = self.stopping[launch] = process_group.Group(self.pid, os.dup(self.leader_fd))
         group.signal(signal.SIGHUP)
         # While the stop escalates, the group is looked through often (Group.refresh: only while a
         # held member still anchors it), so what the agent starts on SIGHUP is held as well.
         GLib.timeout_add(150, self.watch_stop, group)
+        GLib.timeout_add(3000, self.force_stop, launch, group, signal.SIGTERM)
+        GLib.timeout_add(6000, self.force_stop, launch, group, signal.SIGKILL)
         self.set_state(True, _("stopping…"))
-        GLib.timeout_add(3000, self.force_stop, group, signal.SIGTERM)
-        GLib.timeout_add(6000, self.force_stop, group, signal.SIGKILL)
 
     def watch_stop(self, group) -> bool:
         if not group.fds:                       # closed: the stop is over
@@ -224,20 +225,21 @@ class TerminalPane(Gtk.Box):
         group.refresh()
         return group.alive()
 
-    def force_stop(self, group, sig) -> bool:
+    def force_stop(self, launch, group, sig) -> bool:
         group.signal(sig)
         if sig == signal.SIGKILL or not group.alive():
             group.close()
-            if self.stopping is group:
-                self.stopping = None
+            if self.stopping.get(launch) is group:
+                del self.stopping[launch]
         return False
 
     def stop_now(self):
         """When AI Agents Map ends: the agent and its group get SIGHUP and SIGTERM, a second to
         end, then SIGKILL to what is left (also a Stop still escalating)."""
         import process_group
-        groups = [self.stopping] if self.stopping is not None else []
-        if self.pid is not None and self.running and self.leader_fd is not None and not groups:
+        groups = list(self.stopping.values())     # every stop still escalating, and the agent running now
+        if self.pid is not None and self.running and self.leader_fd is not None \
+                and (self.pid, self.started) not in self.stopping:
             groups.append(process_group.Group(self.pid, os.dup(self.leader_fd)))
         if not groups:
             return
@@ -250,7 +252,7 @@ class TerminalPane(Gtk.Box):
         for group in groups:
             group.signal(signal.SIGKILL)
             group.close()
-        self.stopping = None
+        self.stopping.clear()
 
     def close_leader_fd(self):
         if self.leader_fd is not None:
