@@ -262,17 +262,12 @@ class SettingsPages:
             box.remove(child)
         # Two columns when the window is wide enough (General left; the app, Models and Window right),
         # else one, so everything fits without scrolling.
-        wide = self.window is not None and self.window.get_width() >= 900
-        self.settings_two_columns = wide
-        self.settings_clamp.set_maximum_size(100000 if wide else 760)
-        self.settings_clamp.set_tightening_threshold(100000 if wide else 560)
-        columns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL if wide else Gtk.Orientation.VERTICAL,
-                          spacing=24 if wide else 18, homogeneous=wide)
-        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP, valign=Gtk.Align.START)
-        right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP, valign=Gtk.Align.START)
-        columns.append(left)
-        columns.append(right)
-        box.append(columns)
+        # Maprisma's layout: the sections left (and Find in Settings), the chosen one right.
+        self.settings_two_columns = False
+        self.settings_clamp.set_maximum_size(1100)
+        self.settings_clamp.set_tightening_threshold(900)
+        self.build_settings_sections(box)
+        left = right = self.settings_sections["general"]       # groups go to their sections (place_group)
         self.fill_general_settings(left, right)
         if desktop.launcher_entry():
             self.fill_launcher_setting(right)
@@ -295,6 +290,7 @@ class SettingsPages:
         group = self.preference_group(right, _("About"))
         self.button_row(group, _("About {0}").format(desktop.app_name()),
                         _("Version, author, license and the project on GitHub."), _("About"), self.show_about)
+        self.settings_list.select_row(self.settings_section_rows["general"])
         self.settings_ready = True
 
     # --- About: name, version, author, license and the GitHub project ------------------------------
@@ -329,8 +325,89 @@ class SettingsPages:
 
     def preference_group(self, box, title: str) -> Adw.PreferencesGroup:
         group = Adw.PreferencesGroup(title=GLib.markup_escape_text(title))
-        box.append(group)
+        self.place_group(box, group, title)
         return group
+
+    # Maprisma's Settings: sections on the left (settings_view.dart), each group in its section.
+    SECTIONS = (("general", N_("General")), ("appearance", N_("Appearance")), ("map", N_("Map")),
+                ("agents", N_("Agents")), ("llms", N_("Local LLMs")), ("addons", N_("Add-ons")),
+                ("about", N_("About")))
+    SECTION_OF = {N_("General"): "general", N_("Omarchy app"): "general", N_("Appearance"): "appearance", N_("AI features"): "agents",
+                  N_("Usage statistics box"): "map", N_("Map"): "map", N_("Subagents"): "agents",
+                  N_("Costs"): "agents", N_("Models"): "llms", N_("Add-ons"): "addons", N_("About"): "about"}
+
+    def place_group(self, box, group, title: str):
+        """A group into its section's page (by its English title), else where it was asked for."""
+        pages = getattr(self, "settings_sections", None)
+        english = next((k for k in self.SECTION_OF if _(k) == title), title)
+        target = pages.get(self.SECTION_OF.get(english, "")) if pages else None
+        (target or box).append(group)
+
+    def build_settings_sections(self, box):
+        """The section list with Find in Settings left, the sections' pages right."""
+        layout = Gtk.Box(spacing=18)
+        side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        side.set_size_request(200, -1)
+        self.settings_find = Gtk.SearchEntry(placeholder_text=_("Find in Settings"))
+        self.settings_find.connect("search-changed", lambda *_: self.find_in_settings())
+        side.append(self.settings_find)
+        self.settings_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
+        self.settings_list.add_css_class("navigation-sidebar")
+        side.append(self.settings_list)
+        layout.append(side)
+        self.settings_stack = Gtk.Stack(hexpand=True, vhomogeneous=False)
+        self.settings_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        layout.append(self.settings_stack)
+        self.settings_sections, self.settings_section_rows = {}, {}
+        for key, name in self.SECTIONS:
+            page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP, valign=Gtk.Align.START)
+            self.settings_stack.add_named(page, key)
+            self.settings_sections[key] = page
+            row = Gtk.ListBoxRow()
+            row.section = key
+            row.set_child(Gtk.Label(label=_(name), xalign=0, margin_start=8, margin_end=8, margin_top=6,
+                                    margin_bottom=6))
+            self.settings_list.append(row)
+            self.settings_section_rows[key] = row
+        self.settings_list.connect("row-selected", lambda _l, row: row is not None and
+                                   self.settings_stack.set_visible_child_name(row.section))
+        box.append(layout)
+
+    def settings_rows_of(self, widget) -> list:
+        """Every preferences row inside a widget (its groups), for Find."""
+        found, child = [], widget.get_first_child()
+        while child is not None:
+            if isinstance(child, Adw.PreferencesRow):
+                found.append(child)
+            else:
+                found += self.settings_rows_of(child)
+            child = child.get_next_sibling()
+        return found
+
+    def find_in_settings(self):
+        """Find in Settings: rows whose title or hint has the words; sections without one are greyed,
+        the first section with one is shown."""
+        words = self.settings_find.get_text().strip().lower().split()
+        first = None
+        for key, page in self.settings_sections.items():
+            hits = 0
+            group = page.get_first_child()
+            while group is not None:
+                shown = 0
+                for row in self.settings_rows_of(group):
+                    text = " ".join(filter(None, [row.get_title(), getattr(row, "get_subtitle", lambda: "")()
+                                                  if isinstance(row, Adw.ActionRow) else ""])).lower()
+                    match = all(w in text for w in words)
+                    row.set_visible(match)
+                    shown += match
+                group.set_visible(shown > 0 or not words)
+                hits += shown
+                group = group.get_next_sibling()
+            self.settings_section_rows[key].set_sensitive(hits > 0 or not words)
+            if hits and first is None:
+                first = key
+        if words and first is not None:
+            self.settings_list.select_row(self.settings_section_rows[first])
 
     @staticmethod
     def short_hint(hint: str) -> str:
@@ -574,6 +651,8 @@ class SettingsPages:
                        0 if ai_core.setting("dictation") is False else
                        1 + (engines.index(saved) if saved in engines else 0),
                        lambda i: self.save_setting(dictation=i > 0, **({"dictation_engine": engines[i - 1]} if i else {})))
+        general = group
+        group = self.preference_group(box, _("Appearance"))      # Maprisma's Appearance section
         self.window_rounding = desktop.window_rounding()
         like = _("Like windows ({0} px)").format(self.window_rounding) if self.window_rounding is not None \
             else _("Like windows")
@@ -596,6 +675,7 @@ class SettingsPages:
             # language). Two columns are too narrow for it: the text just wraps.
             if not getattr(self, "settings_two_columns", False):
                 look.set_subtitle(look.get_subtitle().replace(" (", "\n(", 1))
+        group = general
         # Its own group after General's rows, with the disclaimer on top.
         ai = Adw.PreferencesGroup(title=GLib.markup_escape_text(_("AI features")),
                                   description=GLib.markup_escape_text(self.own_risk_text()))
@@ -637,7 +717,7 @@ class SettingsPages:
         self.folder_row(group, _("Agents start in"),
                         _("The folder an agent started here (Start on its card) works in. Enter saves it."),
                         self.agent_folder(), self.save_agent_folder)
-        box.append(ai)
+        self.place_group(box, ai, _("AI features"))
         # The map's animations, with a sketch of what each choice animates (its own group: libadwaita
         # puts what is not a row after a group's list).
         group = self.preference_group(side, _("Map"))
