@@ -78,6 +78,18 @@ class StoreTest(unittest.TestCase):
     def install(self, data, **kw):
         return store.install_bytes(data, user_dir=self.user, signers=self.signers, trash=self.trashed.append, **kw)
 
+    def test_found_addons_switch_on_unless_switched_off(self):
+        # Maprisma task 055: what is installed is on the map, the user's off switch counts.
+        self.assertEqual(store.enable_found(["agent-a", "agent-b"]), ["agent-a", "agent-b"])
+        self.assertEqual(store.enabled(), {"agent-a", "agent-b"})
+        store.set_enabled("agent-a", False)
+        self.assertEqual(store.switched_off(), {"agent-a"})
+        self.assertEqual(store.enable_found(["agent-a", "agent-b", "agent-c"]), ["agent-c"])
+        self.assertNotIn("agent-a", store.enabled())
+        store.set_enabled("agent-a", True)                 # on by hand: no longer remembered as off
+        self.assertEqual(store.switched_off(), set())
+        self.assertEqual(store.enable_found([]), [])
+
     # --- catalog ---
     def catalog_bytes(self, entries) -> tuple[bytes, bytes]:
         path = self.tmp / "catalog.json"
@@ -235,17 +247,6 @@ class SmallTest(unittest.TestCase):
         self.assertFalse(store.newer("1.0.0", "1.0.0"))
         self.assertFalse(store.newer("x", "1.0.0"))
 
-    def test_found_addons_switch_on_unless_switched_off(self):
-        # Maprisma task 055: what is installed is on the map, the user's off switch counts.
-        self.assertEqual(store.enable_found(["agent-a", "agent-b"]), ["agent-a", "agent-b"])
-        self.assertEqual(store.enabled(), {"agent-a", "agent-b"})
-        store.set_enabled("agent-a", False)
-        self.assertEqual(store.switched_off(), {"agent-a"})
-        self.assertEqual(store.enable_found(["agent-a", "agent-b", "agent-c"]), ["agent-c"])
-        self.assertNotIn("agent-a", store.enabled())
-        store.set_enabled("agent-a", True)                 # on by hand: no longer remembered as off
-        self.assertEqual(store.switched_off(), set())
-        self.assertEqual(store.enable_found([]), [])
 
 
 if __name__ == "__main__":

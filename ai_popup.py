@@ -257,9 +257,14 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         except OSError:
             pass
         self.load_addons()
-        if ai_core.setting("setup_done") and hasattr(self, "enable_found_addons"):
-            # What was installed since is on the map (Maprisma task 055); also an update from the plugin
-            # without add-ons, whose agents and LLMs were all built in, keeps its map.
+        stored = ai_core.load_settings()
+        # An update from the plugin before add-ons (its agents and LLMs were built in; it never wrote
+        # addons_enabled): setup counts as done, so its map stays as it was instead of the welcome page.
+        upgraded = bool(stored) and "addons_enabled" not in stored
+        if upgraded:
+            ai_core.update_settings(setup_done=True)
+        if (upgraded or ai_core.setting("setup_done")) and hasattr(self, "enable_found_addons"):
+            # What was installed since is on the map (Maprisma task 055).
             self.enable_found_addons(reload=False)
         shown = getattr(self, "splash", None)
         holder = shown.widget.get_parent() if shown is not None else None
