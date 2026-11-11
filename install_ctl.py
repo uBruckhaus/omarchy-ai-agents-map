@@ -169,17 +169,26 @@ def check_folder(text: str) -> Path:
 
 
 def check_trusted(path: Path) -> None:
-    """The program folder and every folder above it must be safe from other accounts: each one
-    belongs to this account or root; the program folder itself is writable only by this account;
-    a folder above it that others may write must have the sticky bit (as /tmp), so they cannot
-    rename or replace what is in it. Raises RuntimeError (nothing is installed)."""
+    """The program folder and every folder above it must be safe from other accounts, both along
+    the path as written and along where it really leads (its links resolved): each folder and link
+    on the way belongs to this account or root; the program folder itself is writable only by this
+    account; a folder above it that others may write must have the sticky bit (as /tmp), so they
+    cannot rename or replace what is in it. So nobody else can swap a part of the path while it is
+    used. Raises RuntimeError (nothing is installed)."""
+    written = Path(os.path.abspath(os.path.expanduser(str(path))))
+    if ".." in Path(os.path.expanduser(str(path))).parts:
+        raise RuntimeError(f"{path}: no '..' in the program folder's path")
     try:
-        real = Path(os.path.realpath(path))
+        real = Path(os.path.realpath(written))
     except OSError as error:
         raise RuntimeError(f"{path}: {error}") from error
+    _check_chain(written, leaf_links_ok=False)
+    _check_chain(real, leaf_links_ok=False)
+
+
+def _check_chain(leaf: Path, leaf_links_ok: bool) -> None:
     me = os.getuid()
-    current = real
-    first = True
+    current, first = leaf, True
     while True:
         try:
             st = os.lstat(current)
@@ -190,13 +199,18 @@ def check_trusted(path: Path) -> None:
             raise RuntimeError(f"{current} is missing; nothing was installed") from None
         except OSError as error:
             raise RuntimeError(f"{current}: {error}") from error
-        if not stat.S_ISDIR(st.st_mode):
-            raise RuntimeError(f"{current} is not a folder; nothing was installed")
         if st.st_uid not in (0, me):
             raise RuntimeError(f"{current} belongs to another account; choose a folder of your own")
-        others_write = st.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
-        if others_write and (current == real or not st.st_mode & stat.S_ISVTX):
-            raise RuntimeError(f"other accounts can change {current}; choose a folder only you can write")
+        if stat.S_ISLNK(st.st_mode):
+            if current == leaf and not leaf_links_ok:
+                raise RuntimeError(f"{current} is a link; choose the folder itself")
+            # A link of this account or root: only its folder could swap it (checked next).
+        elif not stat.S_ISDIR(st.st_mode):
+            raise RuntimeError(f"{current} is not a folder; nothing was installed")
+        else:
+            others_write = st.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+            if others_write and (current == leaf or not st.st_mode & stat.S_ISVTX):
+                raise RuntimeError(f"other accounts can change {current}; choose a folder only you can write")
         first = False
         if current == current.parent:
             return

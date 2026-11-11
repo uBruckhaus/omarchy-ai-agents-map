@@ -150,6 +150,20 @@ class GroupTest(unittest.TestCase):
         self.assertFalse(running(child))
         self.assertFalse(group.alive())
 
+    def test_a_pid_reused_outside_the_group_is_not_held(self):
+        leader = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
+        self.addCleanup(leader.kill)
+        other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])   # not in the group
+        self.addCleanup(other.kill)
+        group = process_group.Group(leader.pid, os.pidfd_open(leader.pid))
+        self.addCleanup(group.close)
+        fd = os.pidfd_open(other.pid)
+        try:
+            self.assertFalse(group._in_group(fd, other.pid))
+        finally:
+            os.close(fd)
+        self.assertNotIn(other.pid, group.fds)
+
     def test_no_member_held_nothing_signalled(self):
         leader = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
         fd = os.pidfd_open(leader.pid)

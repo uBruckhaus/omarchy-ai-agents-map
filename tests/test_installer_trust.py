@@ -57,6 +57,24 @@ class TrustTest(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 ic.check_trusted(self.root / "prog")
 
+    def test_a_link_on_the_written_path_counts_too(self):
+        real = self.root / "real"
+        (real / "prog").mkdir(parents=True)
+        shared = self.root / "shared"
+        shared.mkdir()
+        (shared / "via").symlink_to(real)
+        ic.check_trusted(shared / "via" / "prog")           # links of this account in private folders
+        shared.chmod(0o777)                                  # others could swap the link
+        with self.assertRaises(RuntimeError):
+            ic.check_trusted(shared / "via" / "prog")
+        shared.chmod(0o755)
+        with self.assertRaises(RuntimeError):               # the program folder itself a link
+            ic.check_trusted(shared / "via")
+
+    def test_dot_dot_refused(self):
+        with self.assertRaises(RuntimeError):
+            ic.check_trusted(self.root / "a" / ".." / "b")
+
     def test_claim_refuses_shared_folder(self):
         shared = self.root / "shared"
         shared.mkdir()

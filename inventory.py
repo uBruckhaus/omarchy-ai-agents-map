@@ -414,9 +414,9 @@ def ollama(processes) -> Runtime:
     return rt
 
 
-def has_model_files(folder: Path) -> bool:
+def has_model_files(folder: Path, budget=None) -> bool:
     try:
-        return any(p.suffix.lower() in (".gguf", ".safetensors") for p in scan_budget.entries(folder, 200))
+        return any(p.suffix.lower() in (".gguf", ".safetensors") for p in (budget or scan_budget.Budget()).entries(folder, 200))
     except OSError:
         return False
 
@@ -447,7 +447,7 @@ def lmstudio(processes) -> Runtime:
                 for repo in budget.entries(publisher, MAX_ITEMS):
                     # Only folders with model files: the downloads folder may be
                     # shared with Ollama's or llama.cpp's own.
-                    if repo.is_dir() and has_model_files(repo):
+                    if repo.is_dir() and has_model_files(repo, budget):
                         names.append(repo.name)
     except OSError:
         pass

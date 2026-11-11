@@ -130,14 +130,33 @@ class Group:
             if pid in self.fds:
                 continue
             try:
-                new[pid] = os.pidfd_open(pid)
+                fd = os.pidfd_open(pid)
             except OSError:
                 continue
+            # The pid may have ended and been reused between the listing and pidfd_open: keep the
+            # pidfd only when the process it holds is (still) in the group. Its /proc entry is read
+            # while the pidfd shows it alive before and after, so the entry is that process's.
+            if self._in_group(fd, pid):
+                new[pid] = fd
+            else:
+                os.close(fd)
         if self._alive_fds():
             self.fds.update(new)
         else:
             for fd in new.values():
                 os.close(fd)
+
+    def _in_group(self, fd: int, pid: int) -> bool:
+        def alive():
+            try:
+                signal.pidfd_send_signal(fd, 0)
+                return True
+            except OSError:
+                return False
+        if not alive():
+            return False
+        stat = _stat(pid)
+        return stat is not None and stat[1] == self.pgid and alive()
 
     def signal(self, sig) -> None:
         self.refresh()
