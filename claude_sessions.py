@@ -154,12 +154,13 @@ def read_file(path: Path, state: dict, budget: int) -> int:
                 offset += len(chunk)
                 skipping = not chunk.endswith(b"\n")
                 continue
-            line = handle.readline(MAX_LINE + 1)
+            # Never more than what is left of the budget: a longer line is read again next time.
+            line = handle.readline(max(1, min(MAX_LINE + 1, budget - read)))
             if not line:
                 break
             if not line.endswith(b"\n"):
                 if len(line) <= MAX_LINE:
-                    break                       # a line still being written: read it next time
+                    break                       # still being written, or past the budget: next time
                 skipping = True                 # longer than MAX_LINE: keep nothing of it
                 read += len(line)
                 offset += len(line)

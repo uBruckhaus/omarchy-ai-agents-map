@@ -59,6 +59,14 @@ class MapModelRulesTest(unittest.TestCase):
         self.assertFalse(page.model_change_allowed(page.agent_list, "runtime:llamacpp", "qwen"))
         self.assertFalse(page.model_change_allowed(page.agent_list[:1], "runtime:llamacpp", None))   # disconnect
 
+    def test_moving_off_a_model_needs_its_disconnect_rule(self):
+        rules = action_rules.default_rules() + [
+            {"effect": "deny", "action": "disconnect", "category": "models", "item": "old", "agent": "hermes"}]
+        page = self.page(rules)
+        self.assertFalse(page.model_change_allowed(page.agent_list[:1], "runtime:llamacpp", "new", "old"))
+        self.assertFalse(page.model_change_allowed(page.agent_list[:1], "runtime:llamacpp", None, "old"))
+        self.assertTrue(page.model_change_allowed(page.agent_list[1:], "runtime:llamacpp", "new", "old"))
+
     def test_allowed_by_default_rules(self):
         page = self.page(action_rules.default_rules())
         self.assertTrue(page.model_change_allowed(page.agent_list, "runtime:llamacpp", "qwen"))

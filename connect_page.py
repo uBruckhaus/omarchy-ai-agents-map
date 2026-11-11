@@ -128,7 +128,7 @@ class ConnectPage:
         else:
             self.on_map_link(agent_id, new_id, replaces_id=old_id)
 
-    def model_change_allowed(self, agents: list, runtime_id: str, model: str | None) -> bool:
+    def model_change_allowed(self, agents: list, runtime_id: str, model: str | None, old: str = "") -> bool:
         """The user's rules, checked where an agent's model setting is written (also after a
         dialog, which may have been open while the rules changed): for every agent of a batch,
         connecting to (or, model None, disconnecting from) the provider, and using the model.
@@ -141,6 +141,8 @@ class ConnectPage:
                 return False
             if model and not self.rule_allows("connect", "models", model, command):
                 return False
+            if old and old != model and not self.rule_allows("disconnect", "models", old, command):
+                return False                # moved off (or disconnected from) its model
         return True
 
     def on_map_remodel(self, runtime_id: str, old_id: str, new_id: str | None):
@@ -422,7 +424,7 @@ class ConnectPage:
         threading.Thread(target=work, daemon=True).start()
 
     def remodel_apply(self, agents: list, runtime, model: str | None, names: str, old: str, free: bool = False):
-        if not self.model_change_allowed(agents, f"runtime:{runtime.key}", model):
+        if not self.model_change_allowed(agents, f"runtime:{runtime.key}", model, old):
             return
         context = llm_engine.of(runtime).agent_context(runtime)
         backups = []

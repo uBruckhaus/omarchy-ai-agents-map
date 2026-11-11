@@ -375,25 +375,27 @@ def run_with_disk_budget(argv: list[str], cwd: str, budget: int, timeout: float,
     import time
     process = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                stderr=subprocess.DEVNULL, start_new_session=True)
+    import process_group
     deadline = time.monotonic() + timeout
+    within = False
     try:
         while True:
-            try:
-                code = process.wait(timeout=every)
-                return code == 0 and folder_bytes(cwd, budget) <= budget
-            except subprocess.TimeoutExpired:
-                pass
+            # Waited for without reaping it (WNOWAIT): its pid, the group id, stays ours until the
+            # group has been killed below.
+            if process_group._exited(process.pid, every):
+                within = folder_bytes(cwd, budget) <= budget
+                break
             if time.monotonic() > deadline or folder_bytes(cwd, budget) > budget:
-                return False
+                break
     finally:
         # Always the whole group, also after the program itself has ended: a child it left behind
-        # must not go on writing unwatched.
+        # must not go on writing unwatched. Only then is the program reaped.
         try:
             os.killpg(process.pid, signal.SIGKILL)
         except OSError:
             pass
-        if process.poll() is None:
-            process.wait()
+        code = process.wait()
+    return within and code == 0
 
 
 def read_bounded_output(argv: list[str], max_bytes: int = 64 * 1024, timeout: float = 5.0,
