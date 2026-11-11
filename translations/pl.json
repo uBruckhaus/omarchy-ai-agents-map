@@ -3551,5 +3551,8 @@
  "The screenshot could not be saved: {0}": "Nie udało się zapisać zrzutu ekranu: {0}",
  "The note could not be saved: {0}": "Nie udało się zapisać notatki: {0}",
  "Corners of the window, its cards, the map's boxes and every control (buttons, choice boxes, fields). “Like windows” follows Hyprland's window rounding.": "Narożniki okna, jego kart, pól mapy i wszystkich kontrolek (przyciski, listy wyboru, pola). „Jak okna” podąża za zaokrągleniem okien Hyprlanda.",
- "All fine": "Wszystko w porządku"
+ "All fine": "Wszystko w porządku",
+ "{0} looks at what changes and does the update in a terminal tab, asking before each step": "{0} sprawdza, co się zmienia, i wykonuje aktualizację w karcie terminala, pytając przed każdym krokiem",
+ "Update now": "Zaktualizuj teraz",
+ "Update with AI…": "Zaktualizuj z AI…"
 }

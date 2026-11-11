@@ -3470,5 +3470,8 @@
  "The screenshot could not be saved: {0}": "Não foi possível guardar a captura: {0}",
  "The note could not be saved: {0}": "Não foi possível guardar a nota: {0}",
  "Corners of the window, its cards, the map's boxes and every control (buttons, choice boxes, fields). “Like windows” follows Hyprland's window rounding.": "Cantos da janela, dos seus cartões, das caixas do mapa e de todos os controlos (botões, caixas de escolha, campos). «Como as janelas» segue o arredondamento das janelas do Hyprland.",
- "All fine": "Tudo bem"
+ "All fine": "Tudo bem",
+ "{0} looks at what changes and does the update in a terminal tab, asking before each step": "{0} vê o que muda e faz a atualização num separador de terminal, perguntando antes de cada passo",
+ "Update now": "Atualizar agora",
+ "Update with AI…": "Atualizar com IA…"
 }

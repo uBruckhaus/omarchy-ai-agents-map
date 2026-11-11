@@ -54,7 +54,7 @@ from gi.repository import Gdk, GLib, Graphene, Gtk, Pango, PangoCairo  # noqa: E
 
 import icons  # noqa: E402
 
-NODE_H = 42
+NODE_H = 66             # Maprisma's box: a top row, the detail, the controls
 NODE_GAP = 8
 GROUP_GAP = 18           # between two cards of a column
 CARD_HEAD = 26           # a card's header: its title, a count, the grip to move the card
@@ -176,6 +176,12 @@ class MapView(Gtk.DrawingArea):
         self.batteries = {}      # box id -> (left 0..1, colour, tooltip): an online agent's limits, a local LLM's GPU
         self.costs = {}          # agent box id -> (label, tooltip, colour): paid per token, today's cost, no battery
         self.cost_rects = {}     # agent box id -> rectangle of that label (its tooltip)
+        self.menu_rects = {}     # box id -> rectangle of its ⋮ (its menu, as a right-click)
+        self.details_rects = {}  # box id -> rectangle of its ⓘ (its details)
+        self.has_details = None  # has_details(node id) -> bool: a box with a details page gets ⓘ
+        self.on_details = None   # on_details(node id): open it
+        self.updates = {}        # box id -> newer version: the ↑ badge (set_updates)
+        self.update_rects = {}   # box id -> rectangle of that badge (its tooltip)
         self.battery_rects = {}  # agent box id -> rectangle of its battery, for the tooltip
         self.traffic = {}        # agent box id -> (in B/s, out B/s, moving): a running agent's ⇅
         self.traffic_rects = {}  # agent box id -> rectangle of its ⇅ (click: its network page)
@@ -1484,6 +1490,16 @@ class MapView(Gtk.DrawingArea):
             # A click on a card's header folds or opens it (a drag moves it: the drag claims it).
             self.toggle_card(self.card_header_at(x, y))
             return
+        info = next((node_id for node_id, (mx, my, mw, mh) in self.details_rects.items()
+                     if mx <= x <= mx + mw and my <= y <= my + mh), None)
+        if info is not None and self.on_details is not None:
+            self.on_details(info)
+            return
+        menu = next((node_id for node_id, (mx, my, mw, mh) in self.menu_rects.items()
+                     if mx <= x <= mx + mw and my <= y <= my + mh), None)
+        if menu is not None and self.on_context is not None:
+            self.on_context(menu, self.to_pixels(self.menu_rects[menu]))     # its ⋮: the box's menu
+            return
         pin = self.pin_at(x, y)
         if pin is not None:
             self.toggle_pin(pin)
@@ -1994,6 +2010,9 @@ class MapView(Gtk.DrawingArea):
         self.traffic_rects = {}
         self.subagent_rects = {}
         self.cost_rects = {}
+        self.menu_rects = {}
+        self.details_rects = {}
+        self.update_rects = {}
         self.draw_summaries(cr, layout)
         # Each card with its boxes, one card after the other: a card moved by hand lies over the others.
         z = {key: i for i, (key, *_rest) in enumerate(self.group_labels)}
@@ -2011,108 +2030,170 @@ class MapView(Gtk.DrawingArea):
             faded = lit_nodes is not None and node.id not in lit_nodes
             alpha = 0.25 if faded else (0.55 if node.dim or node.status == "missing" else 1.0)
             selected = node.id in self.selected
-            # A card: the theme's background, a light tint (stronger for agents), a thin frame.
-            self.rounded(cr, x, y, w, h, self.radius)
-            cr.set_source_rgba(*self.color("bg", 1.0))
-            cr.fill_preserve()
-            fill = 0.09 if node.kind == "agent" else 0.05
-            cr.set_source_rgba(*self.color("fg", fill * (0.4 if faded else 1.0)))
-            cr.fill_preserve()
-            if selected:
-                cr.set_source_rgba(*self.color("accent", 0.20))
-                cr.fill_preserve()
-            # A model an app outside the map generates with now: its dot and label in that light's colour.
-            outside = node.kind == "model" and bool(self.outside_label(node.id))
-            # Every box, models included, has a light grey frame. The box under the pointer, or else the
-            # clicked (or pinned) ones, and every box connected to it are framed in the accent, as wide
-            # as a selected box: the same boxes the map lights (highlighted).
-            joined = lit_nodes is not None and node.id in lit_nodes
-            framed = node.id == self.hover or selected or joined
-            border = "accent" if framed else "fg"
-            cr.set_source_rgba(*self.color(border, (0.16 if border == "fg" else 0.9) * (0.3 if faded else 1)))
-            cr.set_line_width(2.2 if framed else 1)
-            cr.stroke()
-            if selected:
-                # An agent's tick left of its symbols (they reach the pin's corner); others' by the pin.
-                check_x = x + w - self.agent_slots()["strip"] - CHECK_ROOM + 2 if node.kind == "agent" \
-                    else x + w - PIN_W - 22
-                self.draw_check(cr, layout, check_x, y + (h - 16) / 2)
-            self.draw_pin(cr, layout, node.id, x, y, w, faded)
-
-            use = self.runtime_use(node)
-            detail = node.detail or (self.outside_label(node.id) if node.kind == "model" else "")
-            right = 0                # room kept free at the right for the loaded mark or the start button
-            if node.kind == "agent":
-                # Its symbols, each in its slot of the strip at the right (agent_slots).
-                slots = self.agent_slots()
-                end = x + w
-                if self.start_state is not None and self.start_state(node.id):
-                    self.draw_start(cr, layout, node.id, x, y, w, h, faded, right=end - slots["start"])
-                if node.id in self.batteries:
-                    self.draw_battery(cr, node.id, end - slots["meter"], y, h, faded)
-                elif node.id in self.costs:
-                    self.draw_cost(cr, layout, node.id, end - slots["meter"], y, h, faded)
-                if self.start_state is not None:
-                    self.draw_console(cr, layout, node.id, end - slots["console"], y, h, faded)
-                if node.id in self.subagents:
-                    self.draw_subagents(cr, node.id, end - slots["subagents"], y, h, faded)
-                if node.id in self.traffic:
-                    self.draw_traffic(cr, node.id, end - slots["traffic"], y, h, faded)
-                # The name ends before the strip (and before the tick while the box is selected).
-                right = slots["strip"] + TEXT_GAP + (CHECK_ROOM if selected else 0) \
-                    - PIN_W - (24 if selected else 4)
-            elif node.kind == "runtime" and self.on_stop is not None and use is not None and use.running \
-                    and use.vram >= STOP_VRAM:
-                right = self.draw_runtime_stop(cr, layout, node.id, x, y, w, h, faded)
-            if node.kind == "runtime" and node.id in self.batteries:
-                right += self.draw_battery(cr, node.id, x + w - PIN_W - (24 if selected else 4) - right, y, h, faded)
-            text_x = self.draw_tile(cr, layout, node, x, y, h, faded, alpha, use)
-            if node.kind == "runtime" and use is not None and use.vram >= 64 * 1024 ** 2:
-                detail = " · ".join(filter(None, [detail, f"{use.vram / 1024 ** 3:.1f} GB GPU"]))
-            if node.kind == "model" and use is not None:
-                state = self.model_state(node, use)
-                if state:
-                    # Loaded (green), loading (yellow), asleep (a grey ring: listed, GPU memory free).
-                    cx, cy = x + w - PIN_W - (30 if selected else 8), y + h / 2
-                    if state == "sleeping":
-                        cr.set_source_rgba(*self.color("muted", 0.35 if faded else 1.0))
-                        cr.set_line_width(1.5)
-                        cr.arc(cx, cy, 3.5, 0, 2 * math.pi)
-                        cr.stroke()
-                    else:
-                        loaded = "outside" if outside else "green"
-                        cr.set_source_rgba(*self.color(loaded if state == "loaded" else "yellow",
-                                                       0.35 if faded else 1.0))
-                        cr.arc(cx, cy, 4, 0, 2 * math.pi)
-                        cr.fill()
-                    right = 14
-            layout.set_width(int((x + w - PIN_W - (24 if node.id in self.selected else 4) - right - text_x)
-                                 * Pango.SCALE))
-            layout.set_ellipsize(Pango.EllipsizeMode.END)
-            if detail:
-                layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 9"))
-                layout.set_text(node.label, -1)
-                top_h = layout.get_pixel_size()[1]
-                top = y + (h - 2 * top_h + 1) / 2
-                cr.set_source_rgba(*self.color("fg", alpha))
-                cr.move_to(text_x, top)
-                PangoCairo.show_layout(cr, layout)
-                layout.set_font_description(Pango.FontDescription.from_string("Sans 8"))
-                layout.set_text(detail, -1)
-                cr.set_source_rgba(*self.color("outside" if outside and not node.detail else "dim", alpha))
-                cr.move_to(text_x, top + top_h)
-                PangoCairo.show_layout(cr, layout)
-            else:
-                weight = "Bold " if node.kind in ("agent", "cloud", "runtime") else ""
-                layout.set_font_description(Pango.FontDescription.from_string(f"Sans {weight}9"))
-                layout.set_text(node.label, -1)
-                cr.set_source_rgba(*self.color("fg", alpha))
-                cr.move_to(text_x, y + (h - layout.get_pixel_size()[1]) / 2)
-                PangoCairo.show_layout(cr, layout)
+            self.draw_box(cr, layout, node, x, y, w, h, faded, alpha, lit_nodes)
 
         self.draw_agent_links(cr)                 # over the agents' card: an agent using another one
         self.draw_hooks(cr)                       # over the boxes: a hook is never half hidden
         self.draw_link(cr)
+
+    def draw_box(self, cr, layout, node, x, y, w, h, faded, alpha, lit_nodes):
+        """A box as Maprisma's (map_editor.dart): a card, filled in the accent colour while it runs,
+        framed 3 px while selected. Top row: its icon, its name, then an update (↑ version), its battery
+        or cost, a model's state and ⋮ (its menu). Middle row: its detail. Bottom row: its controls
+        (start or stop, an outside instance's stop, its console, subagents, traffic); the pin at the
+        bottom right."""
+        selected = node.id in self.selected
+        running = node.status == "running"
+        dim_factor = 0.4 if faded else 1.0
+        self.rounded(cr, x, y, w, h, self.radius)
+        cr.set_source_rgba(*self.color("bg", 1.0))
+        cr.fill_preserve()
+        if running:
+            cr.set_source_rgba(*self.color("accent", 0.22 * dim_factor))
+        else:
+            cr.set_source_rgba(*self.color("fg", (0.07 if node.kind == "agent" else 0.045) * dim_factor))
+        cr.fill_preserve()
+        joined = lit_nodes is not None and node.id in lit_nodes
+        framed = node.id == self.hover or selected or joined
+        border = "accent" if framed or running else "fg"
+        cr.set_source_rgba(*self.color(border, (0.9 if framed else 0.6 if running else 0.16) * (0.3 if faded else 1)))
+        cr.set_line_width(3 if selected else 2 if framed else 1.2 if running else 1)
+        cr.stroke()
+        use = self.runtime_use(node)
+        outside = node.kind == "model" and bool(self.outside_label(node.id))
+        # Top row.
+        row, row_h = y + 6, 18
+        icon = 16
+        self.draw_small_icon(cr, layout, node, x + 8, row + (row_h - icon) / 2, icon, faded, alpha, use)
+        right = x + w - 4
+        self.menu_rects[node.id] = (right - 16, row, 16, row_h)
+        cr.set_source_rgba(*self.color("fg", (1.0 if node.id == self.hover else 0.7) * dim_factor))
+        for dot in range(3):
+            cr.arc(right - 8, row + row_h / 2 - 4 + dot * 4, 1.3, 0, 2 * math.pi)
+            cr.fill()
+        right -= 18
+        if node.id in self.batteries:
+            right -= self.draw_battery(cr, node.id, right, row, row_h, faded)
+        elif node.id in self.costs:
+            right -= self.draw_cost(cr, layout, node.id, right, row, row_h, faded)
+        if node.id in self.updates:
+            right -= self.draw_update_badge(cr, layout, node.id, right, row, row_h, faded)
+        if node.kind == "model" and use is not None:
+            state = self.model_state(node, use)
+            if state:
+                # Loaded (green), loading (yellow), asleep (a grey ring: listed, GPU memory free).
+                cx, cy = right - 6, row + row_h / 2
+                if state == "sleeping":
+                    cr.set_source_rgba(*self.color("muted", 0.35 if faded else 1.0))
+                    cr.set_line_width(1.5)
+                    cr.arc(cx, cy, 3.5, 0, 2 * math.pi)
+                    cr.stroke()
+                else:
+                    cr.set_source_rgba(*self.color("outside" if outside else "green" if state == "loaded" else "yellow",
+                                                   0.35 if faded else 1.0))
+                    cr.arc(cx, cy, 4, 0, 2 * math.pi)
+                    cr.fill()
+                right -= 14
+        text_x = x + 8 + icon + 6
+        layout.set_width(int(max(10, right - 4 - text_x) * Pango.SCALE))
+        layout.set_ellipsize(Pango.EllipsizeMode.END)
+        layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 9"))
+        layout.set_text(node.label, -1)
+        cr.set_source_rgba(*self.color("fg", alpha))
+        cr.move_to(text_x, row + (row_h - layout.get_pixel_size()[1]) / 2)
+        PangoCairo.show_layout(cr, layout)
+        # Middle row: the detail (a local LLM's GPU memory too: Maprisma has no GPU card).
+        detail = node.detail or (self.outside_label(node.id) if node.kind == "model" else "")
+        if node.kind == "runtime" and use is not None and use.vram >= 64 * 1024 ** 2:
+            detail = " · ".join(filter(None, [detail, f"{use.vram / 1024 ** 3:.1f} GB GPU"]))
+        if detail:
+            layout.set_width(int((w - 16) * Pango.SCALE))
+            layout.set_font_description(Pango.FontDescription.from_string("Sans 8"))
+            layout.set_text(detail, -1)
+            cr.set_source_rgba(*self.color("outside" if outside and not node.detail else "dim", alpha))
+            cr.move_to(x + 8, y + 26)
+            PangoCairo.show_layout(cr, layout)
+        layout.set_width(-1)
+        # Bottom row: the controls, from the left; the pin at the right. First ⓘ (its details), as Maprisma's.
+        row, row_h = y + h - 24, 20
+        cx = x + 8
+        if self.has_details is not None and self.has_details(node.id):
+            r = 6.5
+            dx, dy = cx + r, row + row_h / 2
+            self.details_rects[node.id] = (cx - 2, row, 2 * r + 4, row_h)
+            cr.set_source_rgba(*self.color("fg", (1.0 if node.id == self.hover else 0.65) * dim_factor))
+            cr.set_line_width(1.2)
+            cr.arc(dx, dy, r, 0, 2 * math.pi)
+            cr.stroke()
+            cr.rectangle(dx - 0.7, dy - 1, 1.4, 4.5)
+            cr.fill()
+            cr.arc(dx, dy - 3.2, 0.9, 0, 2 * math.pi)
+            cr.fill()
+            cx += 2 * r + 8
+        if node.kind == "agent" and self.start_state is not None:
+            if self.start_state(node.id):
+                outside_n = self.outside_count(node.id) if self.outside_count is not None else 0
+                cx += self.draw_start(cr, layout, node.id, x, row, w, row_h, faded,
+                                      right=cx + START_W + (START_W + 4 if outside_n else 0))
+            cx += self.draw_console(cr, layout, node.id, cx + START_W, row, row_h, faded)
+            if node.id in self.subagents:
+                cx += self.draw_subagents(cr, node.id, cx + 19, row, row_h, faded)
+            if node.id in self.traffic:
+                cx += self.draw_traffic(cr, node.id, cx + 19, row, row_h, faded)
+        elif node.kind == "runtime" and self.on_stop is not None and use is not None and use.running \
+                and use.vram >= STOP_VRAM:
+            sy = row + (row_h - START_W) / 2
+            self.stop_rects[node.id] = (cx, sy, START_W, START_W)
+            self.draw_square_button(cr, layout, cx, sy, STOP, "red", True, node.id == self.hover, faded)
+        self.draw_pin(cr, layout, node.id, x, y + h - PIN_W - 6, w - 2, faded)
+
+    def draw_small_icon(self, cr, layout, node, ix, iy, size, faded, alpha, use):
+        """The kind's or agent's icon before the name (Uwe, 2026-11-11: Maprisma's box with a small icon in
+        place of its drag handle), in the colour of the kind's lines; a stopped local LLM's in yellow."""
+        tone = TILE_TONES.get(node.kind, "accent")
+        if node.status in ("stopped", "noserver"):
+            tone = "yellow"
+        text, font = self.tile_glyph(node)
+        colour = self.color(tone if tone != "muted" else "fg", alpha)
+        if self.draw_icon(cr, text, font, ix, iy, size, colour):
+            return
+        family = "omarchy" if font == "omarchy" else "JetBrainsMono Nerd Font, Symbols Nerd Font"
+        layout.set_font_description(Pango.FontDescription.from_string(f"{family} 10"))
+        layout.set_width(-1)
+        layout.set_text(text, -1)
+        glyph_w, glyph_h = layout.get_pixel_size()
+        cr.set_source_rgba(*colour)
+        cr.move_to(ix + (size - glyph_w) / 2, iy + (size - glyph_h) / 2)
+        PangoCairo.show_layout(cr, layout)
+
+    def set_updates(self, updates: dict):
+        """{node id: newer version}: the boxes' ↑ version (Maprisma task 068)."""
+        if updates != self.updates:
+            self.updates = dict(updates)
+            self.queue_draw()
+
+    def draw_update_badge(self, cr, layout, node_id, right, y, h, faded) -> int:
+        """↑ version ending at `right`, the arrow yellow (an update is waiting; its menu has it)."""
+        layout.set_width(-1)
+        layout.set_ellipsize(Pango.EllipsizeMode.NONE)
+        layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 7.5"))
+        layout.set_text(self.updates[node_id], -1)
+        tw, th = layout.get_pixel_size()
+        tx, ty = right - tw - 4, y + (h - th) / 2
+        self.update_rects[node_id] = (tx - 12, ty - 2, tw + 14, th + 4)
+        cr.set_source_rgba(*self.color("yellow", 0.4 if faded else 1.0))
+        ax, ay = tx - 7, y + h / 2
+        cr.set_line_width(1.5)
+        cr.move_to(ax, ay + 4)
+        cr.line_to(ax, ay - 4)
+        cr.move_to(ax - 3, ay - 1)
+        cr.line_to(ax, ay - 4)
+        cr.line_to(ax + 3, ay - 1)
+        cr.stroke()
+        cr.set_source_rgba(*self.color("fg", 0.4 if faded else 0.9))
+        cr.move_to(tx, ty)
+        PangoCairo.show_layout(cr, layout)
+        return tw + 16
 
     CARD_KINDS = {"agents": "agent", "online": "cloud", "local": "runtime", "mcp": "mcp", "mcp-online": "mcp",
                   "skills": "skills",

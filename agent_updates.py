@@ -225,3 +225,32 @@ def run_in_terminal(argv: list[str]) -> bool:
     # mise's version service can lag behind a release; read the versions from the source (still checksummed).
     import desktop
     return desktop.run_in_terminal(argv, {"MISE_USE_VERSIONS_HOST": "0"} if argv[0] == "mise" else None)
+
+
+def task_prompt(update: Update) -> str:
+    """Update with AI… (Maprisma task 068, updates.task): the update as a task for an agent. With an
+    update command (mise, the agent's own updater) the agent checks the release first and runs it after
+    the user agrees; an update of the app's own installer is only looked into (its Update page downloads
+    it and checks its SHA-256)."""
+    name, current, available = update.name, update.current, update.available
+    if not update.command:
+        return (f'"{name}" {available} is out (I have {current}). AI Agents Map installed it with its own '
+                "installer, which downloads the release and checks its SHA-256. Look up on the program's "
+                f"official release page or changelog what changes from {current} to {available} for me "
+                "(breaking changes, new requirements, models or settings that need care) and tell me in a few "
+                "lines whether to update now. Do not download, install or change anything: AI Agents Map's "
+                "Update page installs it.")
+    words = (["env", "MISE_USE_VERSIONS_HOST=0"] if update.command[0] == "mise" else []) + list(update.command)
+    return (f'Update "{name}" from {current} to {available}. It was installed so that this command updates '
+            f"it: {' '.join(words)}\n"
+            f"First check on the program's official release page or changelog that {available} is out, and "
+            "show me in a few lines what changes for me (breaking changes, new requirements). If it runs right "
+            "now, tell me: the update replaces its program while it works. Then, after I agree, run that "
+            "command and show me the version it reports afterwards. Do not change its settings, sign-ins or "
+            "any other program. Ask me before each step that changes something.")
+
+
+def update_helper(key: str, taskers: list) -> str | None:
+    """The agent that takes an update task: the first that can (the one for AI checks first), never the
+    agent being updated while another can (its program is replaced under its feet)."""
+    return next((c for c in taskers if c != key), taskers[0] if taskers else None)

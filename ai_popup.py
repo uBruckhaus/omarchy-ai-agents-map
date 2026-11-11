@@ -946,6 +946,8 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                                        _("None yet · Expand to add one"), _("Expand"))
         self.side_map.summary_counts = self.column_counts
         self.side_map.on_expand = self.open_column
+        self.side_map.has_details = lambda node_id: self.details_opener(node_id) is not None
+        self.side_map.on_details = lambda node_id: (self.details_opener(node_id) or (lambda: None))()
         self.zoom_label.set_label(f"{round(self.side_map.zoom * 100)} %")
         # The right of the Overview: the map, or a page opened from a card or from the map.
         right = Gtk.Stack(hexpand=True)
@@ -1484,6 +1486,11 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         while (child := self.hint_area.get_first_child()) is not None:
             self.hint_area.remove(child)
         self.hint_area.set_visible(False)
+        if getattr(self, "side_map", None) is not None:
+            try:
+                self.side_map.set_updates(self.map_update_badges())    # the boxes' ↑ version (task 068)
+            except Exception:
+                pass                        # a badge never keeps the hints from showing
         self.hint_buttons = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)   # one width for the hints' buttons
         self.map_empty = not harnesses.all_harnesses() and not providers.all_providers() \
             and hasattr(self, "adapter_addons") and bool(self.adapter_addons())
@@ -1569,6 +1576,39 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             return _("MCP server {0} {1} is on this PC, the agents still start {2}").format(
                 update.name, update.latest, update.current)
         return _("MCP server {0} {1} is available (you have {2})").format(update.name, update.latest, update.current)
+
+    def update_menu_items(self, node_id: str, popover) -> list:
+        """A box's update, first in its menu (Maprisma task 068): Update with AI… (an agent checks the
+        release and does it in a terminal tab, asking before each step) and Update now (as before)."""
+        items = []
+        update = self.open_updates().get(node_id)
+        if update is not None and update.kind in ("agent", "runtime"):
+            taskers = ai_helper.task_agents({a.command for a in self.agent_list if a.installed})
+            helper = agent_updates.update_helper(update.key, taskers)
+            if helper is not None:
+                items.append(self.menu_item(
+                    _("Update with AI…"), popover,
+                    lambda: self.do_with_agent(f"update:{update.key}", _("Update {0}").format(update.name),
+                                               agent_updates.task_prompt(update), agent=helper),
+                    _("{0} looks at what changes and does the update in a terminal tab, asking before each "
+                      "step").format(ai_helper.name_of(helper))))
+        direct = self.item_update(node_id)
+        if direct is not None:
+            label = _("Update now") if update is not None and update.kind in ("agent", "runtime") else direct[0]
+            items.append(self.menu_item(label, popover, direct[1]))
+        return items
+
+    def map_update_badges(self) -> dict:
+        """{box id: newer version}: the map's ↑ version (agents, local LLMs, MCP servers, add-ons)."""
+        badges = {node_id: update.available for node_id, update in self.open_updates().items() if update.available}
+        for entry in getattr(self, "addons_entries", None) or []:
+            installed = next((a for a in getattr(self, "addons", []) if a.id == entry.id), None)
+            if installed is None or installed.state != "loaded" or entry.version == installed.version:
+                continue
+            for name in installed.provides:
+                for node_id in (f"agent:{name}", f"runtime:{name}"):
+                    badges.setdefault(node_id, entry.version)
+        return badges
 
     def mcp_update_buttons(self, update) -> list:
         """An AI check's update: downloaded already → the map moves the agents (no second download);
@@ -3962,6 +4002,20 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             details.append(self.menu_item(_("Details"), popover, lambda: self.open_skills_details(ident)))
         return starts, details
 
+    def details_opener(self, node_id: str):
+        """What a box's ⓘ opens (the same as Details in its menu), or None for a box without details."""
+        kind, _sep, ident = node_id.partition(":")
+        if kind == "agent":
+            agent = next((a for a in self.agent_list if a.command == ident and a.installed), None)
+            return (lambda: self.open_agent_status(agent)) if agent is not None else None
+        if kind == "runtime":
+            return lambda: self.open_runtime_status(ident)
+        if kind == "mcp" and any(m.name == ident for m in self.inventory.mcp):
+            return lambda: self.open_mcp_details(ident)
+        if kind == "skills" and any(s.path == ident for s in self.inventory.skill_sets):
+            return lambda: self.open_skills_details(ident)
+        return None
+
     def show_context(self, view, node_id: str, rect, extra=()):
         """A box's right-click menu: what only it has (a local LLM's install, start and stop, an
         agent's install or web look-up), an update when there is one, its card's actions, then
@@ -4004,8 +4058,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         danger = []
         if kind == "model":
             own, danger = self.model_menu(view, rect, node_id, popover)
-        update = self.item_update(node_id)
-        newer = [self.menu_item(update[0], popover, update[1])] if update else []
+        newer = self.update_menu_items(node_id, popover)
         starts, details = self.card_actions(node_id, popover)
         self.show_menu(popover, title, [newer, own, starts, details, [e(popover) for e in extra], danger])
 

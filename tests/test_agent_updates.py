@@ -156,3 +156,23 @@ class AgentUpdatesTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UpdateTaskTest(__import__("unittest").TestCase):
+    """Update with AI… (Maprisma task 068): the task's prompt and the agent that takes it."""
+
+    def test_the_prompt_says_how_and_asks_first(self):
+        import agent_updates as au
+        mise = au.task_prompt(au.Update("agent", "codex", "Codex", "1.0", "1.1", ["mise", "upgrade", "codex"]))
+        self.assertIn("env MISE_USE_VERSIONS_HOST=0 mise upgrade codex", mise)
+        self.assertIn("from 1.0 to 1.1", mise)
+        self.assertIn("after I agree", mise)
+        page = au.task_prompt(au.Update("runtime", "llamacpp", "llama.cpp", "b1", "b2", page=True))
+        self.assertIn("Do not download, install or change anything", page)
+
+    def test_never_the_agent_it_updates_while_another_can(self):
+        import agent_updates as au
+        self.assertEqual(au.update_helper("claude", ["claude", "codex"]), "codex")
+        self.assertEqual(au.update_helper("goose", ["claude", "codex"]), "claude")
+        self.assertEqual(au.update_helper("claude", ["claude"]), "claude")
+        self.assertIsNone(au.update_helper("claude", []))

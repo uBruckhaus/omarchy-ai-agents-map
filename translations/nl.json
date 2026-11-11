@@ -3470,5 +3470,8 @@
  "The screenshot could not be saved: {0}": "De schermafbeelding kon niet worden bewaard: {0}",
  "The note could not be saved: {0}": "De notitie kon niet worden bewaard: {0}",
  "Corners of the window, its cards, the map's boxes and every control (buttons, choice boxes, fields). “Like windows” follows Hyprland's window rounding.": "Hoeken van het venster, zijn kaarten, de vakken van de kaart en alle bedieningselementen (knoppen, keuzelijsten, velden). ‘Zoals vensters’ volgt de vensterafronding van Hyprland.",
- "All fine": "Alles in orde"
+ "All fine": "Alles in orde",
+ "{0} looks at what changes and does the update in a terminal tab, asking before each step": "{0} kijkt wat er verandert en voert de update uit in een terminaltab, en vraagt vóór elke stap",
+ "Update now": "Nu bijwerken",
+ "Update with AI…": "Bijwerken met AI…"
 }
