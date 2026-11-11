@@ -1,6 +1,6 @@
 """Any other desktop (GNOME, KDE, …): the generic implementation of desktop.py's interface.
 
-- own files: $XDG_CONFIG_HOME/asterism (~/.config/asterism)
+- app identity and configuration paths: identity.py, independently of this backend
 - theme: libadwaita's colours for the system's light or dark style and accent
   colour (Adw.StyleManager, else `gsettings` org.gnome.desktop.interface
   color-scheme / accent-color; light and blue when unknown); windows have
@@ -8,7 +8,7 @@
 - windows: GTK itself (the window is handed over with attach_window); the
   desktop draws the title bar
 - terminals: xdg-terminal-exec, $TERMINAL, then the usual ones (Console, Ptyxis,
-  GNOME Terminal, Konsole, Xfce Terminal, foot, Alacritty, kitty, WezTerm, xterm)
+  GNOME Terminal, Konsole, COSMIC Terminal, Xfce Terminal, foot, Alacritty, kitty, WezTerm, xterm)
 - agents: the built-in list (agents.FALLBACK), no default agent, no usage
   records (agents' own stores still count, agent_status)
 - install hints: the command of the package manager found (apt, dnf, zypper,
@@ -18,6 +18,7 @@ Programs are run as argv lists with bounded output; a command that waits at the 
 runs through `bash -c` with every word quoted (shlex.join).
 """
 
+import json
 import os
 import re
 import shlex
@@ -26,10 +27,7 @@ import subprocess
 from pathlib import Path
 
 NAME = "generic"
-APP_NAME = "Asterism"               # the same app outside Omarchy
-APP_ID = "io.github.ubruckhaus.Asterism"
 HOME = Path.home()
-CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME") or HOME / ".config") / "asterism"
 RADIUS = 12          # libadwaita's window corners
 
 # libadwaita's palette (Adwaita named colours), light and dark.
@@ -44,7 +42,7 @@ DARK = {"background": "#222226", "foreground": "#ffffff", "muted": "#9a9996", "s
 
 # Terminals: (program, how argv follows it).
 TERMINALS = (("xdg-terminal-exec", []), ("kgx", ["--"]), ("ptyxis", ["--"]), ("gnome-terminal", ["--"]),
-             ("konsole", ["-e"]), ("xfce4-terminal", ["-x"]), ("foot", []), ("alacritty", ["-e"]),
+             ("konsole", ["-e"]), ("cosmic-term", ["--"]), ("xfce4-terminal", ["-x"]), ("foot", []), ("alacritty", ["-e"]),
              ("kitty", []), ("wezterm", ["start", "--"]), ("xterm", ["-e"]))
 
 # Package names per package manager.
@@ -55,20 +53,6 @@ MANAGERS = (("apt", "sudo apt install {0}"), ("dnf", "sudo dnf install {0}"), ("
             ("pacman", "sudo pacman -S {0}"))
 
 _window = None
-
-
-# --- the app's name and own files ----------------------------------------------------------------
-
-def app_name() -> str:
-    return APP_NAME
-
-
-def app_id() -> str:
-    return APP_ID
-
-
-def config_dir() -> Path:
-    return CONFIG_DIR
 
 
 # --- theme ----------------------------------------------------------------------------------------
@@ -215,6 +199,14 @@ def maximize(app_id: str) -> bool:
 
 # --- terminals ------------------------------------------------------------------------------------
 
+def _resolves(launcher: str) -> bool:
+    try:
+        return subprocess.run([launcher, "--print-id"], stdin=subprocess.DEVNULL, capture_output=True,
+                              check=False).returncode == 0
+    except OSError:
+        return False
+
+
 def terminal() -> list | None:
     """The terminal to start programs in: [program, argument before argv…], or None."""
     own = os.environ.get("TERMINAL", "")
@@ -223,6 +215,10 @@ def terminal() -> list | None:
         return [shutil.which(own), *known]
     for program, follow in TERMINALS:
         path = shutil.which(program)
+        # It exits with an error when it finds no terminal entry, and a detached
+        # start would hide that: then the next one on the list.
+        if path and program == "xdg-terminal-exec" and not _resolves(path):
+            continue
         if path:
             return [path, *follow]
     return None
@@ -290,28 +286,57 @@ OMARCHY_USAGE = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/s
 USAGE_TIMEOUT = 60
 
 
+def usage_collector(command: str) -> str | None:
+    """Omarchy's collector of this agent's usage: in Omarchy's bin folder, /usr/bin or anywhere on PATH."""
+    if not re.fullmatch(r"[a-z0-9-]{1,64}", command):
+        return None
+    root = Path(os.environ.get("OMARCHY_PATH") or "/usr/share/omarchy")
+    for folder in (root / "bin", Path("/usr/bin")):
+        if (folder / f"omarchy-agent-usage-{command}").is_file():
+            return str(folder / f"omarchy-agent-usage-{command}")
+    return shutil.which(f"omarchy-agent-usage-{command}")
+
+
 def usage_dir():
     return OMARCHY_USAGE if OMARCHY_USAGE.is_dir() else None
 
 
 def has_usage_collector(command: str) -> bool:
-    if not re.fullmatch(r"[a-z0-9-]{1,64}", command) or usage_dir() is None:
-        return False
-    root = Path(os.environ.get("OMARCHY_PATH") or "/usr/share/omarchy")
-    return shutil.which("omarchy-agent-usage-update") is not None and \
-        any((d / f"omarchy-agent-usage-{command}").is_file() for d in (root / "bin", Path("/usr/bin")))
+    return usage_collector(command) is not None
+
+
+USAGE_LIMIT = 4 * 1024 * 1024   # the most a collector may print
 
 
 def refresh_usage(command: str) -> bool:
-    """Ask Omarchy's tool for this agent's usage (blocking; run it on a thread)."""
-    if not has_usage_collector(command):
+    """Fresh usage of this agent (blocking; run it on a thread): Omarchy's update tool where Omarchy is,
+    else the collector itself, whose one JSON object becomes the record. No credential is read here."""
+    collector = usage_collector(command)
+    if collector is None:
         return False
+    update = shutil.which("omarchy-agent-usage-update") if os.environ.get("OMARCHY_PATH") else None
     try:
-        result = subprocess.run(["omarchy-agent-usage-update", command], stdin=subprocess.DEVNULL,
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=USAGE_TIMEOUT)
+        result = subprocess.run([update, command] if update else [collector], stdin=subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=USAGE_TIMEOUT)
     except (OSError, subprocess.SubprocessError):
         return False
-    return result.returncode == 0
+    if result.returncode != 0:
+        return False
+    if update:
+        return True
+    if len(result.stdout) > USAGE_LIMIT:
+        return False
+    try:
+        record = json.loads(result.stdout)
+    except ValueError:
+        return False
+    if not isinstance(record, dict):
+        return False
+    OMARCHY_USAGE.mkdir(parents=True, exist_ok=True)
+    temporary = OMARCHY_USAGE / f".{command}.json.tmp"
+    temporary.write_text(json.dumps(record) + "\n", encoding="utf-8")
+    temporary.replace(OMARCHY_USAGE / f"{command}.json")
+    return True
 
 
 # --- texts that name the desktop -------------------------------------------------------------------
@@ -325,11 +350,6 @@ def text(key: str) -> str:
         "install_coding_agent": _("Claude Code, Codex or OpenCode, each with its own installer."),
         "install_terminal": _("Install a terminal app (Console, Konsole, …):"),
     }[key]
-
-
-def launcher_entry() -> bool:
-    """No entry of our own: an installed package brings its .desktop file."""
-    return False
 
 
 # --- packages -------------------------------------------------------------------------------------

@@ -76,7 +76,8 @@ def _read(path, limit: int = 65536) -> str:
 def discrete_gpu() -> str | None:
     """The card with the largest VRAM (skips the iGPU carve-out)."""
     best = None
-    for total in glob.glob("/sys/class/drm/card*/device/mem_info_vram_total"):
+    root = os.environ.get("AI_AGENTS_MAP_SCAN_GPU", "/sys/class/drm")   # tests: their own cards
+    for total in glob.glob(f"{root}/card*/device/mem_info_vram_total"):
         try:
             size = int(_read(total, 64) or 0)
         except ValueError:
@@ -105,6 +106,12 @@ def busy_now() -> float | None:
 
 def gpu_totals() -> tuple[int, int, float | None]:
     """(used, total, busy percent)."""
+    if "AI_AGENTS_MAP_SCAN_GPU" in os.environ:   # read now: a test may set it after import
+        card = discrete_gpu()
+        if not card:
+            return 0, 0, None
+        return (int(_number(f"{card}/mem_info_vram_used") or 0), int(_number(f"{card}/mem_info_vram_total") or 0),
+                _number(f"{card}/gpu_busy_percent"))
     if GPU_DIR:
         return (int(_number(f"{GPU_DIR}/mem_info_vram_used") or 0), int(_number(f"{GPU_DIR}/mem_info_vram_total") or 0),
                 _number(f"{GPU_DIR}/gpu_busy_percent"))
@@ -204,9 +211,20 @@ def http_json(port: int, path: str, method: str = "GET", body: dict | None = Non
         return None
 
 
+_PORT_TEXT = re.compile(r"[0-9]{1,5}")
+
+
+def port_number(text: str) -> int:
+    """A port written as text: 1-5 ASCII digits, 1..65535; 0 for anything else ("²", "-1", a huge
+    number), so no scan or address ever fails on it."""
+    if not isinstance(text, str) or not _PORT_TEXT.fullmatch(text):
+        return 0
+    port = int(text)
+    return port if 0 < port < 65536 else 0
+
+
 def port_of(rt) -> int:
-    port = (rt.address or "").rpartition(":")[2]
-    return int(port) if port.isdigit() else 0
+    return port_number((rt.address or "").rpartition(":")[2])
 
 
 def loaded_models(rt) -> dict:

@@ -79,6 +79,7 @@ class Plan:
     notes: list = field(default_factory=list)          # what stays as it is (skills: folders read anyway)
     files_add: list = field(default_factory=list)      # (path, bytes, executable): new files (a fetched skill)
     retire: list = field(default_factory=list)         # folders moved into the backup (an app's old version)
+    model_actions: list = field(default_factory=list)  # trusted worker-only load/unload API operations
     contexts: list = field(default_factory=list)       # (runtime, model, context) set through the local
                                                        # LLM's API after writing (Ollama; not undone)
 
@@ -105,7 +106,7 @@ class Plan:
 
     def empty(self) -> bool:
         return not self.changes and not self.commands and not self.links_add and not self.links_remove \
-            and not self.files_add and not self.retire
+            and not self.files_add and not self.retire and not self.model_actions
 
 
 def chat_models(models) -> list:
@@ -126,11 +127,25 @@ def _read(path: Path) -> str:
     staged = getattr(_STAGED, "texts", None)
     if staged is not None and Path(path) in staged:
         return staged[Path(path)]
+    import ai_core
+    if path.name in ('auth.json', '.credentials.json', 'credentials.json'):
+        raise OSError('Credential file unavailable')
     try:
         limit = 8 * 1024 * 1024 if path.name == ".claude.json" else MAX_BYTES
-        if path.stat().st_size > limit:
-            raise ValueError(f"{path} is too large")
-        return path.read_text(encoding="utf-8")
+        fd = ai_core.open_regular(path, follow=False)
+        try:
+            info = os.fstat(fd)
+            if info.st_uid != os.getuid():
+                raise OSError('Foreign configuration unavailable')
+            if info.st_size > limit:
+                raise ValueError(f"{path} is too large")
+            with os.fdopen(fd, 'rb', closefd=False) as handle:
+                data = handle.read(limit + 1)
+            if len(data) > limit:
+                raise ValueError(f"{path} is too large")
+            return data.decode('utf-8')
+        finally:
+            os.close(fd)
     except FileNotFoundError:
         return ""
 
@@ -160,6 +175,81 @@ def _top_block(text: str, key: str):
     return match.start(), len(text)
 
 
+# A two-space entry key of a YAML providers block: bare, "double" (no escapes) or 'single' quoted, spaces
+# allowed before the colon. Anything else (escapes, flow or complex keys, anchors) is not guessed at.
+_ENTRY_KEY = re.compile(r"""  (?:"([^"\\\n]*)"|'((?:[^'\n]|'')*)'|([^\s"'#?&*!|>%@`{}\[\],:-][^\n:#]*?))[ \t]*:(?:[ \t]|$)""")
+# A name the writers put down bare: a plain identifier YAML reads back as the same string (not a boolean,
+# null or number); anything else is refused rather than quoted.
+_BARE_KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]*")
+_NOT_STRINGS = {"true", "false", "yes", "no", "on", "off", "y", "n", "null"}
+# A providers header the writers may append under: block style, or an empty inline map.
+_PROVIDERS_HEADER = re.compile(r"providers:[ \t]*(?:\{[ \t]*\})?[ \t]*(?:#.*)?")
+
+
+def provider_entries(body: str):
+    """[(start, end, key)] of the entries in a providers block's body (the text after its header line):
+    each two-space key line with its deeper (four spaces, two tabs) and blank lines. ValueError on a line
+    AI Agents Map cannot read safely, so that no writer guesses and no reader misnames an entry."""
+    found, pos, current = [], 0, None
+    for line in re.findall(r"[^\n]*\n|[^\n]+$", body):
+        bare = line.rstrip("\r\n")
+        if current is not None and (not bare.strip() or bare.startswith(("    ", "\t\t"))):
+            current[1] = pos + len(line)
+        elif not bare.strip() or bare.lstrip().startswith("#"):
+            if current is not None:
+                found.append(tuple(current))
+                current = None
+        else:
+            match = _ENTRY_KEY.match(bare)
+            if not match:
+                raise ValueError("providers entry not readable; edit it by hand")
+            if current is not None:
+                found.append(tuple(current))
+            double, single, plain = match.groups()
+            key = double if double is not None else single.replace("''", "'") if single is not None else plain
+            current = [pos, pos + len(line), key]
+        pos += len(line)
+    if current is not None:
+        found.append(tuple(current))
+    return found
+
+
+def provider_keys(text: str):
+    """The keys of the providers block in YAML text; [] when there is none or it is not readable."""
+    block = _top_block(text, "providers")
+    if block is None:
+        return []
+    _header, _nl, body = text[block[0]:block[1]].partition("\n")
+    try:
+        return [key for _start, _end, key in provider_entries(body)]
+    except ValueError:
+        return []
+
+
+def providers_entry_replaced(text: str, entry_text: str, provider: str, remove: bool) -> str:
+    """The providers block with `provider`'s entry (whatever its key spelling) removed, then `entry_text`
+    appended unless `remove`. Shared by Hermes and Oh My Pi."""
+    if not remove and (not _BARE_KEY.fullmatch(provider) or provider.lower() in _NOT_STRINGS):
+        raise ValueError("providers entry not readable; edit it by hand")
+    block = _top_block(text, "providers")
+    if block is None:
+        if remove:
+            return text
+        return text + ("" if text.endswith("\n") or not text else "\n") + "providers:\n" + entry_text
+    start, end = block
+    header, _nl, rest = text[start:end].partition("\n")
+    if not _PROVIDERS_HEADER.fullmatch(header.rstrip("\r")):
+        raise ValueError("providers entry not readable; edit it by hand")
+    for e_start, e_end, key in reversed(provider_entries(rest)):
+        if key == provider:
+            rest = rest[:e_start] + rest[e_end:]
+    if not remove:
+        rest = rest.rstrip("\n") + ("\n" if rest.strip() else "") + entry_text
+    header = "providers:" if "{" in header.partition("#")[0] else header
+    body = header + "\n" + rest if rest.strip() else ("" if remove else header + "\n")
+    return text[:start] + body + text[end:]
+
+
 # --- plan / apply / undo -------------------------------------------------------------------------
 
 def _llm(agent: str):
@@ -186,14 +276,16 @@ def is_connected(agent: str, runtime: str) -> bool:
         return False
 
 
-def _transform(agent: str, texts: list, runtime, model: str, use_now: bool, remove: bool, context: dict) -> list:
-    provider = KEYS[runtime.key]
+def _transform(agent: str, texts: list, runtime, model: str, use_now: bool, remove: bool, context: dict,
+               name: str | None = None) -> list:
+    # name: the agent's own name for an entry of this LLM (a Repair of Pi's "workstation"): that entry.
+    provider = name or KEYS[runtime.key]
     url = base_url(runtime.address)
     models = chat_models(runtime.models) or ([model] if model else [])
     # Without a model there is nothing to switch to: "<provider>/" would break the agent.
     use_now = use_now and bool(model)
-    return list(_llm(agent).transform(texts, provider, LABELS[runtime.key], url, models, context, model, use_now,
-                                      remove))
+    return list(_llm(agent).transform(texts, provider, name or LABELS[runtime.key], url, models, context, model,
+                                      use_now, remove))
 
 
 def is_active(agent: str, runtime: str) -> bool:
@@ -213,13 +305,13 @@ def is_active(agent: str, runtime: str) -> bool:
 
 
 def plan(agent: str, runtime, model: str, use_now: bool, remove: bool = False, context: dict | None = None,
-         replaces=None) -> Plan:
+         replaces=None, name: str | None = None) -> Plan:
     """runtime: inventory.Runtime. replaces: a runtime whose provider goes in the
     same step (a connection moved on the map). Raises ValueError for an agent
     we cannot set up."""
     if agent not in SUPPORTED:
         raise ValueError(agent)
-    result = Plan(agent, runtime.key, KEYS[runtime.key], connected=is_connected(agent, runtime.key))
+    result = Plan(agent, runtime.key, name or KEYS[runtime.key], connected=is_connected(agent, runtime.key))
     extra = []
     if model and not remove:
         # What the local LLM brings along (LM Studio: the model's context in its own settings, in
@@ -236,7 +328,7 @@ def plan(agent: str, runtime, model: str, use_now: bool, remove: bool = False, c
     texts = list(old)
     if replaces is not None and replaces.key != runtime.key:
         texts = _transform(agent, texts, replaces, "", False, True, {})
-    texts = _transform(agent, texts, runtime, model, use_now, remove, context or {})
+    texts = _transform(agent, texts, runtime, model, use_now, remove, context or {}, name)
     result.changes = [Change(p, o, n) for p, o, n in zip(files, old, texts) if o != n] + extra
     return result
 
@@ -471,5 +563,6 @@ def merge(plans: list) -> Plan:
         result.files_add += item.files_add
         result.retire += [path for path in item.retire if path not in result.retire]
         result.contexts += [c for c in item.contexts if c not in result.contexts]
+        result.model_actions += [a for a in item.model_actions if a not in result.model_actions]
         result.notes += [n for n in item.notes if n not in result.notes]
     return result

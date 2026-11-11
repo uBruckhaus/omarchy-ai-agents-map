@@ -4419,7 +4419,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
 def main():
     ai_core.drop_agent_session_vars()       # started from an agent's terminal: nothing here inherits its session
     ai_core.add_user_program_dirs()         # started from the launcher: agents installed with mise are found
-    i18n.set_name("AI Agents Map", desktop.app_name())     # "Asterism" outside Omarchy
+    # Always "AI Agents Map": the core modules take the name from identity.py.
     app = AgentsMap()
     atexit.register(cleanup_pid)
     # Ending AI Agents Map ends the agents running in it too (and so frees their local LLMs).

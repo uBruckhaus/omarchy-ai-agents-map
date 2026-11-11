@@ -46,6 +46,13 @@ def _http(rt, path: str, method: str = "GET", body: dict | None = None, timeout:
     return gpu_usage.http_json(_port(rt), path, method, body, timeout=timeout)
 
 
+def rows(reply, key: str, limit: int) -> list:
+    """The list under `key` of a JSON object reply, at most `limit`; [] for any other shape (a list,
+    text, an object or text under `key`). A local LLM's answer never breaks the map."""
+    found = reply.get(key) if isinstance(reply, dict) else None
+    return found[:limit] if isinstance(found, list) else []
+
+
 def basename(path: str) -> str:
     return os.path.basename(path or "")
 
@@ -99,6 +106,12 @@ class Engine:
         exe = basename(argv[0]) if argv else ""
         return BY_NAME if comm in self.programs or exe in self.programs else 0
 
+    def resolve_program(self, name: str) -> str | None:
+        """Its own program called `name` as it is run (Configure…, its --help); None when it is not
+        here. By name from PATH, unless the engine knows its own path (Strata: only its own strata)."""
+        import shutil
+        return name if name and shutil.which(name) else None
+
     # --- start and stop ------------------------------------------------------------------------
 
     def can_control(self, rt) -> bool:
@@ -119,7 +132,7 @@ class Engine:
     def loaded_models(self, rt) -> dict:
         """lower-case model name -> "loaded" / "loading" / "sleeping"."""
         found = {}
-        for row in (_http(rt, "/v1/models") or {}).get("data", [])[:20]:
+        for row in rows(_http(rt, "/v1/models"), "data", 20):
             if isinstance(row, dict) and row.get("id"):
                 found[str(row["id"]).lower()] = "loaded"
         return found
@@ -198,7 +211,7 @@ class Engine:
         if folder is None and self.own_model_folder:
             return 0, []                          # no model folder: no model file to size it from
         try:
-            found = self.context_now(rt, folder, name)
+            found = self.auto_context_now(rt, folder, name)
         except (OSError, ValueError, KeyError, TypeError):
             return 0, []
         if found is None:
@@ -218,7 +231,7 @@ class Engine:
         if best <= 0:
             return 0, []
         try:
-            return best, self.context_changes(rt, name, best)
+            return best, self.auto_context_changes(rt, name, best)
         except (OSError, ValueError):
             return 0, []
 
@@ -265,6 +278,10 @@ class Engine:
     # own controllers (provider_watch.CONTROLS: "lms"), never a command line.
     watch_control = ""
 
+    # The provider watcher starts and stops it with its agents (a user service or watch_control);
+    # False: it is started on the map or in its own app (Strata).
+    starts_with_agents = True
+
     # Its usual ports: an agent's provider at this machine on one of them is this local LLM.
     ports: tuple = ()
 
@@ -309,6 +326,14 @@ class Engine:
         """The settings changes (connect.Change) that give `name` the context ctx (backup, Undo);
         None when it is set another way (set_context). Raises ValueError when it cannot."""
         return None
+
+    def auto_context_now(self, rt, folder, name: str) -> tuple | None:
+        """As context_now, for auto_context: only a context the model has of its own counts."""
+        return self.context_now(rt, folder, name)
+
+    def auto_context_changes(self, rt, name: str, ctx: int):
+        """As context_changes, for a context the app worked out (it may bring settings along)."""
+        return self.context_changes(rt, name, ctx)
 
     def set_context(self, rt, name: str, ctx: int):
         raise ValueError("the context is set in the local LLM itself")
@@ -357,8 +382,9 @@ class LlamaRouter(Engine):
 
     def loaded_models(self, rt) -> dict:
         found = {}
-        for row in (_http(rt, "/models") or {}).get("data", [])[:500]:
-            state = (row.get("status") or {}).get("value", "") if isinstance(row, dict) else ""
+        for row in rows(_http(rt, "/models"), "data", 500):
+            status = row.get("status") if isinstance(row, dict) else None
+            state = status.get("value", "") if isinstance(status, dict) else ""
             if state in ("loaded", "loading", "sleeping"):
                 found[str(row.get("id", "")).lower()] = state
         return found
@@ -373,8 +399,8 @@ class LlamaRouter(Engine):
 
     def unload_all(self, rt) -> tuple[bool, str]:
         loaded = self.loaded_models(rt)
-        rows = (_http(rt, "/models") or {}).get("data", [])
-        ids = [str(r.get("id")) for r in rows if isinstance(r, dict) and str(r.get("id", "")).lower() in loaded]
+        listed = rows(_http(rt, "/models"), "data", 500)
+        ids = [str(r.get("id")) for r in listed if isinstance(r, dict) and str(r.get("id", "")).lower() in loaded]
         failed = [i for i in ids if _http(rt, "/models/unload", "POST", {"model": i}, timeout=30) is None]
         return (False, f"could not unload {', '.join(failed)[:200]}") if failed else (True, "")
 

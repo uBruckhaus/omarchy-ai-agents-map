@@ -14,7 +14,7 @@ ONLINE = [
     _online("openai", "OpenAI", ("openai", "openai-codex"), ("codex",)),
     _online("github-copilot", "GitHub Copilot", ("github-copilot",), ("copilot",)),
     _online("cursor", "Cursor", (), ("cursor-agent",)),
-    _online("google", "Google", ("google", "gemini"), ("gemini",)),
+    _online("google", "Google", ("google", "gemini"), ("gemini", "agy")),   # Gemini CLI, Antigravity CLI
     _online("xai", "xAI", ("xai",), ("grok",)),
     _online("meta", "Meta", (), ("muse",)),
     # OpenClaw brings no model service of its own: it routes to the providers in its openclaw.json

@@ -118,7 +118,9 @@ def _inner_needs(item: dict, value: str) -> list:
 def _needs_env(items) -> list:
     needs = []
     for item in items[:MAX_ARGUMENTS] if isinstance(items, list) else []:
-        if isinstance(item, dict) and re.match(r"^[A-Za-z_][A-Za-z0-9_-]{0,127}$", str(item.get("name", ""))):
+        # A str name, all of it (re.match's $ would let a trailing newline through).
+        if isinstance(item, dict) and isinstance(item.get("name"), str) \
+                and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]{0,127}", item["name"]):
             value = _s(item.get("default") or item.get("value") or "", 500)
             needs.append(Need(item["name"], _s(item.get("description")), item.get("isRequired") is True,
                               item.get("isSecret") is True, value, inner=_inner_needs(item, value)))
@@ -173,7 +175,7 @@ def option_from_package(package: dict) -> Option | None:
     kind = package.get("registryType")
     ident = _s(package.get("identifier"), 200)
     version = _s(package.get("version"), 60)
-    transport = (package.get("transport") or {}).get("type", "stdio")
+    transport = (t if isinstance(t := package.get("transport"), dict) else {}).get("type", "stdio")
     # Not "-…": npx, uvx and docker would read it as one of their own options.
     if not ident or ident.startswith("-") or transport != "stdio" or not re.match(r"^[@\w./:-]+$", ident):
         return None

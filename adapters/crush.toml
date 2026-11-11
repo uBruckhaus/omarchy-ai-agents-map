@@ -9,6 +9,9 @@ data = ["~/.config/crush", "~/.local/share/crush"]
 home = "~/.config/crush"
 activity = ["~/.local/share/crush"]
 
+[details]                              # its model and providers (crush.json)
+reader = "crush"
+
 [[install]]
 kind = "mise"
 spec = "crush"

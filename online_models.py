@@ -60,11 +60,8 @@ def supported(command: str) -> bool:
 
 
 def _read(path: Path, limit: int = 4 * 1024 * 1024) -> str:
-    try:
-        with open(path, "rb") as handle:
-            return handle.read(limit).decode("utf-8", "replace")
-    except OSError:
-        return ""
+    import agent_details
+    return agent_details._read(path, limit=limit) or ""
 
 
 def codex_models(home: Path | None = None) -> list:

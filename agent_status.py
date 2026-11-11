@@ -443,6 +443,9 @@ class Access:
     per_token: bool = False  # every sign-in is an API key: paid per token, no plan with limits
     logins: tuple = ()       # signin.Login: the agent's own sign-ins the app can start in a terminal
     key: object = None       # signin.KeyStep: how an API key gets where the agent reads it
+    extra_file: str = ""     # paid usage beyond the plan: a JSON file (~/...) ...
+    extra_key: str = ""      # ... with a true/false value at this dotted path
+    extra_url: str = ""      # the page where the user checks or changes it
 
 
 def access_table() -> dict:
@@ -467,12 +470,13 @@ def login_state(command: str) -> bool | None:
     return False if negative in text else True if positive in text else None
 
 
-def pays_per_token(command: str, details, environ=None) -> bool:
+def pays_per_token(command: str, details, environ=None, billed: bool = False) -> bool:
     """Whether the agent is paid per token (an API key or API billing) rather than with a plan whose
     limits the battery shows: no limits known, and one of its API-key variables is set (only whether
     it is), or it signs in with API keys only (access.per_token) and is signed in (its credential file
-    is there: never opened), or the desktop's usage record for it is there and names no plan. Without
-    any of these it is not known: no."""
+    is there: never opened), or the desktop's usage record for it is there, or its sessions say they
+    cost money (billed: Costs.billed, from its own store, which a provider billing per token fills in
+    and a plan or a local LLM does not), and no plan is named. Without any of these it is not known: no."""
     if details is None or details.limits or details.usage_note in TURNED_DOWN:
         return False             # limits known, or a plan's sign-in that ran out: not paid per token
     harness = harnesses.get(command)
@@ -482,7 +486,7 @@ def pays_per_token(command: str, details, environ=None) -> bool:
         return True
     if access is not None and access.per_token and credentials_present(access, HOME, environ):
         return True              # signed in, and it has only API keys (DeepSeek): only whether a file is there
-    return bool(details.has_usage) and not details.plan
+    return (bool(details.has_usage) or billed) and not details.plan
 
 
 def cost_today(command: str, today: dt.date | None = None) -> float | None:
@@ -502,6 +506,7 @@ class Costs:
     by_model: dict = field(default_factory=dict)   # model -> (provider, [4 token counts], [4 costs in USD])
     unpriced: dict = field(default_factory=dict)   # model -> its tokens (all four kinds together)
     reported: float = 0.0    # of month: what the agent itself reports for sessions without token counts (Crush)
+    billed: float = 0.0      # what its own store says the sessions of the 30 days cost (Hermes, OpenCode, Crush)
 
 
 def costs(command: str, today: dt.date | None = None, sessions=None) -> Costs | None:
@@ -543,6 +548,8 @@ def costs(command: str, today: dt.date | None = None, sessions=None) -> Costs | 
             if model not in split and model and total > 0:      # no empty entries ("unknown (0)")
                 result.unpriced[model] = result.unpriced.get(model, 0) + total
         own = getattr(session, "cost", 0) or 0
+        if isinstance(own, (int, float)) and own > 0 and not getattr(session, "estimated", False):
+            result.billed += own     # money the agent was told, set only where a provider bills it (no estimate)
         if not session.tokens and isinstance(own, (int, float)) and own > 0:
             # No token counts, only the agent's own cost for the session (Crush): that counts.
             result.reported += own
@@ -638,7 +645,7 @@ def agent_checks(agent, info, record: dict, inventory, hints: dict, logged_in: b
         pass                                  # said above, with what to do
     elif local_names:
         checks.append(Check("warn", _("No model chosen"), "",
-                            _("Select the agent on the map and click a model of a local LLM it is connected to.")))
+                            _("Draw a line on the map from the agent to a model of a local LLM it is connected to.")))
     else:
         checks.append(Check("info", _("Model"), _("the agent's own default")))
 

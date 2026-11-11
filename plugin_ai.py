@@ -340,10 +340,13 @@ def tokens_of(run: dict) -> int | None:
 
 
 def _when(run: dict) -> dt.datetime | None:
+    """The run's time as a naive local time (one with an offset is converted: comparing it with
+    a naive "now" would raise)."""
     try:
-        return dt.datetime.fromisoformat(str(run.get("when")))
+        when = dt.datetime.fromisoformat(str(run.get("when")))
     except ValueError:
         return None
+    return when.astimezone().replace(tzinfo=None) if when.tzinfo is not None else when
 
 
 def totals(all_runs: list[dict], days: int = 30, now: dt.datetime | None = None, **match) -> Totals:

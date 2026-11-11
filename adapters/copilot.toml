@@ -14,6 +14,10 @@ web_search = true                      # searches the web itself (no MCP server 
 kind = "mise"
 spec = "copilot"
 
+[subagents]
+format = "copilot-events"
+path = "~/.copilot/session-state"
+
 [skills]
 dirs = ["~/.copilot/skills", "~/.agents/skills"]
 own = "~/.copilot/skills"

@@ -10,6 +10,9 @@ home = "~/.gemini"
 activity = ["~/.gemini/tmp"]
 web_search = true                      # searches the web itself (no MCP server needed)
 
+[details]                              # its model: settings.json's, else its newest session's
+reader = "gemini"
+
 [[install]]
 kind = "mise"
 spec = "gemini"

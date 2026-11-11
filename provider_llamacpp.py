@@ -37,15 +37,31 @@ class Engine(llm_engine.LlamaRouter):
 
     def context_now(self, rt, folder, name):
         import context_ctl
-        now, cache = context_ctl.llama_settings(name)
-        return now, cache, context_ctl.llama_model_file(folder, name)
+        # The context set now; what fits is sized for the KV cache "Set to" writes:
+        # the one set, else q8_0 (task 029, rule 2).
+        now, _cache = context_ctl.llama_settings(name)
+        return now, context_ctl.llama_auto_cache(name), context_ctl.llama_model_file(folder, name)
+
+    def auto_context_now(self, rt, folder, name):
+        # Only the model's own section counts: "[*] ctx-size" is a fallback, not its context (task 029).
+        # Sized for the KV cache set, else q8_0, which is then set along with the context.
+        import context_ctl
+        return (context_ctl.llama_own_context(name), context_ctl.llama_auto_cache(name),
+                context_ctl.llama_model_file(folder, name))
+
+    def auto_context_changes(self, rt, name, ctx):
+        import connect
+        import context_ctl
+        before = connect._read(context_ctl.MODELS_INI)
+        return [connect.Change(context_ctl.MODELS_INI, before, context_ctl.llama_sized_text(before, name, ctx))]
 
     def context_changes(self, rt, name, ctx):
         # Like a connection: written with a backup, and Undo puts it back.
         import connect
         import context_ctl
         before = connect._read(context_ctl.MODELS_INI)
-        return [connect.Change(context_ctl.MODELS_INI, before, context_ctl.llama_context_text(before, name, ctx))]
+        # As a context the app works out: q8_0 and flash attention where nothing is set (task 029).
+        return [connect.Change(context_ctl.MODELS_INI, before, context_ctl.llama_sized_text(before, name, ctx))]
 
     # The router's per-model settings in models.ini ("*": every model); a restart makes them count.
     tuning = {
@@ -155,7 +171,7 @@ class Engine(llm_engine.LlamaRouter):
     def _ours(self, rt) -> bool:
         unit = self._unit(rt)
         try:
-            return unit is not None and "installed by AI Agents Map" in ai_core.read_head(unit, 4000).decode("utf-8", "replace")
+            return unit is not None and any(mark in ai_core.read_head(unit, 4000).decode("utf-8", "replace") for mark in ("installed by AI Agents Map", "installed by Maprisma"))
         except OSError:
             return False
 
@@ -210,7 +226,8 @@ class Engine(llm_engine.LlamaRouter):
             return 0
         folder = Path(os.path.expanduser(rt.models_dir))
         for candidate in (folder / f"{name}.gguf", *folder.glob("*.gguf")):
-            if candidate.stem.lower() == name.lower():
+            # The named file may be missing: then one whose name differs only in case.
+            if candidate.stem.lower() == name.lower() and candidate.is_file():
                 try:
                     return candidate.stat().st_size
                 except OSError:
@@ -223,3 +240,87 @@ PROVIDER = Provider("llamacpp", "llama.cpp", "local", detect=_detect, installer=
                     install=(Way("installer"),),
                     data=("~/.cache/llama.cpp",),
                     homepage="https://github.com/ggml-org/llama.cpp")
+
+
+def _discover_existing(folder, names, mount, device):
+    from existing_ai import safe, program
+    if any(part.lower() in ('ollama', '.lmstudio') for part in folder.parts):
+        return []  # These engines belong to their enclosing app, not a standalone runtime.
+    candidate = None
+    for relative in ('current/llama-server', 'llama-server'):
+        if relative.split('/')[0] in names:
+            candidate = program(folder / relative, mount, device)
+            if candidate:
+                break
+    if candidate is None:
+        return []
+    environment = {}
+    dependencies = []
+    # Portable ROCm trees often sit beside the program, outside the distro root.
+    for parent in list(folder.parents)[:4]:
+        if not parent.is_relative_to(mount):
+            break
+        runtime = parent / 'rocm-runtime/root'
+        rocm = safe(runtime / 'opt/rocm', mount, device)
+        libs = safe(runtime / 'usr/lib', mount, device)
+        if rocm and libs:
+            directories = [libs, rocm / 'lib', rocm / 'lib/llvm/lib']
+            valid = [safe(p, mount, device) for p in directories]
+            environment = {'ROCM_PATH': str(rocm), 'HIP_PATH': str(rocm),
+                           'LD_LIBRARY_PATH': ':'.join(str(p) for p in valid if p),
+                           'ROCBLAS_TENSILE_LIBPATH': str(rocm / 'lib/rocblas/library')}
+            dependencies = [str(rocm), str(libs)]
+            break
+    return [{'kind': 'runtime', 'provider': PROVIDER.key, 'name': PROVIDER.name,
+             **candidate, 'models': '', 'count': 0,
+             'notes': ['GPU selection uses runtime defaults. Review device selection before loading a model.',
+                       'A new model preset starts with GPU layers set to all. Existing tuning is not copied.'],
+             'environment': environment, 'dependencies': dependencies}]
+
+
+def _reconnect_existing(record, models):
+    from pathlib import Path
+    from flutter_existing import wrapper, service_files
+    if models is None or models['kind'] != 'models':
+        raise ValueError('Choose a discovered GGUF folder')
+    args = ['--models-dir', models['path'], '--host', '127.0.0.1', '--port', '8080', '--models-max', '1',
+            '--models-preset']
+    text = wrapper(record, args, home_arguments=('.config/llama.cpp/models.ini',))
+    env = 'LLAMA_ARG_MODELS_DIR="' + models['path'] + '"\n'
+    # No old presets are copied: they may contain paths into the other distro's home.
+    return service_files(record, 'llama-server', text, [record['mount']['path'], models['mount']['path']],
+                         [(Path('.config/llama.cpp/server.env'), env),
+                          (Path('.config/llama.cpp/models.ini'), '[*]\ngpu-layers = all\n')])
+
+
+# Facts stay with this provider, including when its add-on has not been enabled yet.
+import dataclasses as _dataclasses
+PROVIDER = _dataclasses.replace(PROVIDER, discover_existing=_discover_existing, reconnect_existing=_reconnect_existing)
+
+
+def _model_folder_changes(rt, folder):
+    from pathlib import Path
+    import shlex
+    import connect
+    import install_ctl
+    from flutter_existing import HOME
+    if any(c in str(folder) for c in ('\\','"','\n','\r')):
+        raise ValueError('Unsupported model-folder quoting')
+    inst=install_ctl.LlamaCpp()
+    env=inst.env_file
+    if env.is_symlink():raise ValueError('Environment file is a symbolic link')
+    old=connect._read(env)
+    if not old:raise ValueError('No editable provider environment')
+    changes=[connect.Change(env,old,llm_engine.env_with(old,'LLAMA_ARG_MODELS_DIR',str(folder)))]
+    link=HOME/'.local/bin/llama-server'
+    if not link.is_symlink() and link.is_file():
+        text=connect._read(link)
+        if not any(m in text for m in ('# Connected by AI Agents Map', '# Connected by Maprisma', '# Connected by Asterism')):raise ValueError('Use AI help to review this custom wrapper')
+        before='--models-dir '+shlex.quote(str(Path(rt.models_dir).expanduser()))
+        if before not in text:raise ValueError('Wrapper model path changed')
+        changes.append(connect.Change(link,text,text.replace(before,'--models-dir '+shlex.quote(str(folder)),1)))
+    elif inst.installed_folder() is None:raise ValueError('Runtime is not managed here')
+    return changes
+
+
+PROVIDER = _dataclasses.replace(PROVIDER, model_folder_changes=_model_folder_changes)

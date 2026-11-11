@@ -11,6 +11,7 @@ the places the TOML marks "hook".
 from __future__ import annotations
 
 import importlib.util
+import os
 import re
 import tomllib
 import types
@@ -39,13 +40,14 @@ HOOKS = ("sessions", "security", "local_llm_connected", "local_llm_active", "loc
          "models_choices", "models_plan")
 
 TOP = {"command": STR, "name": STR, "label": STR, "full_name": STR, "icon": STR, "icon_font": STR,
-       "spec": STR, "package": STR, "package_only": BOOL, "own_install_counts": BOOL, "short_version": BOOL,
+       "spec": STR, "package": STR, "package_only": BOOL, "own_install_counts": BOOL, "install_marks": STRS,
+       "short_version": BOOL,
        "offered": BOOL, "short_model_flag": BOOL, "fixed_provider": STR, "self_served": BOOL, "homepage": STR,
        "data": STRS, "install": TABLES, "update": TABLE, "sessions": TABLE, "skills": TABLE, "mcp": TABLE,
        "access": TABLE, "security": TABLE, "login_status": TABLE, "installer": STR, "usage": STR,
        "local_llm": TABLE, "ask": TABLE, "configure": TABLES, "home": STR, "activity": STRS, "details": TABLE,
        "program_dir": STR, "start": STRS, "web_search": BOOL, "chat_app": BOOL, "herdr": STR, "research": TABLE, "rewrite": TABLE, "task": TABLE, "closed": TABLE, "advise": TABLE,
-       "models": TABLE, "tools": TABLE, "replies": TABLE, "subagents": TABLE}
+       "models": TABLE, "tools": TABLE, "replies": TABLE, "subagents": TABLE, "plan_limits": TABLE}
 WAY = {"kind": STR, "spec": STR, "tool": STR, "argv": STRS, "sudo": BOOL, "url": STR, "note": STR,
        "update": STRS, "packages": "a list of [manager, name]"}
 UPDATE = {"self": STRS, "latest": STR}
@@ -77,7 +79,15 @@ OUTPUTS = ("text", "claude-json", "codex-jsonl")
 REPLIES = {"folder": STR, "depth": INT, "format": STR, "contexts": TABLE}   # contexts: model name prefix -> tokens
 REPLY_FORMATS = ("claude-jsonl", "codex-jsonl", "pi-jsonl")
 SUBAGENTS = {"format": STR, "path": STR}
-SUBAGENT_FORMATS = ("claude-projects", "opencode-db")    # the readers subagents.py has
+# Its plan's limits where no Omarchy collector is: asked of the agent's own program (argv: plain words,
+# starting with its command) over a protocol the app speaks (LIMIT_RPCS); no prompt, no credential read.
+# home_env: a variable that moves the agent's home, and its access files and store file with it (each
+# by its name); store: a plain setting (file ~/…, format, dotted key) naming where its sign-in is kept,
+# outside the access files (a keyring) for any value other than `files`: then only the program can tell.
+PLAN_LIMITS = {"rpc": STR, "argv": STRS, "home_env": STR, "store": TABLE}
+STORE = {"file": STR, "format": STR, "key": STR, "files": STR}
+LIMIT_RPCS = ("codex-app-server",)
+SUBAGENT_FORMATS = ("claude-projects", "opencode-db", "codex-rollouts", "copilot-events", "goose-db")
 SKILLS = {"dirs": STRS, "own": STR, "listed": TABLE_OR_HOOK, "settings_list": BOOL, "settings_file": STR,
           "write": HOOK}
 LISTED = {"file": STR, "format": STR, "key": STR}       # extra skill folders a settings file lists
@@ -86,7 +96,8 @@ MCP = {"path": STR, "format": STR, "key": STR, "shape": STR, "in_app": STR, "def
 LOCAL_LLM = {"files": STRS, "hooks": BOOL}             # the files connect.plan edits, by the local_llm_* hooks
 LOGIN_STATUS = {"argv": STRS, "no": STR, "yes": STR}     # a command whose output says signed in or not
 ACCESS = {"how": STR, "login": STR, "files": STRS, "env": STRS, "local_ok": BOOL, "logins": TABLES, "key": TABLE,
-          "logout": STRS, "per_token": BOOL}   # per_token: every sign-in is an API key (no plans with limits)
+          "logout": STRS, "per_token": BOOL,   # per_token: every sign-in is an API key (no plans with limits)
+          "extra_file": STR, "extra_key": STR, "extra_url": STR}   # paid usage beyond the plan: where to read or check it
 LOGIN = {"label": STR, "argv": STRS, "note": STR}
 CONFIGURE = {"label": STR, "argv": STRS, "note": STR}    # its own setup command, in a terminal (Configure…)
 KEY = {"var": STR, "url": STR, "stdin": STRS, "env_file": STR}
@@ -118,7 +129,7 @@ USAGE = {"pi": ("agent_status", "pi"), "hermes": ("agent_status", "hermes"),    
 DETAIL_READERS = {name: ("agent_readers", function) for name, function in (     # model + providers readers
     ("claude", "claude"), ("codex", "codex"), ("copilot", "copilot"), ("cursor", "cursor"),
     ("opencode", "opencode"), ("pi", "pi_like"), ("hermes", "hermes"), ("dsh", "dsh"), ("openclaw", "openclaw"),
-    ("goose", "goose"),
+    ("goose", "goose"), ("agy", "agy"), ("gemini", "gemini"), ("grok", "grok"), ("crush", "crush"),
     ("lmstudio-app", "bionic"))}
 MODEL_READERS = {"claude": ("online_models", "claude_choices", "claude_plan"),       # online model switchers
                  "codex": ("online_models", "codex_choices", "codex_plan")}
@@ -264,6 +275,20 @@ def check(data: dict, name: str) -> None:
     # Arguments for the agent itself: plain words, never a shell or another program.
     if data.get("start") and not harnesses.configure_ok([data["command"], *data["start"]], (data["command"],)):
         raise AdapterError(f"{name}: start must be plain words")
+    if "plan_limits" in data:
+        _check(data["plan_limits"], PLAN_LIMITS, f"{name}: plan_limits", ("rpc", "argv"))
+        if data["plan_limits"]["rpc"] not in LIMIT_RPCS:
+            raise AdapterError(f"{name}: plan_limits.rpc “{data['plan_limits']['rpc']}” is not one the app has "
+                               f"({', '.join(LIMIT_RPCS)})")
+        if not harnesses.configure_ok(data["plan_limits"]["argv"], (data["command"],)):
+            raise AdapterError(f"{name}: plan_limits.argv must start with “{data['command']}”, plain words")
+        if not re.fullmatch(r"([A-Z_][A-Z0-9_]{0,63})?", data["plan_limits"].get("home_env", "")):
+            raise AdapterError(f"{name}: plan_limits.home_env must be the name of an environment variable")
+        if "store" in data["plan_limits"]:
+            store = data["plan_limits"]["store"]
+            _check(store, STORE, f"{name}: plan_limits.store", ("file", "format", "key"))
+            if store["format"] not in ("json", "toml") or not store["file"].startswith("~/"):
+                raise AdapterError(f"{name}: plan_limits.store must be a json or toml file in ~/")
     sessions = data.get("sessions", {})
     _check(sessions, SESSIONS, f"{name}: sessions")
     if "reader" in sessions and sessions["reader"] not in READERS:
@@ -331,6 +356,12 @@ def _way(way: dict) -> Way:
                url=way.get("url", ""), note=way.get("note", ""), update=tuple(way.get("update", ())))
 
 
+def _plan_limits(facts: dict) -> tuple:
+    store = facts.get("store")
+    return (facts["rpc"], tuple(facts["argv"]), facts.get("home_env", ""),
+            (store["file"], store["format"], store["key"], store.get("files", "")) if store else ())
+
+
 def _access(facts: dict):
     """access() as the Python adapters have it: built when asked, texts translated then."""
     def access():
@@ -340,6 +371,8 @@ def _access(facts: dict):
         return Access(_(facts["how"]), facts.get("login", ""), tuple(facts.get("files", ())),
                       tuple(facts.get("env", ())), local_ok=facts.get("local_ok", False),
                       per_token=facts.get("per_token", False),
+                      extra_file=facts.get("extra_file", ""), extra_key=facts.get("extra_key", ""),
+                      extra_url=facts.get("extra_url", ""),
                       logins=tuple(Login(_(login["label"]), tuple(login["argv"]),
                                          _(login["note"]) if login.get("note") else "")
                                    for login in facts.get("logins", ())),
@@ -493,6 +526,7 @@ def harness(data: dict, name: str = "adapter", hooks=None) -> Harness:
         security=(hook("security") if security.get("hook") else _security(security)) if security else None,
         sandbox_setting=security.get("sandbox", ""), asks_setting=security.get("asks", ""),
         home=data.get("home", ""), activity=tuple(data.get("activity", ())), details=details,
+        install_marks=tuple(data.get("install_marks", ())),
         program_dir=data.get("program_dir", ""), web_search=data.get("web_search", False),
         chat_app=data.get("chat_app", False), herdr=data.get("herdr", ""), start=tuple(data.get("start", ())),
         logout=tuple(data.get("access", {}).get("logout", ())),
@@ -508,6 +542,7 @@ def harness(data: dict, name: str = "adapter", hooks=None) -> Harness:
         replies=(data["replies"]["folder"], data["replies"].get("depth", 1), data["replies"]["format"],
                  tuple(sorted(data["replies"].get("contexts", {}).items()))) if "replies" in data else (),
         subagents=(data["subagents"]["format"], data["subagents"]["path"]) if "subagents" in data else (),
+        plan_limits=_plan_limits(data["plan_limits"]) if "plan_limits" in data else (),
         session_files=data.get("sessions", {}).get("reader", ""),
         usage=ref(*USAGE[data["usage"]]) if "usage" in data else None,
         local_llm=llm, skills=skills, mcp=mcp,
@@ -549,9 +584,19 @@ def hooks_module(command: str):
 def load(path: Path) -> Harness:
     """adapters/<command>.toml (and its hooks, adapters/<command>.py) → its Harness (AdapterError with
     the reason when it cannot be used)."""
-    raw = path.read_bytes()
-    if len(raw) > MAX_BYTES:
-        raise AdapterError(f"{path.name}: larger than {MAX_BYTES // 1024} KiB")
+    import ai_core
+    if path.name in ('auth.json', '.credentials.json', 'credentials.json'):
+        raise AdapterError('Credential files are not adapters')
+    fd = ai_core.open_regular(path, follow=False)
+    try:
+        if os.fstat(fd).st_uid not in (0, os.getuid()):
+            raise AdapterError('Adapter owner unavailable')
+        with os.fdopen(fd, 'rb', closefd=False) as handle:
+            raw = handle.read(MAX_BYTES + 1)
+        if len(raw) > MAX_BYTES:
+            raise AdapterError(f"{path.name}: larger than {MAX_BYTES // 1024} KiB")
+    finally:
+        os.close(fd)
     try:
         data = tomllib.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, tomllib.TOMLDecodeError) as error:

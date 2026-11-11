@@ -6,10 +6,14 @@ code reads and writes only declared keys."""
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Callable
 
 MAP_LAYERS = ("agents", "online", "local", "models", "mcp", "skills")
+SYSTEM_MAP_COLUMNS = ("pc", "disks", "programs", "tools", "folders")
+MAP_SCAN_INTERVALS = (0, 6, 15, 30, 60, 120, 300)  # 0: startup/manual Refresh only
+MAP_SCAN_TARGETS = ('activity', 'agents', 'inventory')
 MAP_ANIMATIONS = ("all", "agents", "off")
 USAGE_BOX_ITEMS = ("rate", "context", "used")     # as usage_box.ITEMS
 USAGE_BOX_SIZES = (7, 8, 9, 10, 12)                 # text size in pt, as usage_box.SIZES (7: the default)
@@ -20,6 +24,26 @@ COST_LIMITS = (10, 25, 50, 100, 200, 500)           # a day, in that currency (1
 WARN_YELLOW = (50, 60, 70, 75, 80, 85)              # % of a day's limit or of a plan's limit used: yellow (75)
 WARN_RED = (80, 85, 90, 95, 100)                    # … red (90); always above yellow (agent_details.warn_levels)
 LOOKS = ("omarchy", "adwaita")
+
+
+RULE_ACTIONS = ("install", "update", "remove", "connect", "disconnect", "move", "start", "stop")
+RULE_CATEGORIES = ("mcp", "skills", "agents", "providers", "models")
+
+
+def default_rules() -> list:
+    return [{"effect": "allow", "action": action, "category": "*", "item": "*", "agent": "*"}
+            for action in RULE_ACTIONS]
+
+
+def _rules(v) -> bool:
+    return isinstance(v, list) and len(v) <= 200 and all(
+        isinstance(r, dict) and set(r) == {"effect", "action", "category", "item", "agent"}
+        and all(isinstance(r[k], str) and r[k] for k in ("action", "category", "item", "agent"))
+        and r["effect"] in ("allow", "deny")
+        and (r["action"] == "*" or r["action"] in RULE_ACTIONS)
+        and (r["category"] == "*" or r["category"] in RULE_CATEGORIES)
+        and (r["item"] == "*" or r["category"] != "*")
+        for r in v)
 
 
 def _bool(v) -> bool:
@@ -42,6 +66,35 @@ def _mapping(v) -> bool:
     return isinstance(v, dict)
 
 
+def _text_mapping(v) -> bool:
+    return isinstance(v, dict) and all(isinstance(k, str) and isinstance(p, str) for k, p in v.items())
+
+
+def _history_mapping(v) -> bool:
+    return isinstance(v, dict) and all(isinstance(k, str) and _texts(paths) for k, paths in v.items())
+
+
+ASK_PROMPTS_COLUMNS = 16                            # Ask AI cards with own suggestions, at most
+ASK_PROMPTS_ITEMS = 12                              # suggestions per card, at most
+ASK_PROMPT_CHARS = 2000                             # characters of one suggestion, at most
+
+
+def _ask_prompts(v) -> bool:
+    """Ask AI's suggestions per card column: an int keeps that built-in example (its index),
+    a string is the user's own (or edited) request; a column left out shows the built-ins."""
+    def item(x) -> bool:
+        if isinstance(x, bool):
+            return False
+        if isinstance(x, int):
+            return 0 <= x <= 199
+        return isinstance(x, str) and x == x.strip() and 0 < len(x) <= ASK_PROMPT_CHARS
+    return isinstance(v, dict) and len(v) <= ASK_PROMPTS_COLUMNS and all(
+        isinstance(k, str) and re.fullmatch(r"[a-z_]{1,32}", k) is not None
+        and isinstance(items, list) and len(items) <= ASK_PROMPTS_ITEMS
+        and all(item(x) for x in items) and len({repr(x) for x in items}) == len(items)
+        for k, items in v.items())
+
+
 def _one_of(*choices) -> Callable[[Any], bool]:
     return lambda v: v in choices
 
@@ -60,18 +113,45 @@ class Setting:
 SCHEMA: dict[str, Setting] = {
     # Look and language
     "language": Setting("auto", _text, "Settings › Language: \"auto\" (the system's) or a language code"),
+    "flutter_theme_mode": Setting("system", _one_of("system", "light", "dark"), "Flutter Settings › Theme"),
+    "window_mode": Setting("auto", _one_of("auto", "popup", "window"),
+                           "Flutter Settings › Window: auto = a popup under the bar on Omarchy, else a window"),
+    "map_light_fps": Setting(20, lambda v: type(v) is int and v in (20, 30, 60), "Flutter map-light frame rate: 20, 30 or 60 fps"),
     "look": Setting("omarchy", _one_of(*LOOKS), "Settings › Look on Omarchy: its theme or GNOME's Adwaita"),
     "choice_text": Setting("bright", _one_of("bright", "dim"),
                            "Settings › Text in choice boxes: bright (white on dark themes) or dimmed"),
-    "corners": Setting("windows", _text, "Settings › Corners: \"windows\", \"rounded\" or \"square\" (corners.choice)"),
+    "corners": Setting("windows", _text, "Settings › Corners: \"windows\", \"slight\", \"rounded\" or \"square\" (corners.choice)"),
     # The window
     "window_size": Setting(None, _size, "the window's size when it was last closed: [width, height]"),
     "last_view": Setting("main", _text, "the view open when the window was last closed"),
     "terminal_tabs": Setting(True, _bool, "Settings › Terminal tabs above the map"),
+    "screenshot_key": Setting(True, _bool, "Settings › F12 saves a screenshot"),
+    "action_rules": Setting(default_rules(), _rules, "what may be done, task 019: the most specific rule decides, on a tie allow"),
+    "action_rule_hints": Setting(True, _bool, "a refusal names the rule; off: it only says it is not allowed"),
+    "smart_helper": Setting(None, _text, "Ask AI: the chosen helper's command, for all four cards"),
+    "ask_prompts": Setting({}, _ask_prompts, "Ask AI: the suggestions per card column, own and kept built-in ones"),
+    "dictation": Setting(True, _bool, "Settings › Dictation: microphone in Ask AI"),
+    "dictation_engine": Setting("auto", _one_of("auto", "omarchy", "whisper", "local", "online"),
+                                "Settings › Dictation: chosen backend"),
+    "dictation_whisper_model": Setting("", _text, "Settings › Dictation: chosen local Whisper model file name"),
+    "screenshot_folder": Setting(None, _text, "Settings › Screenshots go to: empty is ~/Pictures/AI Agents Map"),
     "launcher_entry": Setting(None, _bool, "Settings › In the app launcher (None: not asked yet)"),
     "agent_folder": Setting(None, _text, "Settings › Agents start in: the folder agents start in"),
+    "agent_projects": Setting({}, _text_mapping, "Start: the optional project folder pinned as each agent's default"),
+    "provider_models": Setting({}, _text_mapping, "Map: the model each provider uses, drawn provider to model; an agent connected to the provider later gets it"),
+    "agent_project_history": Setting({}, _history_mapping, "Project folders used to start each agent, newest first"),
     # The map
+    "flutter_map_layout": Setting({}, lambda v: __import__("flutter_map_editor").valid_layout(v),
+                                  "Flutter map card positions/order/folds and node pins (bounded schema)"),
     "map_layers": Setting(list(MAP_LAYERS), _texts, "the map's Show switches of the full-size window"),
+    "system_map_columns": Setting(list(SYSTEM_MAP_COLUMNS),
+                                  lambda v: _texts(v) and set(v) <= set(SYSTEM_MAP_COLUMNS),
+                                  "the System Map's column filters"),
+    "map_scan_interval": Setting(6, lambda v: type(v) is int and v in MAP_SCAN_INTERVALS,
+                                 "Automatic map scan interval in seconds; 0: manual only"),
+    "map_scan_pause_unfocused": Setting(True, _bool, "Pause automatic map scans while the window is unfocused"),
+    "map_scan_targets": Setting(list(MAP_SCAN_TARGETS), lambda v: _texts(v) and set(v) <= set(MAP_SCAN_TARGETS),
+                                "Background scan groups; startup/manual Refresh always refresh everything"),
     "map_animations": Setting("all", _one_of(*MAP_ANIMATIONS), "Settings › Map animations"),
     "usage_box": Setting(True, _bool, "Settings › Usage statistics box: shown on a working agent's line"),
     "usage_box_items": Setting(list(USAGE_BOX_ITEMS), lambda v: _texts(v) and set(v) <= set(USAGE_BOX_ITEMS),
@@ -98,7 +178,7 @@ SCHEMA: dict[str, Setting] = {
     "map_layout_pinned": Setting(False, _bool, "the pin right of the map's zoom: keep map_layout after Refresh and a "
                                  "restart (unpinned, the default: the map's default layout)"),
     # Pages
-    "setup_done": Setting(False, _bool, "Asterism's welcome page was finished once"),
+    "setup_done": Setting(False, _bool, "AI Agents Map's welcome page was finished once"),
     "first_connection_done": Setting(False, _bool, "the card above the map that shows the first connection: done or closed"),
     "setup_collapsed": Setting([], _texts, "Setup: sections folded (closed-by-default ones as \"<key>:open\")"),
     "details_open": Setting([], _texts, "details pages: group cards opened (open-by-default ones as \"<key>:closed\")"),
@@ -124,8 +204,9 @@ SCHEMA: dict[str, Setting] = {
     "first_agent": Setting({}, _mapping, "the first-agent guide: {\"later\": true when put off, \"verified\": [agents whose test answered]} (first_agent.py)"),
     "ai_local_helper": Setting({}, _mapping, "Settings › Local helper: {agent, provider, model} confirmed by the user; {}: none (local_helper.py)"),
     "mcp_list": Setting(True, _bool, "Settings › Keep the MCP server list (mcp_registry.refresh_list on start)"),
-    # Add-ons (Asterism)
+    # Add-ons (AI Agents Map)
     "addons_enabled": Setting([], _texts, "the add-ons switched on"),
+    "addons_off": Setting([], _texts, "the add-ons the user switched off: never switched on again at the start"),
     "addons_online": Setting(True, _bool, "Settings › Look for add-ons online"),
     "installs_in_window": Setting(True, _bool, "add-on page: installs run in a terminal inside the window"),
 }
@@ -135,7 +216,8 @@ RENAMED: dict[str, tuple[str, Callable[[Any], Any]]] = {
     "animate_lines": ("map_animations", lambda v: "off" if v is False else "all"),   # "Animate active lines"
 }
 # Keys nothing reads any more (Hide, the column lists, the overview's Show list, Setup · + Available).
-RETIRED = ("widen",                         # "Maximize for more room" in the header (removed)
+RETIRED = ("plugin_migration", "launcher_entry",   # the AI Agents Map plugin's import and launcher
+           "widen",                         # "Maximize for more room" in the header (removed)
            "hidden_items", "hidden_nodes", "hidden_providers", "card_hidden", "start_scope", "show_more_hint",
            "setup_mode",                          # Setup's All/Installed switch
            "sidebar", "sidebar_width",            # the list beside the map

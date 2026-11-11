@@ -16,6 +16,10 @@ activity = ["~/.local/share/goose/sessions"]
 kind = "mise"
 spec = "github:aaif-goose/goose"
 
+[subagents]
+format = "goose-db"
+path = "~/.local/share/goose/sessions/sessions.db"
+
 [sessions]
 reader = "goose-db"                    # a reader the app has (~/.local/share/goose/sessions/sessions.db)
 note = "Numbers from {0}'s session database (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs."

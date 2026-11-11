@@ -57,7 +57,7 @@ class Engine(llm_engine.Engine):
     def loaded_models(self, rt):
         # Router mode lists the loaded model first as "koboldcpp/<name>" ("inactive": none),
         # then the .kcpps model ids.
-        rows = (llm_engine._http(rt, "/v1/models") or {}).get("data", [])[:500]
+        rows = llm_engine.rows(llm_engine._http(rt, "/v1/models"), "data", 500)
         first = str(rows[0].get("id", "")) if rows and isinstance(rows[0], dict) else ""
         return {first.split("/", 1)[1].lower() + ".kcpps": "loaded"} if first.startswith("koboldcpp/") else {}
 

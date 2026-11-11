@@ -54,6 +54,7 @@ class Session:
     lines_added: int = 0
     lines_removed: int = 0
     cost: float = 0.0
+    estimated: bool = False        # cost is only the agent's estimate of the API value, no charge (Hermes)
     api_ms: int = 0
     # Filled in by collect_by_id from the session's subagent runs (not cached):
     # agent type -> [runs, tokens (input + output + cache write), working seconds]
@@ -126,7 +127,7 @@ def _session_from(data) -> Session | None:
 def read_file(path: Path, state: dict, budget: int) -> int:
     """Read path on from state["offset"] into state["sessions"]; returns the bytes read."""
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
     except OSError:
         return 0
     with os.fdopen(fd, "rb") as handle:
@@ -185,9 +186,11 @@ def read_file(path: Path, state: dict, budget: int) -> int:
         return read
 
 
-def _load_cache(cache: Path) -> dict:
+def _load_cache(cache: Path | None) -> dict:
+    if cache is None:
+        return {}
     try:
-        fd = os.open(cache, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        fd = os.open(cache, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
         with os.fdopen(fd, "rb") as handle:
             if os.fstat(handle.fileno()).st_uid != os.getuid():
                 return {}
@@ -199,7 +202,9 @@ def _load_cache(cache: Path) -> dict:
     return data["files"]
 
 
-def _save_cache(files: dict, cache: Path):
+def _save_cache(files: dict, cache: Path | None):
+    if cache is None:
+        return
     import ai_core
     plain = {path: {"inode": s.get("inode"), "offset": s.get("offset", 0),
                     **({"type": s["type"]} if isinstance(s.get("type"), str) else {}),
@@ -242,7 +247,7 @@ def agent_type(transcript: Path) -> str:
     """The run's agent type from its agent-<id>.meta.json ("" when unknown); nothing else of it."""
     meta = transcript.with_name(transcript.name[:-len(".jsonl")] + ".meta.json")
     try:
-        fd = os.open(meta, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        fd = os.open(meta, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
         with os.fdopen(fd, "rb") as handle:
             st = os.fstat(handle.fileno())
             if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid() or st.st_size > MAX_META:
@@ -254,7 +259,7 @@ def agent_type(transcript: Path) -> str:
     return kind if isinstance(kind, str) and _AGENT_TYPE.fullmatch(kind) else ""
 
 
-def collect_by_id(root: Path = ROOT, cache: Path = CACHE) -> dict:
+def collect_by_id(root: Path = ROOT, cache: Path | None = CACHE) -> dict:
     """{session id: Session} for every session with replies, its subagent runs counted in."""
     files = _load_cache(cache)
     seen, budget = {}, MAX_BYTES

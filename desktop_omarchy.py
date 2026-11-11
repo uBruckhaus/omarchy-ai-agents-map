@@ -1,6 +1,6 @@
 """The Omarchy desktop (Hyprland): the implementation of desktop.py's interface.
 
-- own files: ~/.config/omarchy/ai-agents-map/
+- app identity and configuration paths: identity.py, independently of this backend
 - theme: ~/.local/state/omarchy/current/theme/ (colors.toml, hyprland.lua), the
   windows' rounding from Hyprland (its IPC socket, else `hyprctl getoption`)
 - windows: Hyprland's Lua dispatchers through `hyprctl dispatch` (0.55+); the
@@ -27,10 +27,7 @@ import tomllib
 from pathlib import Path
 
 NAME = "omarchy"
-APP_NAME = "AI Agents Map"          # the Omarchy plugin's name
-APP_ID = "org.omarchy.aiagentsmap"
 HOME = Path.home()
-CONFIG_DIR = HOME / ".config/omarchy/ai-agents-map"
 THEME_DIR = HOME / ".local/state/omarchy/current/theme"
 COLORS_TOML = THEME_DIR / "colors.toml"
 THEME_LUA = THEME_DIR / "hyprland.lua"
@@ -43,20 +40,6 @@ MAX_THEME_BYTES = 256 * 1024
 FLOATING_TERMINAL = "omarchy-launch-floating-terminal-with-presentation"
 
 
-# --- the app's name and own files ----------------------------------------------------------------
-
-def app_name() -> str:
-    return APP_NAME
-
-
-def app_id() -> str:
-    return APP_ID
-
-
-def config_dir() -> Path:
-    return CONFIG_DIR
-
-
 # --- theme ----------------------------------------------------------------------------------------
 
 def theme_dir() -> Path:
@@ -66,9 +49,8 @@ def theme_dir() -> Path:
 def theme_colors(path: Path = COLORS_TOML) -> dict:
     """The current theme's colors.toml ({} when it cannot be read)."""
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC)
-        with os.fdopen(fd, "rb") as handle:
-            data = handle.read(MAX_THEME_BYTES + 1)
+        import ai_core
+        data = ai_core.read_head(path, MAX_THEME_BYTES + 1)
         if len(data) > MAX_THEME_BYTES:
             return {}
         theme = tomllib.loads(data.decode("utf-8", "replace"))
@@ -343,11 +325,6 @@ def text(key: str) -> str:
         "install_coding_agent": _("Claude Code, Codex or OpenCode: Omarchy's menu → Setup → Defaults → Agent."),
         "install_terminal": _("Install the terminal launcher Omarchy uses:"),
     }[key]
-
-
-def launcher_entry() -> bool:
-    """The plugin offers its own entry in Omarchy's app launcher (Settings › Omarchy app)."""
-    return True
 
 
 # --- packages -------------------------------------------------------------------------------------

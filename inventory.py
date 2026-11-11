@@ -16,6 +16,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import agent_details as ad
+import gpu_usage
 import harnesses
 import mcp_ctl
 import providers
@@ -31,7 +32,7 @@ NAME_RE = re.compile(r"[\w.@:+/ -]{1,120}")
 
 @dataclass
 class Runtime:
-    key: str                 # "llamacpp", "ollama", "lmstudio", "vllm", "jan", "koboldcpp"
+    key: str                 # "llamacpp", "ollama", "lmstudio", "vllm", "jan", "koboldcpp", "strata"
     name: str
     installed: bool = False
     running: bool = False
@@ -42,6 +43,10 @@ class Runtime:
     agents: list = field(default_factory=list)   # agents with a provider pointing at it
     active_agents: list = field(default_factory=list)   # of those, the ones using it now (their model is here)
     server_off: bool = False  # the app runs but its API server does not (LM Studio without `lms server start`)
+    # The absolute paths of the model files it serves outside models_dir, where its scan knows them
+    # (llama.cpp's -m and models.ini, KoboldCpp's model, vLLM's served file): a reused folder compares
+    # them by file identity.
+    model_files: list = field(default_factory=list, repr=False, compare=False)
 
 
 @dataclass
@@ -50,6 +55,12 @@ class McpServer:
     kind: str = ""           # "command" or "url"
     target: str = ""         # command name / package, or the URL's host
     agents: list = field(default_factory=list)
+    id: str = ""             # the map's id: the name, or name~2 for another server of that name
+    identity: str = field(default="", repr=False, compare=False)   # mcp_ctl.identity_hash, not shown
+    library: str = field(default="", repr=False, compare=False)    # its key in mcp_library, not shown
+
+    def __post_init__(self):
+        self.id = self.id or self.name
 
 
 @dataclass
@@ -67,6 +78,46 @@ class Inventory:
     agent_mcp: dict = field(default_factory=dict)      # command -> [server names]
     agent_skills: dict = field(default_factory=dict)   # command -> [skill set paths]
     agent_tools: dict = field(default_factory=dict)    # command -> [built-in tool names], where configured
+    model_folders: list = field(default_factory=list)  # reused model folders no runtime lists: (path, [models])
+
+
+def address_port(address: str):
+    """The port of a runtime's address ("127.0.0.1:9090", "http://host:9090/"), or None."""
+    found = re.search(r":(\d{1,5})/?$", (address or "").strip())
+    return int(found.group(1)) if found else None
+
+
+def local_runtime(provider, runtimes):
+    """The runtime a local provider points at: the installed one detected on its configured port,
+    else the one whose usual port it is (provider.runtime, from the facts) while its address is
+    unknown or that port. One detected on another port is not there: the endpoint is stale
+    (moved_runtime)."""
+    if not provider.local:
+        return None
+    port = getattr(provider, "port", None)
+    usual = next((rt for rt in runtimes if rt.name == provider.runtime), None)
+    if port is not None:
+        # Two local LLMs may share a usual port (Strata and llama.cpp: 8080): the one the provider
+        # names wins, else the first one detected there.
+        here = [rt for rt in runtimes if rt.installed and address_port(rt.address) == port]
+        if here:
+            return usual if usual in here else here[0]
+    return None if usual is None or _moved(usual, port) else usual
+
+
+def moved_runtime(provider, runtimes):
+    """The runtime whose usual port a local provider has, while it was detected on another one
+    (llama.cpp on 9090, the agent still set to 8080): a broken line to it, not a working one."""
+    if not provider.local or local_runtime(provider, runtimes) is not None:
+        return None
+    usual = next((rt for rt in runtimes if rt.name == provider.runtime), None)
+    port = getattr(provider, "port", None)
+    return usual if usual is not None and usual.installed and _moved(usual, port) else None
+
+
+def _moved(rt, port) -> bool:
+    at = address_port(rt.address)
+    return port is not None and at is not None and at != port
 
 
 def tilde(path) -> str:
@@ -93,7 +144,9 @@ def own_processes() -> list[tuple[int, str, list[str]]]:
     """(pid, comm, argv) of this user's processes."""
     found, uid = [], os.getuid()
     try:
-        pids = [int(p) for p in os.listdir("/proc") if p.isdigit()][:MAX_PROCS]
+        # Tests name their own processes there, as for the Dart core.
+        root = os.environ.get("AI_AGENTS_MAP_SCAN_PROC") or "/proc"
+        pids = [int(p) for p in os.listdir(root) if p.isdigit()][:MAX_PROCS]
     except OSError:
         return found
     for pid in pids:
@@ -192,29 +245,46 @@ def unit_for(binary: str) -> tuple[str, dict]:
 
 def gguf_names(folder: Path) -> list[str]:
     """Model names in a folder of GGUF files (or symlinks to them), one level deep."""
-    names = []
+    return list(dict.fromkeys(p.name[:-5] for p in gguf_files(folder)))[:MAX_ITEMS]
+
+
+def gguf_files(folder: Path) -> list[Path]:
+    """The GGUF files of a folder (or symlinks to them), one level deep."""
+    found = []
     try:
         entries = sorted(folder.iterdir())[:MAX_ITEMS * 2]
     except OSError:
-        return names
+        return found
     for entry in entries:
         name = entry.name
         if name.lower().endswith(".gguf") and not name.lower().startswith("mmproj"):
-            names.append(name[:-5])
+            found.append(entry)
         elif entry.is_dir() and not entry.name.startswith("."):
             try:
-                inner = [p.name for p in list(entry.iterdir())[:50] if p.name.lower().endswith(".gguf")
+                inner = [p for p in list(entry.iterdir())[:50] if p.name.lower().endswith(".gguf")
                          and not p.name.lower().startswith("mmproj")]
             except OSError:
                 inner = []
-            names.extend(n[:-5] for n in inner)
-    return list(dict.fromkeys(names))[:MAX_ITEMS]
+            found.extend(inner)
+    return found
 
 
 def llama_presets() -> list[str]:
     """Model sections of llama.cpp's router presets (~/.config/llama.cpp/models.ini)."""
     text = ad._read(HOME / ".config/llama.cpp/models.ini") or ""
     return [s for s in re.findall(r"^\[([^\]\n]{1,120})\]", text, re.MULTILINE) if s != "*"][:MAX_ITEMS]
+
+
+def absolute_files(paths) -> list[str]:
+    """Model paths as files of this PC: `~` expanded, relative ones dropped."""
+    found = (os.path.normpath(os.path.expanduser(p.strip())) for p in paths if isinstance(p, str))
+    return list(dict.fromkeys(p for p in found if os.path.isabs(p)))[:MAX_ITEMS]
+
+
+def preset_files(path: Path) -> list[str]:
+    """The `model = <path>` files of a preset file's sections (llama.cpp's models.ini), absolute."""
+    text = ad._read(path) or ""
+    return absolute_files(re.findall(r'^\s*model\s*=\s*"?([^"\n]+?)"?\s*$', text, re.MULTILINE))
 
 
 def llama_context() -> dict:
@@ -231,7 +301,7 @@ def llama_context() -> dict:
 def llamacpp(processes) -> Runtime:
     rt = Runtime("llamacpp", "llama.cpp", installed=bool(shutil.which("llama-server")))
     rt.service, env = unit_for("llama-server")
-    models, folder = [], ""
+    models, folder, served = [], "", []
     # LM Studio's engines are called llama-server too (~/.lmstudio/extensions/backends/…).
     processes = [(pid, comm, argv) for pid, comm, argv in processes
                  if comm != "llama-server" or not argv or "/.lmstudio/" not in argv[0]]
@@ -249,6 +319,7 @@ def llamacpp(processes) -> Runtime:
         model = arg_value(argv, "-m", "--model")
         if model:
             models.append(Path(model).name.removesuffix(".gguf"))
+            served.append(model)
         folder = arg_value(argv, "--models-dir") or folder
         host = arg_value(argv, "--host") or env.get("LLAMA_ARG_HOST") or env.get("LLAMA_HOST") or "127.0.0.1"
         port = arg_value(argv, "--port") or env.get("LLAMA_ARG_PORT") or env.get("LLAMA_PORT") or "8080"
@@ -263,6 +334,9 @@ def llamacpp(processes) -> Runtime:
     models += llama_presets()
     models += gguf_names(HOME / ".cache/llama.cpp")
     rt.models = dedupe_models(models)
+    rt.model_files = absolute_files([*served, *([env["LLAMA_ARG_MODEL"]] if env.get("LLAMA_ARG_MODEL") else []),
+                                     *preset_files(HOME / ".config/llama.cpp/models.ini"),
+                                     *map(str, gguf_files(HOME / ".cache/llama.cpp"))])
     rt.installed = rt.installed or bool(rt.service)
     return rt
 
@@ -339,15 +413,18 @@ def has_model_files(folder: Path) -> bool:
 
 def lmstudio(processes) -> Runtime:
     root = HOME / ".lmstudio"
+    # Its server's port, when set in the app (Developer › Settings).
+    port = ad.read_json(root / ".internal/http-server-config.json").get("port")
+    port = port if isinstance(port, int) and not isinstance(port, bool) and port > 0 else 1234
     rt = Runtime("lmstudio", "LM Studio", installed=root.is_dir() or bool(shutil.which("lms")),
-                 address="127.0.0.1:1234")
+                 address=f"127.0.0.1:{port}")
     for _pid, comm, argv in processes:
         exe = Path(argv[0]).name.lower() if argv else ""
         if comm.lower().startswith("lm studio") or comm == "lm-studio" or exe in ("lm-studio", "lm studio"):
             rt.running = True
     if rt.running:
         import models_ctl
-        owners = models_ctl.loopback_listeners(1234)
+        owners = models_ctl.loopback_listeners(port)
         rt.server_off = not owners or any(uid != os.getuid() for uid in owners)
     settings = ad.read_json(root / "settings.json")
     folder = settings.get("downloadsFolder") if isinstance(settings.get("downloadsFolder"), str) else ""
@@ -416,6 +493,7 @@ def vllm(processes) -> Runtime:
     rt.installed = rt.installed or bool(rt.service)
     if env.get("VLLM_MODEL") and NAME_RE.fullmatch(env["VLLM_MODEL"]):
         rt.models = [clean(env["VLLM_MODEL"])]
+    served = [env["VLLM_MODEL"]] if env.get("VLLM_MODEL") else []   # a file of this PC, not a hub name
     for _pid, _comm, argv in processes:
         if len(argv) > 2 and Path(argv[0]).name.startswith(("vllm", "python")) and "serve" in argv[1:3] \
                 and any(Path(a).name == "vllm" for a in argv[:2]):
@@ -423,9 +501,12 @@ def vllm(processes) -> Runtime:
             index = argv.index("serve")
             if index + 1 < len(argv) and not argv[index + 1].startswith("-"):
                 rt.models = [clean(argv[index + 1])]
+                served.append(argv[index + 1])
+            served.append(arg_value(argv, "--model"))
             port = arg_value(argv, "--port")
             if port:
                 rt.address = f"127.0.0.1:{port}"
+    rt.model_files = absolute_files(served)
     return rt
 
 
@@ -473,14 +554,22 @@ def jan_model_ids(models: Path) -> list[str]:
 def jan(processes) -> Runtime:
     """Jan's engine (jan-llama-worker, a llama.cpp router) run headless as the
     user service jan.service on JAN_PORT, serving the models of Jan's data folder."""
-    rt = Runtime("jan", "Jan", address=f"127.0.0.1:{JAN_PORT}")
+    rt = Runtime("jan", "Jan")
     rt.service, _env = unit_named("jan")
     rt.installed = bool(rt.service) or JAN_ROOT.is_dir() or bool(shutil.which("jan"))
+    # The port its service starts the engine on, else the usual one.
+    unit = ad._read(HOME / ".config/systemd/user/jan.service") or "" if rt.service else ""
+    found = re.search(r"--port[= ]+(\d{1,5})\b", unit)
+    port = found.group(1) if found else None
     for _pid, comm, argv in processes:
         if comm == "jan-llama-worke" or (argv and Path(argv[0]).name == "jan-llama-worker"):
             rt.installed = True
-            if arg_value(argv, "--port") == str(JAN_PORT):
+            # The router (it has a preset; a model's own worker has none) on whatever port it was started.
+            at = arg_value(argv, "--port")
+            if re.fullmatch(r"\d{1,5}", at) and (at == (port or str(JAN_PORT)) or arg_value(argv, "--preset")):
                 rt.running = True
+                port = at
+    rt.address = f"127.0.0.1:{port or JAN_PORT}"
     data = jan_data_folder()
     preset = data / "llamacpp/router.preset.ini"
     names = [s for s in re.findall(r"^\[([^\]\n]{1,120})\]", ad._read(preset) or "", re.MULTILINE) if s != "*"]
@@ -502,11 +591,13 @@ def koboldcpp(processes) -> Runtime:
     rt = Runtime("koboldcpp", "KoboldCpp", address="127.0.0.1:5001")
     rt.service, env = unit_named("koboldcpp")
     rt.installed = bool(rt.service) or bool(shutil.which("koboldcpp"))
+    served = []
     for _pid, comm, argv in processes:
         if comm == "koboldcpp" or (argv and Path(argv[0]).name.startswith("koboldcpp")):
             rt.running = rt.installed = True
+            served.append(arg_value(argv, "--model", "--model_param"))
             port = arg_value(argv, "--port")
-            if port.isdigit():
+            if gpu_usage.port_number(port):
                 rt.address = f"127.0.0.1:{port}"
     folder = env.get("KOBOLDCPP_MODELS") or ""
     if folder:
@@ -516,6 +607,30 @@ def koboldcpp(processes) -> Runtime:
     except OSError:
         configs = []
     rt.models = dedupe_models(configs)
+    for name in configs:      # each .kcpps names its model file (model_param, or model)
+        config = ad.read_json(KOBOLD_CONFIGS / name)
+        for key in ("model_param", "model"):
+            value = config.get(key)
+            served += [v for v in (value if isinstance(value, list) else [value]) if isinstance(v, str) and v]
+    rt.model_files = absolute_files(served)
+    return rt
+
+
+def strata(processes) -> Runtime:
+    """Strata (provider_strata): its CLI, its server process (`… -m serve.server`, the port from its
+    run config), its run configs as models; while it is off, the port of the launch preset used last."""
+    import provider_strata as ps
+    rt = Runtime("strata", "Strata", installed=ps.strata_binary() is not None)
+    port = 0
+    for _pid, _comm, argv in processes:
+        if ps.is_server(argv):
+            rt.running = rt.installed = True
+            port = port or ps.server_port(argv)
+    rt.address = f"127.0.0.1:{port or ps.last_preset()[1] or ps.DEFAULT_PORT}"
+    names = ps.model_ids()
+    if names:
+        rt.models_dir = tilde(ps.install_dir())
+    rt.models = dedupe_models(names)
     return rt
 
 
@@ -541,12 +656,20 @@ def server_target(entry: dict) -> tuple[str, str]:
     name = Path(command).name
     if name in LAUNCHERS:
         for arg in args[:10]:
-            if isinstance(arg, str) and arg and not arg.startswith("-") and "=" not in arg:
-                return "command", f"{name} {Path(arg).name if arg.startswith('/') else arg}"[:80]
+            if not isinstance(arg, str) or not arg:
+                continue
+            if arg.startswith('-'):
+                if arg not in ('-y', '--yes', '-m', '--quiet'):
+                    break
+                continue
+            if '=' in arg or '://' in arg:
+                break
+            return "command", f"{name} {Path(arg).name if arg.startswith('/') else arg}"[:80]
     return "command", name[:80]
 
 
-def servers_in(mapping) -> list[tuple[str, str, str]]:
+def servers_in(mapping) -> list[tuple[str, str, str, str]]:
+    """(name, kind, short target to show, mcp_ctl.identity_hash) of each server in use."""
     found = []
     if isinstance(mapping, dict):
         for name, entry in list(mapping.items())[:100]:
@@ -554,11 +677,11 @@ def servers_in(mapping) -> list[tuple[str, str, str]]:
                 if entry.get("disabled") is True or entry.get("enabled") is False:
                     continue
                 kind, target = server_target(entry)
-                found.append((clean(name), kind, target))
+                found.append((clean(name), kind, target, mcp_ctl.identity_hash(entry)))
     return found
 
 
-def mcp_for(command: str) -> list[tuple[str, str, str]]:
+def mcp_for(command: str) -> list[tuple[str, str, str, str]]:
     found = servers_in(mcp_ctl.raw_entries(command))
     harness = harnesses.get(command)
     spec = harness.mcp if harness is not None else None
@@ -567,7 +690,7 @@ def mcp_for(command: str) -> list[tuple[str, str, str]]:
         text = ad._read(Path(os.path.expanduser(spec.path))) or ""
         block = re.search(rf"^{re.escape(spec.key)}:[ \t]*\n((?:[ \t]+.*\n?|\n)+)", text, re.MULTILINE)
         names = re.findall(r"^  ([A-Za-z0-9_.-]{1,64}):", block.group(1), re.MULTILINE) if block else []
-        return [(n, "", "") for n in names[:100]]
+        return [(n, "", "", mcp_ctl.identity_hash(None)) for n in names[:100]]
     return found
 
 
@@ -616,15 +739,55 @@ def skills_in(folder: Path, depth: int = 0) -> list[tuple[Path, Path]]:
 
 # --- all together -----------------------------------------------------------------------
 
-def collect(agent_list) -> Inventory:
+def add_server(servers: dict, name: str, kind: str, target: str, identity: str = "") -> McpServer:
+    """The server of that name and identity (mcp_ctl.identity_hash: its transport and
+    whole address, or its command and arguments); another of the same name gets the
+    id name~2, …. kind and target only show it."""
+    ident, n = name, 2
+    while ident in servers and servers[ident].identity != identity:
+        ident, n = f"{name}~{n}", n + 1
+    return servers.setdefault(ident, McpServer(name, kind, target, id=ident, identity=identity))
+
+
+def reused_folders(runtimes, folders) -> list:
+    """Reused model folders (settings model_folders): (path, [models]), each file unless an installed
+    runtime serves that same file (its models folder, a file it serves by path, or the same file reached
+    another way). A file of
+    the same model name elsewhere (another quantization) stays."""
+    def identity(path):
+        try:
+            info = os.stat(path)
+        except OSError:
+            return None
+        return info.st_dev, info.st_ino
+
+    served = {os.path.realpath(os.path.expanduser(rt.models_dir))
+              for rt in runtimes if rt.installed and rt.models_dir}
+    # Its folder's files, and those it serves by their own path (llama.cpp -m, models.ini, KoboldCpp,
+    # vLLM), compared by device and inode.
+    served_files = ({identity(f) for d in served for f in gguf_files(Path(d))}
+                    | {identity(f) for rt in runtimes if rt.installed for f in rt.model_files}) - {None}
+    found = []
+    for folder in list(folders)[:50]:
+        path = Path(os.path.expanduser(folder))
+        if os.path.realpath(path) in served:
+            continue
+        models = list(dict.fromkeys(f.name[:-5] for f in gguf_files(path)
+                                    if identity(f) not in served_files))[:MAX_ITEMS]
+        if models:
+            found.append((tilde(path), models))
+    return found
+
+
+def collect(agent_list, *, remember: bool = True, model_folders=()) -> Inventory:
     inv = Inventory()
     processes = own_processes()
     inv.runtimes = [p.detect(processes) for p in providers.local() if p.detect is not None]
     by_port = {}
     for rt in inv.runtimes:
-        port = rt.address.rsplit(":", 1)[-1]
-        if port.isdigit():
-            by_port[int(port)] = rt
+        port = gpu_usage.port_number(rt.address.rsplit(":", 1)[-1])
+        if port:
+            by_port[port] = rt
 
     servers: dict[str, McpServer] = {}
     sets: dict[str, SkillSet] = {}
@@ -635,15 +798,15 @@ def collect(agent_list) -> Inventory:
         # Local runtimes this agent talks to (its providers' addresses).
         info = ad.details_for(command)
         for provider in info.providers:
-            if provider.local:
-                for rt in inv.runtimes:
-                    if rt.name == provider.runtime and command not in rt.agents:
-                        rt.agents.append(command)
-                    if rt.name == provider.runtime and provider.active and command not in rt.active_agents:
-                        rt.active_agents.append(command)
+            rt = local_runtime(provider, inv.runtimes)
+            if rt is not None:
+                if command not in rt.agents:
+                    rt.agents.append(command)
+                if provider.active and command not in rt.active_agents:
+                    rt.active_agents.append(command)
         names = []
-        for name, kind, target in mcp_for(command):
-            server = servers.setdefault(name, McpServer(name, kind, target))
+        for name, kind, target, identity in mcp_for(command):
+            server = add_server(servers, name, kind, target, identity)
             if command not in server.agents:
                 server.agents.append(command)
             names.append(name)
@@ -667,28 +830,38 @@ def collect(agent_list) -> Inventory:
             inv.agent_tools[command] = [clean(t) for t in tools[:50] if clean(t)]
     # Local LLMs with MCP servers of their own (their chat uses them, e.g. LM Studio).
     for key in mcp_ctl.llm_clients():
-        for name, kind, target in servers_in(mcp_ctl.raw_entries(key)):
-            server = servers.setdefault(name, McpServer(name, kind, target))
+        for name, kind, target, identity in servers_in(mcp_ctl.raw_entries(key)):
+            server = add_server(servers, name, kind, target, identity)
             if key not in server.agents:
                 server.agents.append(key)
-    # The servers AI Agents Map knows: remember what is in use, list the rest too (no agents).
+    # The servers AI Agents Map knows: remember what is in use (every server of a name),
+    # list the rest too (no agents).
     import mcp_library
     used = {}
-    for name, server in servers.items():
-        _source, entry = mcp_ctl.entry_from(server.agents, name)
-        used[name] = entry
-    try:
-        mcp_library.remember(used)
-    except OSError:
-        pass
-    for name, entry in mcp_library.load().items():
-        if name not in servers:
-            if entry["transport"] == "stdio":
-                kind, target = server_target({"command": entry["command"], "args": entry["args"]})
-            else:
-                kind, target = server_target({"url": entry["url"]})
-            servers[name] = McpServer(name, kind, target)
-    inv.mcp = sorted(servers.values(), key=lambda s: s.name.lower())
+    for ident, server in servers.items():
+        _source, entry = mcp_ctl.entry_from(server.agents, server.name)
+        used[ident] = entry
+    if remember:
+        try:
+            mcp_library.remember(used)
+        except OSError:
+            pass
+    for key, entry in mcp_library.load().items():
+        name, identity = mcp_ctl.base_name(key), mcp_ctl.identity_hash(entry)
+        same = next((s for s in servers.values() if s.name == name and s.identity == identity), None)
+        if same is not None:              # in use, or listed twice: the server it is kept for
+            same.library = same.library or key
+            continue
+        ident, n = key, 2
+        while ident in servers:
+            ident, n = f"{name}~{n}", n + 1
+        if entry["transport"] == "stdio":
+            kind, target = server_target({"command": entry["command"], "args": entry["args"]})
+        else:
+            kind, target = server_target({"url": entry["url"]})
+        servers[ident] = McpServer(name, kind, target, id=ident, identity=identity, library=key)
+    inv.mcp = sorted(servers.values(), key=lambda s: s.id.lower())
+    inv.model_folders = reused_folders(inv.runtimes, model_folders)
     inv.skill_sets = sorted(sets.values(), key=lambda s: (-len(s.agents), s.path))
     for skill_set in inv.skill_sets:
         skill_set.skills.sort(key=str.lower)

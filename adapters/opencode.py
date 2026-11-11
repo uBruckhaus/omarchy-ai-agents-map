@@ -3,7 +3,7 @@ its security settings (its permission field takes several forms).
 
 Sessions come from ~/.local/share/opencode/opencode.db (read-only). Only these columns are read: of
 session_v2 the id, parent id, agent type, folder, times, tokens, cost and lines changed; of
-session_message the session id and time. Never titles or message data (titles are Asterism-only, in
+session_message the session id and time. Never titles or message data (titles are Maprisma-only, in
 the Insights add-on).
 """
 

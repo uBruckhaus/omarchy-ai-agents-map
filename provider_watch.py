@@ -34,26 +34,22 @@ HOME = Path.home()
 
 
 def _default_config() -> Path:
-    """Plugin side: in the desktop's folder (desktop.config_dir()). The service runs with
+    """App side: in the edition's folder (identity.config_dir()). The service runs with
     `python3 -I` (the plugin folder is not on sys.path) and gets the file with --config
     from its unit; a unit written before --config existed is an Omarchy one."""
     try:
-        import desktop
+        import identity
     except ImportError:
         return HOME / ".config/omarchy/ai-agents-map/providers-with-agents.json"
-    return desktop.config_dir() / "providers-with-agents.json"
+    return identity.config_dir() / "providers-with-agents.json"
 
 
 CONFIG = _default_config()
 _UNIT_SAFE = re.compile(r"[A-Za-z0-9/._+-]{1,1024}")       # a path systemd takes as one word, unquoted
 STATE = HOME / ".local/state/ai-agents-map/provider-watch.json"   # what we still have to stop (survives restarts)
 def _unit_name() -> str:
-    """The plugin's watcher, or Asterism's: two installs on one machine never share a unit."""
-    try:
-        import desktop
-    except ImportError:
-        return "ai-agents-map-providers.service"      # the service itself (python3 -I) never needs it
-    return "ai-agents-map-providers.service" if desktop.NAME == "omarchy" else "asterism-providers.service"
+    """AI Agents Map's watcher unit."""
+    return "ai-agents-map-providers.service"
 
 
 UNIT_NAME = _unit_name()
@@ -154,7 +150,9 @@ def write_config(inventory, path: Path = CONFIG) -> bool:
         if not rt.installed or not rt.agents or not (rt.service or control):
             continue
         port = rt.address.rpartition(":")[2]
-        runtimes[rt.key] = {"service": rt.service, "port": int(port) if port.isdigit() else 0,
+        # As gpu_usage.port_number (this script stays stdlib only): 1-5 ASCII digits, 1..65535.
+        port = int(port) if re.fullmatch(r"[0-9]{1,5}", port) and 0 < int(port) < 65536 else 0
+        runtimes[rt.key] = {"service": rt.service, "port": port,
                             **({"control": control} if control and not rt.service else {})}
         provider = providers.get(rt.key)
         if provider is not None and provider.stays_up and provider.unload:
@@ -180,7 +178,7 @@ def write_config(inventory, path: Path = CONFIG) -> bool:
 
 def unit_text(script: Path, config: Path | None = None) -> str:
     config = config or CONFIG
-    APP = "AI Agents Map" if UNIT_NAME.startswith("ai-agents-map") else "Asterism"   # noqa: N806
+    APP = "AI Agents Map"   # noqa: N806
     exec_start = f"/usr/bin/python3 -I {script}" + (f" --config {config}" if _UNIT_SAFE.fullmatch(str(config)) else "")
     return f"""[Unit]
 Description={APP}: start local LLMs with their agents, stop them when the agents close
@@ -207,6 +205,10 @@ def _systemctl(*args) -> bool:
 def ensure_service(on: bool, script: Path | None = None) -> bool:
     """Plugin side: install + enable + start the watcher (on), or stop + disable +
     remove it (off). Rewrites the unit when the plugin folder moved. Blocking."""
+    # Flutter's temporary Python reference must never manage the retired unit.
+    # Workers inherit this process marker; both install and removal are blocked.
+    if os.environ.get('AI_AGENTS_MAP_FLUTTER_DEVEL') == '1':
+        return False
     script = (script or Path(__file__)).resolve()
     if not on:
         if not UNIT_FILE.exists():
@@ -235,11 +237,28 @@ def ensure_service(on: bool, script: Path | None = None) -> bool:
 # --- processes ------------------------------------------------------------------------------
 
 def _read(path: str, limit: int) -> bytes:
+    """ai_core.read_head(path, limit, follow=False), in the standard library only: the service runs
+    with `python3 -I`, where the app's modules cannot be imported."""
+    import stat
     try:
-        with open(path, "rb") as handle:
-            return handle.read(limit)
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
     except OSError:
         return b""
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return b""
+        chunks, left = [], limit
+        while left > 0:
+            chunk = os.read(fd, min(left, 1 << 20))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            left -= len(chunk)
+        return b"".join(chunks)
+    except OSError:
+        return b""
+    finally:
+        os.close(fd)
 
 
 def _bare(name: str) -> str:
@@ -721,7 +740,7 @@ class Watcher:
                     self.started[f"{key}:ok"] = ok
                     log(f"start {key} for {', '.join(sorted(a for a in self.running if key in self.agents[a]))}: "
                         f"{'ok' if ok else 'failed'}")
-        for key in self.needed - needed:
+        for key in sorted(self.needed - needed):       # sorted: a set's order differs per run
             self.stop_at.setdefault(key, now + GRACE)
         for key, when in list(self.stop_at.items()):
             if key not in needed and now >= when and self.stop(key, "no agent using it is running"):

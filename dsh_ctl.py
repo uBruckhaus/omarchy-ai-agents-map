@@ -112,6 +112,22 @@ def _find(blocks: list[str], entry_id: str) -> int | None:
 
 # --- providers ------------------------------------------------------------------------------------
 
+def _readable(empty):
+    """Readers answer `empty` for a profile PyYAML cannot parse (one broken entry must not stop
+    the card, the connections or the map); writers still refuse it, through _find/parse."""
+    def wrap(function):
+        def reader(*args, **kwargs):
+            yaml, _loader, _dumper = _yaml()
+            try:
+                return function(*args, **kwargs)
+            except yaml.YAMLError:
+                return empty() if callable(empty) else empty
+        reader.__doc__ = function.__doc__
+        return reader
+    return wrap
+
+
+@_readable(dict)
 def providers(text: str) -> dict:
     _header, blocks = split(text)
     index = _find(blocks, LLM_ID)
@@ -120,6 +136,7 @@ def providers(text: str) -> dict:
     return found if isinstance(found, dict) else {}
 
 
+@_readable(("", ""))
 def default_model(text: str) -> tuple[str, str]:
     _header, blocks = split(text)
     index = _find(blocks, DEFAULT_ID)
@@ -228,6 +245,7 @@ def builtin_choices(packages: Path) -> list[str]:
 
 # --- MCP servers ------------------------------------------------------------------------------------
 
+@_readable(dict)
 def mcp_servers(text: str) -> dict:
     """serverName -> its config, for the MCP clients inserted in the patch."""
     _header, blocks = split(text)

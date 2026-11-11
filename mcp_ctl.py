@@ -114,6 +114,46 @@ def normal(entry: dict | None) -> dict | None:
             "env": _map(entry.get("env") or entry.get("environment") or entry.get("envs")), "url": "", "headers": {}}
 
 
+# A key of the list of known servers (mcp_library): the name, or name~2, name~3, …
+# for another server of that name ("~" is no part of a name).
+LIBRARY_KEY_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}(?:~[0-9]{1,4})?$")
+
+
+def base_name(ident: str) -> str:
+    """The configuration name of a map id or library key: "fs~2" is "fs"."""
+    return re.sub(r"~[0-9]+$", "", ident)
+
+
+def identity(entry) -> str:
+    """What makes two servers of one name the same server: the transport and the
+    whole address (path, port and query), or the transport, command and every
+    argument, and the env or headers it is given (another ROOT or workspace is
+    another server). Those may hold keys: they take part only as a salted digest
+    (_settings_digest), never in clear text; an entry without any keeps the
+    identity it had before. '' when the entry tells neither."""
+    e = normal(entry)
+    if e is None:
+        return ""
+    parts = [e["transport"], e["command"], e["args"]] if e["transport"] == "stdio" else [e["transport"], e["url"]]
+    if e["env"] or e["headers"]:
+        parts.append(_settings_digest(e["env"], e["headers"]))
+    return json.dumps(parts, separators=(",", ":"), ensure_ascii=False)
+
+
+def _settings_digest(env: dict, headers: dict) -> str:
+    """The env and headers of a server as a digest (Dart _settingsDigest)."""
+    import hashlib
+    pairs = [[[k, m[k]] for k in sorted(m)] for m in (env, headers)]
+    text = "maprisma-mcp-settings\n" + json.dumps(pairs, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def identity_hash(entry) -> str:
+    """identity() as a short digest (Dart mcpIdentityHash)."""
+    import hashlib
+    return hashlib.sha256(identity(entry).encode("utf-8")).hexdigest()[:16]
+
+
 def _read_json(path: Path, limit: int = connect.MAX_BYTES) -> dict:
     try:
         if path.stat().st_size > limit:
@@ -267,6 +307,8 @@ def native(agent: str, e: dict) -> dict:
         return item
     if shape == "gemini":
         item = {"httpUrl" if e["transport"] == "http" else "url": e["url"]}
+    elif shape == "antigravity":      # Streamable HTTP only, as serverUrl (no httpUrl, no SSE)
+        item = {"serverUrl": e["url"]}
     elif shape in ("claude", "copilot", "omp"):
         item = {"type": e["transport"], "url": e["url"]}
     else:
@@ -399,9 +441,11 @@ def _secrets(entry: dict) -> list:
     return [v for v in values if len(v) >= 4]
 
 
-def plan(agent: str, name: str, sources=(), remove: bool = False, entry: dict | None = None) -> connect.Plan:
+def plan(agent: str, name: str, sources=(), remove: bool = False, entry: dict | None = None,
+         library_key: str | None = None) -> connect.Plan:
     """Add server `name` to `agent` — copied from the first of `sources` that
-    has it, or `entry` (a normal() entry: a new server) — or remove it.
+    has it, or `entry` (a normal() entry: a new server), else the list's entry
+    under `library_key` (the name by default) — or remove it.
     Raises ValueError when that cannot be done."""
     if not supported(agent) or not NAME_RE.match(name):
         raise ValueError(agent)
@@ -417,7 +461,7 @@ def plan(agent: str, name: str, sources=(), remove: bool = False, entry: dict | 
         _source, entry = entry_from([s for s in sources if s != agent], name)
         if entry is None:
             import mcp_library
-            entry = mcp_library.load().get(name)          # no agent has it any more
+            entry = mcp_library.load().get(library_key or name)          # no agent has it any more
             _source = "library" if entry is not None else _source
         if entry is None:
             raise ValueError(f"no agent has {name} set up")

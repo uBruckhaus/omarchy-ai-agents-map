@@ -10,6 +10,9 @@ data = ["~/.grok"]
 home = "~/.grok"
 web_search = true                      # searches the web itself (no MCP server needed)
 
+[details]                              # its model: the one its newest session ran
+reader = "grok"
+
 [[install]]
 kind = "mise"
 spec = "npm:@xai-official/grok"

@@ -58,8 +58,9 @@ def parse_search(data: dict) -> list[Skill]:
         if not isinstance(item, dict):
             continue
         repo, skill_id = str(item.get("source", "")), str(item.get("skillId", ""))
-        if _REPO.match(repo) and _ID.match(skill_id):
-            installs = v if isinstance(v := item.get("installs"), int) else 0
+        # fullmatch: match's $ would let a trailing newline through; a bool is not a count.
+        if _REPO.fullmatch(repo) and _ID.fullmatch(skill_id):
+            installs = v if isinstance(v := item.get("installs"), int) and not isinstance(v, bool) else 0
             found.append(Skill(str(item.get("name") or skill_id)[:100], skill_id, repo, installs))
     return found
 
@@ -86,7 +87,7 @@ def skills_in_tree(tree: dict, repo: str, query: str = "", limit: int = 30) -> l
         if not isinstance(path, str) or entry.get("type") != "blob" or not path.endswith("SKILL.md"):
             continue
         skill_id = path.rsplit("/", 2)[-2] if "/" in path else repo.split("/")[1]
-        if not _ID.match(skill_id) or not all(w in path.lower() for w in words):
+        if not _ID.fullmatch(skill_id) or not all(w in path.lower() for w in words):
             continue
         if all(s.skill_id != skill_id for s in found):
             found.append(Skill(skill_id, skill_id, repo))
@@ -94,7 +95,7 @@ def skills_in_tree(tree: dict, repo: str, query: str = "", limit: int = 30) -> l
 
 
 def repo_skills(repo: str, query: str = "", limit: int = 30) -> list[Skill]:
-    if not _REPO.match(repo):
+    if not _REPO.fullmatch(repo):
         raise ValueError("not a GitHub repository")
     tree = json.loads(_get(TREE.format(repo=repo), 8 * 1024 * 1024, "application/vnd.github+json"))
     return skills_in_tree(tree, repo, query, limit)
@@ -124,9 +125,9 @@ def files_of(tree: dict, skill_id: str) -> tuple[str, list]:
             continue                         # links and submodules stay out
         inner = path[len(prefix):]
         parts = inner.split("/")
-        if any(p in ("", ".", "..") or not _PART.match(p) for p in parts) or len(parts) > 8:
+        if any(p in ("", ".", "..") or not _PART.fullmatch(p) for p in parts) or len(parts) > 8:
             continue
-        size = v if isinstance(v := entry.get("size"), int) else MAX_FILE + 1
+        size = v if isinstance(v := entry.get("size"), int) and not isinstance(v, bool) else MAX_FILE + 1
         if size > MAX_FILE:
             raise ValueError(f"{inner} is too large")
         total += size

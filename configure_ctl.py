@@ -28,20 +28,31 @@ class Entry:
 HELP = N_("Its options (--help)")
 
 
-def _commands(items) -> list:
+def _commands(items, resolve=None) -> list:
+    """The checked commands whose program is here. `resolve(name)`: a local LLM's own program as a path
+    (its engine's resolve_program: Strata only its verified `strata`, never another program of that
+    name); agents keep the name, found on PATH."""
     out = []
     for item in items:
-        if harnesses.configure_ok(item.argv, (item.argv[0],) if item.argv else ()) and shutil.which(item.argv[0]):
-            out.append(Entry(item.label, tuple(item.argv), item.note, item.window))
+        if not harnesses.configure_ok(item.argv, (item.argv[0],) if item.argv else ()):
+            continue
+        if resolve is None:
+            if shutil.which(item.argv[0]):
+                out.append(Entry(item.label, tuple(item.argv), item.note, item.window))
+        elif (path := resolve(item.argv[0])):
+            out.append(Entry(item.label, (path, *item.argv[1:]), item.note, item.window))
     return out
 
 
-def _help(program: str) -> list:
+def _help(program: str, resolve=None) -> list:
     """`<program> --help` when the program is here (its own program, plain words, as any Configure)."""
     argv = (program, "--help")
-    if program and harnesses.configure_ok(argv, (program,)) and shutil.which(program):
-        return [Entry(HELP, argv)]
-    return []
+    if not program or not harnesses.configure_ok(argv, (program,)):
+        return []
+    if resolve is None:
+        return [Entry(HELP, argv)] if shutil.which(program) else []
+    path = resolve(program)
+    return [Entry(HELP, (path, "--help"))] if path else []
 
 
 def for_agent(command: str) -> list:
@@ -59,19 +70,30 @@ def _provider(key: str):
     return provider or built_in, getattr(provider, "configure", ()) or getattr(built_in, "configure", ())
 
 
-def provider_program(key: str) -> str:
-    """The program a local LLM is used through: its installer's command, else its engine's program."""
+def _program_name(key: str) -> str:
+    """The name of the program a local LLM is used through: its installer's command, else its engine's
+    program (the first one here)."""
     import install_ctl
     import llm_engine
     installer = install_ctl.installer(key)
     names = ([installer.command] if installer is not None and installer.command else []) + \
         list(llm_engine.of(key).programs)
-    return next((n for n in names if shutil.which(n)), "")
+    engine = llm_engine.of(key)
+    return next((n for n in names if engine.resolve_program(n)), "")
+
+
+def provider_program(key: str) -> str:
+    """That program as it runs: its path as the engine resolves it ("" when it is not here)."""
+    import llm_engine
+    name = _program_name(key)
+    return (llm_engine.of(key).resolve_program(name) or "") if name else ""
 
 
 def for_runtime(key: str) -> list:
+    import llm_engine
     _provider_now, configure = _provider(key)
-    return _commands(configure) or _help(provider_program(key))
+    resolve = llm_engine.of(key).resolve_program
+    return _commands(configure, resolve) or _help(_program_name(key), resolve)
 
 
 def script(entry: Entry, done: str) -> str:

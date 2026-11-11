@@ -45,6 +45,7 @@ class Finding:
     text: str = ""
     action: tuple = ()          # ("details", agent) ("runtime", key) ("models", key, query)
                                 # ("addmcp", query) ("addskills",) ("reorganize",) ("install", key)
+    column: str = "agents"      # "mcp", "agents", "providers", "models"
 
 
 @dataclass
@@ -179,30 +180,35 @@ def check(agent_list, details: dict, inventory, built, pc: PC, agent_checks: dic
     if pc.vendor == "cpu":
         area.findings.append(Finding("hint", _("No graphics card for local models"),
                                      _("Local models run on the processor: fine for small ones (up to about 4 GB), "
-                                       "slow for bigger ones. Online models (Claude, Codex, Gemini) are not affected.")))
+                                       "slow for bigger ones. Online models (Claude, Codex, Gemini) are not affected."),
+                                     column="models"))
     elif pc.vram < 8 * GiB:
         area.findings.append(Finding("hint", _("{0} with {1} video memory").format(card_name(pc), gb(pc.vram)),
-                                     _("Good for small local models (model files up to about {0}).").format(fits_text(pc.vram))))
+                                     _("Good for small local models (model files up to about {0}).").format(fits_text(pc.vram)),
+                                     column="models"))
     else:
         area.findings.append(Finding("ok", _("{0} with {1} video memory").format(card_name(pc), gb(pc.vram)),
-                                     _("Local models with files up to about {0} run fully on the card.").format(fits_text(pc.vram))))
+                                     _("Local models with files up to about {0} run fully on the card.").format(fits_text(pc.vram)),
+                                     column="models"))
     if pc.ram:
         if pc.ram < 16 * GiB:
             area.findings.append(Finding("hint", _("{0} memory").format(gb(pc.ram)),
-                                         _("Agents, a browser and a local model together get tight; close what you do not need.")))
+                                         _("Agents, a browser and a local model together get tight; close what you do not need."),
+                                         column="models"))
         else:
-            area.findings.append(Finding("ok", _("{0} memory").format(gb(pc.ram))))
+            area.findings.append(Finding("ok", _("{0} memory").format(gb(pc.ram)), column="models"))
     for folder, free in sorted(pc.free.items()):
         where = folder.replace(str(Path.home()), "~", 1)
         if free < 20 * GiB:
             area.findings.append(Finding("warn", _("Little free space for models: {0}").format(gb(free)),
                                          _("In {0}. A model needs 2–30 GB; remove models no agent uses.").format(where),
-                                         ("reorganize",)))
+                                         ("reorganize",), "models"))
         elif free < 60 * GiB:
             area.findings.append(Finding("hint", _("{0} free for models").format(gb(free)),
-                                         _("In {0}: room for a few more models.").format(where)))
+                                         _("In {0}: room for a few more models.").format(where),
+                                         column="models"))
         else:
-            area.findings.append(Finding("ok", _("{0} free for models").format(gb(free)), where))
+            area.findings.append(Finding("ok", _("{0} free for models").format(gb(free)), where, column="models"))
     areas = [area]
 
     # Agents -------------------------------------------------------------------------------------
@@ -238,32 +244,33 @@ def check(agent_list, details: dict, inventory, built, pc: PC, agent_checks: dic
         area.findings.append(Finding("hint", _("No local LLM installed"),
                                      _("Optional: a local LLM (llama.cpp or Ollama) runs models on this PC, private "
                                        "and without costs. Right-click llama.cpp on the map → Install."),
-                                     ("install", first_local_llm())))
+                                     ("install", first_local_llm()), "providers"))
     for rt in runtimes:
         checks = runtime_checks.get(rt.key, [])
         bad = [c for c in checks if c.state in ("missing", "warn")]
         if bad:
             level = "warn" if bad[0].state == "missing" else "hint"
             area.findings.append(Finding(level, f"{rt.name}: {bad[0].title}", bad[0].step or bad[0].detail,
-                                         ("runtime", rt.key)))
+                                         ("runtime", rt.key), "providers"))
         elif not rt.models:
             area.findings.append(Finding("hint", _("{0} has no models yet").format(rt.name),
                                          _("Download one that fits your card (files up to about {0}).").format(
-                                             fits_text(pc.vram)) if pc.vram else "", ("models", rt.key, "")))
+                                             fits_text(pc.vram)) if pc.vram else "", ("models", rt.key, ""), "models"))
         else:
             area.findings.append(Finding("ok", rt.name, ngettext("1 model", "{0} models", len(rt.models)).format(
-                len(rt.models)) + (" · " + _("running") if rt.running else "")))
+                len(rt.models)) + (" · " + _("running") if rt.running else ""), column="providers"))
         if rt.running and not rt.active_agents and rt.agents:
             area.findings.append(Finding("hint", _("{0} runs, but no agent uses it now").format(rt.name),
                                          _("It may hold video memory. With “Start local LLMs with their agents” on, "
-                                           "it starts and stops with them."), ("runtime", rt.key)))
+                                           "it starts and stops with them."), ("runtime", rt.key), "providers"))
     # Agents on different models of one local LLM: it must keep them all loaded, and they must fit.
     import model_slots
     try:
         for need in model_slots.plan(runtimes, model_slots.models_in_use(built)):
             for hint in model_slots.hints(need, pc.vram):
                 area.findings.append(Finding("warn", _("{0}: its agents use {1} different models")
-                                             .format(need.name, need.count), hint["text"], ("runtime", need.key)))
+                                             .format(need.name, need.count), hint["text"], ("runtime", need.key),
+                                             "providers"))
     except (OSError, ValueError):
         pass
     idle = graph_model.idle_folders(built) if built is not None else {}
@@ -272,7 +279,7 @@ def check(agent_list, details: dict, inventory, built, pc: PC, agent_checks: dic
         area.findings.append(Finding("hint", ngettext("1 model folder no agent uses", "{0} model folders no agent uses",
                                                       len(idle)).format(len(idle)),
                                      _("{0}: connect an agent to them, or tidy up to free disk space.").format(folders),
-                                     ("reorganize",)))
+                                     ("reorganize",), "models"))
     seen = {}
     for rt in runtimes:
         for model in rt.models:
@@ -283,34 +290,41 @@ def check(agent_list, details: dict, inventory, built, pc: PC, agent_checks: dic
                                                       "{0} models are in more than one local LLM's folder",
                                                       len(doubled)).format(len(doubled)),
                                      _("Reorganize puts them into one shared folder (no second copy, Undo possible)."),
-                                     ("reorganize",)))
+                                     ("reorganize",), "models"))
     areas.append(area)
 
     # Tools: MCP servers and skills ----------------------------------------------------------------
     area = Area("tools", _("Tools: MCP servers and skills"), "\U000f0841")
-    for (source, target), hint in sorted(failed_links.items()) if isinstance(failed_links, dict) else []:
+    import link_hints
+    # link_hints.load keys are "source|target" strings: split them (unpacking a string key failed).
+    for link_key, hint in sorted(failed_links.items()) if isinstance(failed_links, dict) else []:
+        source, target = link_hints.split(str(link_key))
+        link_col = "providers" if str(target).startswith(("runtime:", "provider:")) else "mcp"
         area.findings.append(Finding("warn", _("A connection does not work: {0} → {1}").format(
             names.get(str(source).split(":", 1)[-1], str(source).split(":", 1)[-1]), str(target).split(":", 1)[-1]),
-            _("Click its dotted red line on the map for what to do."), ("link", str(source), str(target))))
+            _("Click its dotted red line on the map for what to do."), ("link", str(source), str(target)), link_col))
     unused = [m.name for m in inventory.mcp if not m.agents]
     if used_mcp:
         area.findings.append(Finding("ok", ngettext("1 MCP server in use", "{0} MCP servers in use", len(used_mcp))
-                                     .format(len(used_mcp)), ", ".join(sorted(m.name for m in used_mcp))[:200]))
+                                     .format(len(used_mcp)), ", ".join(sorted(m.name for m in used_mcp))[:200],
+                                     column="mcp"))
     else:
         area.findings.append(Finding("hint", _("No MCP servers yet"),
                                      _("MCP servers give agents tools: files, a browser, your apps. Add MCP server finds "
-                                       "them on this PC and on the web."), ("addmcp", "")))
+                                       "them on this PC and on the web."), ("addmcp", ""), "mcp"))
     if unused:
         area.findings.append(Finding("hint", ngettext("1 MCP server no agent uses", "{0} MCP servers no agent uses",
                                                       len(unused)).format(len(unused)),
-                                     _("{0}: draw a line to an agent to use it.").format(", ".join(sorted(unused))[:200])))
+                                     _("{0}: draw a line to an agent to use it.").format(", ".join(sorted(unused))[:200]),
+                                     column="mcp"))
     if skill_count:
         area.findings.append(Finding("ok", ngettext("1 skill", "{0} skills", skill_count).format(skill_count),
-                                     ", ".join(sorted({Path(s.path).name for s in inventory.skill_sets}))[:200]))
+                                     ", ".join(sorted({Path(s.path).name for s in inventory.skill_sets}))[:200],
+                                     column="mcp"))
     else:
         area.findings.append(Finding("hint", _("No skills yet"),
                                      _("Skills teach agents a task step by step (a PDF, a release, your house style)."),
-                                     ("addskills",)))
+                                     ("addskills",), "mcp"))
     areas.append(area)
 
     # What you can do with it -----------------------------------------------------------------------
@@ -328,7 +342,7 @@ def check(agent_list, details: dict, inventory, built, pc: PC, agent_checks: dic
     elif not runtimes:
         use.steps.append(Finding("hint", _("Quick answers offline"),
                                  _("A small local model (2–4 GB) answers simple questions without internet or costs."),
-                                 ("install", first_local_llm())))
+                                 ("install", first_local_llm()), "providers"))
     uses.append(use)
 
     use = UseCase("coding", _("Vibe coding"), "\U000f0169",
@@ -343,10 +357,11 @@ def check(agent_list, details: dict, inventory, built, pc: PC, agent_checks: dic
         rt = runtimes[0]
         use.steps.append(Finding("hint", _("A coding model for {0}").format(rt.name),
                                  _("Search “coder” and take one marked as fitting ({0} or smaller): code without "
-                                   "costs or limits.").format(fits_text(pc.vram)), ("models", rt.key, "coder")))
+                                   "costs or limits.").format(fits_text(pc.vram)), ("models", rt.key, "coder"),
+                                 "models"))
     if coding and not skill_count:
         use.steps.append(Finding("hint", _("Add skills"), _("Ready-made workflows (tests, reviews, releases)."),
-                                 ("addskills",)))
+                                 ("addskills",), "mcp"))
     uses.append(use)
 
     use = UseCase("images", _("Images"), "\U000f02e9",
@@ -358,11 +373,11 @@ def check(agent_list, details: dict, inventory, built, pc: PC, agent_checks: dic
     if not image_tools:
         use.steps.append(Finding("hint", _("Add an image tool"),
                                  _("An MCP server for images lets agents edit pictures: Add MCP server, search “image”."),
-                                 ("addmcp", "image")))
+                                 ("addmcp", "image"), "mcp"))
     if runtimes and not vision:
         use.steps.append(Finding("hint", _("A model that can see"),
                                  _("A vision model (names with VL, or Gemma) lets local agents read screenshots and photos."),
-                                 ("models", runtimes[0].key, "vl")))
+                                 ("models", runtimes[0].key, "vl"), "models"))
     uses.append(use)
 
     use = UseCase("voice", _("Voice"), "\U000f036c", _("Read texts aloud, write down what you say, subtitles."))
@@ -372,7 +387,7 @@ def check(agent_list, details: dict, inventory, built, pc: PC, agent_checks: dic
     if not use.have:
         use.steps.append(Finding("hint", _("A speech model"),
                                  _("Whisper (speech to text) or a TTS model (text to speech) run well locally."),
-                                 ("models", runtimes[0].key, "whisper") if runtimes else ()))
+                                 ("models", runtimes[0].key, "whisper") if runtimes else (), "models"))
     uses.append(use)
 
     use = UseCase("research", _("Research and writing"), "\U000f0349",
@@ -382,11 +397,11 @@ def check(agent_list, details: dict, inventory, built, pc: PC, agent_checks: dic
     if not online and not web_tools:
         use.steps.append(Finding("hint", _("Web access"),
                                  _("Agents with online models search the web themselves; local ones need a "
-                                   "search or browser MCP server."), ("addmcp", "search")))
+                                   "search or browser MCP server."), ("addmcp", "search"), "mcp"))
     elif not web_tools and local_agents:
         use.steps.append(Finding("hint", _("Web access for local models"),
                                  _("A search or browser MCP server lets agents on local models look things up too."),
-                                 ("addmcp", "search")))
+                                 ("addmcp", "search"), "mcp"))
     uses.append(use)
 
     for use in uses:

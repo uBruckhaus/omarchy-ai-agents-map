@@ -96,15 +96,15 @@ def check_provider(agent: str, agent_name: str, rt, model: str, with_agents: boo
         return hints
     if not rt.models:
         # Freshly installed: nothing to choose yet. Say where models come from for this one.
-        hints.append(hint("error", _("{0} has no models yet: {1} Then select {2} on the map and click the model.")
+        hints.append(hint("error", _("{0} has no models yet: {1} Then draw a line on the map from {2} to the model.")
                           .format(rt.name, add_model_step(rt), agent_name)))
     elif model and model.lower() not in [m.lower() for m in rt.models]:
         hints.append(hint("error", _("{0} does not have the model {1} (any more).").format(rt.name, model)))
     elif not model and not before and not connect.is_active(agent, rt.key):
-        hints.append(hint("warning", _("{0} does not use a model of {1} yet: select {0} on the map and click one "
+        hints.append(hint("warning", _("{0} does not use a model of {1} yet: draw a line on the map from {0} to one "
                                        "of {1}'s models.").format(agent_name, rt.name)))
     if not rt.running:
-        if not runtime_ctl.can_control(rt):
+        if not runtime_ctl.can_control(rt) or not llm_engine.of(rt).starts_with_agents:
             hints.append(hint("error", _("{0} is not running and has no service to start it with {1}: {2}")
                               .format(rt.name, agent_name, start_step(rt, agent_name))))
         elif not with_agents:

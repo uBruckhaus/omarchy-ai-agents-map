@@ -7,6 +7,8 @@ icon = "U+E90C"
 icon_font = "omarchy"
 package = "openclaw"
 package_only = true
+# Another install counts when its program lives in one of these (upstream install-cli.sh, npm/bun/pnpm).
+install_marks = ["~/.openclaw/", "/node_modules/openclaw/"]
 homepage = "https://github.com/openclaw/openclaw"
 data = ["~/.openclaw"]
 home = "~/.openclaw"

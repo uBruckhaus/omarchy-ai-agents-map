@@ -16,7 +16,7 @@ checked before use (PROFILE rules below), because it comes from the web:
 A profile only says where things go; every change it leads to still goes
 through the preview, backup and Undo (connect.py).
 
-Profiles live in desktop.config_dir()/agents/<command>.json (~/.config/omarchy/ai-agents-map on Omarchy).
+Profiles live in desktop.config_dir()/agents/<command>.json (the edition's identity, independent of desktop).
 """
 
 import datetime as dt

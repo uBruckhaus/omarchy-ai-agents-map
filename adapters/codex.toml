@@ -20,6 +20,10 @@ format = "codex-jsonl"
 kind = "mise"
 spec = "codex"
 
+[subagents]
+format = "codex-rollouts"
+path = "~/.codex/sessions"
+
 [sessions]
 reader = "codex-files"            # a reader the app has (~/.codex/sessions)
 note = "Numbers from {0}'s session files (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs."
@@ -40,6 +44,12 @@ argv = ["codex", "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--e
 games = ["chess"]                      # its menu offers Play chess
 effort = { quick = ["-c", "model_reasoning_effort=low"], normal = ["-c", "model_reasoning_effort=medium"], deep = ["-c", "model_reasoning_effort=high"], max = ["-c", "model_reasoning_effort=high"] }   # Thinking time
 note = "read-only sandbox, no session kept"
+
+[plan_limits]                          # its plan's limits where no Omarchy collector is: asked of its own app-server
+rpc = "codex-app-server"               # account/rateLimits/read over JSON-RPC: no prompt, no credential read here
+argv = ["codex", "-s", "read-only", "-a", "on-request", "app-server"]
+home_env = "CODEX_HOME"                # moves ~/.codex: auth.json and config.toml are looked for there
+store = { file = "~/.codex/config.toml", format = "toml", key = "cli_auth_credentials_store", files = "file" }   # keyring or auto: signed in outside auth.json, only Codex can tell
 
 [access]
 logout = ["codex", "logout"]     # its own sign-out, in a terminal

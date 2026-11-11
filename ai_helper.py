@@ -17,6 +17,7 @@ import json
 import os
 import shutil
 import threading
+from pathlib import Path
 
 import plugin_ai
 from plugin_ai import Usage, parse_output  # noqa: F401  (the app's modules use them from here)
@@ -24,8 +25,8 @@ from plugin_ai import Usage, parse_output  # noqa: F401  (the app's modules use 
 
 def plugin_id() -> str:
     """This app's name in the shared log."""
-    import desktop
-    return "ai-agents-map" if desktop.NAME == "omarchy" else "asterism"
+    import identity
+    return identity.short_name()
 
 
 # --- which agent ---------------------------------------------------------------------------------
@@ -172,9 +173,46 @@ def totals(command: str, days: int = 30) -> plugin_ai.Totals:
 
 # --- a task in a terminal tab ----------------------------------------------------------------------
 
+def task_prompt_path(prompt: str) -> Path:
+    """Where a task's text waits for its agent: this account's cache (inside the home folder the
+    session starts in), named by the prompt's hash so preview and apply agree."""
+    import hashlib
+    import identity
+    return identity.cache_dir() / 'tasks' / (hashlib.sha256(prompt.encode()).hexdigest()[:32] + '.md')
+
+
+def task_instruction(prompt: str) -> str:
+    """All that goes on the command line, which other accounts can read."""
+    return f'Your task is in {task_prompt_path(prompt)}. Read that file and follow it.'
+
+
+def write_task_prompt(prompt: str) -> None:
+    """The task's text, readable only by this account (folder 0700, file 0600, never through a
+    link), just before the session starts."""
+    import tempfile
+    path = task_prompt_path(prompt)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.parent.is_symlink():
+        raise ValueError('Task folder unavailable')
+    os.chmod(path.parent, 0o700)
+    fd, tmp = tempfile.mkstemp(prefix=f'.{path.name}.', dir=path.parent)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, 'w', encoding='utf-8') as out:
+            out.write(prompt)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def task_argv(command: str, prompt: str) -> list[str] | None:
-    """The agent started with `prompt` as its first message (its task fact), closed in so it asks
-    before each change (agent_guard.task; raises agent_guard.Refused); None when it has none."""
+    """The agent started with a first message that points to its task file (its task fact), closed
+    in so it asks before each change (agent_guard.task; raises agent_guard.Refused); None when it
+    has none."""
     import agent_guard
     import harnesses
     harness = harnesses.get(command)
@@ -182,7 +220,7 @@ def task_argv(command: str, prompt: str) -> list[str] | None:
         return None
     facts = {command: plugin_ai.AgentFacts(name_of(command), harness.research, harness.research_output,
                                            harness.task)}
-    argv = plugin_ai.task_argv(command, prompt, facts=facts)
+    argv = plugin_ai.task_argv(command, task_instruction(prompt), facts=facts)
     return agent_guard.task(command, argv) if argv else argv
 
 

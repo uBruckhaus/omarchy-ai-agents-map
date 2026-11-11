@@ -126,7 +126,7 @@ class Engine(llm_engine.Engine):
         if not gpu_usage._own_port(gpu_usage.port_of(rt)):
             return lms_loaded()            # the app is open without its server
         found = {}
-        for row in (llm_engine._http(rt, "/api/v0/models") or {}).get("data", [])[:500]:
+        for row in llm_engine.rows(llm_engine._http(rt, "/api/v0/models"), "data", 500):
             if isinstance(row, dict) and row.get("state") == "loaded":
                 found[str(row.get("id", "")).lower()] = "loaded"
         return found

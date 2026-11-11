@@ -30,6 +30,7 @@ REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}/[A-Za-z0-9][A-Za-z0-9._-
 OLLAMA_NAME_RE = re.compile(r"^(?:hf\.co/[A-Za-z0-9][A-Za-z0-9._-]{0,95}/[A-Za-z0-9][A-Za-z0-9._-]{0,95}"
                             r"|(?!hf\.co/)[a-z0-9][a-z0-9._/-]{0,127})(?::[A-Za-z0-9._-]{1,64})?$")
 FILE_RE = re.compile(r"^[A-Za-z0-9._/-]{1,255}\.gguf$")
+ENTRY_NAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,255}$")   # a GgufFile.name: a FILE_RE path's last part without .gguf
 SPLIT_RE = re.compile(r"^(.*)-(\d{5})-of-(\d{5})\.gguf$")
 QUANT_RE = re.compile(r"(IQ\d_[A-Z0-9_]+|Q\d_[A-Z0-9_]+|Q\d_\d|BF16|F16|F32|MXFP4|NVFP4)", re.IGNORECASE)
 

@@ -67,7 +67,7 @@ def _tilde(path: str) -> str:
     return "~" + path[len(home):] if path.startswith(home) else path
 
 
-def rocm(environ=None) -> str:
+def rocm(environ=None, *, read_only=False) -> str:
     """ROCm's version, "yes" when its runtime is there without a version file, else ""."""
     environ = os.environ if environ is None else environ
     roots = [environ.get("ROCM_PATH", ""), *sorted(glob.glob("/opt/rocm*"), reverse=True)]
@@ -76,7 +76,7 @@ def rocm(environ=None) -> str:
         if glob.glob(f"{root}/lib/libamdhip64.so*"):
             return version.split("-")[0] if re.fullmatch(r"\d+\.\d+(\.\d+)?(-\d+)?", version) else "yes"
     if glob.glob("/usr/lib/libamdhip64.so*") or glob.glob("/usr/lib64/libamdhip64.so*"):
-        return package_version("rocm-hip-runtime") or "yes"
+        return ("yes" if read_only else package_version("rocm-hip-runtime")) or "yes"
     return ""
 
 
@@ -128,10 +128,10 @@ def torch_at(folder: str) -> Torch | None:
                  version.group(1).split("+")[0], backend)
 
 
-def look(vendor: str = "", rocm_in_use: bool = False) -> Stack:
+def look(vendor: str = "", rocm_in_use: bool = False, *, read_only=False) -> Stack:
     """The stack now (blocking, a few milliseconds and at most one pacman -Q). rocm_in_use: a local LLM
     runs on ROCm (llama.cpp's devices say so), wherever that ROCm lives (a ROCM_PATH of its own)."""
-    stack = Stack(vendor, vulkan(), rocm() or ("yes" if rocm_in_use else ""), cuda())
+    stack = Stack(vendor, vulkan(), (rocm(read_only=True) if read_only else rocm()) or ("yes" if rocm_in_use else ""), cuda())
     for folder in torch_places():
         found = torch_at(folder)
         if found is not None and found not in stack.torches:

@@ -2,13 +2,15 @@
 
 "windows" (the default) follows the windows' rounding, which the desktop
 module reads (desktop.window_rounding(); who set it: desktop.rounding_source(),
-which uses lua_rounding() on Omarchy). "rounded" and "square" ignore it. No
+which uses lua_rounding() on Omarchy). "slight" (6), "rounded" (12) and
+"square" ignore it. No
 process is started here."""
 import json
 import os
 import re
 
-CHOICES = ("windows", "rounded", "square")
+CHOICES = ("windows", "slight", "rounded", "square")
+SLIGHT = 6        # "Slightly rounded": round controls beside square or tiled windows.
 ROUNDED = 12      # "Rounded": Theme Manager's corners up to now.
 MAX_RADIUS = 24
 MAX_LUA_BYTES = 256 * 1024
@@ -34,6 +36,8 @@ def parse_rounding(text):
 def radius(setting, window_rounding):
     """The corner radius in px for this setting and the windows' rounding."""
     setting = choice(setting)
+    if setting == "slight":
+        return SLIGHT
     if setting == "rounded":
         return ROUNDED
     if setting == "square":

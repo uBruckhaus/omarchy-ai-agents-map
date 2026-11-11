@@ -8,6 +8,8 @@ icon_font = "omarchy"
 spec = "pipx:hermes-agent[extras=all]"
 package = "hermes-desktop"
 own_install_counts = false
+# A wrapper or PATH program counts when it lives in, or runs, one of these (upstream installer, pipx, uv).
+install_marks = ["~/.hermes/", "/hermes-agent/"]
 short_model_flag = true
 usage = "hermes"
 homepage = "https://github.com/NousResearch/hermes-agent"

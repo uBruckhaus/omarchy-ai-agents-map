@@ -203,9 +203,8 @@ def categories(all_runs: list[dict], days: int = 30, now: dt.datetime | None = N
     now = now or dt.datetime.now()
     groups = {}
     for run in all_runs:
-        try:
-            when = dt.datetime.fromisoformat(str(run.get("when")))
-        except ValueError:
+        when = plugin_ai._when(run)
+        if when is None:
             continue
         if now - when <= dt.timedelta(days=days):
             groups.setdefault((str(run.get("plugin", "")), str(run.get("task", ""))), []).append(run)

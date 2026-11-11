@@ -3,8 +3,9 @@
 
 What is checked: servers in the map's list (mcp_library) whose version can be told from how they
 are started:
-- an app unpacked in ~/Applications/<app>-<version>/ (the Craft apps; also through a link such as
-  ~/.local/bin/photocraft-cli);
+- an app unpacked in ~/Applications/<app>-<version>/, or in any folder as an unpacked AppImage
+  (<folder>/<app>-<version>/usr/bin/<program>, e.g. /mnt/Data/Ai/McpServers); also through a link
+  such as ~/.local/bin/photocraft-cli;
 - an npm package pinned to a version (npx -y pkg@1.2.3); "@latest" and unpinned ones always run
   the newest, so they are left out;
 - a PyPI package pinned to a version (uvx pkg==1.2.3, uvx pkg@1.2.3).
@@ -74,15 +75,25 @@ class Found:
     program: str = ""
 
 
-def _app_of(path: str) -> tuple[str, str] | None:
-    """(app, version) when the program lies in ~/Applications/<app>-<version>/ (links resolved)."""
+def _folder_of(path: str) -> Path | None:
+    """The app's own folder: ~/Applications/<app>-<version>/, or <folder>/<app>-<version>/ when the
+    program lies in its usr/bin (an unpacked AppImage anywhere); links resolved."""
     try:
         real = Path(path).expanduser().resolve()
     except (OSError, RuntimeError):
         return None
-    if not real.is_relative_to(APPS) or real == APPS:
-        return None
-    found = mcp_scan.app_version(real.relative_to(APPS).parts[0])
+    if real.is_relative_to(APPS) and real != APPS:
+        return APPS / real.relative_to(APPS).parts[0]
+    parts = real.parts
+    if len(parts) >= 5 and parts[-3:-1] == ("usr", "bin"):
+        return Path(*parts[:-3])
+    return None
+
+
+def _app_of(path: str) -> tuple[str, str] | None:
+    """(app, version) of the app folder the program lies in (_folder_of)."""
+    folder = _folder_of(path)
+    found = mcp_scan.app_version(folder.name) if folder is not None else None
     return (found[0], mcp_scan.version_text(found[1])) if found else None
 
 
@@ -184,12 +195,15 @@ def still_open(found, servers) -> list[Found]:
 
 
 def on_pc(update: Found) -> bool:
-    """The newer version of an app is already here (unpacked in ~/Applications/<app>-<latest>/ or as
-    its AppImage), only the agents still start the old one: the map's Update moves them, so the
+    """The newer version of an app is already here (unpacked in ~/Applications/<app>-<latest>/, beside
+    the installed one, or as its AppImage), only the agents still start the old one: the map's Update moves them, so the
     download is not offered again."""
     if update.source != "app":
         return False
     if (APPS / f"{update.app}-{update.latest}").is_dir():
+        return True
+    folder = _folder_of(update.program) if update.program else None
+    if folder is not None and (folder.parent / f"{update.app}-{update.latest}").is_dir():
         return True
     try:
         images = mcp_scan.appimages()
@@ -240,8 +254,9 @@ def check(installed, now: float | None = None, cache: Path = CACHE, look_up=None
 def task_prompt(update: Found) -> str:
     """What "Do it with <agent>…" asks the agent to do in its terminal tab."""
     if update.source == "app":
+        folder = (_folder_of(update.program) if update.program else None) or APPS / (update.app + '-' + update.current)
         return (f"Download the MCP server app \"{update.app}\" {update.latest} (I have {update.current}, in "
-                f"{APPS / (update.app + '-' + update.current)}). Release (found by an automatic web look-up: "
+                f"{folder}). Release (found by an automatic web look-up: "
                 f"check first that it is the app's official project): {update.url}\n"
                 f"Get the Linux x86_64 AppImage of {update.latest} from that official release only and save it in "
                 f"{APPS} under its release file name. Check its SHA-256 against the checksum the release "

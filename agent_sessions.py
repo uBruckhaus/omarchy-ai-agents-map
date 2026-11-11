@@ -257,7 +257,10 @@ def omp_db(db: Path | None = None, now: float | None = None) -> dict:
     if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
         return {}
     try:
-        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=1.0)
+        import readonly_sqlite
+        con = readonly_sqlite.connect(db)
+        if con is None:
+            return {}
     except sqlite3.Error:
         return {}
     try:
@@ -289,7 +292,10 @@ def _sqlite_rows(db: Path, query: str, params=()) -> list:
     if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
         return []
     try:
-        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=1.0)
+        import readonly_sqlite
+        con = readonly_sqlite.connect(db)
+        if con is None:
+            return []
     except sqlite3.Error:
         return []
     try:

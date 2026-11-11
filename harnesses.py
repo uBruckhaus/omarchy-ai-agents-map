@@ -6,7 +6,7 @@ Each module defines HARNESS = Harness(...). Its capabilities are optional (None:
 - sessions: the harness's sessions as claude_sessions.Session objects (numbers only: folder, times,
   working time, tokens per model, lines changed, cost, subagent runs), so the details page shows the
   same "Projects, last 30 days" for every harness. Session titles and summaries are not here: they
-  come from add-ons (Insights), which only Asterism loads (see edition.py).
+  come from add-ons (Insights), which only AI Agents Map loads (see edition.py).
 
 The database readers open the harness's own store read-only and take only the numeric and folder
 columns they name, never message text.
@@ -151,6 +151,8 @@ class Harness:
     package: str = ""                 # pacman package that also counts as installed
     package_only: bool = False        # installed only as that package (OpenClaw)
     own_install_counts: bool = True   # a file of the user's own at ~/.local/bin/<command> counts (not Hermes)
+    install_marks: tuple = ()         # path parts that prove a program by its name is this agent's
+                                      # (agents.proven): then it counts despite the two above
     installer: Callable | None = None  # installer() -> install_ctl.Installer: the app installs it itself
     download: Download | None = None   # or: what the app installs, as data (install_ctl.Declared)
     detect: Callable | None = None    # detect() -> (installed, version, source) when none of the above fits
@@ -161,6 +163,8 @@ class Harness:
     usage: Callable | None = None     # usage() -> agent_status.Usage from its own session store (else the
                                       # app derives it from `sessions`)
     limits: Callable | None = None    # limits() -> (plan, [agent_details.Limit]) from its own store
+    plan_limits: tuple = ()           # (rpc, argv, home_env, store): its plan's limits asked of its own program
+                                      # where no Omarchy collector is (adapter_data.LIMIT_RPCS, PLAN_LIMITS)
     access: Callable | None = None    # access() -> agent_status.Access: what it needs to work
     login_status: tuple | None = None  # (argv, text meaning "no", text meaning "yes")
     local_llm: LocalLlm | None = None  # can be pointed at a local LLM from the map (connect)
@@ -213,13 +217,9 @@ class Harness:
 # --- helpers for the adapters ----------------------------------------------------------------------
 
 def connect(path: Path):
-    """Read-only, never creating anything; None when it cannot be opened."""
-    if not path.is_file():
-        return None
-    try:
-        return sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=DB_TIMEOUT)
-    except sqlite3.Error:
-        return None
+    """A bounded, own-UID read-only memory snapshot; no SQLite sidecar writes."""
+    import readonly_sqlite
+    return readonly_sqlite.connect(path)
 
 
 def number(value) -> int:
@@ -314,7 +314,7 @@ _BUILT_IN: list = []
 
 
 def hide_built_in(commands) -> None:
-    """Asterism: these agents come as add-ons (installed, signed), so only the add-on, when it is
+    """AI Agents Map: these agents come as add-ons (installed, signed), so only the add-on, when it is
     switched on, shows them; the AI Agents Map plugin never hides any."""
     _HIDDEN.clear()
     _HIDDEN.update(commands)
@@ -365,7 +365,7 @@ def _extended(harness: Harness) -> Harness:
 # app's own adapter for the same agent gives them until the add-on is signed again.
 NEWER_FACTS = ("home", "activity", "details", "program_dir", "web_search", "chat_app", "herdr", "logout",
                "start", "research", "rewrite", "task", "closed", "advise", "models", "tools_setting", "sandbox_setting",
-               "asks_setting", "replies", "subagents", "sessions")
+               "asks_setting", "replies", "subagents", "sessions", "install_marks", "plan_limits")
 
 
 def _with_newer_facts(harness: Harness) -> Harness:
@@ -373,6 +373,13 @@ def _with_newer_facts(harness: Harness) -> Harness:
     if own is None or own is harness:
         return harness
     filled = {n: getattr(own, n) for n in NEWER_FACTS if _empty(harness, n) and not _empty(own, n)}
+    if harness.plan_limits and own.plan_limits:
+        # home_env and store are newer than rpc and argv: an add-on signed with the earlier table
+        # gets them from the app's own adapter, as security.sandbox or access.logout.
+        mine = tuple(harness.plan_limits) + ("", ())[len(harness.plan_limits) - 2:]
+        merged = mine[:2] + tuple(m or o for m, o in zip(mine[2:], own.plan_limits[2:]))
+        if merged != tuple(harness.plan_limits):
+            filled["plan_limits"] = merged
     if "research" in filled or (harness.research_output == "text" and own.research_output != "text" and own.research) \
             or ("{prompt}" in harness.research and own.research and "{prompt}" not in own.research):
         # The format belongs to its command; an add-on's look-up that only answers in text (signed

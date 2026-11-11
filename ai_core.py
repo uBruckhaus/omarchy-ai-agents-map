@@ -1,6 +1,6 @@
 """AI Agents Map - settings and small helpers shared by the popup.
 
-Settings live in desktop.config_dir()/settings.json (~/.config/omarchy/ai-agents-map on Omarchy; private, written
+Settings live in desktop.config_dir()/settings.json (identity.py selects the edition's folder; private, written
 atomically, read with a size cap). Nothing here starts a network request.
 """
 
@@ -8,7 +8,6 @@ import json
 import os
 import stat
 import subprocess
-import tempfile
 import threading
 import time
 from pathlib import Path
@@ -90,28 +89,123 @@ def load_settings(path: Path | None = None) -> dict:
         with os.fdopen(fd, "rb") as handle:
             if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
                 return {}
-            data = json.loads(handle.read(SETTINGS_MAX_BYTES + 1)[:SETTINGS_MAX_BYTES] or b"{}")
+            raw = handle.read(SETTINGS_MAX_BYTES + 1)
+            if len(raw) > SETTINGS_MAX_BYTES:
+                return {}
+            data = json.loads(raw or b"{}")
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
 
 
-def atomic_write(path: Path, text: str | bytes, mode: int = 0o600, dir_mode: int = 0o700) -> None:
-    """A unique temporary file next to it (mkstemp: created new, never through a link left there),
-    its mode set before anything is written, fsync, then replace. 0600 unless mode says otherwise."""
-    path.parent.mkdir(parents=True, exist_ok=True, mode=dir_mode)
-    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}-", dir=str(path.parent))
+def _trusted_private_directory(fd: int) -> None:
+    info = os.fstat(fd)
+    if (info.st_uid not in (0, os.getuid()) or
+            (info.st_mode & 0o022 and not info.st_mode & stat.S_ISVTX)):
+        raise PermissionError('Unsafe private-write ancestor')
+
+
+def _resolve_private_parent(path: Path) -> Path:
+    """Resolve existing links once, checking even directories hidden by a link.
+
+    This descriptor-based realpath also permits a missing suffix. The caller
+    subsequently pins the returned chain with a second no-follow walk.
+    """
+    import errno
+    from collections import deque
+    pending = deque(path.parts[1:])
+    resolved = []
+    fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    links = 0
     try:
-        data = text if isinstance(text, bytes) else text.encode("utf-8")
-        with os.fdopen(fd, "wb") as handle:
-            os.fchmod(handle.fileno(), mode)
+        _trusted_private_directory(fd)
+        while pending:
+            part = pending.popleft()
+            if part in ('', '.'):
+                continue
+            if part == '..':
+                child = os.open('..', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+                os.close(fd)
+                fd = child
+                if resolved:
+                    resolved.pop()
+                _trusted_private_directory(fd)
+                continue
+            try:
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+            except FileNotFoundError:
+                return Path(os.path.normpath(str(Path('/', *resolved, part, *pending))))
+            except OSError as error:
+                if error.errno not in (errno.ELOOP, errno.ENOTDIR):
+                    raise
+                target = os.readlink(part, dir_fd=fd)
+                links += 1
+                if links > 40:
+                    raise OSError(errno.ELOOP, 'Too many parent symlinks')
+                if target.startswith('/'):
+                    os.close(fd)
+                    fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+                    resolved.clear()
+                    _trusted_private_directory(fd)
+                pending.extendleft(reversed(Path(target).parts[1:] if target.startswith('/') else Path(target).parts))
+                continue
+            os.close(fd)
+            fd = child
+            resolved.append(part)
+            _trusted_private_directory(fd)
+        return Path('/', *resolved)
+    finally:
+        os.close(fd)
+
+
+def atomic_write(path: Path, text: str | bytes, mode: int = 0o600, dir_mode: int = 0o700) -> None:
+    """Create a unique no-follow temporary file via a pinned parent descriptor,
+    set its mode before writing, fsync, replace and fsync the directory. 0600 by default."""
+    # Resolve the user's symlink layout once, then pin the resolved chain.
+    # Both passes reject untrusted owners and non-sticky writable ancestors.
+    import secrets
+    path = Path(os.path.abspath(path))
+    resolved_parent = _resolve_private_parent(path.parent)
+    parent = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    tmp = None
+    created = False
+    fd = None
+    try:
+        _trusted_private_directory(parent)
+        for part in resolved_parent.parts[1:]:
+            try:
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=parent)
+            except FileNotFoundError:
+                try:
+                    os.mkdir(part, mode=dir_mode, dir_fd=parent)
+                except FileExistsError:
+                    pass
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=parent)
+            os.close(parent)
+            parent = child
+            _trusted_private_directory(parent)
+        tmp = f'.{path.name}-{secrets.token_hex(16)}'
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                     mode, dir_fd=parent)
+        created = True
+        os.fchmod(fd, mode)
+        data = text if isinstance(text, bytes) else text.encode('utf-8')
+        with os.fdopen(fd, 'wb') as handle:
+            fd = None
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(tmp, path)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
+        os.replace(tmp, path.name, src_dir_fd=parent, dst_dir_fd=parent)
+        os.fsync(parent)
+    finally:
+        if fd is not None:
+            os.close(fd)
+        if created and tmp is not None:
+            try:
+                os.unlink(tmp, dir_fd=parent)
+            except FileNotFoundError:
+                pass
+        os.close(parent)
 
 
 NOT_PLAIN = str.maketrans({c: None for c in "<>&" + "".join(map(chr, [*range(32), *range(0x7f, 0xa0)]))})
@@ -196,13 +290,53 @@ def update_settings(path: Path | None = None, **values) -> None:
     if unknown:
         raise KeyError(f"not a declared setting: {', '.join(unknown)} (settings_schema.SCHEMA)")
     path = path or settings_file()
+    lock = _settings_lock(path)
+    try:
+        _update_locked(path, values)
+    finally:
+        os.close(lock)
+
+
+def _settings_lock(path: Path) -> int:
+    """One writer at a time (the app's core, another build of the app): an exclusive flock on
+    <settings>.lock beside the settings, this account's own regular file, never through a link.
+    Missing folders are made 0700, as atomic_write makes them."""
+    import fcntl
+    missing = []
+    folder = Path(os.path.abspath(path)).parent
+    while not folder.exists():
+        missing.append(folder)
+        folder = folder.parent
+    for folder in reversed(missing):
+        try:
+            os.mkdir(folder, 0o700)
+        except FileExistsError:
+            pass
+    fd = os.open(f"{os.path.abspath(path)}.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
+        os.close(fd)
+        raise OSError("Untrusted settings lock")
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    return fd
+
+
+def _update_locked(path: Path, values: dict) -> None:
     data = load_settings(path)
     for key, value in values.items():
         if value is None:
             data.pop(key, None)
         else:
             data[key] = value
-    atomic_write(path, json.dumps(data, indent=2) + "\n")
+    history = data.get('agent_project_history')
+    if isinstance(history, dict):
+        data['agent_project_history'] = {key: entries[:50] for key, entries in history.items()
+                                         if isinstance(entries, list)}
+    text = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+    if len(text.encode("utf-8")) > SETTINGS_MAX_BYTES:
+        # Preserve the existing settings if unusually large values still exceed the byte cap.
+        raise OSError("Settings exceed the readable size limit; existing settings were preserved")
+    atomic_write(path, text)
 
 
 def start_view(path: Path | None = None) -> str:

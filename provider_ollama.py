@@ -23,7 +23,7 @@ class Engine(llm_engine.Engine):
 
     def loaded_models(self, rt):
         found = {}
-        for row in (llm_engine._http(rt, "/api/ps") or {}).get("models", [])[:100]:
+        for row in llm_engine.rows(llm_engine._http(rt, "/api/ps"), "models", 100):
             if isinstance(row, dict) and row.get("name"):
                 found[str(row["name"]).lower()] = "loaded"
         return found
@@ -39,8 +39,8 @@ class Engine(llm_engine.Engine):
         return (True, "") if self._keep(rt, model, 0, 30) else (False, "it did not unload the model")
 
     def unload_all(self, rt):
-        rows = (llm_engine._http(rt, "/api/ps") or {}).get("models", [])
-        ids = [str(r.get("name")) for r in rows if isinstance(r, dict) and r.get("name")]
+        listed = llm_engine.rows(llm_engine._http(rt, "/api/ps"), "models", 100)
+        ids = [str(r.get("name")) for r in listed if isinstance(r, dict) and r.get("name")]
         failed = [i for i in ids if not self._keep(rt, i, 0, 30)]
         return (False, f"could not unload {', '.join(failed)[:200]}") if failed else (True, "")
 
@@ -182,3 +182,67 @@ PROVIDER = Provider("ollama", "Ollama", "local", detect=_detect, installer=_inst
                     data=("~/.ollama",),
                     configure=(Configure("Ollama's menu", ("ollama", "launch")),),
                     homepage="https://ollama.com")
+
+
+def _discover_existing(folder, names, mount, device):
+    from existing_ai import safe, program
+    rows = []
+    candidate = None
+    for relative in ('current/bin/ollama', 'current/ollama', 'ollama'):
+        if relative.split('/')[0] in names:
+            candidate = program(folder / relative, mount, device)
+            if candidate:
+                break
+    if candidate:
+        rows.append({'kind': 'runtime', 'provider': PROVIDER.key, 'name': PROVIDER.name,
+                     **candidate, 'models': '', 'count': 0, 'environment': {}, 'dependencies': []})
+    if ('manifests' in names or 'manifests-v2' in names) and 'blobs' in names:
+        if safe(folder / 'blobs', mount, device) and any(safe(folder / n, mount, device)
+                                                       for n in ('manifests', 'manifests-v2')):
+            rows.append({'kind': 'store', 'provider': PROVIDER.key, 'name': PROVIDER.name,
+                         'path': str(folder), 'models': '', 'count': 0, 'environment': {}, 'dependencies': []})
+    return rows
+
+
+def _reconnect_existing(record, models):
+    from pathlib import Path
+    from flutter_existing import wrapper, service_files
+    if models is None or models['kind'] != 'store' or models['provider'] != PROVIDER.key:
+        raise ValueError('Choose a discovered model store for this provider')
+    record = {**record, 'environment': {**record['environment'], 'OLLAMA_MODELS': models['path'],
+                                      'OLLAMA_HOST': '127.0.0.1:11434'}}
+    env = 'OLLAMA_MODELS="' + models['path'] + '"\nOLLAMA_HOST=127.0.0.1:11434\n'
+    return service_files(record, 'ollama', wrapper(record, ['serve']),
+                         [record['mount']['path'], models['mount']['path']],
+                         [(Path('.config/ollama/server.env'), env)])
+
+
+import dataclasses as _dataclasses
+PROVIDER = _dataclasses.replace(PROVIDER, discover_existing=_discover_existing, reconnect_existing=_reconnect_existing)
+
+
+def _model_folder_changes(rt, folder):
+    import shlex
+    import connect
+    import install_ctl
+    from flutter_existing import HOME
+    if any(c in str(folder) for c in ('\\','"','\n','\r')):raise ValueError('Unsupported model-folder quoting')
+    if not (folder/'blobs').is_dir() or not any((folder/name).is_dir() for name in ('manifests','manifests-v2')):raise ValueError('Choose an Ollama model store')
+    inst=install_ctl.Ollama()
+    env=inst.env_file
+    if env.is_symlink():raise ValueError('Environment file is a symbolic link')
+    old=connect._read(env)
+    if not old:raise ValueError('No editable provider environment')
+    changes=[connect.Change(env,old,llm_engine.env_with(old,'OLLAMA_MODELS',str(folder)))]
+    link=HOME/'.local/bin/ollama'
+    if not link.is_symlink() and link.is_file():
+        text=connect._read(link)
+        if not any(m in text for m in ('# Connected by AI Agents Map', '# Connected by Maprisma', '# Connected by Asterism')):raise ValueError('Use AI help to review this custom wrapper')
+        before='export OLLAMA_MODELS='+shlex.quote(rt.models_dir)
+        if before not in text:raise ValueError('Wrapper model path changed')
+        changes.append(connect.Change(link,text,text.replace(before,'export OLLAMA_MODELS='+shlex.quote(str(folder)),1)))
+    elif inst.installed_folder() is None:raise ValueError('Runtime is not managed here')
+    return changes
+
+
+PROVIDER = _dataclasses.replace(PROVIDER, model_folder_changes=_model_folder_changes)

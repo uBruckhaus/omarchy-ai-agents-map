@@ -41,17 +41,20 @@ class Provider:
     configure: tuple = ()             # (harnesses.Configure, …): its own setup commands or app window
     engine: object = None             # llm_engine.Engine: how the app starts, stops, asks and explains it
                                       # (None: llm_engine.Engine(), a user service + an OpenAI-compatible API)
+    discover_existing: Callable | None = None  # bounded mounted-folder detector, never executes
+    reconnect_existing: Callable | None = None  # discovered record -> new connecting files
+    model_folder_changes: Callable | None = None  # runtime + folder -> reviewed config changes
     # online providers
     ids: tuple = ()                   # names used in agent settings ("anthropic", "openai-codex")
     agents: tuple = field(default=())  # agents that come with this provider ("claude")
 
 
 _HIDDEN: set = set()       # built-in providers an installed add-on brings instead (hide_built_in)
-LOCAL_ORDER = ("llamacpp", "ollama", "lmstudio", "vllm", "jan", "koboldcpp")
+LOCAL_ORDER = ("llamacpp", "ollama", "lmstudio", "vllm", "jan", "koboldcpp", "strata")
 
 
 def hide_built_in(keys) -> None:
-    """Asterism: these providers come as add-ons (see harnesses.hide_built_in)."""
+    """AI Agents Map: these providers come as add-ons (see harnesses.hide_built_in)."""
     _HIDDEN.clear()
     _HIDDEN.update(keys)
     _forget()
@@ -71,10 +74,11 @@ def built_in_local() -> tuple:
     import provider_llamacpp
     import provider_lmstudio
     import provider_ollama
+    import provider_strata
     import provider_vllm
     # Order: how the map and the cards list them.
     return (provider_llamacpp.PROVIDER, provider_ollama.PROVIDER, provider_lmstudio.PROVIDER,
-            provider_vllm.PROVIDER, provider_jan.PROVIDER, provider_koboldcpp.PROVIDER)
+            provider_vllm.PROVIDER, provider_jan.PROVIDER, provider_koboldcpp.PROVIDER, provider_strata.PROVIDER)
 
 
 def built_in_online() -> tuple:

@@ -94,7 +94,8 @@ def split_address(text: str) -> tuple[str, int]:
     if host.startswith("::ffff:"):
         host = host[7:]
     host = host.split("%")[0]
-    return host, int(port) if port.isdigit() else 0
+    import gpu_usage
+    return host, gpu_usage.port_number(port)
 
 
 # --- where it goes --------------------------------------------------------------------------------

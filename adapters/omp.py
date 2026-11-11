@@ -30,20 +30,7 @@ def models_text(text: str, provider: str, url: str, models: list, context: dict,
     if not models:
         entry[-1] = "    models: []"
     entry_text = "\n".join(entry) + "\n"
-    block = connect._top_block(text, "providers")
-    if block is None:
-        if remove:
-            return text
-        return text + ("" if text.endswith("\n") or not text else "\n") + "providers:\n" + entry_text
-    start, end = block
-    header, _nl, rest = text[start:end].partition("\n")
-    # Our entry: from "  <provider>:" to the next two-space key.
-    rest = re.sub(rf"^  {re.escape(provider)}:.*\n(?:(?:    |\t\t).*\n?|\s*\n)*", "", rest, flags=re.MULTILINE)
-    if not remove:
-        rest = rest.rstrip("\n") + ("\n" if rest.strip() else "") + entry_text
-    header = "providers:" if header.strip() in ("providers: {}", "providers:{}") else header
-    body = header + "\n" + rest if rest.strip() else ("" if remove else header + "\n")
-    return text[:start] + body + text[end:]
+    return connect.providers_entry_replaced(text, entry_text, provider, remove)
 
 
 def _role_value(text: str):
@@ -85,9 +72,7 @@ def config_text(text: str, provider: str, model: str, use_now: bool, remove: boo
 
 def local_llm_connected(texts, provider):
     import connect
-    block = connect._top_block(texts[0], "providers")
-    return bool(block) and re.search(rf"^  {re.escape(provider)}:", texts[0][block[0]:block[1]],
-                                     re.MULTILINE) is not None
+    return provider in connect.provider_keys(texts[0])
 
 
 def local_llm_active(texts, provider):

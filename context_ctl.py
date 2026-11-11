@@ -229,6 +229,47 @@ def llama_settings(name: str, ini: Path | None = None) -> tuple[int, str]:
     return (int(ctx) if ctx.isdigit() else 0), cache
 
 
+def llama_own_context(name: str, ini: Path | None = None) -> int:
+    """The ctx-size of the model's own section (0: none; "[*]" does not count)."""
+    try:
+        sections = _ini_sections((ini or MODELS_INI).read_text(encoding="utf-8"))
+    except OSError:
+        sections = {}
+    ctx = sections.get(name, {}).get("ctx-size", "")
+    return int(ctx) if ctx.isdigit() else 0
+
+
+# What the app sets along with a context it worked out, where nothing is set yet (own section or
+# "[*]"): a q8_0 KV cache (half the memory of f16, so about twice the context) and flash attention,
+# which a quantized KV cache needs. A setting the user chose stays.
+SIZED = (("cache-type-k", "q8_0"), ("cache-type-v", "q8_0"), ("flash-attn", "on"))
+
+
+def llama_effective(text: str, name: str) -> dict:
+    """The settings a model runs with: "[*]", then its own section over it."""
+    sections = _ini_sections(text)
+    return {**sections.get("*", {}), **sections.get(name, {})}
+
+
+def llama_auto_cache(name: str, ini: Path | None = None) -> str:
+    """The KV cache type a context the app works out is sized for: the one set, else q8_0."""
+    try:
+        text = (ini or MODELS_INI).read_text(encoding="utf-8")
+    except OSError:
+        text = ""
+    return llama_effective(text, name).get("cache-type-k") or "q8_0"
+
+
+def llama_sized_text(old: str, name: str, ctx: int) -> str:
+    """models.ini with the model's ctx-size, and SIZED where nothing is set; the rest stays."""
+    have = llama_effective(old, name)
+    text = llama_context_text(old, name, ctx)
+    for key, value in SIZED:
+        if not have.get(key):
+            text = ini_text(text, name, key, value)
+    return text
+
+
 def llama_context_text(old: str, name: str, ctx: int) -> str:
     """models.ini with ctx-size set in the model's section (made if missing); the rest stays."""
     if not 0 < ctx < 10_000_000:
