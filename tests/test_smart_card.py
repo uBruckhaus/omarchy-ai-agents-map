@@ -100,5 +100,77 @@ class AskTest(unittest.TestCase):
         self.assertEqual(kept.get(tokens[-1], "c1")["action"], {"n": 9})
 
 
+
+MCP = {"column": "mcp", "request": "x", "agents": [{"command": "claude", "name": "Claude Code", "mcp": True},
+                                                   {"command": "codex", "name": "Codex", "mcp": True}],
+       "mcp": {"fetch": ["claude"]}, "skills": {"s1": ["claude"]}, "skill_paths": {"s1": "/home/u/skills"}}
+MODELS = {"column": "models", "request": "x", "runtimes": [{"key": "ollama", "name": "Ollama", "models": ["qwen3:8b"]}],
+          "limits": {"vram": 24}, "model_users": [{"key": "ollama", "name": "Ollama",
+                                                   "used_by": {"qwen3:8b": ["pi", "claude"]}}],
+          "agent_names": {"pi": "Pi"}}
+
+
+class ColumnsTest(unittest.TestCase):
+    def setUp(self):
+        self.searches = []
+        sc.SEARCH_MCP = lambda q: self.searches.append(q) or [{"name": "io.github.a/notes", "title": "Notes",
+                                                              "description": "d"}]
+        sc.SEARCH_MODELS = lambda q: self.searches.append(q) or [{"repo": "org/Qwen3-8B-GGUF", "task": "", "downloads": 1}]
+
+    def tearDown(self):
+        sc.SEARCH_MCP, sc.SEARCH_MODELS = sc.search_mcp, sc.search_models
+
+    def answers(self, *texts):
+        texts = list(texts)
+        return lambda command, prompt: texts.pop(0)
+
+    def test_an_mcp_search_picks_only_real_results(self):
+        out = sc.ask(helper(), MCP, run=self.answers(
+            '{"action": "search", "query": "notes", "agents": ["codex", "nobody"]}',
+            '{"summary": "One fits.", "picks": [{"name": "io.github.a/notes", "reason": "notes"}, {"name": "made/up"}]}'))
+        self.assertEqual(self.searches, ["notes"])
+        self.assertEqual([c["action"] for c in out["candidates"]],
+                         [{"kind": "mcp_add", "name": "io.github.a/notes", "agents": ["codex"]}])
+
+    def test_connect_and_disconnect_only_what_is_real(self):
+        out = sc.ask(helper(), MCP, run=self.answers('{"action": "connect", "server": "fetch", "agents": ["claude", "codex"]}'))
+        self.assertEqual([c["action"]["source"] for c in out["candidates"]], ["agent:codex"])     # claude has it
+        out = sc.ask(helper(), MCP, run=self.answers(
+            '{"action": "disconnect", "servers": ["fetch"], "skills": ["s1"], "agents": ["claude"]}'))
+        self.assertEqual([c["action"]["target"] for c in out["candidates"]], ["mcp:fetch", "skills:/home/u/skills"])
+        self.assertTrue(all(c["action"]["remove"] for c in out["candidates"]))
+        out = sc.ask(helper(), MCP, run=self.answers('{"action": "connect", "server": "nope", "agents": ["claude"]}'))
+        self.assertEqual(out["status"], "error")
+
+    def test_no_paths_in_the_mcp_prompt(self):
+        self.assertNotIn("/home/u/skills", sc.mcp_prompt(MCP))
+
+    def test_a_model_search_and_its_picks(self):
+        out = sc.ask(helper(), MODELS, run=self.answers(
+            '{"action": "search", "query": "qwen", "runtime": "ollama"}',
+            '{"picks": [{"repo": "org/Qwen3-8B-GGUF", "reason": "fits"}, {"repo": "org/fake"}]}'))
+        self.assertEqual([c["action"] for c in out["candidates"]],
+                         [{"kind": "model_download", "runtime": "ollama", "repo": "org/Qwen3-8B-GGUF"}])
+        out = sc.ask(helper(), MODELS, run=self.answers('{"action": "search", "query": "qwen", "runtime": "vllm"}'))
+        self.assertEqual(out["status"], "error")
+
+    def test_remove_and_disconnect_models(self):
+        out = sc.ask(helper(), MODELS, run=self.answers('{"action": "remove", "runtime": "ollama", "model": "qwen3:8b"}'))
+        self.assertEqual(out["candidates"][0]["kind"], "model_remove")
+        out = sc.ask(helper(), MODELS, run=self.answers('{"action": "remove", "runtime": "ollama", "model": "other"}'))
+        self.assertEqual(out["status"], "error")
+        out = sc.ask(helper(), MODELS, run=self.answers('{"action": "disconnect", "runtime": "ollama", "models": []}'))
+        self.assertEqual([c["title"] for c in out["candidates"]], ["Pi → Ollama", "claude → Ollama"])
+
+    def test_an_agent_to_a_provider(self):
+        info = {"providers": {"runtime:ollama": "Ollama", "cloud:anthropic": "Anthropic"},
+                "uses": {"claude": ["cloud:anthropic"]}}
+        f = facts("agents", providers_of=info)
+        out = sc.ask(helper(), f, run=answering('{"action": "connect", "agent": "claude", "provider": "runtime:ollama"}'))
+        self.assertEqual(out["candidates"][0]["action"], {"kind": "map_link", "source": "agent:claude",
+                                                           "target": "runtime:ollama", "remove": False})
+        out = sc.ask(helper(), f, run=answering('{"action": "disconnect", "agent": "claude", "provider": "runtime:ollama"}'))
+        self.assertEqual(out["status"], "error")
+
 if __name__ == "__main__":
     unittest.main()

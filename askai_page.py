@@ -278,6 +278,7 @@ class AskAiPage:
                 })
             facts["agents"] = agents
             facts["addons"] = self.smart_addon_facts(agents=True)
+            facts["providers_of"] = self.smart_provider_links()
         elif column == "providers":
             import install_ctl
             providers = []
@@ -291,7 +292,62 @@ class AskAiPage:
                 })
             facts["providers"] = providers
             facts["addons"] = self.smart_addon_facts(agents=False)
+        elif column == "mcp":
+            import mcp_ctl
+            installed = [a for a in self.agent_list if a.installed]
+            facts["agents"] = [{"command": a.command, "name": a.name, "mcp": bool(mcp_ctl.supported(a.command))}
+                               for a in installed]
+            facts["mcp"] = {m.name: list(m.agents) for m in self.inventory.mcp}
+            # Skill folders as short ids: their paths stay here, never in the prompt.
+            sets = list(self.inventory.skill_sets)[:60]
+            facts["skill_paths"] = {f"s{i + 1}": s.path for i, s in enumerate(sets)}
+            facts["skills"] = {f"s{i + 1}": list(s.agents) for i, s in enumerate(sets)}
+        elif column == "models":
+            import shutil
+            import install_ctl
+            import models_ctl
+            runtimes = [r for r in self.inventory.runtimes if r.installed]
+            facts["runtimes"] = [{"key": r.key, "name": r.name, "models": list(r.models)[:40]} for r in runtimes]
+            free = 0
+            try:
+                free = max((shutil.disk_usage(r.models_dir).free for r in runtimes if r.models_dir), default=0)
+            except OSError:
+                pass
+            facts["limits"] = {"vram": install_ctl.detect_gpu().vram, "ram": models_ctl.system_ram(),
+                               "free_disk": free}
+            facts["model_users"] = self.smart_model_users()
+            facts["agent_names"] = {a.command: a.name for a in self.agent_list}
         return facts
+
+    def smart_provider_links(self) -> dict:
+        """The providers an agent can be connected to (the map's online providers and local LLMs) and
+        which each agent uses now (its lines), for the Agents column's connect and disconnect."""
+        built = getattr(self.side_map, "graph", None)
+        if built is None:
+            return {"providers": {}, "uses": {}}
+        providers = {n.id: n.label for n in built.nodes if n.kind in ("cloud", "runtime")}
+        uses = {}
+        for edge in built.edges:
+            if edge.kind in ("uses", "available") and edge.source.startswith("agent:") and edge.target in providers:
+                uses.setdefault(edge.source[6:], []).append(edge.target)
+        return {"providers": providers, "uses": uses}
+
+    def smart_model_users(self) -> list:
+        """[{key, name, used_by: {model: [agents]}}]: the local LLMs' models agents use (their lines)."""
+        built = getattr(self.side_map, "graph", None)
+        if built is None:
+            return []
+        labels = {n.id: n.label for n in built.nodes}
+        found = {}
+        for edge in built.edges:
+            if edge.kind != "default" or not edge.source.startswith("agent:") \
+                    or not edge.target.startswith("model:runtime:"):
+                continue
+            key = edge.target[len("model:runtime:"):].partition(":")[0]
+            rt = next((r for r in self.inventory.runtimes if r.key == key), None)
+            entry = found.setdefault(key, {"key": key, "name": rt.name if rt else key, "used_by": {}})
+            entry["used_by"].setdefault(labels.get(edge.target, edge.target), []).append(edge.source[6:])
+        return list(found.values())
 
     def smart_addon_facts(self, agents: bool) -> list:
         """The add-ons of a column, as Maprisma's _smartAddonFacts: what can be done with each."""
@@ -346,7 +402,7 @@ class AskAiPage:
             return
         if state == "redirect":
             instead = result.get("instead") or {}
-            text(instead.get("hint", ""), selectable=True)
+            text(_(instead.get("hint", "")), selectable=True)     # the helper's words, or the app's own (translated)
             column = instead.get("column")
             if column in smart_card.COLUMNS and column != self.ask_column:
                 move = Gtk.Button(label=_("Move to {0}").format(_(COLUMN_TITLES[column])), halign=Gtk.Align.START)
@@ -445,12 +501,33 @@ class AskAiPage:
                     self.offer_configure("agent", key)
                 else:
                     self.open_agent_status(agent)        # details, security (a section there), configure
+            elif area == "mcp":
+                self.open_add_mcp()
+            elif area == "models":
+                self.open_reorganize()                   # Tidy up: each move shown first
             elif area == "addons":
                 if step in ("on", "off"):
                     addon_store.set_enabled(key, step == "on")
                     self.reload_addons()
                 else:
                     self.open_addons(key)                # details, install, update, remove: its own buttons
+        elif kind == "map_link":
+            # The same review as a line drawn (or a hook dragged off) on the map.
+            self.on_map_link(action["source"], action["target"], remove_only=action["remove"])
+        elif kind == "mcp_add":
+            # Add MCP server, the registry searched for it and the agents ticked: its own form and review.
+            self.open_add_mcp()
+            for command, check in getattr(self, "add_checks", {}).items():
+                check.set_active(command in action.get("agents", []))
+            self.add_query.set_text(action["name"])
+            self.search_mcp()
+        elif kind in ("model_download", "model_remove"):
+            rt = next((r for r in self.inventory.runtimes if r.key == action["runtime"]), None)
+            if rt is not None:
+                self.open_models(rt)                     # its models: download (sizes that fit) or delete
+                if kind == "model_download":
+                    self.models_search.set_text(action["repo"])
+                    self.search_models()
         elif kind == "agent_task":
             self.do_with_agent(f"smart-card:{action['command']}", _("Ask AI"), action["prompt"],
                                agent=action["command"])

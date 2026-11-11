@@ -3480,5 +3480,10 @@
  "not possible for this agent": "Non possibile per questo agente",
  "not possible for this provider": "Non possibile per questo provider",
  "not possible for this add-on": "Non possibile per questo componente",
- "This column comes in a later step of the port.": "Questa colonna arriva in un passo successivo."
+ "This column comes in a later step of the port.": "Questa colonna arriva in un passo successivo.",
+ "Nothing to do: they use it already.": "Niente da fare: lo usano già.",
+ "No MCP server found for that. Try other words.": "Nessun server MCP trovato per questo. Prova altre parole.",
+ "Nothing to do: none of them uses it.": "Niente da fare: nessuno lo usa.",
+ "Nothing to do: no agent uses those models.": "Niente da fare: nessun agente usa questi modelli.",
+ "No model found for those words. Try other words.": "Nessun modello trovato per queste parole. Prova altre parole."
 }

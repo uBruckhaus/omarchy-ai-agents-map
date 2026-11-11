@@ -3480,5 +3480,10 @@
  "not possible for this agent": "Niet mogelijk voor deze agent",
  "not possible for this provider": "Niet mogelijk voor deze provider",
  "not possible for this add-on": "Niet mogelijk voor deze add-on",
- "This column comes in a later step of the port.": "Deze kolom komt in een latere stap."
+ "This column comes in a later step of the port.": "Deze kolom komt in een latere stap.",
+ "Nothing to do: they use it already.": "Niets te doen: ze gebruiken het al.",
+ "No MCP server found for that. Try other words.": "Daarvoor is geen MCP-server gevonden. Probeer andere woorden.",
+ "Nothing to do: none of them uses it.": "Niets te doen: geen van hen gebruikt het.",
+ "Nothing to do: no agent uses those models.": "Niets te doen: geen agent gebruikt die modellen.",
+ "No model found for those words. Try other words.": "Geen model gevonden voor die woorden. Probeer andere woorden."
 }

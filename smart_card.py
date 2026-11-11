@@ -47,6 +47,8 @@ MENU_NAMES = {
                "halt": "Stop external instance", "configure": "Connections", "details": "Details"},
     "addons": {"details": "Details", "on": "Switch on", "off": "Switch off", "install": "Install",
                "update": "Update", "remove": "Remove"},
+    "mcp": {"found": "Found on this PC"},
+    "models": {"move": "Tidy up…"},
 }
 AGENT_STEPS = {"install": "install", "update": "update", "remove": "uninstall", "login": "login",
                "logout": "logout", "verify": "verify"}
@@ -138,6 +140,11 @@ def agents_prompt(facts: dict) -> str:
             '{"action": "details", "agents": ["<commands>"]}\n'
             "to open its details page.\n"
             "naming only agents for which that action is true above.\n"
+            f"Providers an agent can be connected to, and which each agent uses now: "
+            f"{json.dumps(facts.get('providers_of', {}))}.\n"
+            '{"action": "connect", "agent": "<command>", "provider": "<id of a provider listed there>"}\n'
+            '{"action": "disconnect", "agent": "<command>", "provider": "<id of a provider it uses>"}\n'
+            "when an agent should use a provider or stop using it; the user sees the change before it is made.\n"
             + tail(facts, "agent", "mcp, providers or models", "for anything else beyond the listed actions."))
 
 
@@ -231,12 +238,25 @@ def addons_answer(answer: dict, facts: dict) -> dict:
                      for i, a in enumerate(found)])
 
 
-def agents_answer(answer: dict, facts: dict) -> dict:
+def agents_answer(answer: dict, facts: dict, more=None) -> dict:
     action = answer.get("action")
     if action in ("lookup", "clarify", "redirect"):
         return checked(answer)
     if action == "addon":
         return addons_answer(answer, facts)
+    if action in ("connect", "disconnect"):
+        # A line on the map from an agent to a provider: the map's own review shows what changes.
+        info = facts.get("providers_of", {})
+        agent, provider = answer.get("agent"), answer.get("provider")
+        known = info.get("providers", {})
+        uses = info.get("uses", {}).get(agent, [])
+        name = next((a.get("name") for a in facts.get("agents", []) if a.get("command") == agent), None)
+        if name is None or provider not in known or (action == "disconnect") != (provider in uses):
+            raise SmartError(NOT_POSSIBLE)
+        return proposal([{"id": "c1", "kind": "map_link", "title": f"{line(name)} → {line(known[provider])}",
+                          "subtitle": "Disconnect" if action == "disconnect" else "Connect", "reason": "",
+                          "action": {"kind": "map_link", "source": f"agent:{agent}", "target": provider,
+                                     "remove": action == "disconnect"}}])
     named = answer.get("agents") if isinstance(answer.get("agents"), list) else []
     found = [a for a in facts.get("agents", []) if a.get("command") in named and a.get(action) is True]
     menu = action in MENU_NAMES["agents"]
@@ -251,7 +271,7 @@ def agents_answer(answer: dict, facts: dict) -> dict:
                      for i, a in enumerate(found)])
 
 
-def providers_answer(answer: dict, facts: dict) -> dict:
+def providers_answer(answer: dict, facts: dict, more=None) -> dict:
     action = answer.get("action")
     if action in ("lookup", "clarify", "redirect"):
         return checked(answer)
@@ -266,7 +286,265 @@ def providers_answer(answer: dict, facts: dict) -> dict:
                       "action": {"kind": "provider_action", "key": found["key"], "step": action}}])
 
 
-HANDLERS = {"agents": (agents_prompt, agents_answer), "providers": (providers_prompt, providers_answer)}
+# --- MCP servers and skills ------------------------------------------------------------------------------
+
+MAX_PICKS = 3
+
+
+def mcp_facts_text(facts: dict) -> str:
+    return (f"Agents here: {json.dumps(facts.get('agents', []))}.\n"
+            "MCP servers here, with the agents that use each (none is fine, it can be connected): "
+            f"{json.dumps(facts.get('mcp', {}))}.\n"
+            "Skill folders here, as short ids, with the agents that use each: "
+            f"{json.dumps(facts.get('skills', {}))}.\n")
+
+
+def mcp_prompt(facts: dict) -> str:
+    return (f"{RULES} {language(facts)}\n\n"
+            f"Column: MCP servers and skills.\n{mcp_facts_text(facts)}"
+            f"{request_block(facts)}\n"
+            "Choose one:\n"
+            '{"action": "search", "query": "<words for a search in the MCP registry, at most 80 characters>", '
+            '"agents": ["<commands of the agents that should use it>"]}\n'
+            "when the request is to find or add a new MCP server.\n"
+            '{"action": "connect", "server": "<exact name listed above>", "agents": ["<commands>"]}\n'
+            "when an agent should use a server that is already here.\n"
+            '{"action": "connect_skill", "skill": "<short id of a skill folder listed above>", "agents": ["<commands>"]}\n'
+            "when an agent should use an existing skill folder.\n"
+            '{"action": "disconnect", "servers": ["<exact server names listed above>"], "skills": '
+            '["<short ids of skill folders listed above>"], "agents": ["<commands>"]}\n'
+            'when agents should stop using servers or skill folders: name every one meant, all of them for "all".\n'
+            '{"action": "found"}\n'
+            "when MCP servers that programs on this PC bring should be found: it opens Add MCP server, where "
+            "each has its own preview.\n"
+            + tail(facts, "item", "agents, providers or models",
+                   "for anything else beyond the listed actions: this column cannot update or install programs "
+                   "or delete a server from the PC."))
+
+
+def mcp_picks_prompt(facts: dict, servers: list) -> str:
+    return (f"{RULES} {language(facts)}\n\n{request_block(facts)}"
+            f"Registry results: {json.dumps(servers)}\n\n"
+            f"Pick at most {MAX_PICKS} that fit the request, best first, using the exact \"name\" value:\n"
+            '{"summary": "<one sentence>", "picks": [{"name": "<name>", "reason": "<why, one short sentence>"}]}\n'
+            'An empty "picks" list is right when none fits.')
+
+
+def search_mcp(query: str) -> list:
+    """Registry servers for the words: the downloaded list first (mcp_advice), else the registry."""
+    import mcp_advice
+    import mcp_registry
+    found = mcp_advice.candidates([query])
+    if found is None:
+        found = mcp_registry.search(query, 15)[0]
+    return [{"name": s.name, "title": s.title, "description": line(s.description, 200)} for s in found[:15]]
+
+
+def mcp_answer(answer: dict, facts: dict, more=None) -> dict:
+    action = answer.get("action")
+    if action in ("lookup", "clarify", "redirect"):
+        return checked(answer)
+    agents = {a["command"]: a for a in facts.get("agents", [])}
+    named = [a for a in (answer.get("agents") if isinstance(answer.get("agents"), list) else []) if a in agents]
+    servers, skills = facts.get("mcp", {}), facts.get("skills", {})
+    if action == "found":
+        return proposal([{**menu_candidate(1, "mcp", "found", "", "Found on this PC")}])
+    if action == "search":
+        query = line(answer.get("query"), 80)
+        if not query or more is None:
+            raise SmartError(NOT_POSSIBLE)
+        results = SEARCH_MCP(query)
+        if not results:
+            return {"status": "redirect", "instead": {"hint": N_("No MCP server found for that. Try other words."),
+                                                       "column": None, "request": None}}
+        picked = plugin_ai.first_json(more(mcp_picks_prompt(facts, results)), "picks")
+        by_name = {r["name"]: r for r in results}
+        candidates = []
+        for pick in (picked.get("picks") if isinstance(picked.get("picks"), list) else []):
+            server = by_name.get(pick.get("name") if isinstance(pick, dict) else None)
+            if server is None or any(c["action"]["name"] == server["name"] for c in candidates):
+                continue
+            candidates.append({"id": f"c{len(candidates) + 1}", "kind": "mcp_add",
+                               "title": line(server["title"] or server["name"].split("/")[-1]),
+                               "subtitle": server["name"], "reason": line(pick.get("reason")),
+                               "action": {"kind": "mcp_add", "name": server["name"], "agents": named}})
+            if len(candidates) == MAX_PICKS:
+                break
+        if not candidates:
+            return {"status": "redirect", "instead": {"hint": N_("No MCP server found for that. Try other words."),
+                                                       "column": None, "request": None}}
+        return {**proposal(candidates), "summary": line(picked.get("summary"))}
+    if action == "connect":
+        server = answer.get("server")
+        if server not in servers or not named:
+            raise SmartError(NOT_POSSIBLE)
+        pairs = [a for a in named if a not in servers[server] and agents[a].get("mcp")]
+        if not pairs:
+            return {"status": "redirect", "instead": {"hint": N_("Nothing to do: they use it already."),
+                                                       "column": None, "request": None}}
+        return proposal([{"id": f"c{i + 1}", "kind": "map_link", "title": f"{server} → {agents[a]['name']}",
+                          "subtitle": "Connect", "reason": "",
+                          "action": {"kind": "map_link", "source": f"agent:{a}", "target": f"mcp:{server}",
+                                     "remove": False}} for i, a in enumerate(pairs)])
+    if action == "connect_skill":
+        skill = answer.get("skill")
+        paths = facts.get("skill_paths", {})
+        if skill not in paths or not named:
+            raise SmartError(NOT_POSSIBLE)
+        pairs = [a for a in named if a not in skills.get(skill, [])]
+        if not pairs:
+            return {"status": "redirect", "instead": {"hint": N_("Nothing to do: they use it already."),
+                                                       "column": None, "request": None}}
+        return proposal([{"id": f"c{i + 1}", "kind": "map_link",
+                          "title": f"{paths[skill].rstrip('/').split('/')[-1]} → {agents[a]['name']}",
+                          "subtitle": "Connect", "reason": "",
+                          "action": {"kind": "map_link", "source": f"agent:{a}", "target": f"skills:{paths[skill]}",
+                                     "remove": False}} for i, a in enumerate(pairs)])
+    if action == "disconnect":
+        wanted_servers = answer.get("servers") if isinstance(answer.get("servers"), list) else []
+        wanted_skills = answer.get("skills") if isinstance(answer.get("skills"), list) else []
+        if any(s not in servers for s in wanted_servers) or any(k not in skills for k in wanted_skills):
+            raise SmartError(NOT_POSSIBLE)
+        paths = facts.get("skill_paths", {})
+        candidates = []
+        for server in wanted_servers:
+            for agent in servers[server]:
+                if agent in named and agent in agents:
+                    candidates.append((f"{server} → {agents[agent]['name']}", f"agent:{agent}", f"mcp:{server}"))
+        for skill in wanted_skills:
+            for agent in skills[skill]:
+                if agent in named and agent in agents:
+                    candidates.append((f"{paths[skill].rstrip('/').split('/')[-1]} → {agents[agent]['name']}",
+                                       f"agent:{agent}", f"skills:{paths[skill]}"))
+        if not candidates:
+            return {"status": "redirect", "instead": {"hint": N_("Nothing to do: none of them uses it."),
+                                                       "column": None, "request": None}}
+        return proposal([{"id": f"c{i + 1}", "kind": "map_link", "title": title, "subtitle": "Disconnect",
+                          "reason": "", "action": {"kind": "map_link", "source": source, "target": target,
+                                                   "remove": True}}
+                         for i, (title, source, target) in enumerate(candidates)])
+    raise SmartError(NOT_POSSIBLE)
+
+
+# --- models ------------------------------------------------------------------------------------------
+
+def models_prompt(facts: dict) -> str:
+    return (f"{RULES} {language(facts)}\n\n"
+            f"Column: Models. Local LLM runners here: {json.dumps(facts.get('runtimes', []))}.\n"
+            f"This PC: {json.dumps(facts.get('limits', {}))} (bytes).\n"
+            f"{request_block(facts)}\n"
+            "Choose one:\n"
+            '{"action": "search", "query": "<1 to 3 English words that appear in Hugging Face model names, at most '
+            '80 characters>", "runtime": "<key of a runner listed above>"}\n'
+            "when the request is to find or add a model for a runner. The search only matches words in model "
+            "names: use a model family (llama, qwen, gemma, mistral), \"vision\" or \"VL\" for models that "
+            "understand images, \"coder\" for code; never words like model, download, support, imaging or the "
+            "runner's name.\n"
+            '{"action": "remove", "runtime": "<key of a runner listed above>", "model": "<exact name in its models>"}\n'
+            "when the request is to delete a model that is listed above.\n"
+            '{"action": "disconnect", "runtime": "<key of a local LLM in use, listed next>", "models": '
+            '["<exact model names listed next>"]}\n'
+            "when agents should stop using models of a local LLM. Models in use, with their agents: "
+            f"{json.dumps(facts.get('model_users', []))}. No file is deleted, and the agent leaves that local LLM.\n"
+            '{"action": "move"}\n'
+            "when model folders should be moved to another folder or disk: it opens Tidy up, which shows each "
+            "move first.\n"
+            + tail(facts, "runner", "agents, providers or mcp",
+                   "when no listed action can do it, or the request makes no sense here."))
+
+
+def model_picks_prompt(facts: dict, repos: list) -> str:
+    return (f"{RULES} {language(facts)}\n\n{request_block(facts)}"
+            f"This PC: {json.dumps(facts.get('limits', {}))} (bytes).\n"
+            f"Search results: {json.dumps(repos)}\n\n"
+            f"Pick at most {MAX_PICKS} that fit the request, best first, using the exact \"repo\" value:\n"
+            '{"summary": "<one sentence>", "picks": [{"repo": "<repo>", "reason": "<why, one short sentence>"}]}\n'
+            'An empty "picks" list is right when none fits.')
+
+
+FILLER = {"model", "models", "download", "support", "find", "a", "an", "the", "for", "my", "with", "and"}
+
+
+def search_models(query: str) -> list:
+    """Hugging Face GGUF repos for the words (models_ctl.search), the filler words left out first."""
+    import models_ctl
+    words = [w for w in re.findall(r"[A-Za-z0-9.+-]+", query) if w.lower() not in FILLER]
+    for attempt in ([" ".join(words)] + words[:2]) if words else [query]:
+        repos = models_ctl.search(attempt, 15)
+        if repos:
+            return [{"repo": r.id, "task": r.pipeline, "downloads": r.downloads} for r in repos[:15]]
+    return []
+
+
+def models_answer(answer: dict, facts: dict, more=None) -> dict:
+    action = answer.get("action")
+    if action in ("lookup", "clarify", "redirect"):
+        return checked(answer)
+    runtimes = {r["key"]: r for r in facts.get("runtimes", [])}
+    if action == "move":
+        return proposal([menu_candidate(1, "models", "move", "", "Tidy up")])
+    if action == "search":
+        query, runtime = line(answer.get("query"), 80), answer.get("runtime")
+        if not query or runtime not in runtimes or more is None:
+            raise SmartError(NOT_POSSIBLE)
+        repos = SEARCH_MODELS(query)
+        if not repos:
+            return {"status": "redirect", "instead": {"hint": N_("No model found for those words. Try other words."),
+                                                       "column": None, "request": None}}
+        picked = plugin_ai.first_json(more(model_picks_prompt(facts, repos)), "picks")
+        real = {r["repo"] for r in repos}
+        candidates = []
+        for pick in (picked.get("picks") if isinstance(picked.get("picks"), list) else []):
+            repo = pick.get("repo") if isinstance(pick, dict) else None
+            if repo not in real or any(c["action"]["repo"] == repo for c in candidates):
+                continue
+            candidates.append({"id": f"c{len(candidates) + 1}", "kind": "model_download",
+                               "title": line(repo.split("/")[-1]), "subtitle": repo,
+                               "reason": line(pick.get("reason")),
+                               "action": {"kind": "model_download", "runtime": runtime, "repo": repo}})
+            if len(candidates) == MAX_PICKS:
+                break
+        if not candidates:
+            return {"status": "redirect", "instead": {"hint": N_("No model found for those words. Try other words."),
+                                                       "column": None, "request": None}}
+        return {**proposal(candidates), "summary": line(picked.get("summary"))}
+    if action == "remove":
+        runtime, model = answer.get("runtime"), answer.get("model")
+        if runtime not in runtimes or model not in runtimes[runtime].get("models", []):
+            raise SmartError(NOT_POSSIBLE)
+        return proposal([{"id": "c1", "kind": "model_remove", "title": line(model),
+                          "subtitle": "Remove", "reason": "",
+                          "action": {"kind": "model_remove", "runtime": runtime, "model": model}}])
+    if action == "disconnect":
+        runtime = answer.get("runtime")
+        users = next((u for u in facts.get("model_users", []) if u.get("key") == runtime), None)
+        models = answer.get("models") if isinstance(answer.get("models"), list) else []
+        if users is None:
+            raise SmartError(NOT_POSSIBLE)
+        # An agent leaves the whole local LLM: every agent of the models named, once.
+        leaving = []
+        for model, agents in users.get("used_by", {}).items():
+            if not models or model in models:
+                for agent in agents:
+                    if agent not in leaving:
+                        leaving.append(agent)
+        if not leaving:
+            return {"status": "redirect", "instead": {"hint": N_("Nothing to do: no agent uses those models."),
+                                                       "column": None, "request": None}}
+        names = facts.get("agent_names", {})
+        return proposal([{"id": f"c{i + 1}", "kind": "map_link",
+                          "title": f"{names.get(a, a)} → {users.get('name', runtime)}", "subtitle": "Disconnect",
+                          "reason": "", "action": {"kind": "map_link", "source": f"agent:{a}",
+                                                   "target": f"runtime:{runtime}", "remove": True}}
+                         for i, a in enumerate(leaving)])
+    raise SmartError(NOT_POSSIBLE)
+
+
+SEARCH_MCP = search_mcp              # tests put their own searches here
+SEARCH_MODELS = search_models
+
+HANDLERS = {"agents": (agents_prompt, agents_answer), "providers": (providers_prompt, providers_answer),
+            "mcp": (mcp_prompt, mcp_answer), "models": (models_prompt, models_answer)}
 
 
 # --- the helpers ---------------------------------------------------------------------------------------
@@ -331,13 +609,14 @@ def ask(helper: Helper, facts: dict, run=None, look_up=None) -> dict:
     if column not in HANDLERS:
         return {**result, "status": "error", "summary": N_("This column comes in a later step of the port.")}
     make_prompt, handle = HANDLERS[column]
-    prompt = make_prompt(facts)
-    try:
+
+    def answer_of(prompt: str) -> str:
         if helper.local:
-            text = ai_helper.advise(helper.candidate, "smart-card", prompt)
-        else:
-            text = (run or run_rewrite)(helper.command, prompt)
-        found = handle(plugin_ai.first_json(text, "action"), facts)
+            return ai_helper.advise(helper.candidate, "smart-card", prompt)
+        return (run or run_rewrite)(helper.command, prompt)
+    try:
+        # One answer; a search asks a second time, to pick from its real results (Maprisma: picks).
+        found = handle(plugin_ai.first_json(answer_of(make_prompt(facts)), "action"), facts, answer_of)
     except Exception as error:          # an answer the app cannot use: said, never retried
         message = str(error) if isinstance(error, SmartError) else (
             N_("The local helper did not answer: its local LLM is probably not running. Start it on the map, or choose another helper above.") if helper.local else line(str(error)) or NOT_POSSIBLE)
