@@ -40,11 +40,9 @@ import claude_sessions
 import edition
 import harnesses
 import herdr_state
-try:
-    import addon_api            # Asterism only: signed add-ons (not in the Omarchy plugin)
-    import addons
-except ImportError:
-    addon_api = addons = None
+import addon_api                # the signed add-ons, as in Maprisma
+import addon_store
+import addons
 import desktop
 import agent_updates
 import agent_profiles
@@ -533,8 +531,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                                         lambda: self.open_smart_check())
         self.smartcheck_button.set_visible(False)
         # The legend: what the map's dots, lines and marks mean.
-        self.legend_button = symbol("help-about-symbolic", _("What the marks mean"), button=Gtk.MenuButton())
-        self.legend_button.set_create_popup_func(lambda button: button.set_popover(self.legend_popover()))
+        self.legend_button = symbol("help-about-symbolic", _("What the marks mean"), lambda: self.open_legend())
         # Network traffic and add-ons have no header symbol (as in Maprisma): an agent's traffic mark on the
         # map opens its traffic, the add-ons are in Settings and on each column's Expand.
         self.traffic_button = None
@@ -690,6 +687,29 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.header_drop.set_visible(False)
         order = [w.header_key for w in sorted(self.header_items().values(), key=self.header_position)]
         self.save_setting(header_order=order)
+
+    def open_legend(self):
+        """The legend in a window of its own, as Maprisma's dialog "What the marks mean" (Esc closes it)."""
+        popover = self.legend_popover()
+        content = popover.get_child()
+        popover.set_child(None)
+        window = Gtk.Window(title=_("What the marks mean"), transient_for=self.window, modal=True,
+                            default_width=560, default_height=min(760, max(400, self.window.get_height() - 80)))
+        scroller = Gtk.ScrolledWindow(vexpand=True)
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        content.set_margin_start(18)
+        content.set_margin_end(18)
+        content.set_margin_top(12)
+        content.set_margin_bottom(18)
+        scroller.set_child(content)
+        window.set_child(scroller)
+        window.add_css_class("am-card")
+        popover.popdown = window.close            # its "Help" link closes the window, as it closed the popover
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", lambda _c, key, _code, _state: (window.close(), True)[1]
+                     if key == Gdk.KEY_Escape else False)
+        window.add_controller(keys)
+        window.present()
 
     def legend_popover(self) -> Gtk.Popover:
         """The legend: every dot, line and mark of the map, drawn as there, with what it means."""
@@ -947,6 +967,8 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.side_map.summary_counts = self.column_counts
         self.side_map.on_expand = self.open_column
         self.side_map.on_add = self.map_add
+        self.side_map.on_missing = self.missing_menu
+        self.side_map.missing_text = _("Not installed")
         self.side_map.add_texts = {"mcp": (_("Add MCP server"), _("Recommended, registry, this PC")),
                                    "skills": (_("Add skills"), _("This PC or the web")),
                                    "model": (_("Add model"), _("Download for {0}"))}
@@ -2728,6 +2750,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                                  "agents": _("Online agents"), "agents-local": _("Local agents"),
                                  "cloud": _("Online providers"), "local": _("Local LLMs"),
                                  "models": _("Models")}
+            view.missing = self.map_missing(built)     # switched on, not installed: rows in their cards
             view.set_graph(built, headers)
             view.set_layers(self.map_view.layers)
         ids = {n.id for n in built.nodes}
@@ -4020,6 +4043,48 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         elif kind == "skills" and any(s.path == ident for s in self.inventory.skill_sets):
             details.append(self.menu_item(_("Details"), popover, lambda: self.open_skills_details(ident)))
         return starts, details
+
+    def map_missing(self, built) -> dict:
+        """{card key: [(kind, command, name, add-on id)]}: Maprisma's _missingPrograms. An agent add-on
+        switched on whose agent is not installed; a local LLM add-on that installs its program
+        (capability installer) whose LLM is not on the map."""
+        on_map = {n.id for n in built.nodes}
+        found, seen = {}, set()
+        for addon in getattr(self, "addons", []):
+            if addon.state != "loaded":
+                continue
+            for name in addon.provides:
+                if addon.kind == "agent":
+                    # The agent list holds what is on this PC; the add-on's facts name the others.
+                    agent = next((a for a in self.agent_list if a.command == name), None)
+                    harness = harnesses.get(name)
+                    if (agent is not None and agent.installed) or harness is None \
+                            or f"agent:{name}" in on_map or name in seen:
+                        continue
+                    key = "agents-local" if harness.local_llm else "agents"
+                    found.setdefault(key, []).append(("agent", name, harness.name, addon.id))
+                    seen.add(name)
+                elif addon.kind == "provider" and "installer" in addon.capabilities \
+                        and f"runtime:{name}" not in on_map and f"runtime:{name}" not in seen:
+                    found.setdefault("local", []).append(("runtime", name, addon.name, addon.id))
+                    seen.add(f"runtime:{name}")
+        return found
+
+    def missing_menu(self, item, rect):
+        """A program switched on but not installed: Install…, its Add-on…, Switch off (Maprisma's
+        MapMissingCard)."""
+        kind, command, name, addon_id = item
+        popover = self.context_popover(self.side_map, rect)
+
+        def switch_off():
+            addon_store.set_enabled(addon_id, False)
+            self.reload_addons()
+        self.show_menu(popover, name, [[
+            self.menu_item(_("Install…"), popover, lambda: self.offer_install(kind, command, "install")),
+            self.menu_item(_("Add-on…"), popover, lambda: self.open_addons(addon_id)),
+            self.menu_item(_("Switch off"), popover, switch_off,
+                           _("Its add-on is switched off: it is no longer offered on the map")),
+        ]])
 
     def map_add(self, kind: str, target: str):
         """A card's + card: Add MCP server, Add skills, or a local LLM's models to download."""

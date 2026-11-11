@@ -26,6 +26,7 @@ class Cards:
         self.costs, self.text_widths, self.measure = {}, {}, None
         self.collapsed, self.folded = set(), set()
         self.used_only, self.pinned = set(), set()       # the cards' filters (Maprisma's used_only), pins
+        self.missing, self.missing_rects = {}, {}        # programs not installed: rows in their cards
         self.view_columns = 0
 
     def relayout(self):

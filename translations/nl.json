@@ -3474,5 +3474,6 @@
  "{0} looks at what changes and does the update in a terminal tab, asking before each step": "{0} kijkt wat er verandert en voert de update uit in een terminaltab, en vraagt vóór elke stap",
  "Update now": "Nu bijwerken",
  "Update with AI…": "Bijwerken met AI…",
- "Selected: {0}": "Geselecteerd: {0}"
+ "Selected: {0}": "Geselecteerd: {0}",
+ "Its add-on is switched off: it is no longer offered on the map": "Zijn add-on wordt uitgeschakeld: hij wordt niet meer op de kaart aangeboden"
 }

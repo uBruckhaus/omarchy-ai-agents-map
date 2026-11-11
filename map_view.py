@@ -138,6 +138,12 @@ class MapView(Gtk.DrawingArea):
         self.on_expand = None    # on_expand(column): the column's own page
         self.on_add = None       # on_add(kind, target): a card's + card ("mcp", "skills", "model" + runtime key)
         self.add_rects = {}      # card key -> ((x, y, w, h), (kind, target))
+        # Programs switched on but not installed: card key -> [(kind, command, name, add-on id)], shown
+        # as dashed rows with a menu (Install…, Add-on…, Switch off); on_missing(item, rect) opens it.
+        self.missing = {}
+        self.missing_rects = {}
+        self.on_missing = None
+        self.missing_text = "Not installed"
         self.add_texts = {"mcp": ("Add MCP server", "Recommended, registry, this PC"),
                           "skills": ("Add skills", "This PC or the web"), "model": ("Add model", "Download for {0}")}
         self.order = {}          # group key -> box ids in the user's order (saved; new boxes go last)
@@ -524,7 +530,10 @@ class MapView(Gtk.DrawingArea):
     def card_box_height(self, nodes) -> int:
         """A card's height with its boxes and its + card."""
         rows = self.card_rows(nodes)
-        return self.card_height(rows) + (ADD_H + NODE_GAP if rows and self.add_of(nodes) else 0)
+        if not rows:
+            return self.card_height(rows)
+        extra = len(getattr(self, "missing", {}).get(self.group_key(nodes[0]), []))
+        return self.card_height(rows) + (extra + (1 if self.add_of(nodes) else 0)) * (ADD_H + NODE_GAP)
 
     def node_used(self, node_id: str) -> bool:
         """Connected (a line other than an offer) or pinned: what a card's filter keeps."""
@@ -705,6 +714,7 @@ class MapView(Gtk.DrawingArea):
         self.column_x = {}
         self.summaries = {}
         self.add_rects = {}
+        self.missing_rects = {}
         self.group_labels = []
         self.group_rects = {}
         self.card_rects = {}
@@ -740,9 +750,14 @@ class MapView(Gtk.DrawingArea):
                         continue
                     self.boxes[node.id] = (cx + CARD_PAD, by, column_w, NODE_H)
                     by += NODE_H + NODE_GAP
-                add = self.add_of(nodes)
-                if add is not None and key not in self.collapsed and self.card_rows(nodes):
-                    self.add_rects[key] = ((cx + CARD_PAD, by, column_w, ADD_H), add)
+                if key not in self.collapsed and self.card_rows(nodes):
+                    # Programs switched on but not installed (Maprisma's MapMissingCard), then the + card.
+                    for item in self.missing.get(key, []):
+                        self.missing_rects[(item[0], item[1])] = ((cx + CARD_PAD, by, column_w, ADD_H), item)
+                        by += ADD_H + NODE_GAP
+                    add = self.add_of(nodes)
+                    if add is not None:
+                        self.add_rects[key] = ((cx + CARD_PAD, by, column_w, ADD_H), add)
                 if column == 3 and nodes[0].group:
                     self.group_rects[nodes[0].group] = (cx, cy, card_w, card_h)
             x += column_w + gap
@@ -1543,6 +1558,11 @@ class MapView(Gtk.DrawingArea):
         column = self.summary_at(x, y)
         if column is not None and self.on_expand is not None:
             self.on_expand(column)
+            return
+        missing = next(((rect, item) for rect, item in self.missing_rects.values()
+                        if rect[0] <= x <= rect[0] + rect[2] and rect[1] <= y <= rect[1] + rect[3]), None)
+        if missing is not None and self.on_missing is not None:
+            self.on_missing(missing[1], self.to_pixels(missing[0]))     # Install…, Add-on…, Switch off
             return
         added = next((add for (ax, ay, aw, ah), add in self.add_rects.values()
                       if ax <= x <= ax + aw and ay <= y <= ay + ah), None)
@@ -2374,9 +2394,39 @@ class MapView(Gtk.DrawingArea):
             layout.set_ellipsize(Pango.EllipsizeMode.END)
         layout.set_width(-1)
 
+    def draw_missing(self, cr, layout, key):
+        """A card's programs that are switched on but not installed: a dashed row each, its name, "Not
+        installed" and ⋮ (Install…, Add-on…, Switch off)."""
+        for (x, y, w, h), item in [v for v in self.missing_rects.values() if v[1] in self.missing.get(key, [])]:
+            self.rounded(cr, x, y, w, h, self.radius)
+            cr.set_source_rgba(*self.color("fg", 0.35))
+            cr.set_line_width(1)
+            cr.set_dash([4, 3])
+            cr.stroke()
+            cr.set_dash([])
+            layout.set_ellipsize(Pango.EllipsizeMode.END)
+            layout.set_width(int((w - 36) * Pango.SCALE))
+            layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 8.5"))
+            layout.set_text(item[2], -1)
+            cr.set_source_rgba(*self.color("fg", 0.7))
+            cr.move_to(x + 10, y + 4)
+            PangoCairo.show_layout(cr, layout)
+            layout.set_font_description(Pango.FontDescription.from_string("Sans 7.5"))
+            layout.set_text(self.missing_text, -1)
+            cr.set_source_rgba(*self.color("dim"))
+            cr.move_to(x + 10, y + 18)
+            PangoCairo.show_layout(cr, layout)
+            cr.set_source_rgba(*self.color("fg", 0.7))
+            for dot in range(3):
+                cr.new_path()
+                cr.arc(x + w - 12, y + h / 2 - 4 + dot * 4, 1.3, 0, 2 * math.pi)
+                cr.fill()
+        layout.set_width(-1)
+
     def draw_add_card(self, cr, layout, key):
         """A card's + card at its end (Maprisma's MapAddCard): dashed, + in the accent colour, what it
-        adds and where from."""
+        adds and where from; before it the programs not installed yet."""
+        self.draw_missing(cr, layout, key)
         if key not in self.add_rects:
             return
         (x, y, w, h), (kind, target) = self.add_rects[key]

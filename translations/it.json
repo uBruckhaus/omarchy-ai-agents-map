@@ -3474,5 +3474,6 @@
  "{0} looks at what changes and does the update in a terminal tab, asking before each step": "{0} guarda cosa cambia e fa l’aggiornamento in una scheda del terminale, chiedendo prima di ogni passo",
  "Update now": "Aggiorna ora",
  "Update with AI…": "Aggiorna con l’IA…",
- "Selected: {0}": "Selezionato: {0}"
+ "Selected: {0}": "Selezionato: {0}",
+ "Its add-on is switched off: it is no longer offered on the map": "Il suo componente viene disattivato: non viene più offerto sulla mappa"
 }
