@@ -78,6 +78,11 @@ class SetupPage:
     # A map column's Expand (Maprisma's column focus): only that column's sections.
     COLUMN_SECTIONS = {0: {"mcp", "mcp-online", "skills"}, 1: {"agents"}, 2: {"local", "online"}, 3: {"models"}}
 
+    @property
+    def COLUMN_TITLES(self) -> dict:
+        names = (_("MCP servers and skills"), _("Agents"), _("Providers"), _("Models"))
+        return {frozenset(keys): names[column] for column, keys in self.COLUMN_SECTIONS.items()}
+
     def open_column(self, column: int):
         self.open_my_setup(focus=self.COLUMN_SECTIONS.get(column))
 
@@ -141,7 +146,11 @@ class SetupPage:
         welcome = self.setup_welcome
         self.setup_header.set_visible(not welcome)
         self.setup_later.set_visible(welcome)
-        if not welcome:
+        focus = getattr(self, "setup_focus", None)
+        # A map column's Expand: the column's name as the title, only its sections, open.
+        title = self.setup_header.get_first_child().get_first_child()
+        title.set_label((self.COLUMN_TITLES.get(frozenset(focus)) if focus else _("Setup")).upper())
+        if not welcome and focus is None:
             box.append(self.setup_explainer())
             self.setup_uses(box)
             self.ai_help_row(box)
@@ -810,6 +819,8 @@ class SetupPage:
         saved = set(self.setup_folded())
         # Folded by default (closed): remembered as "<key>:open" once unfolded; else as "<key>" once folded.
         folded = f"{key}:open" not in saved if closed else key in saved
+        if getattr(self, "setup_focus", None) is not None and key in self.setup_focus:
+            folded = False                     # a map column's Expand opens its sections
         head = Gtk.Button(halign=Gtk.Align.FILL, hexpand=True)
         head.add_css_class("flat")
         head.add_css_class("am-setup-section")
