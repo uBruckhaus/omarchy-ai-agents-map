@@ -327,8 +327,18 @@ def ini_sections(path: Path | None = None) -> dict:
 
 
 def llama_model_file(models_dir: Path, name: str) -> Path | None:
-    for candidate in (models_dir / f"{name}.gguf", *models_dir.glob(f"{name}*.gguf")):
-        if candidate.is_file():             # a regular file (or a link to one), not a FIFO
+    """The model's file: <name>.gguf first, else the first <name>*.gguf (a split model's part) of
+    a small, budgeted listing (it may run on GTK's main loop: never a whole huge folder)."""
+    import scan_budget
+    exact = models_dir / f"{name}.gguf"
+    if exact.is_file():                     # a regular file (or a link to one), not a FIFO
+        return Path(os.path.realpath(exact))
+    try:
+        listed = scan_budget.Budget(visits=5000, seconds=0.5).entries(models_dir, 5000)
+    except OSError:
+        return None
+    for candidate in listed:
+        if candidate.name.startswith(name) and candidate.name.endswith(".gguf") and candidate.is_file():
             return Path(os.path.realpath(candidate))
     return None
 
