@@ -563,6 +563,17 @@ class SettingsPages:
                                                     "something"), _("Open"), self.open_health)
         self.button_row(group, _("What may be done"), _("Rules for Ask AI and for what you draw on the map."),
                         _("Open"), self.open_rules)
+        # Dictation in Ask AI: Omarchy's own dictation or Superwhisper directly (where they are here).
+        import dictation
+        engines = ["auto"] + dictation.available()
+        names = {"auto": _("Automatic"), "omarchy": _("Omarchy dictation"), "superwhisper": "Superwhisper"}
+        saved = ai_core.setting("dictation_engine")
+        self.combo_row(group, _("Use dictation in Ask AI"),
+                       _("Speak your question into the microphone in Ask AI instead of typing."),
+                       [_("Off")] + [names[e] for e in engines],
+                       0 if ai_core.setting("dictation") is False else
+                       1 + (engines.index(saved) if saved in engines else 0),
+                       lambda i: self.save_setting(dictation=i > 0, **({"dictation_engine": engines[i - 1]} if i else {})))
         self.window_rounding = desktop.window_rounding()
         like = _("Like windows ({0} px)").format(self.window_rounding) if self.window_rounding is not None \
             else _("Like windows")

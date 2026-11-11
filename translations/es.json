@@ -3487,5 +3487,7 @@
  "Nothing to do: no agent uses those models.": "Nada que hacer: ningún agente usa esos modelos.",
  "No model found for those words. Try other words.": "No se encontró ningún modelo con esas palabras. Prueba otras palabras.",
  "Choose an action and a category to test.": "Elige una acción y una categoría para probar.",
- "Choose a category for an item.": "Elige una categoría para un elemento."
+ "Choose a category for an item.": "Elige una categoría para un elemento.",
+ "Could not start dictation: {0}": "No se pudo iniciar el dictado: {0}",
+ "Omarchy dictation": "Dictado de Omarchy"
 }

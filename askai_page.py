@@ -96,6 +96,12 @@ class AskAiPage:
         frame = Gtk.Frame(child=self.ask_text, hexpand=True)
         frame.add_css_class("am-ask-field")
         row.append(frame)
+        # Dictation (Settings › Dictation in Ask AI): speak the request; a second click stops it.
+        self.ask_mic = Gtk.ToggleButton(icon_name="audio-input-microphone-symbolic", valign=Gtk.Align.END)
+        self.ask_mic.set_tooltip_text(_("Speak your question into the microphone in Ask AI instead of typing."))
+        self.ask_mic.connect("toggled", lambda b: self.on_ask_mic(b.get_active()))
+        row.append(self.ask_mic)
+        self.ask_dictation = None
         self.ask_button = Gtk.Button(label=_("Ask"), valign=Gtk.Align.END)
         self.ask_button.add_css_class("suggested-action")
         self.ask_button.connect("clicked", lambda *_: self.ask_now())
@@ -142,6 +148,9 @@ class AskAiPage:
             self.ask_helper_box.set_selected(index)
         self.ask_helper_box.set_visible(len(names) > 1)
         self.update_ask_cost()
+        import dictation
+        self.ask_mic.set_visible(ai_core.setting("dictation") is not False
+                                 and dictation.chosen(ai_core.setting("dictation_engine")) is not None)
         self.ask_chips[column or self.ask_column].set_active(True)
         self.set_ask_column(column or self.ask_column)
         if not names:
@@ -256,6 +265,49 @@ class AskAiPage:
             return {**result, "candidates": []}
         return {**result, "status": "redirect", "candidates": [],
                 "instead": {"hint": "This is not allowed here.", "column": None, "request": None}}
+
+    def on_ask_mic(self, on: bool):
+        """Start dictating into the request, or stop and put the words in (Omarchy's dictation and
+        Superwhisper's auto-paste type them into the field themselves: nothing is put in twice)."""
+        import dictation
+        if getattr(self, "ask_mic_busy", False):
+            return
+        if on:
+            engine = dictation.chosen(ai_core.setting("dictation_engine"))
+            if engine is None:
+                self.ask_mic.set_active(False)
+                return
+            self.ask_dictation = dictation.Dictation(engine)
+            self.ask_text.grab_focus()               # where the desktop types the words
+            error = self.ask_dictation.start()
+            if error:
+                self.ask_dictation = None
+                self.ask_mic_busy = True
+                self.ask_mic.set_active(False)
+                self.ask_mic_busy = False
+                self.toast(_("Could not start dictation: {0}").format(error), 8)
+            return
+        running = self.ask_dictation
+        self.ask_dictation = None
+        if running is None:
+            return
+        buffer = self.ask_text.get_buffer()
+        before = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), False)
+        self.ask_mic.set_sensitive(False)
+        self.ask_text.grab_focus()
+
+        def work():
+            text = running.stop()
+            GLib.idle_add(done, text)
+
+        def done(text):
+            self.ask_mic.set_sensitive(True)
+            now = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), False)
+            if text and now == before:               # not typed in already: put it at the cursor
+                buffer.insert_at_cursor(("" if not now or now.endswith((" ", "\n")) else " ") + text)
+            self.ask_text.grab_focus()
+            return False
+        threading.Thread(target=work, daemon=True).start()
 
     def cancel_ask(self):
         if self.ask_running is not None:

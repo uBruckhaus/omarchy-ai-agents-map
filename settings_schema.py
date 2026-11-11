@@ -131,7 +131,7 @@ SCHEMA: dict[str, Setting] = {
     "smart_helper": Setting(None, _text, "Ask AI: the chosen helper's command, for all four cards"),
     "ask_prompts": Setting({}, _ask_prompts, "Ask AI: the suggestions per card column, own and kept built-in ones"),
     "dictation": Setting(True, _bool, "Settings › Dictation: microphone in Ask AI"),
-    "dictation_engine": Setting("auto", _one_of("auto", "omarchy", "whisper", "local", "online"),
+    "dictation_engine": Setting("auto", _one_of("auto", "omarchy", "superwhisper", "whisper", "local", "online"),
                                 "Settings › Dictation: chosen backend"),
     "dictation_whisper_model": Setting("", _text, "Settings › Dictation: chosen local Whisper model file name"),
     "screenshot_folder": Setting(None, _text, "Settings › Screenshots go to: empty is ~/Pictures/AI Agents Map"),
