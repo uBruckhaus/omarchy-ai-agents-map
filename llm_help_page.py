@@ -150,7 +150,13 @@ class LlmHelpPage:
             apply_button.connect("clicked", apply)
             return False
 
-        threading.Thread(target=lambda: GLib.idle_add(done, work()), daemon=True).start()
+        def run():
+            try:
+                result = work()
+            except Exception as error:              # a broken model file or bench: said, never stuck
+                result = ({"name": model.name, "reason": str(error)[:200] or type(error).__name__}, "")
+            GLib.idle_add(done, result)
+        threading.Thread(target=run, daemon=True).start()
 
     def fill_gpu_software(self, slot, facts):
         """ROCm, Vulkan, CUDA and the PyTorch builds here (gpu_stack), with Install… for what an AMD
