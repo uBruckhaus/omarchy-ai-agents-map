@@ -1169,6 +1169,8 @@ class ModelsPage:
                 "repo": state["repo"] or "", "base": state.get("base") or models_ctl.HF,
                 "into": state.get("into") or "",
                 "entry": {"name": entry.name, "paths": list(entry.paths), "size": entry.size} if entry else None}
+        if not self.rule_allows("install", "models", spec["repo"] or spec["name"]):
+            return
         job = self.start_model_job(spec)
         if job is not None:
             state["job"] = job.id
@@ -1542,6 +1544,8 @@ class ModelsPage:
              self.menu_item(_("Keep"), popover, lambda: None)]])
 
     def delete_model(self, rt, name: str, plan):
+        if not self.rule_allows("remove", "models", name):
+            return
         self.show_note(_("Removing {0}…").format(name))
 
         def work():

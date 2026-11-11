@@ -122,6 +122,7 @@ from mcp_pages import McpPages
 from details_pages import DetailsPages
 from info_page import InfoPage
 from askai_page import AskAiPage
+from rules_window import RulesWindow
 try:
     from addons_page import AddonsPage      # Asterism only: the Add-ons page (not in the Omarchy plugin)
 except ImportError:
@@ -177,7 +178,7 @@ class AppWindow(Adw.ApplicationWindow):
             GLib.idle_add(self.on_width, width)
 
 
-class AgentsMap(AskAiPage, TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, DetailsPages, InfoPage, McpPages, SkillsPage, ConnectPage, ConfigureMenu, TrafficPage, SubagentsPage, ModelsPage, SmartCheckPage,
+class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, DetailsPages, InfoPage, McpPages, SkillsPage, ConnectPage, ConfigureMenu, TrafficPage, SubagentsPage, ModelsPage, SmartCheckPage,
                 LlmHelpPage, FirstAgentPage, Adw.Application):
     def __init__(self):
         super().__init__(application_id=desktop.app_id())
@@ -1794,6 +1795,8 @@ class AgentsMap(AskAiPage, TextGuard, PageParts, SettingsPages, ThemeCss, Instal
     def run_update(self, update):
         """An update from the hint area: ours on the Update page, the others in a terminal of their own
         (the card shows the new version on the next open)."""
+        if not self.rule_allows("update", "agents" if update.kind == "agent" else "providers", update.key):
+            return
         if update.page:
             import types
             target = next((rt for rt in self.inventory.runtimes if rt.key == update.key), None) \
@@ -2132,8 +2135,21 @@ class AgentsMap(AskAiPage, TextGuard, PageParts, SettingsPages, ThemeCss, Instal
         self.show_notice(_("{0} opened in your terminal").format(agent.name) if ok
                          else _("No terminal found (xdg-terminal-exec)"))
 
+    def rule_allows(self, action: str, category: str, item: str = "", agent: str = "") -> bool:
+        """What may be done (Settings › What may be done, Maprisma's rules): every change asks first; a
+        refusal says why (or only that it is not allowed) and nothing happens."""
+        import action_rules
+        text = action_rules.refusal(ai_core.setting("action_rules"), ai_core.setting("action_rule_hints") is not False,
+                                    action, category, item, agent)
+        if text:
+            self.toast(text, 8)
+            return False
+        return True
+
     def stop_agent(self, command: str):
         """End the agent running here."""
+        if not self.rule_allows("stop", "agents", command):
+            return
         pane = self.sessions.get(command)
         if pane is not None:
             pane.stop()
@@ -2183,6 +2199,8 @@ class AgentsMap(AskAiPage, TextGuard, PageParts, SettingsPages, ThemeCss, Instal
         """Start an agent: here (its terminal right of the cards; a running one is shown again)
         or in a terminal window of its own ("terminal"). First, whether its local model still
         fits in the graphics card's memory (start_gpu_check)."""
+        if not self.rule_allows("start", "agents", agent.command):
+            return
         pane = self.sessions.get(agent.command)
         if pane is not None and pane.running:
             self.show_terminal(agent.command)
@@ -3845,6 +3863,8 @@ class AgentsMap(AskAiPage, TextGuard, PageParts, SettingsPages, ThemeCss, Instal
 
     def ask_stop_runtime(self, key: str):
         """The stop button of a local LLM holding GPU memory: stop it, or only unload its models."""
+        if not self.rule_allows("stop", "providers", key):
+            return
         rt = next((r for r in self.inventory.runtimes if r.key == key), None)
         if rt is None:
             return
@@ -3876,6 +3896,9 @@ class AgentsMap(AskAiPage, TextGuard, PageParts, SettingsPages, ThemeCss, Instal
 
     def control_runtime(self, rt, action, label: str):
         """Run a start/stop on a thread; look again once it has had a moment."""
+        stops = getattr(action, "__name__", "") in ("stop", "unload")     # stop it, or free its GPU memory
+        if not self.rule_allows("stop" if stops else "start", "providers", rt.key):
+            return
         self.show_note(_("{0}: {1}…").format(rt.name, label))
 
         def work():
@@ -4071,6 +4094,8 @@ class AgentsMap(AskAiPage, TextGuard, PageParts, SettingsPages, ThemeCss, Instal
         """The stop button left of an agent's start button: a menu of its instances outside this
         window (terminal windows, background: e.g. a `pi -p` another program started, which closing
         a terminal does not end); the one picked is stopped. The menu is the confirmation."""
+        if not self.rule_allows("stop", "agents", node_id.partition(":")[2]):
+            return
         command = node_id.partition(":")[2]
         agent = next((a for a in self.agent_list if a.command == command), None)
         outside = list(getattr(self, "agent_outside", {}).get(command) or ())

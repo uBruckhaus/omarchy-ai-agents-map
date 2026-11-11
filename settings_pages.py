@@ -561,6 +561,8 @@ class SettingsPages:
                        codes.index(setting) if setting in codes else 0, lambda i: self.set_language(codes[i]))
         self.button_row(group, _("Open problems"), _("What needs fixing; the ! in the header shows when there is "
                                                     "something"), _("Open"), self.open_health)
+        self.button_row(group, _("What may be done"), _("Rules for Ask AI and for what you draw on the map."),
+                        _("Open"), self.open_rules)
         self.window_rounding = desktop.window_rounding()
         like = _("Like windows ({0} px)").format(self.window_rounding) if self.window_rounding is not None \
             else _("Like windows")
@@ -962,6 +964,8 @@ class SettingsPages:
     def apply_reorganize(self):
         plan = self.reorg_plan
         if plan is None or plan.problems or plan.empty or self.reorg_busy:
+            return
+        if not self.rule_allows("move", "models"):
             return
         self.reorg_busy = True
         self.reorg_apply.set_sensitive(False)

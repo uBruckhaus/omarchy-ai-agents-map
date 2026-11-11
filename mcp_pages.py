@@ -1725,6 +1725,9 @@ class McpPages:
         self.write_new_mcp()
 
     def write_new_mcp(self):
+        if not self.rule_allows("install", "mcp", self.add_name.get_text().strip()):
+            self.add_ok.set_sensitive(True)
+            return
         try:
             plan_now, _entry, agents = self.new_mcp_plan()
             backup = connect.apply(plan_now)

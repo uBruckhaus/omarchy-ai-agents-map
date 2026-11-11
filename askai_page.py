@@ -232,12 +232,30 @@ class AskAiPage:
             if self.ask_running is not cancel:
                 return False            # cancelled: its answer is not shown
             self.ask_running = None
+            result = self.drop_refused(result)
             if result.get("candidates"):
                 result["proposal"] = self.ask_proposals.keep(result["candidates"])
             self.show_ask_state(result.get("status", "error"), **result)
             return False
 
         threading.Thread(target=work, daemon=True).start()
+
+    def drop_refused(self, result: dict) -> dict:
+        """Proposals the user's rules refuse are left out (Maprisma's _dropRefused); none left: it is not
+        allowed here. Every one is checked again when it is opened (its page asks the rules itself)."""
+        import action_rules
+        candidates = result.get("candidates")
+        if not candidates:
+            return result
+        rules = ai_core.setting("action_rules")
+        kept = [c for c in candidates
+                if all(action_rules.allows(rules, *check) for check in action_rules.candidate_checks(c))]
+        if kept:
+            return {**result, "candidates": kept}
+        if result.get("status") == "redirect":
+            return {**result, "candidates": []}
+        return {**result, "status": "redirect", "candidates": [],
+                "instead": {"hint": "This is not allowed here.", "column": None, "request": None}}
 
     def cancel_ask(self):
         if self.ask_running is not None:

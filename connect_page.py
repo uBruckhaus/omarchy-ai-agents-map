@@ -588,6 +588,11 @@ class ConnectPage:
                     remove_only: bool = False):
         """A line drawn from an agent to a local LLM: ask how, show what changes. To an online
         provider: the agent's own sign-in."""
+        import action_rules
+        target = action_rules.node_check(runtime_id) or ("providers", runtime_id.partition(":")[2])
+        if not self.rule_allows("disconnect" if remove_only else "connect", target[0], target[1],
+                                agent_id.partition(":")[2]):
+            return
         if runtime_id.startswith("cloud:"):
             agent = next((a for a in self.agent_list if f"agent:{a.command}" == agent_id), None)
             if agent is not None:

@@ -58,6 +58,9 @@ class InstallDialog:
         return p.name, installed, "own" if own else ("package" if installed else ""), p.install, p.data
 
     def offer_install(self, kind: str, key: str, action: str = "install"):
+        if kind in ("agent", "runtime") and not self.rule_allows(
+                {"uninstall": "remove"}.get(action, action), "agents" if kind == "agent" else "providers", key):
+            return
         subject = self.install_subject(kind, key)
         if subject is None:
             return
@@ -198,6 +201,8 @@ class InstallDialog:
         """The agent in a terminal tab of the window with `prompt` as its first message: it asks before
         each step itself, the user watches (without VTE: in a terminal window of its own). `agent`: the
         one a dialog named (it must still be able to take a task), else the one for AI checks."""
+        if not self.rule_allows("start", "agents", agent or self.task_agent() or ""):
+            return False
         import agent_guard
         import terminal_pane
         if agent is not None and agent not in ai_helper.task_agents({a.command for a in self.agent_list

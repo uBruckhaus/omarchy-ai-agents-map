@@ -3485,5 +3485,7 @@
  "No MCP server found for that. Try other words.": "Nenhum servidor MCP encontrado para isso. Experimente outras palavras.",
  "Nothing to do: none of them uses it.": "Nada a fazer: nenhum o usa.",
  "Nothing to do: no agent uses those models.": "Nada a fazer: nenhum agente usa esses modelos.",
- "No model found for those words. Try other words.": "Nenhum modelo encontrado para essas palavras. Experimente outras palavras."
+ "No model found for those words. Try other words.": "Nenhum modelo encontrado para essas palavras. Experimente outras palavras.",
+ "Choose an action and a category to test.": "Escolha uma ação e uma categoria para testar.",
+ "Choose a category for an item.": "Escolha uma categoria para um item."
 }
