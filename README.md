@@ -32,172 +32,108 @@ standard Omarchy install (libadwaita with Nautilus). Running agents inside the w
 (`sudo pacman -S vte4`); **Start in terminal** opens it in a terminal window of its own. Installing local LLMs uses `curl` and `tar` (and `uv` for
 vLLM); the MCP and skills search uses `curl`.
 
-## Setup and the map
+## The window and the map (1.0.0)
 
-The header has **Setup** and **Map** on every page (the one in view highlighted), then a red **!**
-when something needs fixing, **ⓘ** for the legend, **?** for Help (F1) and the gear for Settings
-(Ctrl+,).
+Version 1.0.0 brings the plugin in line with Maprisma, the stand-alone app it shares its core with:
+the same map, the same add-ons, Ask AI and the same rules for what may be done. Everything stays
+inside the plugin; nothing of Maprisma needs to be installed.
 
-**Setup** has a card for every agent, local LLM, MCP server, skill folder and model, in sections
-that fold with a click on their bar:
+The header has **AI Map**, the status of the setup, **✦ Ask AI**, **ⓘ** (the legend), **?** (Help,
+F1), the gear (Settings, Ctrl+,) and refresh (F5). The window is a normal app window; as an overlay
+inside it, pages such as connecting, installing or a terminal open in a centred frame over the dimmed
+map (Esc or Back closes them).
 
-- **How things get onto your map**: a folded card at the top with five numbered steps (switch on or
-  find what you use, install what is missing, sign in to an online agent, connect by drawing, what
-  shows up by itself); **What you can do with this**: what the setup is good for (everyday help,
-  coding, images, voice, research and writing), one tile each with the next step.
-- **AI agents, Local LLMs**: every one the plugin knows. Installed ones have a blue frame and their
-  version, the others **Install**. A click on an installed card opens its details.
-- **Local MCP servers, Online MCP servers, Skills, Models**: a card for each one that is set up
-  (servers at a web address in their own section), and a card at the end of each section that adds
-  one (**Add MCP server**, **Add skills**, **Add model**). **Add folder…** in Local MCP servers and
-  Skills adds a folder where the plugin looks for them too (for example a shared disk with unpacked
-  apps or your own skills); **✕** on an added folder stops looking there, nothing in it is deleted.
-- **⋯** or a right-click on a card opens the same menu as the box on the map: update, sign in, start
-  or stop, details, uninstall or remove, move a model. A yellow **↑ version** means an update is
-  waiting, a red **!** an open problem there (hover it).
-- A small **battery** on an online agent's card shows what is left of its limits (a session, a
-  week): the tightest one counts, yellow at a quarter or less, red under a tenth; hover it for each
-  limit and when it resets. On a running local LLM's card it is the GPU memory still free.
-- The refresh symbol (F5) in the header looks again at what is installed, set up and signed in, and runs the checks of a start again (new apps, add-ons, updates, open problems).
+**The map** has four columns: MCP servers and skills ← agents → LLM providers → models. Chips above
+it leave whole columns out (remembered). Each column starts with a summary card: what is set up and
+found, with **Expand** to open the column's own page (every agent and local LLM the app knows, MCP
+servers, skills or models, with **+** cards to add one) and a status symbol: green when all is well,
+yellow or red with the problems and updates of that column, each with a button to where it is fixed.
 
-**The map** shows what is set up, plus, faded and without lines, the MCP servers and skill folders
-found on this PC that no agent uses yet (a line from an agent connects one; nothing is connected by
-itself), across the whole width: MCP servers and skills ← agents →
-LLM providers → models, under the **GPU** card (GPU memory and activity; it folds).
+- **Boxes**: the name, a small icon, a few rows (version, model, plan, state) and at the right **⋮**
+  (the box's menu: update, sign in, start or stop, details, uninstall or remove, move a model) and
+  **ⓘ** (its details). A program the agent needs and that is missing shows as a row of its own with
+  how to get it. The **pin** at the bottom right keeps the box and what it is joined to lit.
+- **Update badge**: a box whose agent, local LLM, MCP server or add-on has an update shows an arrow
+  badge; its menu offers **Update with AI…** (an agent of your choice does it in a terminal tab, with
+  the task shown first) and **Update now** (the program's own updater, as below).
+- **Lines** take the colour of their kind (agent → provider, provider → model, MCP, skills); a
+  selection lights what it is joined to and greys the rest, nothing is hidden. **Online agents** and
+  **Local agents** are cards of their own; each card's header has a filter that shows only what is
+  connected or pinned.
+- **Light along the lines** while an agent works (Settings › **Map animations**), the **Usage
+  statistics box** (tokens per second, context in use) on a working agent's line, **Subagents**
+  (a tree mark on the box opens their own map), **Agents using agents** (an arrow from the agent
+  that started another), **Used from outside the map** (a plugin or script generating with a local
+  LLM), **API cost** for agents paid per token and **batteries** for plan limits: as in 0.26.
+- **Connecting by drawing**: drag from an agent to a provider, model, MCP server or skill folder;
+  drag a line's hook away to disconnect. Every change shows its preview first and has Undo.
+- **F12** saves a screenshot of the window to `AI Agents Map` in your pictures folder (the name and
+  folder are shown first). Settings › **Corners** sets how round cards, dialogs and boxes are (like windows,
+  slightly rounded, rounded, square).
 
-- Hover a box to light it and what it is joined to; the **pin** at its top right keeps that lit.
-  Click selects (✓), Shift+click adds more, Esc clears. **Right-click** a box for everything its
-  card offers. **▶** on an agent's box starts it in a terminal in this window.
-- Each agent's active path (agent → provider in use → its model) is drawn bold; a **red dotted**
-  line joins an agent to a provider it is set up for but does not use now. Online agents' boxes
-  carry the same battery as their cards, running local LLMs' boxes the free GPU memory.
-- The **Show** toggles leave whole categories out (remembered). In a narrow window (below about
-  1300 px) the map picks them itself, said in a line beside the toggles: agents and providers while
-  an agent runs, else providers and models; **Maximize for more room** in the header gives it the
-  whole screen. **− 100 % +** (Ctrl+scroll, Ctrl+plus/minus/0) zooms.
-- Until the first line is drawn, a card above the map shows how in three steps (**Watch how** plays
-  the animation from Help); it goes for good after the first connection, or with ×.
-- **Legend**: **ⓘ** in the header explains every dot, line and mark of the map, drawn as there.
-- **Terminal tabs**: while agents have terminals here, a tab line above the map has a tab for each
-  with a dot for working, running or ended; a click shows that terminal, × closes an ended one
-  (Settings › **Terminal tabs above the map**, on by default).
-- **Working now**: while an agent is working (herdr shows it working, its process uses the CPU, its
-  session files were written in the last seconds, the session file it holds open is in the middle of
-  a turn, or its local LLM is generating), light runs along
-  its line to its provider and model (Settings › **Map animations**: agents and other programs, only
-  agents, or off; off when the desktop turns animations off).
-- **Usage statistics box** (new in 0.21.0): along a working agent's line to its provider, in the
-  line's colour, how fast its latest reply came (tokens per second), its context size and how much of
-  it is in use (yellow from 75 %, red over 90 %, like the batteries). Read from the agent's own
-  session files, numbers only (Claude Code, Codex, Pi; the newest file of the last minute, its last
-  256 KiB). Settings › **Usage statistics box**: on or off, what it shows, text size.
-- **Subagents** (new in 0.22.0): while an agent works with subagents (Claude Code's Task/Agent tool,
-  OpenCode's task tool), its box shows a small tree mark next to ⇅ (dim while it has only finished
-  ones listed). A click opens its **Subagents** page: a map of its own, laid out like the big one,
-  with the agent's card at the left and a card of its subagents at the right — each one's task, type,
-  folder and "working" or "done … minutes ago", light on the lines to the working ones, finished ones
-  dimmed. Settings › **Subagents**: how long finished ones stay (30 minutes by default) and how many at
-  most (10); working ones are always shown.
-- **Cost for API users** (new in 0.22.0): an agent paid per token (signed in with an API key, so it
-  has no plan limits for a battery) shows on its box and card what its sessions active today cost at
-  API prices, as "$3.40 today", refreshed every minute: green, yellow from 75 % of a day's limit, red
-  over it. Settings › **Costs**: the currency (US dollar, or euro at the European Central Bank's daily
-  rate), the day's limit (100 by default), **Yellow from** and **Red from** (the share used at which
-  a cost or a battery turns yellow, 75 % by default, and red, 90 %; red always above yellow) and
-  **Notify when red**. The prices (Anthropic, OpenAI, DeepSeek, xAI, Google,
-  with the date they were taken) come with the plugin in `plugin_costs.py`; an estimate.
-- **Agents using agents** (new in 0.22.0): when an agent started another one (the other's process
-  runs under its own, for example Claude Code running `pi -p …` in its shell), an arrow runs along the
-  left of the agents' card from the agent that uses the other to the one it uses, with light on it.
-  An agent can use several others at once, each with an arrow of its own. While it is used, the
-  agent it uses has its lines to its provider and on to its model in the arrow's colour too, with
-  the light in that colour (new in 0.23.0).
-- **Stop…** (new in 0.23.0): an agent with instances outside this window (a terminal window, the
-  background) offers to stop one of them, picked from a list with where and when it was started.
-- **In the background** (new in 0.23.0): for an instance that runs without a window (`claude -p …`
-  from a script, Pi in another agent's shell), the console opens a terminal tab that shows what it
-  writes, as it writes it (see Privacy).
-- **Ask an agent which MCP server fits** (new in 0.23.0, Add MCP server › MCP registry): in your own
-  words; the agent turns it into search words, the app searches the downloaded registry list with
-  them, and the agent picks the servers that fit from what was found, each with why. No web search.
-- **Ask an agent which model fits** (new in 0.23.0, Models page): in your own words; the agent
-  chosen for AI checks looks on the web for models that fit your question and this PC; its suggestions
-  (10 by default, **Suggestions** at the right of the agent line: 5 to 20) show in the result list as
-  the Hugging Face models they were found as, each opening its page and download options.
-- **Notify when red** (new in 0.23.0, Settings › Costs, on by default): a desktop notification once
-  when an agent's limit or cost turns red, with its reset time.
-- **Frames that follow the light** (new in 0.24.0): every box has the same thin grey frame. Hover a
-  box, or click (or pin) one, and it and every box joined to it get a frame in the accent colour,
-  as wide as a selected box's (a click's frames stay while the pointer is not over another box).
-  An agent's symbols (traffic, console, battery or cost, stop, ▶) sit
-  at the right edge of its box.
-- **Folding cards** (new in 0.24.0): click a card's header (▾ at its right) to fold the card to its
-  header (▸) and again to open it. The lines of a folded card's boxes end at its header (the arrows
-  between agents hide while the agents' card is folded). Opening a card moves the cards you put
-  around it out of its way.
-- **Layout pin** (new in 0.24.0): the pin right of the zoom keeps the map's layout (where you put
-  the cards, the order of the boxes, which cards are folded) after Refresh (F5) and a restart.
-  Unpinned, as it starts, the map comes back in its default layout on every refresh and start.
-- **Claude's model from its last session** (new in 0.25.0): when ~/.claude/settings.json sets no
-  model, Claude's box shows the model of its newest session (as its alias, e.g. opus, when it is one).
-- **Narrow window** (new in 0.25.0): half the screen or less always shows agents and providers; a
-  category switched on there stays until the window is full size again, and more categories scroll
-  the map sideways instead of squeezing the boxes.
-- **Safer Move to… and Change folder…** (0.25.0): a model is moved only if it is still the very file
-  the preview saw (device and inode); both folders are reached one name at a time from `/` without
-  following links, and every step works relative to those pinned folders. Undo checks the same way.
-- **Found on this PC** (new in 0.26.0): MCP servers and skill folders that no agent uses yet are
-  faded boxes on the map; drag a line from an agent to one to connect it. The connect page shows the
-  start command (the one the program's own usage text names, with a folder that fits the app) and the
-  exact change before anything is written. Servers at a web address get a card of their own
-  (**Online MCP servers**).
-- **Add folder…** (new in 0.26.0) in Setup's Local MCP servers and Skills: the scans also look in
-  the folders you add there (settings `mcp_folders`, `skill_folders`).
-- **Start overview** (new in 0.26.0): the first open after a start shows, in an animated box in the
-  middle of the window, the agents, local LLMs, MCP servers and skills as they are found (and how
-  many are not connected yet), then fades; a click closes it. Since 0.26.1 the window and this box
-  appear at once and the looks at this PC run right after, so a slow first start is never blank.
-- **Used from outside the map**: when a program that is not on the map (a plugin such as Video
-  Trans, a chat app, a script) generates with a local LLM, the line from that LLM to the model is
-  drawn bold in a colour of its own, light runs along it, and the model box says who uses it ("in use
-  · Video Trans"). It shows while that program sent a request in the last 10 s and the GPU was
-  generating.
-- **Running now**: an agent with an open instance gets a green dot and "running" (or "2 running"),
-  and the model box it runs with says "in use · <agent>": the model given with `--model` when it was
-  started, else the one in its settings. Checked every 2 seconds from `/proc` (your own processes
-  only).
+### Ask AI
 
-### Open problems, updates and suggestions
+**✦ Ask AI** (and the Ask AI bar of each column) takes a request in your own words: "update Claude",
+"connect Codex to my local llama.cpp", "find an MCP server for notes", "which model fits my card?".
+An agent you choose (an installed one, or a local LLM through the local helper) answers with one
+JSON object; the app checks it against what is really installed, connected and possible and turns it
+into proposals: an agent's step (install, update, sign in, start, details), a provider's step (start,
+stop, update, performance), connecting or disconnecting, adding an MCP server found in the registry,
+downloading or removing a model, switching an add-on. A proposal opens the app's own page with its
+preview; nothing happens until you confirm there. The helper runs without tools and without
+permission to change anything (see Privacy). Requests that need the web (how to update something
+unusual) are looked up once by an agent with web access and offered as **Do it with …**, the task
+shown before it starts.
 
-A red **!** in the header appears when something needs fixing; its tooltip says how many. It opens
-**Open problems**, one line each (an agent that is not signed in, a local LLM without models, a
-connection that does not work, little free space for models) with a button to where it is fixed:
-the agent's or local LLM's details, the map with that line lit, Setup, or Tidy up. The same problems
-show as a red **!** on their cards. The check only reads what the window collected plus the
-graphics card, memory and free disk space; nothing is changed, started or sent.
+The **microphone** in Ask AI dictates the request (Settings › **Use dictation in Ask AI**:
+Automatic, Omarchy dictation, Superwhisper or Off).
 
-Below them, **Updates and suggestions** lists new programs or skills found on this PC (with **Add
-MCP server…** / **Add skills…**), what is on this PC but not on the map (with **Setup**), and
-**updates** for the installed agents and local LLMs. With only these and no problem, the **!** shows
-in the accent colour. Updates are checked in the background when the window opens and at most every
-6 hours (cached in `~/.cache/ai-agents-map/updates.json`, 0600), each the way it was installed, so
-**Update** installs what was named:
+### What may be done
+
+Settings › **What may be done** holds allow and deny rules: an action (install, update, remove,
+connect, disconnect, move, start, stop), a category (MCP servers, skills, agents, providers, models),
+optionally one item and one agent. The most specific rule decides; the defaults allow everything.
+Every change the app makes asks the rules first: what is drawn on the map, a menu, a page's button,
+and Ask AI's proposals (refused ones are not offered). **Test** checks a request against the rules;
+**Say which rule refused something** names the rule in the refusal.
+
+### Add-ons
+
+Agents and local LLMs come as **add-ons**: signed data (a TOML description, icons, texts), never
+code. The plugin brings all of them (`addons/`); on the first start the add-ons of what is installed
+on this computer are switched on (after an update from 0.26, too, so the map shows what it showed
+before). The column pages and **Add-ons** switch them on and off; off takes them off the map, nothing
+is deleted. While an agent runs in one of the window's terminals, its own add-on is locked.
+Settings › **Look for add-ons online** (on by default) fetches the signed catalog from
+`github.com/maprisma/maprisma-addons` (see Privacy); only add-ons signed with the author's built-in
+key are used, and any add-on that brings code is refused.
+
+### Updates
+
+Updates are checked in the background when the window opens and at most every 6 hours (cached in
+`~/.cache/ai-agents-map/updates.json`, 0600), each the way it was installed, so **Update now**
+installs what was named:
 
 - agents installed with mise (Claude Code, Codex, Copilot, Cursor CLI, Muse, OpenCode, …): one
-  `mise outdated --json`; **Update** runs `mise upgrade <tool>` in a terminal window of its own
+  `mise outdated --json`; the update runs `mise upgrade <tool>` in a terminal window of its own
   (with `MISE_USE_VERSIONS_HOST=0`, so mise reads the tool's own releases: its version service can
   lag behind a release for hours; aqua still checks the SHA-256);
 - Claude Code also by its own release channel (`autoUpdatesChannel` in `~/.claude/settings.json`,
   from the npm registry's dist-tags), like its "Update available!" message; installed with its own
-  installer, **Update** runs `claude update`;
+  installer, the update runs `claude update`;
 - local LLMs and agents AI Agents Map installed: their latest release; **Update…** opens the
   Update page (SHA-256 checked as on install);
 - system packages are left to the system's updates.
 
-Nothing is installed or run by the check itself (except `mise outdated`); an update starts only
-with a click on **Update**. Pages opened from the map or from Setup (details, adding MCP servers or
-skills, models, installing, connecting) open in place of the map; **Back** returns to where they
-were opened from.
+Nothing is installed or run by the check itself (except `mise outdated`); an update starts only on a
+click.
+
+### Local LLM performance
+
+A llama.cpp model's **Measure and tune** (Providers and models › Performance) runs `llama-bench`
+(the one next to the llama-server that runs) with three micro-batch sizes, then once more with the
+fastest to measure its video memory, and proposes the context size and batch sizes that fit the card.
+**Apply** writes them into `models.ini` with a backup and Undo; nothing is written by the measuring.
 
 ### Details pages
 
@@ -246,7 +182,8 @@ skill folder's details list every skill with its description and how each agent 
 
 ## Information
 
-**ⓘ Information** (beside Help) links to the author's other Omarchy plugins; a card opens the
+**Information** (a button in Help; the header's **ⓘ** is the map's legend) links to the author's
+other Omarchy plugins; a card opens the
 plugin's page in the Omarchy Plugin Marketplace in your browser.
 
 ## Connecting by drawing
@@ -360,7 +297,7 @@ a site you add with **Add a site…** (kept in the settings until you remove it 
 
 Only https addresses without user, query or `#`; a site you added is asked only when you search.
 
-**Add MCP server** (the card at the end of Setup's MCP servers) opens a page laid out like the models page: a list
+**Add MCP server** (the **+** card on the MCP servers column's page) opens a page laid out like the models page: a list
 on the left, the chosen server's page on the right. The page says who made it and how much that is
 checked, what it does (with things to ask an agent once it has it), how it runs (each way as a row:
 a program through npx, uvx or Docker on this PC, or a web service, with what that means and whether
@@ -376,7 +313,7 @@ ticked agents at once: one preview, one Undo). No agent is ticked unless you sel
   (`npx -y pkg@1.2.3`, `uvx pkg==1.2.3`); offline it stays unpinned.
 - **On this PC**: programs that offer an MCP server, found by reading the files (nothing is
   started): your own programs (`~/.local/bin`, `~/bin`, extracted apps in `~/Applications`, `/opt`,
-  and the folders you add on Setup with **Add folder…**: each folder and the app folders in it) and
+  and the folders you add on the MCP servers column's page with **Add folder…**: each folder and the app folders in it) and
   anything on PATH with "mcp" in its name. A program counts when its own usage text has an
   `mcp` mode (`x-cli mcp [--automation-read-root DIR]`) or it holds the MCP protocol's words; read
   and write folders get a folder that fits the app. AppImages are never run by this scan: **Look
@@ -412,7 +349,7 @@ ticked agents at once: one preview, one Undo). No agent is ticked unless you sel
 
 **+ Skills** opens the same kind of page: skill folders that apps brought along and no agent reads
 yet (`/usr/share`, `/opt`, `~/Applications`, `~/.local/share`, global npm packages, Claude plugins,
-and the folders you add on Setup › Skills with **Add folder…**),
+and the folders you add on the Skills column's page with **Add folder…**),
 or a search of the skills.sh directory. A skill from the web is fetched from its GitHub repository
 (file list from `api.github.com`, files from `raw.githubusercontent.com`) into a folder of your
 choice, by default `~/.agents/skills`. Skills can hold scripts an agent may run later; the page
@@ -436,8 +373,7 @@ names; nothing in it is ever run) and kept in `~/.config/omarchy/ai-agents-map/a
 
 ### Smart Check and Daily AI checks
 
-While Claude Code or Codex is installed, the header has a **Smart Check** button (two sparkles). Its
-page shows what an installed agent did and found for this PC, in cards, under an **At your own
+Help › **Usage · Smart Check** (the header's ✦ is Ask AI now) opens a page that shows what an installed agent did and found for this PC, in cards, under an **At your own
 risk** note (an agent's findings, answers and changes can be wrong, incomplete or out of date; read
 what it proposes before agreeing to a step and keep backups; it uses your tokens; no warranty for what
 an agent does). The same note heads Settings › **AI features**.
@@ -456,7 +392,7 @@ an agent does). The same note heads Settings › **AI features**.
   unpacks it and moves the agents over, with Undo). **Check now** asks at once. Once the new version
   is on this PC (unpacked or as its AppImage), the line offers **Use it…** instead of a second
   download: the map's Update preview, one backup, Undo, a test of each server. The card also lists
-  the map's own finds (as on Setup): a newer version here that an agent still does not start. A
+  the map's own finds (as in the MCP column's status): a newer version here that an agent still does not start. A
   server drops off once all its agents start the new version. After an action started here (an
   update, a task's terminal tab), Back returns to Smart Check.
 - **Token statistics**: tokens today and in 30 days, their value at API prices and whether a
@@ -484,7 +420,7 @@ offered; a skill an app installed elsewhere is updated with the app.
 
 ## Installing local LLMs
 
-Use a local LLM's card on Setup (once installed, also its right-click menu on the map). Not installed (grey card): **Install…** downloads the official release
+Use a local LLM's card on the Providers column's page (**Expand**) (once installed, also its right-click menu on the map). Not installed (grey card): **Install…** downloads the official release
 into a program folder you choose (one folder per version, a `current` link, the command in
 `~/.local/bin`) and sets up a user service, so no password is needed; you also choose the model
 folder (the one your other local LLMs use is suggested) and whether it starts at login. Installed
@@ -519,7 +455,7 @@ not match, is not installed.
 
 ### Agents AI Agents Map installs
 
-Three agents Omarchy's menu does not offer are installed the same way (their card on Setup, ⋯ →
+Three agents Omarchy's menu does not offer are installed the same way (their card on the Agents column's page, ⋯ →
 **Install…**, **Update…**, **Uninstall…**; a version folder, the command in `~/.local/bin`):
 
 - **DeepSeek Harness** (`dsh`, developer preview): from npm with install scripts switched off
@@ -550,7 +486,7 @@ Three agents Omarchy's menu does not offer are installed the same way (their car
 
 ## Downloading models
 
-Right-click an installed local LLM → **Models…** (or the **Add model** card on Setup). The page is
+Right-click an installed local LLM → **Models…** (or the **+** card on the Models column's page). The page is
 laid out as LM Studio's model search: a list on the left, the chosen model's page on the right, in
 three tabs.
 
@@ -620,9 +556,9 @@ Settings › **Models folder** (type it or **Choose…**) is one folder for ever
 - every step is written to `~/.local/state/ai-agents-map/reorganize.json` (0600) first:
   **Undo the last reorganize** puts files, links and settings back.
 
-### Model folders on Setup
+### Model folders
 
-Setup shows the models as the map groups them: one card for the online models and one per local
+The Models column's page shows the models as the map groups them: one card for the online models and one per local
 LLM's model folder, titled with the folder and, in brackets, who serves its models.
 - **Add folder…** adds one more folder to look in (Settings `model_folders`); nothing is moved.
 - **Change folder…** moves the folder's models to another folder after a question that lists what
@@ -678,7 +614,13 @@ the backup and Undo), and the agent is told the same context. A context you set 
   sessions, MCP servers and skills, how it is installed and signed in), plus a small
   `adapters/<command>.py` for five agents whose facts a file cannot say (Hermes and OpenCode read
   their own session databases read-only; Pi, DeepSeek Harness and OpenClaw their own settings).
-  These come with the plugin; nothing is downloaded or loaded from elsewhere.
+  These come with the plugin. Since 1.0.0 agents and local LLMs are switched on and off as
+  **add-ons** (`addons/<id>/`: a TOML description, icons, texts): data only. An add-on is used only
+  when its `manifest.json` is signed by the author's key built into the plugin (`ssh-keygen -Y verify`
+  against `addons.ALLOWED_SIGNERS`) and every file matches its SHA-256; add-on code never runs: an
+  `addon.py` or `hooks.py` is accepted only when it names providers or agent hooks the plugin has
+  built in (those built-in ones are used), else the add-on is refused (`addons.data_only_refusal`). The bundled ones are verified
+  the same way.
 - **Reads** (to draw the setup): the agents' settings files, mise's install folders, the pacman
   database, user services (`~/.config/systemd/user`), model folders and this user's own processes
   (`/proc`, own UID only, including their GPU memory from DRM fdinfo), LM Studio's model index
@@ -697,7 +639,7 @@ the backup and Undo), and the agent is told the same context. A context you set 
   `manifest.json` (a plain plugin id only), an agent by its name, else the program's name. Nothing
   of what they send is read. AI Agents Map itself and LLM Monitor (status reads only) are left out.
   At most 16 names per local LLM, each forgotten 30 s after its last request; shown as plain text.
-- **ⓘ Information** reads the marketplace catalog
+- **Information** (Help) reads the marketplace catalog
   (`raw.githubusercontent.com/omacom/omarchy-plugin-marketplace/main/site/catalog.json`) only when
   the page opens, at most once an hour and only when it changed (its ETag; at most 40 MB), keeps
   only the author's own entries in `~/.cache/ai-agents-map/plugin-catalog.json` and shows them as
@@ -817,7 +759,7 @@ the backup and Undo), and the agent is told the same context. A context you set 
   **Free GPU memory** (unload); answers are capped at 1 MiB and only shown, never run;
   `registry.modelcontextprotocol.io` (its server list also automatically on start, at most every 12 h, see
   **MCP registry**); with Settings › Costs › Currency on Euro, the European Central Bank's daily
-  rate file on `www.ecb.europa.eu` (at most once a day, see **Cost for API users**); the marketplace catalog on `raw.githubusercontent.com` when **ⓘ Information** opens
+  rate file on `www.ecb.europa.eu` (at most once a day, see **Cost for API users**); the marketplace catalog on `raw.githubusercontent.com` when **Information** (Help) opens
   (see there); `skills.sh`, `api.github.com` and
   `raw.githubusercontent.com` for skills; the update check (automatic when the window opens, at
   most every 6 h): the npm registry's dist-tags of `@anthropic-ai/claude-code`, the release API
@@ -862,7 +804,7 @@ the backup and Undo), and the agent is told the same context. A context you set 
 - **Token log**: each look-up's time, task, agent, result and token numbers (from the agent's own
   JSON output) in `~/.local/state/omarchy-plugin-ai/runs.json` (owner-only, at most 500 runs),
   shared with the author's other plugins that use the same `plugin_ai.py`; Smart Check shows it.
-- **Install, update, uninstall an agent** (its card on Setup, after the dialog with the commands):
+- **Install, update, uninstall an agent** (its card on the Agents column's page or its box's menu, after the dialog with the commands):
   `mise --yes use -g <tool>` / `mise --yes unuse -g <tool>` and `mise --yes uninstall --all <tool>`
   in a terminal you watch (the tool from the plugin's adapters, every word checked), or the system
   package way above.
@@ -924,6 +866,40 @@ the backup and Undo), and the agent is told the same context. A context you set 
   day for a cost, when an agent's battery or cost turns red: a desktop notification with the
   agent's name and the limit, as plain text (markup and control characters removed). What was
   notified is kept in `~/.local/state/ai-agents-map/red-notified.json` (0600).
+- **Add-on catalog** (Settings › **Look for add-ons online**, on by default; at most every 6 h while
+  the window is open): `catalog.json` and `catalog.sig` from `raw.githubusercontent.com/maprisma/
+  maprisma-addons` (at most 1 MiB), used only when the signature verifies with the built-in key. A
+  newer add-on is downloaded only on **Update** or **Install** on the Add-ons page (a zip of at most
+  8 MiB, checked against the catalog's size and SHA-256, unpacked with size, count and path limits
+  into a private staging folder, then verified as above before it replaces the old copy, which is kept
+  for Undo). **Install from file…** takes a zip you chose, with the same checks.
+- **Ask AI** (✦, on a click only): your request and a short description of the setup (agents and
+  local LLMs with what can be done with them, the column's servers, skills or models by name, your
+  action rules; never keys, settings values, environment variables or headers) go to the
+  agent you choose, run in its no-tools mode (Claude Code and Codex: their `[rewrite]` mode as for
+  Skill updates, in a private working folder), or to the local helper (your own
+  local LLM on 127.0.0.1). The request is put in as data inside `<request>` tags. Its answer is one
+  JSON object that is checked against the facts: only proposals for things that exist and are
+  possible are shown, each opening the app's own page with its preview; nothing runs from the answer
+  itself. An MCP or model search sends the search words to the MCP registry or Hugging Face as above.
+  A web look-up (only with an agent that has web access) runs once, its sources shown as links;
+  **Do it with …** shows the task before it starts in a terminal tab.
+- **What may be done** (Settings): allow and deny rules kept in the settings file
+  (`action_rules`); every change asks them first, and Ask AI never offers a refused proposal.
+- **Dictation in Ask AI** (the microphone, on a click only): runs `omarchy-dictation start|stop`, or
+  `superwhisper start|stop|status|cancel` and `superwhisper history list --limit 3` to read the text of
+  the dictation made since the start (at most 4000 characters, put into the prompt as plain text).
+  Each command is an argv list with a 20 s limit; nothing is recorded or kept by the plugin.
+- **Measure and tune** (a llama.cpp model's Performance, on a click only): runs `llama-bench` (next
+  to the running `llama-server`, resolved through a wrapper script; else on PATH) as an argv list in
+  its own process group, at most 10 minutes for the speed run and 5 for the memory run, Cancel
+  kills it; its JSON output is read while it runs (at most 1 MiB). GPU memory is read from sysfs as
+  for the GPU card. The result is only shown; **Apply** writes `models.ini` with backup and Undo.
+- **F12 screenshot**: the window as a PNG in `AI Agents Map/` in your pictures folder
+  (`XDG_PICTURES_DIR`, else `~/Pictures`; created 0700, every step and the file opened without
+  following links, the file created new), after a dialog with its name; nothing else is captured.
+- **Update with AI…** (a box's update badge): opens the chosen agent in a terminal tab with the task
+  (which program, its version now and the newest, how it was installed), shown before it starts.
 - **Writes**, each only after you confirm it with its preview (except AI Agents Map's own state):
   the agents' settings files named above, security settings included (`~/.claude/settings.json`,
   `~/.codex/config.toml`, `~/.copilot/settings.json`, `~/.config/cursor/cli-config.json`,
@@ -1002,8 +978,12 @@ servers, skills, installed local LLMs); uninstall a local LLM first with right-c
 **Uninstall…** if you want it gone. To also drop AI Agents Map's own state:
 
 ```sh
-rm -rf ~/.config/omarchy/ai-agents-map ~/.local/state/ai-agents-map ~/.cache/ai-agents-map
+rm -rf ~/.config/omarchy/ai-agents-map ~/.local/state/ai-agents-map ~/.cache/ai-agents-map \
+       ~/.local/share/ai-agents-map/addons
 ```
+
+(`~/.local/share/ai-agents-map` itself holds the local LLMs AI Agents Map installed; uninstall them
+from their menu instead.)
 
 ## Files
 
@@ -1036,6 +1016,12 @@ The full module map, with diagrams, is in [ARCHITECTURE.md](ARCHITECTURE.md). Th
 | `harnesses.py`, `adapter_data.py`, `adapters/`, `edition.py` | The agents as data: one `adapters/<command>.toml` per agent (plus a small hook module for five of them), its loader and schema check; what this edition may show (numbers only in this plugin) |
 | `desktop.py`, `desktop_omarchy.py`, `desktop_generic.py` | Everything desktop-specific behind one interface: Omarchy/Hyprland here; the generic one is used only outside Omarchy (the same code as the stand-alone app Asterism) |
 | `ai_core.py`, `palette.py`, `corners.py`, `pidfile.py`, `i18n.py`, `I18n.js` | Shared helpers, theme colours, corners, PID file, languages |
+| `addons.py`, `addon_store.py`, `addons_page.py`, `addons/` | Add-ons: loading and verifying (data only), the signed catalog, the Add-ons page, the bundled add-ons |
+| `askai_page.py`, `smart_card.py`, `local_helper.py` | Ask AI: the page, the engine that checks an answer against the facts, the local helper |
+| `action_rules.py`, `rules_window.py` | What may be done: the rules and their window |
+| `dictation.py` | Dictation in Ask AI (Omarchy dictation, Superwhisper) |
+| `llama_tune.py` | Measure and tune a llama.cpp model (llama-bench) |
+| `shot_save.py` | F12: save a screenshot in the pictures folder |
 | `tests/` | Unit tests (`python3 -m unittest discover -s tests`) |
 | `ARCHITECTURE.md`, `docs/architecture/` | For reviewers: processes, layers, and the function each risky operation goes through |
 | `assets/user-manual*.pdf` | The user manual in 8 languages |

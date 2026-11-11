@@ -1161,6 +1161,13 @@ class SettingsPages:
         monitor = self.help_llm_monitor_card()
         if monitor is not None:
             body.append(monitor)
+        # Usage (Maprisma's Help › Usage): the AI runs, their tokens, the protocol and the updates found,
+        # on the Smart Check page (its header button is Ask AI now).
+        usage = Gtk.Button(label=f"{_('Usage')} · {_('Smart Check')}", halign=Gtk.Align.START)
+        usage.add_css_class("am-small-btn")
+        usage.set_tooltip_text(f"{_('Token statistics')} · {_('Protocol')}")
+        usage.connect("clicked", lambda *_: self.open_smart_check())
+        body.append(usage)
         # The author's other plugins (the house ⓘ page; the header's ⓘ is the map's legend, as in Maprisma).
         import more_plugins
         more = Gtk.Button(label=_(more_plugins.INFORMATION), halign=Gtk.Align.START)
