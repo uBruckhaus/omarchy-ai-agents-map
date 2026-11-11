@@ -732,7 +732,7 @@ class AddonsPage:
 
             def work():
                 try:
-                    addon_store.install(item.entry)
+                    addon_store.install(item.entry, allow=self.addon_rule_gate("install"))
                     addon_store.set_enabled(item.id, True)
                     return ""
                 except addon_store.InstallError as error:
@@ -745,6 +745,20 @@ class AddonsPage:
                     self.addons_changed(_("{0} is installed and on.").format(item.name), item.id)
             self.run_addon_job(work, done)
         self.addon_confirm(item, _("Install {0}?").format(item.name), _("Install and switch on"), go)
+
+    @staticmethod
+    def addon_rule_gate(step: str):
+        """allow(id, kind, replacing) for addon_store.install_bytes: the rules for the verified add-on
+        (its own id and kind, from the signed zip), checked before anything is replaced."""
+        import action_rules
+        rules, hints = ai_core.setting("action_rules"), ai_core.setting("action_rule_hints") is not False
+
+        def allow(aid, kind, replacing):
+            text = action_rules.refusal(rules, hints, *action_rules.addon_check(step, aid, kind))
+            if text is None and replacing and step != "update":
+                text = action_rules.refusal(rules, hints, *action_rules.addon_check("update", aid, kind))
+            return text
+        return allow
 
     def addon_rule_allows(self, step: str, addon_id: str, kind: str = "") -> bool:
         """Settings › What may be done, for an add-on change (action_rules.addon_check)."""
@@ -775,7 +789,7 @@ class AddonsPage:
 
         def work():
             try:
-                addon_store.install(item.entry)
+                addon_store.install(item.entry, allow=self.addon_rule_gate("update"))
                 return ""
             except addon_store.InstallError as error:
                 return str(error)
@@ -818,12 +832,13 @@ class AddonsPage:
                 return
         if hasattr(self, "addons_update_bar"):
             self.addons_update_bar.set_visible(False)
+        gate = self.addon_rule_gate("update")
 
         def work():
             done, failed = [], []
             for item in items:
                 try:
-                    addon_store.install(item.entry)
+                    addon_store.install(item.entry, allow=gate)
                     done.append(item.name)
                 except Exception as error:      # one bad download never stops the others
                     failed.append(f"{item.name} ({error})")

@@ -255,9 +255,15 @@ def install_bytes(data: bytes, user_dir: Path = addons.USER_DIR, signers: str = 
                 raise InstallError(refused)
         old = None
         if final.exists() or final.is_symlink():
-            old = user_dir / f".old-{aid}-{int(time.time())}"
+            import secrets
+            old = user_dir / f".old-{aid}-{time.time_ns()}-{secrets.token_hex(4)}"
             os.replace(final, old)
-        os.replace(staging / aid, final)
+        try:
+            os.replace(staging / aid, final)
+        except OSError:
+            if old is not None:
+                os.replace(old, final)                # the installed one comes back as it was
+            raise
         if old is not None:
             (trash or _trash)(old)
         addon.folder = final

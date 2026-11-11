@@ -200,6 +200,43 @@ class FoundAddonsTest(unittest.TestCase):
         self.assertEqual(got, ["llm-ollama"])
 
 
+class Round6Test(unittest.TestCase):
+    def test_a_fifo_skill_file_never_hangs(self):
+        with tempfile.TemporaryDirectory() as folder:
+            os.mkfifo(Path(folder) / "SKILL.md")
+            self.assertEqual(finishes(self, lambda: skill_update.read_skill(Path(folder))), "")
+
+    def test_the_gate_uses_the_verified_kind(self):
+        import addons_page
+        rules = [{"effect": "allow", "action": "*", "category": "*", "item": "*", "agent": "*"},
+                 {"effect": "deny", "action": "install", "category": "agents", "item": "*", "agent": "*"}]
+        with mock.patch.object(addons_page.ai_core, "setting", lambda key, *a: rules if key == "action_rules" else None):
+            gate = addons_page.AddonsPage.addon_rule_gate("install")
+            # The catalog said provider, the signed zip is an agent: the agent's rule decides.
+            self.assertTrue(gate("llm-x", "agent", False))
+            self.assertIsNone(gate("llm-x", "provider", False))
+
+    def test_a_failed_replace_puts_the_old_add_on_back(self):
+        import addons
+        with tempfile.TemporaryDirectory() as root:
+            user = Path(root) / "addons"
+            (user / "demo").mkdir(parents=True)
+            (user / "demo" / "keep").write_text("old")
+            verified = type("A", (), {"state": "verified", "kind": "agent", "reason": "", "folder": None})()
+            real_replace = os.replace
+
+            def replace(src, dst):
+                if ".install-" in str(src):
+                    raise OSError("disk full")
+                return real_replace(src, dst)
+            with mock.patch.object(addon_store, "unpack", side_effect=lambda data, staging: (Path(staging) / "demo").mkdir() or "demo"), \
+                    mock.patch.object(addons, "verify", return_value=verified), \
+                    mock.patch.object(addon_store.os, "replace", replace):
+                with self.assertRaises(OSError):
+                    addon_store.install_bytes(b"zip", user_dir=user)
+            self.assertEqual((user / "demo" / "keep").read_text(), "old")
+
+
 class TrustedChainTest(unittest.TestCase):
     def test_a_folder_higher_up_that_others_can_write(self):
         import llama_tune

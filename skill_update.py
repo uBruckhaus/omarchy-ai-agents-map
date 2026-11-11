@@ -41,8 +41,8 @@ _NAME = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 
 def read_skill(folder: Path) -> str:
     try:
-        with open(Path(folder) / "SKILL.md", encoding="utf-8", errors="replace") as handle:
-            return handle.read(MAX_SKILL + 1)
+        # A regular file only, opened without blocking (a FIFO in a skill folder never hangs the window).
+        return ai_core.read_head(Path(folder) / "SKILL.md", MAX_SKILL + 1).decode("utf-8", "replace")
     except OSError:
         return ""
 
