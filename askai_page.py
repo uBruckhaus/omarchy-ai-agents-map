@@ -298,8 +298,13 @@ class AskAiPage:
         self.ask_text.grab_focus()
 
         def work():
-            text = running.stop()
-            GLib.idle_add(done, text)
+            text = ""
+            try:
+                text = running.stop()
+            except Exception:                        # whatever the engine answered: the button comes back
+                text = ""
+            finally:
+                GLib.idle_add(done, text if isinstance(text, str) else "")
 
         def done(text):
             self.ask_mic.set_sensitive(True)

@@ -142,5 +142,69 @@ class ProposalRulesTest(unittest.TestCase):
             self.assertEqual(page.calls[-1], ("addons", "agent-goose"))
 
 
+class AddonRulesTest(unittest.TestCase):
+    """Round 4: every add-on change asks Settings › What may be done, also on the Add-ons page."""
+
+    def test_every_add_on_step_is_a_rule_check(self):
+        import action_rules as r
+        self.assertEqual(r.addon_check("on", "agent-goose"), ("install", "agents", "agent-goose"))
+        self.assertEqual(r.addon_check("remove", "llm-ollama"), ("remove", "providers", "llm-ollama"))
+        self.assertEqual(r.addon_check("update", "x", "agent"), ("update", "agents", "x"))
+        self.assertIsNone(r.addon_check("details", "agent-goose"))
+        deny = [{"effect": "allow", "action": "*", "category": "*", "item": "*", "agent": "*"},
+                {"effect": "deny", "action": "update", "category": "providers", "item": "*", "agent": "*"}]
+        self.assertFalse(r.allows(deny, *r.addon_check("update", "llm-ollama")))
+        self.assertTrue(r.allows(deny, *r.addon_check("update", "agent-goose")))
+
+    def test_the_add_ons_page_asks_before_it_changes(self):
+        import addons_page
+
+        class Page(addons_page.AddonsPage):
+            pass
+        page = Page()
+        asked = []
+        page.rule_allows = lambda *check: asked.append(check) or False
+        page.addon_locked = lambda ids: False
+        page.addons_busy = lambda: False
+        item = addons_page.Item("llm-ollama", "Ollama", "provider", "on", "", "", "")
+        item.entry = object()
+        with mock.patch.object(addon_store, "set_enabled", side_effect=AssertionError("changed")), \
+                mock.patch.object(addon_store, "install", side_effect=AssertionError("installed")), \
+                mock.patch.object(addon_store, "remove", side_effect=AssertionError("removed")):
+            page.switch_addon_on(item)
+            page.switch_addon_off(item)
+            page.update_addon(item)
+            page.install_addon(item)
+            page.remove_addon(item)
+        self.assertEqual([a[0] for a in asked], ["install", "remove", "update", "install", "remove"])
+
+
+class TrustedChainTest(unittest.TestCase):
+    def test_a_folder_higher_up_that_others_can_write(self):
+        import llama_tune
+        with tempfile.TemporaryDirectory() as top:
+            os.chmod(top, 0o700)
+            inner = Path(top) / "a" / "bin"
+            inner.mkdir(parents=True, mode=0o755)
+            bench = inner / "llama-bench"
+            bench.write_text("#!/bin/sh\n")
+            os.chmod(bench, 0o755)
+            os.chmod(Path(top) / "a", 0o755)
+            self.assertTrue(llama_tune.trusted(str(bench)))
+            os.chmod(Path(top) / "a", 0o777)                 # two levels up: open to others
+            self.assertFalse(llama_tune.trusted(str(bench)))
+            os.chmod(Path(top) / "a", 0o755)
+
+
+class DictationHistoryTest(unittest.TestCase):
+    def test_malformed_history_gives_no_text(self):
+        import json as _json
+        import dictation
+        for data in ({"items": ["x", 3, None]}, {"items": "x"}, {"items": [{"timestamp": 10 ** 400}]}, [1]):
+            with mock.patch.object(dictation, "_run", return_value=(True, _json.dumps(data) if not isinstance(
+                    data, dict) or "timestamp" not in str(data) else '{"items": [{"timestamp": 1' + "0" * 400 + '}]}')):
+                self.assertEqual(dictation.newest_text(0), "")
+
+
 if __name__ == "__main__":
     unittest.main()

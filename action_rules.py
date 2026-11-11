@@ -90,6 +90,20 @@ def node_check(node_id: str) -> tuple[str, str] | None:
     return None
 
 
+ADDON_STEPS = {"on": "install", "install": "install", "update": "update", "off": "remove", "remove": "remove"}
+
+
+def addon_check(step: str, addon_id: str, kind: str = "") -> tuple | None:
+    """(action, category, item) of an add-on change: switching on or installing counts as install,
+    off or removing as remove; an agent's add-on is in Agents, the others (local LLMs, online
+    providers) in Providers. None: not a change (details)."""
+    action = ADDON_STEPS.get(step)
+    if action is None:
+        return None
+    agent = kind == "agent" or (not kind and addon_id.startswith("agent-"))
+    return action, "agents" if agent else "providers", addon_id
+
+
 def candidate_checks(candidate: dict) -> list[tuple]:
     """(action, category, item, agent) checks of an Ask AI proposal (Maprisma's smartCandidateChecks)."""
     action = candidate.get("action") or {}
@@ -118,7 +132,8 @@ def candidate_checks(candidate: dict) -> list[tuple]:
             return {"start": [("start", "agents", key)], "halt": [("stop", "agents", key)],
                     "security": [("update", "agents", key)], "key": [("connect", "agents", key)]}.get(step, [])
         if area == "addons":
-            return {"on": [("install", "agents", key)], "off": [("remove", "agents", key)]}.get(step, [])
+            check = addon_check(step, key)
+            return [check] if check else []
         if area == "models" and step == "move":
             return [("move", "models", "")]
     return []

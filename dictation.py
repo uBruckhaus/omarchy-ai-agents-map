@@ -91,10 +91,16 @@ def newest_text(since: float) -> str:
     """The text of Superwhisper's newest dictation made since `since` (its history), or ""."""
     ok, out = _run(["superwhisper", "history", "list", "--limit", "3"])
     data = _json(out) if ok else None
-    for item in (data.get("items") if isinstance(data, dict) else None) or []:
-        stamp = item.get("timestamp") if isinstance(item, dict) else None
-        when = float(stamp) / (1000 if isinstance(stamp, (int, float)) and stamp > 1e11 else 1) \
-            if isinstance(stamp, (int, float)) else _parse_stamp(stamp)
+    items = data.get("items") if isinstance(data, dict) else None
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        stamp = item.get("timestamp")
+        try:
+            when = float(stamp) / (1000 if isinstance(stamp, (int, float)) and stamp > 1e11 else 1) \
+                if isinstance(stamp, (int, float)) else _parse_stamp(stamp)
+        except (OverflowError, ValueError):
+            continue
         if when is None or when + 2 < since:
             continue
         meta = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}

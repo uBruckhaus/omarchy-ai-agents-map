@@ -871,7 +871,7 @@ the backup and Undo), and the agent is told the same context. A context you set 
   maprisma-addons` (at most 1 MiB), used only when the signature verifies with the built-in key. A
   newer add-on is downloaded only on **Update** or **Install** on the Add-ons page (a zip of at most
   8 MiB, checked against the catalog's size and SHA-256, unpacked with size, count and path limits
-  into a private staging folder, then verified as above before it replaces the old copy, which goes to
+  into a staging folder of its own, then verified as above before it replaces the old copy, which goes to
   the trash). **Install from file…** takes a zip you chose, with the same checks.
 - **Ask AI** (✦, on a click only): your request and a short description of the setup (agents and
   local LLMs with what can be done with them, the column's servers, skills or models by name, your

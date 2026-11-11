@@ -375,8 +375,14 @@ class SetupPage:
             self.show_view("main", save=False)
             return
         import addon_store
+        import action_rules
+        rules = ai_core.setting("action_rules")
         for check, addon in self.setup_checks.values():
-            addon_store.set_enabled(addon.id, check.get_active())
+            wanted = check.get_active()
+            if wanted != (addon.state == "loaded") and not action_rules.allows(
+                    rules, *action_rules.addon_check("on" if wanted else "off", addon.id, addon.kind)):
+                continue                              # the rules refuse this one: it stays as it was
+            addon_store.set_enabled(addon.id, wanted)
         self.reload_addons()
         absent = [a for a in chosen if (a.kind == "agent" or a.commands) and a.id not in self.setup_installed]
         self.toast(_("{0} add-ons are on.").format(len(chosen)), 4)
@@ -396,6 +402,8 @@ class SetupPage:
             return
         for on, addon in changed:
             if not on and self.addon_locked([addon.id]):
+                return
+            if not self.addon_rule_allows("on" if on else "off", addon.id, addon.kind):
                 return
             addon_store.set_enabled(addon.id, on)
         self.reload_addons()

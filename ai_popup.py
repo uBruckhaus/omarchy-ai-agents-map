@@ -4239,6 +4239,8 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         popover = self.context_popover(self.side_map, rect)
 
         def switch_off():
+            if not self.addon_rule_allows("off", addon_id):
+                return
             addon_store.set_enabled(addon_id, False)
             self.reload_addons()
         self.show_menu(popover, name, [[

@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import stat
 import threading
 from pathlib import Path
 
@@ -28,17 +29,25 @@ MAX_OUTPUT = 1024 * 1024
 
 
 def trusted(path: str | None) -> bool:
-    """An executable owned by you or root that nobody else can change (nor its folder): one another
-    local user could have put there is never run."""
+    """An executable owned by you or root that nobody else can change, nor any folder above it up to
+    `/` (so no other local user can swap it or a folder on its way between this check and the
+    start): one another user could have put there is never run."""
     if not path:
         return False
     uid = os.getuid()
+    real = os.path.realpath(path)
     try:
-        for each in (path, os.path.dirname(path) or "/"):
-            st = os.stat(each)
-            if st.st_uid not in (0, uid) or st.st_mode & 0o022:
+        step = real
+        while True:
+            st = os.stat(step)
+            # A folder others may write is safe only when sticky (/tmp): they cannot replace what is ours.
+            open_to_others = st.st_mode & 0o022 and not (step != real and st.st_mode & stat.S_ISVTX)
+            if st.st_uid not in (0, uid) or open_to_others:
                 return False
-        return os.path.isfile(path) and os.access(path, os.X_OK)
+            if step == "/":
+                break
+            step = os.path.dirname(step)
+        return os.path.isfile(real) and os.access(real, os.X_OK)
     except OSError:
         return False
 

@@ -717,7 +717,7 @@ class AddonsPage:
                             and not getattr(self, "addons_updating", False))
 
     def install_addon(self, item: Item):
-        if item.entry is None:
+        if item.entry is None or not self.addon_rule_allows("install", item.id, item.kind):
             return
 
         def go():
@@ -741,6 +741,12 @@ class AddonsPage:
             self.run_addon_job(work, done)
         self.addon_confirm(item, _("Install {0}?").format(item.name), _("Install and switch on"), go)
 
+    def addon_rule_allows(self, step: str, addon_id: str, kind: str = "") -> bool:
+        """Settings › What may be done, for an add-on change (action_rules.addon_check)."""
+        import action_rules
+        check = action_rules.addon_check(step, addon_id, kind)
+        return check is None or self.rule_allows(*check)
+
     def addon_locked(self, ids) -> bool:
         """Maprisma's add-on lock (tasks 027/028): the add-on of an agent running in a terminal here waits;
         switching it off, updating or removing it is refused with why. Others stay free."""
@@ -758,7 +764,8 @@ class AddonsPage:
         return True
 
     def update_addon(self, item: Item):
-        if item.entry is None or self.addons_busy() or self.addon_locked([item.id]):
+        if item.entry is None or self.addons_busy() or self.addon_locked([item.id]) \
+                or not self.addon_rule_allows("update", item.id, item.kind):
             return
 
         def work():
@@ -789,7 +796,11 @@ class AddonsPage:
     def update_all_addons(self):
         """Every add-on with a newer version, one after the other in the background; then they
         are loaded again (no restart) and one toast says what happened."""
-        items = self.addon_update_items()
+        import action_rules
+        rules = ai_core.setting("action_rules")
+        # Only those the rules allow (each refused one is left as it is, quietly: one toast at the end).
+        items = [i for i in self.addon_update_items()
+                 if action_rules.allows(rules, *action_rules.addon_check("update", i.id, i.kind))]
         if not items or self.addons_busy():
             return
         # A running agent's own add-on waits; the others are updated (Maprisma's Update all).
@@ -824,19 +835,22 @@ class AddonsPage:
         self.run_addon_job(work, finished)
 
     def switch_addon_on(self, item: Item):
+        if not self.addon_rule_allows("on", item.id, item.kind):
+            return
+
         def go():
             addon_store.set_enabled(item.id, True)
             self.addons_changed(_("{0} is on.").format(item.name), item.id)
         self.addon_confirm(item, _("Switch on {0}?").format(item.name), _("Switch on"), go)
 
     def switch_addon_off(self, item: Item):
-        if self.addon_locked([item.id]):
+        if self.addon_locked([item.id]) or not self.addon_rule_allows("off", item.id, item.kind):
             return
         addon_store.set_enabled(item.id, False)
         self.addons_changed(_("{0} is off.").format(item.name), item.id)
 
     def remove_addon(self, item: Item):
-        if self.addon_locked([item.id]):
+        if self.addon_locked([item.id]) or not self.addon_rule_allows("remove", item.id, item.kind):
             return
         dialog = Adw.AlertDialog(heading=_("Remove {0}?").format(item.name),
                                  body=_("It goes to the trash; you can install it again any time."))
@@ -856,6 +870,9 @@ class AddonsPage:
         dialog.present(self.window)
 
     def addon_from_file(self):
+        # Its kind is known only once it is read: installing must be allowed for agents and providers.
+        if not (self.rule_allows("install", "agents") and self.rule_allows("install", "providers")):
+            return
         dialog = Gtk.FileDialog(title=_("Install an add-on from a file"))
         zips = Gtk.FileFilter(name=_("Add-on (.zip)"))
         zips.add_pattern("*.zip")

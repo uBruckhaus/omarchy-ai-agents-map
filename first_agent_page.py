@@ -420,6 +420,8 @@ class FirstAgentPage:
 
     def first_addon_on(self, addon):
         import addon_store
+        if not self.addon_rule_allows("on", addon.id, addon.kind):
+            return
         addon_store.set_enabled(addon.id, True)
         self.reload_addons()
         self.toast(_("{0} is on.").format(addon.name), 4)
