@@ -216,7 +216,7 @@ RENAMED: dict[str, tuple[str, Callable[[Any], Any]]] = {
     "animate_lines": ("map_animations", lambda v: "off" if v is False else "all"),   # "Animate active lines"
 }
 # Keys nothing reads any more (Hide, the column lists, the overview's Show list, Setup · + Available).
-RETIRED = ("plugin_migration", "launcher_entry",   # the AI Agents Map plugin's import and launcher
+RETIRED = ("plugin_migration",                 # the old plugin import (the launcher entry stays: Settings › In the app launcher)
            "widen",                         # "Maximize for more room" in the header (removed)
            "hidden_items", "hidden_nodes", "hidden_providers", "card_hidden", "start_scope", "show_more_hint",
            "setup_mode",                          # Setup's All/Installed switch

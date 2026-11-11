@@ -14,12 +14,12 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 import time
 
 ENGINES = ("auto", "omarchy", "superwhisper")
 WAIT = 90            # seconds a dictation may take to be written after Stop
 TIMEOUT = 20         # seconds one engine command may take
+MAX_OUTPUT = 256 * 1024   # bytes read of one engine command's output
 
 
 def available() -> list[str]:
@@ -41,11 +41,10 @@ def chosen(setting) -> str | None:
 
 
 def _run(argv: list[str]) -> tuple[bool, str]:
-    try:
-        done = subprocess.run(argv, capture_output=True, text=True, timeout=TIMEOUT, stdin=subprocess.DEVNULL)
-    except (OSError, subprocess.SubprocessError) as error:
-        return False, str(error)
-    return done.returncode == 0, (done.stdout or done.stderr or "").strip()
+    """One engine command: argv (no shell), stdout read with a byte cap and one deadline."""
+    import ai_core
+    out, ok = ai_core.read_bounded_output(argv, max_bytes=MAX_OUTPUT, timeout=TIMEOUT)
+    return ok, out.decode("utf-8", "replace").strip()
 
 
 def _json(text: str):

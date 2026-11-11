@@ -99,6 +99,12 @@ class SchemaTest(unittest.TestCase):
             ai_core.update_settings(self.path, agent_project_history={"agent": ["/" + "é" * (ai_core.SETTINGS_MAX_BYTES // 2)]})
         self.assertEqual(self.path.read_bytes(), before)
 
+    def test_the_launcher_choice_survives_the_upgrade(self):
+        # 1.0.0 took the core from Maprisma, which retired this key: the plugin keeps it (it was asked once).
+        self.assertNotIn("launcher_entry", schema.migrate({"launcher_entry": True}))
+        self.assertIn("launcher_entry", schema.SCHEMA)
+        self.assertNotIn("launcher_entry", schema.RETIRED)
+
     def test_migration_renames_and_drops(self):
         self.write({"animate_lines": False, "hidden_nodes": ["x"], "sidebar_width": 360, "map_zoom": 1.2})
         ai_core.migrate_settings(self.path)

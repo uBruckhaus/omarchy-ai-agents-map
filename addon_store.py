@@ -291,23 +291,6 @@ def install_file(path: Path, **kwargs) -> addons.Addon:
     return install_bytes(data, **kwargs)
 
 
-def install_url(url: str, fetch=None, **kwargs) -> addons.Addon:
-    """Install an add-on from a link (dragged from a browser): https only, no credentials in it, a .zip,
-    size-capped; then the same checks as any zip (only the author's signature loads)."""
-    from urllib.parse import urlsplit
-    parts = urlsplit(url.strip())
-    if parts.scheme != "https" or not parts.hostname or "@" in parts.netloc or len(url) > 2000 \
-            or not parts.path.endswith(".zip"):
-        raise InstallError("not an https link to an add-on .zip")
-    import netfetch
-    fetch = fetch or netfetch.fetch
-    try:
-        data = fetch(url.strip(), max_bytes=MAX_ZIP, timeout=60, redirects=3)
-    except netfetch.FetchError as error:
-        raise InstallError(str(error)) from error
-    return install_bytes(data, **kwargs)
-
-
 def _trash(path: Path):
     """To the trash (Gio), else removed."""
     try:

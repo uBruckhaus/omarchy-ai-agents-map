@@ -40,6 +40,11 @@ class EnginesTest(unittest.TestCase):
             self.assertEqual(d.stop(sleep=lambda _s: None), "")
         self.assertEqual(calls[:3], ["start", "stop", "status"])
 
+    def test_endless_engine_output_is_cut(self):
+        ok, out = dictation._run(["sh", "-c", "yes x"])
+        self.assertFalse(ok)
+        self.assertLessEqual(len(out), dictation.MAX_OUTPUT)
+
     def test_omarchy_types_it_itself(self):
         calls = []
         with mock.patch.object(dictation, "_run", lambda argv: calls.append(argv) or (True, "")):

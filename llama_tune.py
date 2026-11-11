@@ -13,9 +13,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import subprocess
 import threading
-import time
 from pathlib import Path
 
 import context_ctl
@@ -26,24 +24,45 @@ BATCH, PROMPT, GEN, MEM_GEN = 2048, 2048, 64, 16
 MARGIN = 512 * 1024 ** 2          # video memory kept free for the desktop and growth
 STEP, MIN_CONTEXT = 4096, 4096
 SPEED_TIMEOUT, MEMORY_TIMEOUT = 600, 300
+MAX_OUTPUT = 1024 * 1024
+
+
+def trusted(path: str | None) -> bool:
+    """An executable owned by you or root that nobody else can change (nor its folder): one another
+    local user could have put there is never run."""
+    if not path:
+        return False
+    uid = os.getuid()
+    try:
+        for each in (path, os.path.dirname(path) or "/"):
+            st = os.stat(each)
+            if st.st_uid not in (0, uid) or st.st_mode & 0o022:
+                return False
+        return os.path.isfile(path) and os.access(path, os.X_OK)
+    except OSError:
+        return False
 
 
 def server_binary() -> str | None:
-    """The llama-server that runs now (its process), else the one on PATH."""
+    """The llama-server that runs now (one of your own processes), else the one on PATH."""
+    uid = os.getuid()
     try:
         for entry in os.scandir("/proc"):
             if not entry.name.isdigit():
                 continue
             try:
+                if os.stat(f"/proc/{entry.name}").st_uid != uid:
+                    continue                  # another user's process: never where a program is taken from
                 if Path(f"/proc/{entry.name}/comm").read_text().strip() == "llama-server":
                     exe = os.readlink(f"/proc/{entry.name}/exe")
-                    if "/.lmstudio/" not in exe:
+                    if "/.lmstudio/" not in exe and trusted(exe):
                         return exe
             except OSError:
                 continue
     except OSError:
         pass
-    return shutil.which("llama-server")
+    found = shutil.which("llama-server")
+    return found if trusted(os.path.realpath(found) if found else None) else None
 
 
 def real_server(path: str) -> str | None:
@@ -55,9 +74,9 @@ def real_server(path: str) -> str | None:
     except OSError:
         return None
     if not head.startswith(b"#!"):
-        return os.path.realpath(path)
+        return os.path.realpath(path) if trusted(os.path.realpath(path)) else None
     for found in re.findall(r"(/[^\s\"'$]+/llama-server)\b", head.decode("utf-8", "replace")):
-        if os.path.isfile(found) and os.access(found, os.X_OK):
+        if trusted(os.path.realpath(found)):
             return os.path.realpath(found)
     return None
 
@@ -67,8 +86,11 @@ def bench_binary() -> str | None:
     server = real_server(server) if server else None
     if server is None:
         return None
-    bench = Path(server).with_name("llama-bench")
-    return str(bench) if bench.is_file() and os.access(bench, os.X_OK) else shutil.which("llama-bench")
+    bench = str(Path(server).with_name("llama-bench"))
+    if trusted(bench):
+        return bench
+    found = shutil.which("llama-bench")
+    return os.path.realpath(found) if found and trusted(os.path.realpath(found)) else None
 
 
 def _rows(text: str) -> list:
@@ -83,23 +105,13 @@ def _rows(text: str) -> list:
 
 
 def _run(argv: list, timeout: int, cancel=None) -> tuple[str, bool]:
-    try:
-        process = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
-                                   text=True, start_new_session=True)
-    except OSError:
+    """argv (no shell, its own process group), output read while it runs with a 1 MiB cap and one
+    deadline; Cancel or the cap ends it and its children."""
+    import ai_core
+    out, ok = ai_core.read_bounded_output(argv, max_bytes=MAX_OUTPUT, timeout=timeout, cancel=cancel)
+    if cancel is not None and cancel.is_set():
         return "", False
-    deadline = time.time() + timeout
-    while True:
-        try:
-            out, _err = process.communicate(timeout=0.2)    # read while it runs: a full pipe never blocks it
-            break
-        except subprocess.TimeoutExpired:
-            if time.time() > deadline or (cancel is not None and cancel.is_set()):
-                process.kill()
-                process.communicate()
-                return "", False
-    out = (out or "")[:1024 * 1024]
-    return out, process.returncode == 0
+    return out.decode("utf-8", "replace"), ok
 
 
 def measure(name: str, model_file: str, ini_text: str = "", cancel=None, run=_run, totals=gpu_usage.gpu_totals) -> dict:

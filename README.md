@@ -616,8 +616,8 @@ the backup and Undo), and the agent is told the same context. A context you set 
   their own session databases read-only; Pi, DeepSeek Harness and OpenClaw their own settings).
   These come with the plugin. Since 1.0.0 agents and local LLMs are switched on and off as
   **add-ons** (`addons/<id>/`: a TOML description, icons, texts): data only. An add-on is used only
-  when its `manifest.json` is signed by the author's key built into the plugin (`ssh-keygen -Y verify`
-  against `addons.ALLOWED_SIGNERS`) and every file matches its SHA-256; add-on code never runs: an
+  when its `MANIFEST.sha256` (a SHA-256 for every file) is signed (`SIGNATURE`) by the author's key built into the plugin (`ssh-keygen -Y verify`
+  against `addons.ALLOWED_SIGNERS`) and every file matches its hash; add-on code never runs: an
   `addon.py` or `hooks.py` is accepted only when it names providers or agent hooks the plugin has
   built in (those built-in ones are used), else the add-on is refused (`addons.data_only_refusal`). The bundled ones are verified
   the same way.
@@ -871,8 +871,8 @@ the backup and Undo), and the agent is told the same context. A context you set 
   maprisma-addons` (at most 1 MiB), used only when the signature verifies with the built-in key. A
   newer add-on is downloaded only on **Update** or **Install** on the Add-ons page (a zip of at most
   8 MiB, checked against the catalog's size and SHA-256, unpacked with size, count and path limits
-  into a private staging folder, then verified as above before it replaces the old copy, which is kept
-  for Undo). **Install from file…** takes a zip you chose, with the same checks.
+  into a private staging folder, then verified as above before it replaces the old copy, which goes to
+  the trash). **Install from file…** takes a zip you chose, with the same checks.
 - **Ask AI** (✦, on a click only): your request and a short description of the setup (agents and
   local LLMs with what can be done with them, the column's servers, skills or models by name, your
   action rules; never keys, settings values, environment variables or headers) go to the
@@ -891,7 +891,8 @@ the backup and Undo), and the agent is told the same context. A context you set 
   the dictation made since the start (at most 4000 characters, put into the prompt as plain text).
   Each command is an argv list with a 20 s limit; nothing is recorded or kept by the plugin.
 - **Measure and tune** (a llama.cpp model's Performance, on a click only): runs `llama-bench` (next
-  to the running `llama-server`, resolved through a wrapper script; else on PATH) as an argv list in
+  to your own running `llama-server` process, resolved through a wrapper script; else on PATH; only a
+  program owned by you or root that nobody else can change, nor its folder) as an argv list in
   its own process group, at most 10 minutes for the speed run and 5 for the memory run, Cancel
   kills it; its JSON output is read while it runs (at most 1 MiB). GPU memory is read from sysfs as
   for the GPU card. The result is only shown; **Apply** writes `models.ini` with backup and Undo.

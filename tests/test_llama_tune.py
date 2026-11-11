@@ -64,6 +64,41 @@ class MeasureTest(unittest.TestCase):
             script.write_text(f"#!/bin/bash\nexec {real} --models-dir /m \"$@\"\n")
             self.assertEqual(t.real_server(str(script)), os.path.realpath(real))
 
+    def test_only_programs_nobody_else_can_change(self):
+        import os, stat, tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            os.chmod(folder, 0o700)
+            bench = os.path.join(folder, "llama-bench")
+            Path(bench).write_text("#!/bin/sh\n")
+            os.chmod(bench, 0o755)
+            self.assertTrue(t.trusted(bench))
+            os.chmod(bench, 0o775)                      # group-writable: another user could swap it
+            self.assertFalse(t.trusted(bench))
+            os.chmod(bench, 0o755)
+            os.chmod(folder, 0o777)                     # its folder open to others
+            self.assertFalse(t.trusted(bench))
+            os.chmod(folder, 0o700)
+        self.assertFalse(t.trusted(None))
+
+    def test_another_users_llama_server_is_ignored(self):
+        class Entry:
+            name = "4242"
+        real_stat = os.stat if (os := __import__("os")) else None
+
+        def fake_stat(path, *a, **k):
+            if path == "/proc/4242":
+                return type("S", (), {"st_uid": os.getuid() + 1})()
+            return real_stat(path, *a, **k)
+        with mock.patch("os.scandir", return_value=[Entry()]), mock.patch("os.stat", fake_stat), \
+                mock.patch("os.readlink", side_effect=AssertionError("another user's exe was read")), \
+                mock.patch("shutil.which", return_value=None):
+            self.assertIsNone(t.server_binary())
+
+    def test_endless_output_is_cut(self):
+        out, ok = t._run(["sh", "-c", "yes x"], 20)
+        self.assertFalse(ok)
+        self.assertLessEqual(len(out), t.MAX_OUTPUT)
+
     def test_the_ini_gets_context_and_batches(self):
         text = t.tuned_ini("", {"name": "Qwen", "ctx": 32768, "ubatch": 1024, "batch": 2048})
         self.assertIn("[Qwen]", text)

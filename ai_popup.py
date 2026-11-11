@@ -446,7 +446,6 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         stack.add_named(self.build_setup_page(), "setup")
         if hasattr(self, "build_addons_page"):
             stack.add_named(self.build_addons_page(), "addons")
-            self.setup_addon_drop(self.window)
         # Details and the pages that change something open right of the cards, where the map is.
         right = self.right_stack
         right.add_named(self.build_connect_page(), "connect")

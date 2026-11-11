@@ -207,19 +207,6 @@ class StoreTest(unittest.TestCase):
         with self.assertRaises(store.InstallError):
             store.install(entry, fetch=lambda url, **kw: data + b"x", user_dir=self.user, signers=self.signers)
 
-    def test_install_from_a_link(self):
-        data = self.zip_addon()
-        got = []
-        addon = store.install_url("https://github.com/x/releases/download/demo.zip",
-                                  fetch=lambda url, **kw: got.append(url) or data, user_dir=self.user,
-                                  signers=self.signers, trash=self.trashed.append)
-        self.assertEqual(addon.state, "verified")
-        for bad in ("http://example.com/a.zip", "https://user:pw@example.com/a.zip", "https://example.com/a.exe",
-                    "file:///tmp/a.zip"):
-            with self.assertRaises(store.InstallError):
-                store.install_url(bad, fetch=lambda url, **kw: data, user_dir=self.user, signers=self.signers)
-        self.assertEqual(len(got), 1)                                       # bad links are not even fetched
-
     def test_install_file_and_remove(self):
         path = self.tmp / "demo.zip"
         path.write_bytes(self.zip_addon())
