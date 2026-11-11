@@ -226,24 +226,26 @@ def collect(root: Path = ROOT, cache: Path = CACHE) -> list[Session]:
     return list(collect_by_id(root, cache).values())
 
 
-def _subagent_files(session_dir: Path, limit: int) -> list[Path]:
-    """agent-*.jsonl below <session>/subagents/ (own folders only, no symlinks, bounded)."""
+def _subagent_files(session_dir: Path, limit: int, budget=None) -> list[Path]:
+    """agent-*.jsonl below <session>/subagents/ (own folders only, no symlinks, bounded; every
+    entry looked at charged to `budget`)."""
+    import scan_budget
+    budget = budget if budget is not None else scan_budget.Budget()
     found, stack = [], [(session_dir / "subagents", 0)]
-    while stack and len(found) < limit:
+    while stack and len(found) < limit and not budget.stopped:
         folder, depth = stack.pop()
         try:
-            with os.scandir(folder) as entries:
-                items = sorted(entries, key=lambda e: e.name)[:MAX_DIRS]
+            items = budget.entries(folder, MAX_DIRS)
         except OSError:
             continue
         for item in items:
             if item.is_symlink():
                 continue
-            if item.is_dir(follow_symlinks=False):
+            if item.is_dir():
                 if depth < MAX_DEPTH:
-                    stack.append((Path(item.path), depth + 1))
+                    stack.append((item, depth + 1))
             elif item.name.startswith("agent-") and item.name.endswith(".jsonl"):
-                found.append(Path(item.path))
+                found.append(item)
     return found[:limit]
 
 
@@ -265,27 +267,31 @@ def agent_type(transcript: Path) -> str:
 
 def collect_by_id(root: Path = ROOT, cache: Path | None = CACHE) -> dict:
     """{session id: Session} for every session with replies, its subagent runs counted in."""
+    import scan_budget
     files = _load_cache(cache)
     seen, budget = {}, MAX_BYTES
+    # Folders are listed one entry at a time within one budget (never a whole huge listing sorted).
+    listing = scan_budget.Budget(visits=MAX_FILES * 20)
     try:
-        dirs = sorted(p for p in root.iterdir() if p.is_dir() and not p.is_symlink())[:MAX_DIRS]
+        dirs = [p for p in listing.entries(root, MAX_DIRS * 4) if p.is_dir() and not p.is_symlink()][:MAX_DIRS]
     except OSError:
         dirs = []
     paths, runs = [], []           # runs: (path, parent session id; None: from its lines)
     for folder in dirs:
         try:
-            for path in sorted(folder.glob("*.jsonl")):
-                # Older Claude Code versions kept subagent runs next to the sessions.
-                (runs.append((path, None)) if path.name.startswith("agent-") else paths.append(path))
-            session_dirs = sorted(p for p in folder.iterdir()
-                                  if p.is_dir() and not p.is_symlink() and _SID.fullmatch(p.name))[:MAX_FILES]
+            entries = listing.entries(folder, MAX_FILES * 2)
         except OSError:
             continue
+        for path in entries:
+            if path.name.endswith(".jsonl"):
+                # Older Claude Code versions kept subagent runs next to the sessions.
+                (runs.append((path, None)) if path.name.startswith("agent-") else paths.append(path))
+        session_dirs = [p for p in entries if _SID.fullmatch(p.name) and p.is_dir() and not p.is_symlink()][:MAX_FILES]
         for session_dir in session_dirs:
             if len(paths) + len(runs) >= MAX_FILES:
                 break
             runs += [(path, session_dir.name)
-                     for path in _subagent_files(session_dir, MAX_FILES - len(paths) - len(runs))]
+                     for path in _subagent_files(session_dir, MAX_FILES - len(paths) - len(runs), listing)]
         if len(paths) + len(runs) >= MAX_FILES:
             break
     for path in paths[:MAX_FILES] + [path for path, _sid in runs]:

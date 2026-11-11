@@ -273,7 +273,10 @@ def plan(root: Path, providers: list, keep_old_paths: bool = True) -> Plan:
             for name in store.store:
                 item = current / name
                 if item.is_dir() and not item.is_symlink():
-                    size = _tree_size(item)
+                    size = _tree_size(item, budget)
+                    if budget.stopped:      # a partial size is no base for moving or copying
+                        result.problems.append("too-many")
+                        return result
                     copy = device(item) != device(root)
                     result.steps.append(Step("move", str(item), str(store_dir / name), size, copy=copy,
                                              ident=_ident(item)))
@@ -317,14 +320,27 @@ def plan(root: Path, providers: list, keep_old_paths: bool = True) -> Plan:
     return result
 
 
-def _tree_size(folder: Path) -> int:
-    total = 0
-    for dirpath, _dirs, names in os.walk(folder):
-        for name in names:
-            try:
-                total += os.lstat(os.path.join(dirpath, name)).st_size
-            except OSError:
-                pass
+def _tree_size(folder: Path, budget=None) -> int:
+    """The bytes of the files below folder (links not followed), every entry charged to `budget`."""
+    import scan_budget
+    budget = budget if budget is not None else scan_budget.Budget()
+    total, stack = 0, [folder]
+    while stack and not budget.stopped:
+        try:
+            listing = os.scandir(stack.pop())
+        except OSError:
+            continue
+        with listing:
+            for entry in listing:
+                if not budget.take():
+                    break
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        stack.append(Path(entry.path))
+                    else:
+                        total += entry.stat(follow_symlinks=False).st_size
+                except OSError:
+                    pass
     return total
 
 
