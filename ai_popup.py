@@ -966,6 +966,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                                        _("None yet · Expand to add one"), _("Expand"))
         self.side_map.summary_counts = self.column_counts
         self.side_map.on_expand = self.open_column
+        self.side_map.on_status = self.open_column_status
         self.side_map.on_add = self.map_add
         self.side_map.on_missing = self.missing_menu
         self.side_map.missing_text = _("Not installed")
@@ -1076,6 +1077,30 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         text.grab_focus()
 
     OVERLAY_SIZE = (0.8, 0.85)      # Maprisma's overlay window: of the map's width and height
+
+    COLUMNS = {"mcp": 0, "agents": 1, "providers": 2, "models": 3}     # health.Finding.column -> map column
+
+    def update_column_status(self, report):
+        """Each map column's state from the health check (Maprisma: the symbol at each column's left):
+        red when something there needs fixing, yellow for tips, green when all is fine."""
+        status = {}
+        for area in getattr(report, "areas", []):
+            for finding in area.findings:
+                column = self.COLUMNS.get(finding.column)
+                if column is None:
+                    continue
+                rank = {"warn": 2, "hint": 1}.get(finding.level, 0)
+                if rank >= {"warn": 2, "hint": 1, "ok": 0}.get(status.get(column, "ok"), 0):
+                    status[column] = {2: "warn", 1: "hint"}.get(rank, "ok")
+        for column in range(4):
+            status.setdefault(column, "ok")
+        self.side_map.column_status = status
+        self.side_map.queue_draw()
+
+    def open_column_status(self, column: int):
+        """A column's state symbol: the list of problems and tips (all columns; that column's first)."""
+        self.health_column = next((k for k, v in self.COLUMNS.items() if v == column), None)
+        self.open_health()
 
     def overlay_position(self, layers, widget, allocation):
         """The overlay window's place: centred over the map, 80 % × 85 % (the scrim fills the map)."""
@@ -3071,6 +3096,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             self.health_running = False
             self.health_report = report
             self.update_problem_button()
+            self.update_column_status(report)
             if getattr(self, "health_again", False):
                 GLib.idle_add(lambda: self.run_health() and False)
             if self.page_name() == "setup":
@@ -3088,6 +3114,9 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         while (child := body.get_first_child()) is not None:
             body.remove(child)
         problems = [f for area in report.areas for f in area.findings if f.level == "warn"]
+        first = getattr(self, "health_column", None)        # opened from a column's state symbol
+        problems.sort(key=lambda f: f.column != first)
+        self.health_column = None
         if not problems:
             body.append(self.status_hero("ok", _("Nothing to fix."), _("Everything set up and working")))
             self.ai_help_row(body)

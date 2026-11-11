@@ -136,6 +136,11 @@ class MapView(Gtk.DrawingArea):
         self.summary_texts = ("{0} on · {1} more available", "{0} found on this PC · Expand",
                               "None yet · Expand to add one", "Expand")
         self.on_expand = None    # on_expand(column): the column's own page
+        # Each column's state (Maprisma: green ✓, yellow tips and updates, red ! something to fix), left of
+        # its title; on_status(column) opens its list.
+        self.column_status = {}  # column -> "ok" | "hint" | "warn"
+        self.status_rects = {}
+        self.on_status = None
         self.on_add = None       # on_add(kind, target): a card's + card ("mcp", "skills", "model" + runtime key)
         self.add_rects = {}      # card key -> ((x, y, w, h), (kind, target))
         # Programs switched on but not installed: card key -> [(kind, command, name, add-on id)], shown
@@ -713,6 +718,7 @@ class MapView(Gtk.DrawingArea):
         self.min_width = room + 2 * PAD + total + (count - 1) * COLUMN_GAP_MIN
         self.column_x = {}
         self.summaries = {}
+        self.status_rects = {}
         self.add_rects = {}
         self.missing_rects = {}
         self.group_labels = []
@@ -1555,6 +1561,10 @@ class MapView(Gtk.DrawingArea):
         """Click: select this box only (again: none). Shift+click: add or remove it.
         A click on a box's pin pins or unpins it."""
         x, y = x / self.zoom, y / self.zoom
+        column = self.status_at(x, y)
+        if column is not None and self.on_status is not None:
+            self.on_status(column)                    # the column's state: its list
+            return
         column = self.summary_at(x, y)
         if column is not None and self.on_expand is not None:
             self.on_expand(column)
@@ -2460,6 +2470,13 @@ class MapView(Gtk.DrawingArea):
         PangoCairo.show_layout(cr, layout)
         layout.set_width(-1)
 
+    def status_at(self, x, y):
+        """The column whose state symbol is at (x, y), or None."""
+        for column, (sx, sy, sw, sh) in self.status_rects.items():
+            if sx <= x <= sx + sw and sy <= y <= sy + sh:
+                return column
+        return None
+
     def summary_at(self, x, y):
         """The column whose summary card is at (x, y), or None."""
         for column, (sx, sy, sw, sh) in self.summaries.items():
@@ -2489,6 +2506,38 @@ class MapView(Gtk.DrawingArea):
             detail = (texts[1].format(found) if found else texts[2]) if empty else texts[0].format(on, available)
             room = w - 24 - 14
             tx = x + 12
+            level = self.column_status.get(column)
+            if level is not None and not empty:
+                cx, cy, r = tx + 7, y + h / 2, 7
+                self.status_rects[column] = (tx - 2, y + 4, 2 * r + 4, h - 8)
+                tone = {"warn": "red", "hint": "yellow"}.get(level, "green")
+                cr.new_path()
+                cr.set_source_rgba(*self.color(tone))
+                cr.set_line_width(1.6)
+                if level == "ok":
+                    cr.arc(cx, cy, r, 0, 2 * math.pi)
+                    cr.stroke()
+                    cr.move_to(cx - 3.2, cy + 0.2)
+                    cr.line_to(cx - 0.8, cy + 2.6)
+                    cr.line_to(cx + 3.4, cy - 2.4)
+                    cr.stroke()
+                else:
+                    if level == "warn":
+                        cr.arc(cx, cy, r, 0, 2 * math.pi)
+                    else:
+                        cr.move_to(cx, cy - r)
+                        cr.line_to(cx + r, cy + r * 0.8)
+                        cr.line_to(cx - r, cy + r * 0.8)
+                        cr.close_path()
+                    cr.fill()
+                    cr.set_source_rgba(*self.color("bg"))
+                    cr.rectangle(cx - 0.9, cy - 3.6, 1.8, 4.2)
+                    cr.fill()
+                    cr.new_path()
+                    cr.arc(cx, cy + 2.6, 1.0, 0, 2 * math.pi)
+                    cr.fill()
+                tx += 2 * r + 8
+                room -= 2 * r + 8
             if empty:
                 layout.set_width(-1)
                 layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 11"))

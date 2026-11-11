@@ -67,7 +67,8 @@ changes, one commit per step, Uwe looks at it before the next phase.
    filter, selection grays the rest; + cards, programs to install, online / local agent cards; legend dialog;
    corners incl. slight.
 3. **Overlay window.** One centred window over the dimmed map for terminal, reviews and actions; F12 screenshot
-   with note; status symbol per column.
+   with note; status symbol per column. Progress: overlay window, F12 + note (kit's shot_save), column
+   state on the summary cards. Phase 2 finished with programs to install as rows and the legend window.
 4. **Ask AI (dart → py).** The smart card engine and its plans (MCP, models, agents, providers, menu actions,
    disconnect all), the review/apply/Undo path, helper choice, examples, Update with AI…; action rules with
    their window, enforced on every change route. Dictation comes with it (Ask AI is where it is used):
