@@ -956,6 +956,7 @@ class SetupPage:
         notes = Adw.EntryRow(title=_("Notes (optional)"), use_markup=False)
         for row in (kind, action, which, notes):
             rows.append(row)
+        self.guard_text_fields_in(rows)         # paste only through the bounded read
         dialog.set_extra_child(rows)
         dialog.add_response("cancel", _("Cancel"))
         dialog.add_response("start", _("Start"))

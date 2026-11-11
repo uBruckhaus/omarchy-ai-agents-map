@@ -89,6 +89,7 @@ class AskAiPage:
         # The request: Enter asks, Ctrl+Enter a new line.
         row = Gtk.Box(spacing=8)
         self.ask_text = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR, accepts_tab=False, hexpand=True)
+        self.guard_text_field(self.ask_text)
         self.ask_text.set_size_request(-1, 64)
         keys = Gtk.EventControllerKey()
         keys.connect("key-pressed", self.on_ask_key)
@@ -534,6 +535,11 @@ class AskAiPage:
             return
         action = candidate["action"]
         kind = action.get("kind")
+        # The rules as they are now (they may have changed since the proposal was shown).
+        import action_rules
+        for check in action_rules.candidate_checks(candidate):
+            if not self.rule_allows(*check):
+                return
         self.close_ask_ai()
         if kind == "agent_action":
             command, step = action["command"], action["step"]
@@ -576,13 +582,9 @@ class AskAiPage:
             elif area == "models":
                 self.open_reorganize()                   # Tidy up: each move shown first
             elif area == "addons":
-                if step in ("on", "off"):
-                    if step == "off" and self.addon_locked([key]):
-                        return
-                    addon_store.set_enabled(key, step == "on")
-                    self.reload_addons()
-                else:
-                    self.open_addons(key)                # details, install, update, remove: its own buttons
+                # On, off, details, install, update, remove: the Add-ons page with its own switch and
+                # confirmations (the lock while its agent runs here, privacy levels).
+                self.open_addons(key)
         elif kind == "map_link":
             # The same review as a line drawn (or a hook dragged off) on the map.
             self.on_map_link(action["source"], action["target"], remove_only=action["remove"])

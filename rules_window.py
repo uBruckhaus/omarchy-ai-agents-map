@@ -111,6 +111,7 @@ class RulesWindow:
         hints.connect("toggled", lambda b: self.save_setting(action_rule_hints=b.get_active()))
         box.append(hints)
         window.set_child(box)
+        self.guard_text_fields_in(box)          # paste only through the bounded read
         keys = Gtk.EventControllerKey()
         keys.connect("key-pressed", lambda _c, key, _code, _state: (window.close(), True)[1]
                      if key == Gdk.KEY_Escape else False)

@@ -115,7 +115,8 @@ def _trusted(st: os.stat_result, uid: int) -> bool:
 def _read(path: Path, uid: int, limit: int) -> bytes | None:
     """A regular, trusted file's bytes (no links followed), or None."""
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        # Without blocking (a FIFO in its place cannot hang the reader), checked on the opened file.
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
     except OSError:
         return None
     with os.fdopen(fd, "rb") as handle:
@@ -139,7 +140,11 @@ def _files(folder: Path, uid: int) -> list | str:
             return f"folder {prefix or '.'} is a link, not yours or writable by others"
         try:
             with os.scandir(current) as entries:
-                items = list(entries)
+                items = []
+                for entry in entries:                # counted while listed: a crafted folder costs no more
+                    items.append(entry)
+                    if len(found) + len(items) > MAX_FILES:
+                        return "too many files"
         except OSError:
             return "cannot be read"
         for item in items:

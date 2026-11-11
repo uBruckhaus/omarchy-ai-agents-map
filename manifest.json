@@ -5,7 +5,7 @@
   "version": "1.0.0",
   "author": "Uwe Bruckhaus",
   "license": "MIT",
-  "description": "Your AI setup on one map: coding agents with plan, limits and usage, local LLMs (llama.cpp, Ollama, LM Studio, vLLM, Jan, KoboldCpp) and their models, MCP servers and skills. Setup installs, updates and signs in everything; connect by drawing a line, with preview and Undo. Batteries show limits, local LLMs get a stop button. New: subagents on their own map, arrows when one agent starts another, API cost in $ or € with a day's limit, and Goose. 8 languages.",
+  "description": "Your AI setup on one map: coding agents with plan, limits and usage, local LLMs (llama.cpp, Ollama, LM Studio, vLLM, Jan, KoboldCpp) and their models, MCP servers and skills. Connect by drawing a line, with preview and Undo; install, update and sign in from each box's menu. New in 1.0: Ask AI (say what you want, get checked proposals), update badges with Update with AI, signed data-only add-ons, rules for what may be done, dictation, llama.cpp tuning. 8 languages.",
   "kinds": [
     "bar-widget"
   ],

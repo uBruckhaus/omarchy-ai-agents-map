@@ -277,7 +277,7 @@ def install(entry: Entry, fetch=None, **kwargs) -> addons.Addon:
 def install_file(path: Path, **kwargs) -> addons.Addon:
     """Install a zip downloaded by hand (same checks, its own signature decides)."""
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)   # a FIFO never blocks
         with os.fdopen(fd, "rb") as handle:
             if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
                 raise InstallError("not a file")

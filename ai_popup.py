@@ -1073,6 +1073,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         keys.connect("key-pressed", lambda _c, key, _code, _state: (finish(), True)[1]
                      if key == Gdk.KEY_Escape else False)
         dialog.add_controller(keys)
+        self.guard_text_fields_in(box)          # paste only through the bounded read
         dialog.present()
         text.grab_focus()
 
@@ -1147,6 +1148,10 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         self.auto_layers()
         if getattr(self, "jobs_box", None) is not None:
             self.render_jobs()
+        # Fields a page filled in after the window was built: paste only through the bounded read.
+        page = (self.right_stack if name in RIGHT_PAGES else self.stack).get_visible_child()
+        if page is not None:
+            self.guard_text_fields_in(page)
 
     def place_panes(self):
         """The map, or the page opened in its place, takes the whole width."""

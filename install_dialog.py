@@ -395,6 +395,7 @@ class InstallDialog:
         extra.append(rows)
         if step.url:
             extra.append(Gtk.LinkButton(uri=step.url, label=_("Get a key"), halign=Gtk.Align.START))
+        self.guard_text_fields_in(extra)        # paste only through the bounded read
         dialog.set_extra_child(extra)
         dialog.add_response("cancel", _("Cancel"))
         dialog.add_response("save", _("Save"))

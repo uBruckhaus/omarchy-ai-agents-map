@@ -64,5 +64,83 @@ class StateReadsTest(unittest.TestCase):
             self.assertEqual(target.read_bytes(), svg)
 
 
+class AddonReadsTest(unittest.TestCase):
+    """Round 3: add-on files and a chosen zip are opened without blocking; a crafted folder is
+    refused once it has more files than allowed, before the rest is listed."""
+
+    def setUp(self):
+        import addons
+        self.addons = addons
+        self.tmp = Path(tempfile.mkdtemp())
+        os.chmod(self.tmp, 0o700)
+
+    def test_a_fifo_in_an_add_on_or_as_the_chosen_zip(self):
+        fifo = self.tmp / "addon.toml"
+        os.mkfifo(fifo)
+        self.assertIsNone(finishes(self, lambda: self.addons._read(fifo, os.getuid(), 1024)))
+
+        def chosen():
+            try:
+                addon_store.install_file(fifo)
+            except addon_store.InstallError as error:
+                return str(error)
+        self.assertTrue(finishes(self, chosen))
+
+    def test_too_many_files_stops_early(self):
+        folder = self.tmp / "crafted"
+        folder.mkdir(mode=0o700)
+        for i in range(self.addons.MAX_FILES + 50):
+            (folder / f"f{i}").write_text("x")
+        listed = []
+        real = os.scandir
+
+        class Counting:
+            def __init__(self, path):
+                self.it = real(path)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                self.it.close()
+
+            def __iter__(self):
+                for entry in self.it:
+                    listed.append(entry)
+                    yield entry
+        with mock.patch("os.scandir", Counting):
+            self.assertEqual(self.addons._files(folder, os.getuid()), "too many files")
+        self.assertLessEqual(len(listed), self.addons.MAX_FILES + 1)
+
+
+class ProposalRulesTest(unittest.TestCase):
+    """Round 3: a kept Ask AI proposal asks the rules again when it is used; an add-on proposal opens
+    the Add-ons page (its own switch and confirmations) instead of switching it directly."""
+
+    def page(self, allowed):
+        import askai_page
+
+        class Page(askai_page.AskAiPage):
+            pass
+        page = Page()
+        page.calls = []
+        page.ask_proposals = type("P", (), {"get": lambda _s, _p, _c: self.candidate})()
+        page.rule_allows = lambda *check: page.calls.append(("rule",) + check) or allowed
+        page.close_ask_ai = lambda: page.calls.append(("close",))
+        page.open_addons = lambda key: page.calls.append(("addons", key))
+        return page
+
+    def test_a_changed_rule_refuses_a_kept_proposal(self):
+        self.candidate = {"id": "c1", "action": {"kind": "menu_action", "area": "addons", "step": "on",
+                                                 "key": "agent-goose"}}
+        with mock.patch.object(addon_store, "set_enabled", side_effect=AssertionError("switched directly")):
+            page = self.page(allowed=False)
+            page.apply_candidate("p1", "c1")
+            self.assertEqual(page.calls, [("rule", "install", "agents", "agent-goose")])
+            page = self.page(allowed=True)
+            page.apply_candidate("p1", "c1")
+            self.assertEqual(page.calls[-1], ("addons", "agent-goose"))
+
+
 if __name__ == "__main__":
     unittest.main()
