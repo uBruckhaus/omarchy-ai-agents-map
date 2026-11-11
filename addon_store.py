@@ -234,7 +234,7 @@ def unpack(data: bytes, target: Path) -> str:
 
 
 def install_bytes(data: bytes, user_dir: Path = addons.USER_DIR, signers: str = addons.ALLOWED_SIGNERS,
-                  expect: str | None = None, trash=None, allow=None) -> addons.Addon:
+                  expect: str | None = None, trash=None, allow=None, described=None) -> addons.Addon:
     """Unpack, verify and put an add-on into the user's add-ons folder; the verified Addon.
     `allow(id, kind, replacing)`: asked once it is verified and before anything is changed; a text
     refuses it (Settings › What may be done). Raises InstallError (nothing is changed then)."""
@@ -248,6 +248,9 @@ def install_bytes(data: bytes, user_dir: Path = addons.USER_DIR, signers: str = 
         addon = addons.verify(staging / aid, signers)
         if addon.state != "verified":
             raise InstallError(addon.reason)
+        if described is not None and not same_description(addon, described):
+            # What the confirmation showed (the catalog) must be what is installed and switched on.
+            raise InstallError("the add-on does not match its catalog description")
         final = user_dir / aid
         if allow is not None:
             refused = allow(aid, addon.kind, final.exists() or final.is_symlink())
@@ -282,7 +285,15 @@ def install(entry: Entry, fetch=None, **kwargs) -> addons.Addon:
         raise InstallError(str(error)) from error
     if len(data) != entry.size or hashlib.sha256(data).hexdigest() != entry.sha256:
         raise InstallError("the download does not match the catalog")
-    return install_bytes(data, expect=entry.id, **kwargs)
+    return install_bytes(data, expect=entry.id, described=entry, **kwargs)
+
+
+def same_description(addon, entry) -> bool:
+    """The verified add-on declares what its catalog entry says: kind, privacy level, what it reads and
+    sends, its capabilities (the Install confirmation is built from the entry)."""
+    return (addon.kind == entry.kind and addon.privacy == entry.privacy
+            and all(sorted(map(str, getattr(addon, f))) == sorted(map(str, getattr(entry, f)))
+                    for f in ("reads", "sends", "capabilities")))
 
 
 def install_file(path: Path, **kwargs) -> addons.Addon:

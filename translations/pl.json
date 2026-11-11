@@ -3551,5 +3551,7 @@
  "{0} was not measured: {1}": "{0} nie został zmierzony: {1}",
  "llama-bench tries three batch sizes on this graphics card; the fastest wins, and the context is what the card leaves. Takes a few minutes.": "llama-bench próbuje trzech rozmiarów partii na tej karcie graficznej; wygrywa najszybszy, a kontekst to to, co zostawia karta. Trwa kilka minut.",
  "Measured: {0} t/s prompt · {1} t/s generation · context {2} · batch {3}": "Zmierzono: {0} t/s prompt · {1} t/s generowanie · kontekst {2} · partia {3}",
- "{0}: tuned for this card": "{0}: dostrojony do tej karty"
+ "{0}: tuned for this card": "{0}: dostrojony do tej karty",
+ "Names local LLMs the app has built in (its addon.py is never run)": "Wskazuje lokalne LLM wbudowane w aplikację (jego addon.py nigdy nie jest uruchamiany)",
+ "Facts about the agent; the app uses its own built-in code for it (hooks.py is never run)": "Fakty o agencie; aplikacja używa własnego wbudowanego kodu (hooks.py nigdy nie jest uruchamiany)"
 }

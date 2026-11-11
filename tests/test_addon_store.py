@@ -200,12 +200,22 @@ class StoreTest(unittest.TestCase):
 
     def test_download_must_match_the_catalog(self):
         data = self.zip_addon()
-        entry = store.entry_from(self.entry(data))
+        entry = store.entry_from(self.entry(data, kind="provider"))          # as the zip declares itself
         addon = store.install(entry, fetch=lambda url, **kw: data, user_dir=self.user, signers=self.signers,
                               trash=self.trashed.append)
         self.assertEqual(addon.state, "verified")
         with self.assertRaises(store.InstallError):
             store.install(entry, fetch=lambda url, **kw: data + b"x", user_dir=self.user, signers=self.signers)
+
+    def test_the_installed_add_on_must_declare_what_the_catalog_showed(self):
+        data = self.zip_addon()
+        wider = store.entry_from(self.entry(data, kind="provider", privacy="summary"))   # the confirmation said: summaries
+        with self.assertRaises(store.InstallError):
+            store.install(wider, fetch=lambda url, **kw: data, user_dir=self.user, signers=self.signers)
+        self.assertFalse((self.user / "demo").exists())
+        other_kind = store.entry_from(self.entry(data, kind="agent"))
+        with self.assertRaises(store.InstallError):
+            store.install(other_kind, fetch=lambda url, **kw: data, user_dir=self.user, signers=self.signers)
 
     def test_install_file_and_remove(self):
         path = self.tmp / "demo.zip"

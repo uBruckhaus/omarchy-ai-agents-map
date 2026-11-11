@@ -3470,5 +3470,7 @@
  "{0} was not measured: {1}": "{0} is niet gemeten: {1}",
  "llama-bench tries three batch sizes on this graphics card; the fastest wins, and the context is what the card leaves. Takes a few minutes.": "llama-bench probeert drie batchgroottes op deze grafische kaart; de snelste wint, en de context is wat de kaart overlaat. Duurt een paar minuten.",
  "Measured: {0} t/s prompt · {1} t/s generation · context {2} · batch {3}": "Gemeten: {0} t/s prompt · {1} t/s generatie · context {2} · batch {3}",
- "{0}: tuned for this card": "{0}: afgestemd op deze kaart"
+ "{0}: tuned for this card": "{0}: afgestemd op deze kaart",
+ "Names local LLMs the app has built in (its addon.py is never run)": "Noemt lokale LLM's die de app ingebouwd heeft (de addon.py wordt nooit uitgevoerd)",
+ "Facts about the agent; the app uses its own built-in code for it (hooks.py is never run)": "Feiten over de agent; de app gebruikt er zijn eigen ingebouwde code voor (hooks.py wordt nooit uitgevoerd)"
 }

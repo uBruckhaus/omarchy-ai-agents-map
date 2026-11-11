@@ -617,8 +617,8 @@ class AddonsPage:
             addon = item.addon
             if addon is not None and addon.state in ("verified", "loaded"):     # its files are known then
                 files = addon.files
-                text = (_("Brings code of its own (addon.py)") if "addon.py" in files else
-                        _("Facts about the agent, and a little code for what facts cannot say (hooks.py)")
+                text = (_("Names local LLMs the app has built in (its addon.py is never run)") if "addon.py" in files else
+                        _("Facts about the agent; the app uses its own built-in code for it (hooks.py is never run)")
                         if "hooks.py" in files else _("Brings no code: only facts about the agent (agent.toml)"))
                 rows.append(self.plain_row(text))
             box.append(rows)
