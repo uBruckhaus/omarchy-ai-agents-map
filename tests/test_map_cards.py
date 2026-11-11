@@ -15,7 +15,7 @@ class Cards:
                  "reorder", "card_height", "column_height", "needed_height", "layout", "column_top",
                  "visible_rows", "group_title", "default_layout", "card_header_at", "card_at",
                  "agent_slots", "agent_width", "text_width", "card_rows", "toggle_card", "make_room",
-                 "card_nodes", "node_used"):
+                 "card_nodes", "node_used", "add_of", "card_box_height"):
         locals()[name] = M.__dict__[name]
     del name
 

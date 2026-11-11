@@ -564,7 +564,8 @@ class SettingsPages:
         self.window_rounding = desktop.window_rounding()
         like = _("Like windows ({0} px)").format(self.window_rounding) if self.window_rounding is not None \
             else _("Like windows")
-        self.combo_row(group, _("Corners"), self.corners_tip(), [like, _("Rounded"), _("Square")],
+        self.combo_row(group, _("Corners"), self.corners_tip(),
+                       [like, _("Slightly rounded ({0} px)").format(6), _("Rounded"), _("Square")],
                        corners.CHOICES.index(ai_core.saved_corners()),
                        lambda i: (self.save_setting(corners=corners.CHOICES[i]), self.apply_theme_css()))
         self.combo_row(group, _("Text in choice boxes"),

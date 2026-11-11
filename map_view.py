@@ -60,6 +60,7 @@ GROUP_GAP = 18           # between two cards of a column
 CARD_HEAD = 26           # a card's header: its title, a count, the grip to move the card
 CARD_PAD = 8             # room around the boxes inside a card
 GROUP_LABEL_H = CARD_HEAD + 2   # from a card's top to its first box
+ADD_H = 34               # a card's + card (Add MCP server, Add skills, Add model)
 SUMMARY_TOP = 6          # the columns' summary cards (Maprisma's MapGroupCard): their top,
 SUMMARY_H = 48           # their height
 HEADER_H = SUMMARY_TOP + SUMMARY_H + 14   # room above the cards: the summaries
@@ -135,6 +136,10 @@ class MapView(Gtk.DrawingArea):
         self.summary_texts = ("{0} on · {1} more available", "{0} found on this PC · Expand",
                               "None yet · Expand to add one", "Expand")
         self.on_expand = None    # on_expand(column): the column's own page
+        self.on_add = None       # on_add(kind, target): a card's + card ("mcp", "skills", "model" + runtime key)
+        self.add_rects = {}      # card key -> ((x, y, w, h), (kind, target))
+        self.add_texts = {"mcp": ("Add MCP server", "Recommended, registry, this PC"),
+                          "skills": ("Add skills", "This PC or the web"), "model": ("Add model", "Download for {0}")}
         self.order = {}          # group key -> box ids in the user's order (saved; new boxes go last)
         self.cards = {}          # group key -> [x, y] where the user put its card (map units; saved)
         self.card_rects = {}     # group key -> (x, y, w, h) of its card as drawn
@@ -416,7 +421,8 @@ class MapView(Gtk.DrawingArea):
         if node.kind in ("mcp", "skills"):
             return node.kind
         if node.kind == "agent":
-            return "agents"
+            # Agents made for a local LLM have a card of their own (Maprisma's Local agents).
+            return "agents-local" if node.group == "local" else "agents"
         if node.kind == "subagent":
             return "subagents"
         if node.kind == "cloud":
@@ -432,7 +438,7 @@ class MapView(Gtk.DrawingArea):
         groups = {}
         for node in self.graph.column(column) if nodes is None else nodes:
             groups.setdefault(self.group_key(node), []).append(node)
-        first = {"mcp": 0, "mcp-online": 1, "skills": 2, "online": 0, "local": 1}
+        first = {"mcp": 0, "mcp-online": 1, "skills": 2, "online": 0, "local": 1, "agents": 0, "agents-local": 1}
         keys = sorted(groups, key=lambda k: first.get(k, 0))      # stable: models folders keep their order
         return [(key, self.in_order(key, groups[key])) for key in keys]
 
@@ -493,6 +499,32 @@ class MapView(Gtk.DrawingArea):
         """The boxes a card shows: none while it is collapsed; with its filter on, only the used ones."""
         key = self.group_key(nodes[0])
         return 0 if key in self.collapsed else len(self.card_nodes(key, nodes))
+
+    def add_of(self, nodes):
+        """(kind, target) of a card's + card (Maprisma's MapAddCard), or None: MCP servers and skills
+        always, a model folder's card when a local LLM serves its models (Add model for it). Only while
+        the app takes them (on_add), and not on a folded card."""
+        if getattr(self, "on_add", None) is None or not nodes:
+            return None
+        key = self.group_key(nodes[0])
+        if key in self.collapsed:
+            return None
+        if key in ("mcp", "mcp-online"):
+            return "mcp", ""
+        if key == "skills":
+            return "skills", ""
+        if key.startswith("models:"):
+            ids = {n.id for n in nodes}
+            runtime = next((e.source for e in self.graph.edges
+                            if e.kind == "serves" and e.target in ids and e.source.startswith("runtime:")), None)
+            if runtime is not None:
+                return "model", runtime.partition(":")[2]
+        return None
+
+    def card_box_height(self, nodes) -> int:
+        """A card's height with its boxes and its + card."""
+        rows = self.card_rows(nodes)
+        return self.card_height(rows) + (ADD_H + NODE_GAP if rows and self.add_of(nodes) else 0)
 
     def node_used(self, node_id: str) -> bool:
         """Connected (a line other than an offer) or pinned: what a card's filter keeps."""
@@ -590,7 +622,7 @@ class MapView(Gtk.DrawingArea):
     def column_height(self, column: int) -> int:
         """The height of a column's cards that stay in it (a card moved by hand is out of it)."""
         groups = [g for g in self.groups(column) if self.group_key(g[0]) not in self.cards]
-        return sum(self.card_height(self.card_rows(g)) for g in groups) + max(0, len(groups) - 1) * GROUP_GAP
+        return sum(self.card_box_height(g) for g in groups) + max(0, len(groups) - 1) * GROUP_GAP
 
     def needed_height(self) -> int:
         if self.graph is None:
@@ -600,7 +632,7 @@ class MapView(Gtk.DrawingArea):
             for nodes in self.groups(column):
                 key = self.group_key(nodes[0])
                 if key in self.cards:      # a card moved down by hand: the map is as tall as needed
-                    height = max(height, self.cards[key][1] + self.card_height(self.card_rows(nodes)) + PAD)
+                    height = max(height, self.cards[key][1] + self.card_box_height(nodes) + PAD)
         return int(height)
 
     # --- layout -----------------------------------------------------------------------
@@ -672,6 +704,7 @@ class MapView(Gtk.DrawingArea):
         self.min_width = room + 2 * PAD + total + (count - 1) * COLUMN_GAP_MIN
         self.column_x = {}
         self.summaries = {}
+        self.add_rects = {}
         self.group_labels = []
         self.group_rects = {}
         self.card_rects = {}
@@ -685,7 +718,7 @@ class MapView(Gtk.DrawingArea):
             self.summaries[column] = (x - CARD_PAD, SUMMARY_TOP, card_w, SUMMARY_H)
             for nodes in self.groups(column):
                 key = self.group_key(nodes[0])
-                card_h = self.card_height(self.card_rows(nodes))
+                card_h = self.card_box_height(nodes)
                 if key in self.cards:
                     # Put somewhere by hand: there, kept inside the map's width.
                     cx, cy = self.cards[key]
@@ -707,6 +740,9 @@ class MapView(Gtk.DrawingArea):
                         continue
                     self.boxes[node.id] = (cx + CARD_PAD, by, column_w, NODE_H)
                     by += NODE_H + NODE_GAP
+                add = self.add_of(nodes)
+                if add is not None and key not in self.collapsed and self.card_rows(nodes):
+                    self.add_rects[key] = ((cx + CARD_PAD, by, column_w, ADD_H), add)
                 if column == 3 and nodes[0].group:
                     self.group_rects[nodes[0].group] = (cx, cy, card_w, card_h)
             x += column_w + gap
@@ -1508,6 +1544,11 @@ class MapView(Gtk.DrawingArea):
         if column is not None and self.on_expand is not None:
             self.on_expand(column)
             return
+        added = next((add for (ax, ay, aw, ah), add in self.add_rects.values()
+                      if ax <= x <= ax + aw and ay <= y <= ay + ah), None)
+        if added is not None and self.on_add is not None:
+            self.on_add(*added)                       # a card's + card
+            return
         filtered = next((key for key, (fx, fy, fw, fh) in self.filter_rects.items()
                          if fx <= x <= fx + fw and fy <= y <= fy + fh), None)
         if filtered is not None and self.node_at(x, y) is None:
@@ -2070,6 +2111,7 @@ class MapView(Gtk.DrawingArea):
             if key not in cards_drawn:
                 cards_drawn.add(key)
                 self.draw_cards(cr, layout, key)
+                self.draw_add_card(cr, layout, key)
             if node.id in self.folded:
                 continue                       # its card is collapsed: only the header shows
             x, y, w, h = self.boxes[node.id]
@@ -2245,7 +2287,7 @@ class MapView(Gtk.DrawingArea):
         PangoCairo.show_layout(cr, layout)
         return tw + 16
 
-    CARD_KINDS = {"agents": "agent", "online": "cloud", "local": "runtime", "mcp": "mcp", "mcp-online": "mcp",
+    CARD_KINDS = {"agents": "agent", "agents-local": "agent", "online": "cloud", "local": "runtime", "mcp": "mcp", "mcp-online": "mcp",
                   "skills": "skills",
                   "subagents": "subagent"}
 
@@ -2330,6 +2372,42 @@ class MapView(Gtk.DrawingArea):
                 cr.move_to(gx + tw + 8, y + (CARD_HEAD - layout.get_pixel_size()[1]) / 2)
                 PangoCairo.show_layout(cr, layout)
             layout.set_ellipsize(Pango.EllipsizeMode.END)
+        layout.set_width(-1)
+
+    def draw_add_card(self, cr, layout, key):
+        """A card's + card at its end (Maprisma's MapAddCard): dashed, + in the accent colour, what it
+        adds and where from."""
+        if key not in self.add_rects:
+            return
+        (x, y, w, h), (kind, target) = self.add_rects[key]
+        self.rounded(cr, x, y, w, h, self.radius)
+        cr.set_source_rgba(*self.color("fg", 0.4))
+        cr.set_line_width(1)
+        cr.set_dash([4, 3])
+        cr.stroke()
+        cr.set_dash([])
+        label, hint = self.add_texts.get(kind, ("", ""))
+        if kind == "model":
+            name = next((n.label for n in self.graph.nodes if n.id == f"runtime:{target}"), target)
+            hint = hint.format(name)
+        layout.set_width(-1)
+        layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 12"))
+        layout.set_text("+", -1)
+        cr.set_source_rgba(*self.color("accent"))
+        cr.move_to(x + 10, y + (h - layout.get_pixel_size()[1]) / 2)
+        PangoCairo.show_layout(cr, layout)
+        layout.set_ellipsize(Pango.EllipsizeMode.END)
+        layout.set_width(int((w - 40) * Pango.SCALE))
+        layout.set_font_description(Pango.FontDescription.from_string("Sans Bold 8.5"))
+        layout.set_text(label, -1)
+        cr.set_source_rgba(*self.color("fg", 0.9))
+        cr.move_to(x + 28, y + 4)
+        PangoCairo.show_layout(cr, layout)
+        layout.set_font_description(Pango.FontDescription.from_string("Sans 7.5"))
+        layout.set_text(hint, -1)
+        cr.set_source_rgba(*self.color("dim"))
+        cr.move_to(x + 28, y + 18)
+        PangoCairo.show_layout(cr, layout)
         layout.set_width(-1)
 
     def summary_at(self, x, y):

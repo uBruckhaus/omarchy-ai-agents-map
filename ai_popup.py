@@ -946,6 +946,10 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                                        _("None yet · Expand to add one"), _("Expand"))
         self.side_map.summary_counts = self.column_counts
         self.side_map.on_expand = self.open_column
+        self.side_map.on_add = self.map_add
+        self.side_map.add_texts = {"mcp": (_("Add MCP server"), _("Recommended, registry, this PC")),
+                                   "skills": (_("Add skills"), _("This PC or the web")),
+                                   "model": (_("Add model"), _("Download for {0}"))}
         self.side_map.has_details = lambda node_id: self.details_opener(node_id) is not None
         self.side_map.on_details = lambda node_id: (self.details_opener(node_id) or (lambda: None))()
         self.zoom_label.set_label(f"{round(self.side_map.zoom * 100)} %")
@@ -2721,7 +2725,8 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
             # models' card detail).
             view.group_titles = {"mcp": _("Local MCP servers"), "mcp-online": _("Online MCP servers"),
                                  "skills": _("Skills"), "online": _("Online"),
-                                 "agents": _("Agents"), "cloud": _("Online providers"), "local": _("Local LLMs"),
+                                 "agents": _("Online agents"), "agents-local": _("Local agents"),
+                                 "cloud": _("Online providers"), "local": _("Local LLMs"),
                                  "models": _("Models")}
             view.set_graph(built, headers)
             view.set_layers(self.map_view.layers)
@@ -4015,6 +4020,17 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         elif kind == "skills" and any(s.path == ident for s in self.inventory.skill_sets):
             details.append(self.menu_item(_("Details"), popover, lambda: self.open_skills_details(ident)))
         return starts, details
+
+    def map_add(self, kind: str, target: str):
+        """A card's + card: Add MCP server, Add skills, or a local LLM's models to download."""
+        if kind == "mcp":
+            self.open_add_mcp()
+        elif kind == "skills":
+            self.open_add_skills()
+        elif kind == "model":
+            rt = next((r for r in self.inventory.runtimes if r.key == target), None)
+            if rt is not None:
+                self.open_models(rt)
 
     def details_opener(self, node_id: str):
         """What a box's ⓘ opens (the same as Details in its menu), or None for a box without details."""
