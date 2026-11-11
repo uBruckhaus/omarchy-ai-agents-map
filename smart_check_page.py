@@ -49,7 +49,7 @@ class SmartCheckPage:
     def update_smart_check_button(self):
         button = getattr(self, "smartcheck_button", None)
         if button is not None:
-            button.set_visible(self.smart_check_available())
+            button.set_visible(True)            # Ask AI (✦): always there; its page says when no helper is set up
 
     def open_smart_check(self):
         if self.page_name() != "smartcheck":

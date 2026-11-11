@@ -121,6 +121,7 @@ from skills_page import SkillsPage
 from mcp_pages import McpPages
 from details_pages import DetailsPages
 from info_page import InfoPage
+from askai_page import AskAiPage
 try:
     from addons_page import AddonsPage      # Asterism only: the Add-ons page (not in the Omarchy plugin)
 except ImportError:
@@ -176,7 +177,7 @@ class AppWindow(Adw.ApplicationWindow):
             GLib.idle_add(self.on_width, width)
 
 
-class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, DetailsPages, InfoPage, McpPages, SkillsPage, ConnectPage, ConfigureMenu, TrafficPage, SubagentsPage, ModelsPage, SmartCheckPage,
+class AgentsMap(AskAiPage, TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, DetailsPages, InfoPage, McpPages, SkillsPage, ConnectPage, ConfigureMenu, TrafficPage, SubagentsPage, ModelsPage, SmartCheckPage,
                 LlmHelpPage, FirstAgentPage, Adw.Application):
     def __init__(self):
         super().__init__(application_id=desktop.app_id())
@@ -458,6 +459,7 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         right.add_named(self.build_traffic_page(), "traffic")
         right.add_named(self.build_subagents_page(), "subagents")
         right.add_named(self.build_smart_check_page(), "smartcheck")
+        right.add_named(self.build_askai_page(), "askai")          # Ask AI (Maprisma's smart card)
         right.add_named(self.build_first_agent_page(), "firstagent")
         right.connect("notify::visible-child-name", lambda *_: self.update_header())
         self.guard_text_fields_in(window)
@@ -525,10 +527,8 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         # when something needs fixing; opens the list (Maprisma: SmartStatusIcon).
         self.problem_button = symbol("object-select-symbolic", _("All fine"), lambda: self.open_health())
         self.problem_button.set_visible(False)
-        # Ask AI (✦). Until Ask AI is here (parity phase 4) it opens Smart Check, only while an agent can.
-        self.smartcheck_button = symbol("am-smartcheck-symbolic",
-                                        _("Smart Check: your AI setup checked by an agent, its finds and tokens"),
-                                        lambda: self.open_smart_check())
+        # Ask AI (✦, Maprisma's smart card): one request in a column of the map, answered by an agent.
+        self.smartcheck_button = symbol("am-smartcheck-symbolic", _("Ask AI"), lambda: self.open_ask_ai())
         self.smartcheck_button.set_visible(False)
         # The legend: what the map's dots, lines and marks mean.
         self.legend_button = symbol("help-about-symbolic", _("What the marks mean"), lambda: self.open_legend())
@@ -4415,7 +4415,8 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
                 "health": self.close_health, "traffic": self.close_traffic, "smartcheck": self.close_smart_check,
                 "firstagent": self.close_first_agent,
                 "subagents": self.close_subagents,
-                "addmcp": self.close_add_mcp, "addskills": self.close_add_skills}
+                "addmcp": self.close_add_mcp, "addskills": self.close_add_skills,
+                "askai": self.close_ask_ai}
 
     def editing(self) -> bool:
         """A text field (an entry, a search field, a number field, a text box) has the keyboard."""
