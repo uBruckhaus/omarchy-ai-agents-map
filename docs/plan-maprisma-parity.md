@@ -42,7 +42,7 @@ Status: HAVE · PART · MISS · N/A. Source: py = copy from Maprisma's Python, d
 | Settings: sections on the left, Find in Settings, group headings, new keys | 057, 058 | MISS | ui | M |
 | Disconnect all at once, one Undo | 017, 020 | PART | dart | M |
 | Known servers stay, fixed lines with a reason | 018 | PART | py | M |
-| Signed add-ons and the add-on lock | 027, 028, 055 | N/A today | py | L (decision) |
+| Signed add-ons, found ones switched on; the add-on lock | 027, 028, 055 | HAVE (lock: phase 3) | py | L |
 | Recording, typed client, contract | 001–003 | N/A (internal) | – | – |
 | System Map page | 008–011 | N/A (removed in Maprisma) | – | – |
 
@@ -74,7 +74,8 @@ changes, one commit per step, Uwe looks at it before the next phase.
 
 ## Decisions (Uwe, 2026-11-11)
 
-- No add-ons: every agent and LLM stays built into the plugin; add-on items (switch on, add-on lock, Update
-  add-on) are left out.
+- Add-ons as in Maprisma (Uwe changed his mind the same day): Maprisma's signed add-ons, same catalog and
+  key, data only (no add-on code runs), 25 bundled in addons/; found ones switched on at every start
+  unless switched off; an update from the plugin without add-ons keeps its map. Done: d4c0ff1.
 - The Setup page and the Smart Check page go: Setup becomes Expand on each map column (column focus), Smart
   Check becomes Ask AI's status per column, as in Maprisma.
