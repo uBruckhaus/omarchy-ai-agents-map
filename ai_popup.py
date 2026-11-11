@@ -102,7 +102,7 @@ import jobs
 import health
 import web_sources
 from map_view import ORDER_KEEP, PIN, PIN_OUTLINE, LegendSample, MapView, Meter
-from gi.repository import PangoCairo  # noqa: E402  (map_view asked for its version)
+from gi.repository import Graphene, PangoCairo  # noqa: E402  (map_view asked for their versions)
 from palette import ThemePalette, outside_color
 from settings_pages import SettingsPages
 from theme_css import ThemeCss
@@ -976,22 +976,126 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         self.side_map.on_details = lambda node_id: (self.details_opener(node_id) or (lambda: None))()
         self.zoom_label.set_label(f"{round(self.side_map.zoom * 100)} %")
         # The right of the Overview: the map, or a page opened from a card or from the map.
-        right = Gtk.Stack(hexpand=True)
+        # Maprisma's overlay window (overlay_window.dart): the map stays in view, dimmed; a page opened from
+        # it (a terminal, a review, details) shows in a centred window over it, 80 % wide and 85 % high.
+        right = Gtk.Stack(hexpand=True, vexpand=True)
         right.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
         right.set_transition_duration(120)
-        right.add_named(side, "map")
+        right.add_named(Gtk.Box(), "map")          # "map": no page over the map
         self.right_stack = right
         self.side_pane = right
+        layers = Gtk.Overlay(hexpand=True, vexpand=True)
+        layers.set_child(side)
+        self.overlay_scrim = Gtk.Box(visible=False, hexpand=True, vexpand=True)
+        self.overlay_scrim.add_css_class("am-scrim")
+        click = Gtk.GestureClick()
+        click.connect("released", lambda *_: self.overlay_scrim_clicked())
+        self.overlay_scrim.add_controller(click)
+        layers.add_overlay(self.overlay_scrim)
+        self.overlay_frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, visible=False)
+        self.overlay_frame.add_css_class("am-overlay-window")
+        self.overlay_frame.append(right)
+        layers.add_overlay(self.overlay_frame)
+        layers.connect("get-child-position", self.overlay_position)
+        right.connect("notify::visible-child-name", lambda *_: self.update_overlay())
         # The terminal tabs over the map and over the terminals (not over other pages).
         column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True)
         column.append(self.build_terminal_tabs())
-        column.append(right)
+        column.append(layers)
         column.set_visible(False)
         self.right_column = column
         right.connect("notify::visible-child-name", lambda *_: self.update_terminal_tabs())
         body.append(column)
         page.append(body)
         return page
+
+    SHOT_FOLDER = "AI Agents Map"      # ~/Pictures/AI Agents Map (shot_save: 0700 folder, 0600 files)
+
+    def take_screenshot(self):
+        """F12 (Settings › F12 saves a screenshot), as Maprisma's and the other plugins': this window as it
+        is, saved privately by shot_save, then a note to it (optional, saved beside it as .txt)."""
+        import shot_save
+        window = self.window
+        width, height = window.get_width(), window.get_height()
+        try:
+            snapshot = Gtk.Snapshot()
+            Gtk.WidgetPaintable.new(window).snapshot(snapshot, width, height)
+            node = snapshot.to_node()
+            if node is None:
+                raise shot_save.ShotError(_("The screenshot did not work."))
+            bounds = Graphene.Rect().init(0, 0, width, height)
+            texture = window.get_renderer().render_texture(node, bounds)
+            import identity
+            folder = shot_save.prepare(identity.short_name())["dir"]
+            temporary = os.path.join(folder, f"shot-{os.getpid()}-{int(time.time() * 1000)}.png")
+            if not texture.save_to_png(temporary):
+                raise shot_save.ShotError(_("The screenshot did not work."))
+            saved = shot_save.save(temporary, self.SHOT_FOLDER)
+        except (shot_save.ShotError, OSError, GLib.Error) as error:
+            self.toast(_("The screenshot could not be saved: {0}").format(error), 8)
+            return
+        self.screenshot_note(saved)
+
+    def screenshot_note(self, saved: dict):
+        """Maprisma's dialog after F12: where the picture is, and what is wrong (optional): Done saves it."""
+        import shot_save
+        dialog = Gtk.Window(title=_("Save a screenshot"), transient_for=self.window, modal=True, default_width=520)
+        dialog.add_css_class("am-card")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_start=18, margin_end=18,
+                      margin_top=14, margin_bottom=14)
+        where = Gtk.Label(label=_("Screenshot saved: {0}").format(saved.get("shown") or saved.get("path")),
+                          xalign=0, wrap=True, selectable=True)
+        box.append(where)
+        heading = Gtk.Label(label=_("What is wrong? (optional)"), xalign=0)
+        heading.add_css_class("am-hint")
+        box.append(heading)
+        text = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR, accepts_tab=False)
+        text.set_size_request(-1, 110)
+        frame = Gtk.Frame(child=text)
+        box.append(frame)
+        done = Gtk.Button(label=_("Done"), halign=Gtk.Align.END)
+        done.add_css_class("am-small-btn")
+
+        def finish(*_args):
+            buffer = text.get_buffer()
+            note = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), False)
+            dialog.close()
+            if note.strip():
+                try:
+                    shot_save.note(saved["path"], self.SHOT_FOLDER, note)
+                except (shot_save.ShotError, OSError) as error:
+                    self.toast(_("The note could not be saved: {0}").format(error), 8)
+        done.connect("clicked", finish)
+        box.append(done)
+        dialog.set_child(box)
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", lambda _c, key, _code, _state: (finish(), True)[1]
+                     if key == Gdk.KEY_Escape else False)
+        dialog.add_controller(keys)
+        dialog.present()
+        text.grab_focus()
+
+    OVERLAY_SIZE = (0.8, 0.85)      # Maprisma's overlay window: of the map's width and height
+
+    def overlay_position(self, layers, widget, allocation):
+        """The overlay window's place: centred over the map, 80 % × 85 % (the scrim fills the map)."""
+        if widget is not getattr(self, "overlay_frame", None):
+            return False
+        width, height = layers.get_width(), layers.get_height()
+        allocation.width, allocation.height = int(width * self.OVERLAY_SIZE[0]), int(height * self.OVERLAY_SIZE[1])
+        allocation.x, allocation.y = (width - allocation.width) // 2, (height - allocation.height) // 2
+        return True
+
+    def update_overlay(self):
+        """A page over the map: the scrim and the window show; back on the map: both go."""
+        shown = (self.right_stack.get_visible_child_name() or "map") != "map"
+        self.overlay_scrim.set_visible(shown)
+        self.overlay_frame.set_visible(shown)
+
+    def overlay_scrim_clicked(self):
+        """A click on the dimmed map beside the window: back, as Esc (the page's own Back)."""
+        back = self.back_actions().get(self.page_name())
+        back() if back is not None else self.show_page("main")
 
     def page_name(self) -> str:
         """The page in view: "main" (cards + map), "settings", or a page right of the cards."""
@@ -4303,6 +4407,9 @@ class AgentsMap(TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, Se
         ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
         if page == "terminal":
             return False          # Esc, Backspace, Ctrl+… belong to the agent
+        if keyval == Gdk.KEY_F12 and ai_core.setting("screenshot_key") is not False:
+            self.take_screenshot()                 # Maprisma's F12: this window, privately, with a note
+            return True
         if keyval == Gdk.KEY_F1 and page != "help":
             self.open_help()
             return True

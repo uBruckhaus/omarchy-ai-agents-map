@@ -491,6 +491,10 @@ class ThemeCss:
         .am-card button.am-chip:checked {{ background: alpha({accent_hex}, 0.18); border-color: {accent_hex};
             color: {fg_hex}; }}
         .am-card button.am-chip:disabled {{ opacity: 0.4; }}
+        /* Maprisma's overlay window over the dimmed map */
+        .am-scrim {{ background: alpha({bg_hex}, 0.62); }}
+        .am-overlay-window {{ background: {bg_hex}; border: 1px solid alpha({fg_hex}, 0.22);
+            border-radius: {radius}px; padding: 12px 16px; box-shadow: 0 8px 28px alpha(black, 0.45); }}
         /* Maprisma's column switches: outlined when off, filled with a tick when on */
         .am-card button.am-column-chip {{ font-size: 13px; padding: 4px 12px; border-radius: {control_r}px;
             border: 1px solid alpha({fg_hex}, 0.35); background: none; color: {fg_hex}; }}
