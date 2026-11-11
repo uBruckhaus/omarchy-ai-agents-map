@@ -72,7 +72,9 @@ changes, one commit per step, Uwe looks at it before the next phase.
 6. **Release.** Manual (8 languages + PDFs), preview.png, publishing skill preflight, Codex until CLEAN, then
    ask Uwe before push and [Verify].
 
-## Open decisions (Uwe)
+## Decisions (Uwe, 2026-11-11)
 
-- Signed add-ons in the plugin, or all agents and LLMs built in?
-- The Setup page and Smart Check page: replace by Maprisma's column focus and Ask AI status, or keep?
+- No add-ons: every agent and LLM stays built into the plugin; add-on items (switch on, add-on lock, Update
+  add-on) are left out.
+- The Setup page and the Smart Check page go: Setup becomes Expand on each map column (column focus), Smart
+  Check becomes Ask AI's status per column, as in Maprisma.
