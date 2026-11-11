@@ -31,6 +31,7 @@ from pathlib import Path
 
 import harnesses
 import providers
+import ai_core
 
 HOME = Path.home()
 BACKUP_ROOT = HOME / ".local/state/ai-agents-map/backups"
@@ -455,7 +456,7 @@ def prune_retired(backup_root: Path = BACKUP_ROOT, days: int | None = None):
 def undo(folder: Path) -> list[Path]:
     """Put back what apply() replaced, unless the file was changed again since."""
     restored = []
-    manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads(ai_core.read_whole(folder / "manifest.json", MAX_BYTES, follow=False))
     if isinstance(manifest, dict):       # since MCP: files and commands
         for argv in manifest.get("undo_commands", []):
             _run(argv)

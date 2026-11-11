@@ -29,6 +29,7 @@ import tempfile
 from pathlib import Path
 
 import desktop
+import ai_core
 
 HOME = Path.home()
 PROFILE_DIR = desktop.config_dir() / "agents"
@@ -125,7 +126,7 @@ def load(command: str) -> dict | None:
         path = profile_file(command)
         if path.stat().st_size > MAX_ANSWER:
             return None
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(ai_core.read_whole(path, MAX_ANSWER))
     except (OSError, ValueError):
         return None
     if not isinstance(data, dict):

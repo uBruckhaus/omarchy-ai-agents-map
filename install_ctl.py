@@ -571,7 +571,7 @@ class Installer:
                 path = folder / name
                 if path.is_symlink() or not path.is_file() or path.stat().st_size > 64 * 1024:
                     continue
-                data = json.loads(path.read_text())
+                data = json.loads(ai_core.read_whole(path, 64 * 1024, follow=False))
             except (OSError, ValueError):
                 continue
             if isinstance(data, dict) and data.get("runtime") == self.key:

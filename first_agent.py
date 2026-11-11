@@ -22,6 +22,7 @@ import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
+import ai_core
 
 HERE = Path(__file__).resolve().parent
 CATALOG = HERE / "data/first-agent.json"
@@ -119,7 +120,7 @@ def load(path: Path | None = None, loaded_addons=()) -> Catalog:
         try:
             if candidate.is_symlink() or not candidate.is_file() or candidate.stat().st_size > MAX_CATALOG:
                 continue
-            found = parse(json.loads(candidate.read_text(encoding="utf-8")))
+            found = parse(json.loads(ai_core.read_whole(candidate, MAX_CATALOG, follow=False)))
         except (OSError, ValueError):
             continue
         if found.routes:

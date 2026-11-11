@@ -21,6 +21,7 @@ import harnesses
 import mcp_ctl
 import providers
 import skills_ctl
+import ai_core
 
 HOME = Path.home()
 MAX_ITEMS = 500          # models, skills or servers listed per source
@@ -700,7 +701,7 @@ def read_big_json(path: Path) -> dict:
         if path.stat().st_size > 8 * 1024 * 1024:
             return {}
         import json
-        data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+        data = json.loads(ai_core.read_whole(path, 8 * 1024 * 1024).decode("utf-8", "replace"))
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}

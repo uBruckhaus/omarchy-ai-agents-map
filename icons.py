@@ -106,11 +106,9 @@ def add_addon_icon(addon_id: str, data: bytes) -> str:
         return ""
     name = f"am-addon-{addon_id}-symbolic"
     try:
-        ADDON_DIR.mkdir(parents=True, exist_ok=True)
-        target = ADDON_DIR / f"{name}.svg"
-        tmp = ADDON_DIR / f".{name}.{os.getpid()}.tmp"
-        tmp.write_bytes(data)
-        os.replace(tmp, target)
+        import ai_core
+        # Unique no-follow temporary file in a checked private folder, then replaced (never a planted link).
+        ai_core.atomic_write(ADDON_DIR / f"{name}.svg", data)
     except OSError:
         return ""
     return name

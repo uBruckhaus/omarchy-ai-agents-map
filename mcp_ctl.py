@@ -22,6 +22,7 @@ from typing import cast
 import agent_profiles
 import connect
 import harnesses
+import ai_core
 
 HOME = Path.home()
 
@@ -158,7 +159,7 @@ def _read_json(path: Path, limit: int = connect.MAX_BYTES) -> dict:
     try:
         if path.stat().st_size > limit:
             return {}
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(ai_core.read_whole(path, limit))
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}

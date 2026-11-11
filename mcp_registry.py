@@ -25,6 +25,7 @@ import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
+import ai_core
 
 API = "https://registry.modelcontextprotocol.io/v0/servers"
 TIMEOUT = 45                # its search often takes 10 s or more
@@ -330,7 +331,7 @@ def load_list(path: Path | None = None) -> dict | None:
             return None
         if _list_cache is not None and _list_cache[0] == (str(path), info.st_mtime_ns):
             return _list_cache[1]
-        data = json.loads(path.read_bytes())
+        data = json.loads(ai_core.read_whole(path, LIST_MAX_FILE, follow=False))
     except (OSError, ValueError):
         return None
     if not isinstance(data, dict) or not isinstance(data.get("servers"), dict):

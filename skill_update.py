@@ -29,6 +29,7 @@ import subprocess
 from pathlib import Path
 
 import desktop
+import ai_core
 
 HOME = Path.home()
 STATE_FILE = desktop.config_dir() / "skill-updates.json"
@@ -96,7 +97,7 @@ def fingerprint(tools: dict | None) -> str:
 
 def load_state(path: Path | None = None) -> dict:
     try:
-        data = json.loads((path or STATE_FILE).read_text(encoding="utf-8"))
+        data = json.loads(ai_core.read_whole(path or STATE_FILE, 1024 * 1024, follow=False))
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}

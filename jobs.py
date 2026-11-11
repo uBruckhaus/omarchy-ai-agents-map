@@ -23,6 +23,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
+import ai_core
 
 STATE_FILE = Path.home() / ".local/state/ai-agents-map/jobs.json"
 RETRY_DELAYS = (5, 15, 30, 60, 120)
@@ -84,7 +85,7 @@ class Jobs:
         try:
             if self.state_file.is_symlink() or self.state_file.stat().st_size > 256 * 1024:
                 return []
-            data = json.loads(self.state_file.read_text(encoding="utf-8"))
+            data = json.loads(ai_core.read_whole(self.state_file, 256 * 1024, follow=False))
         except (OSError, ValueError):
             return []
         found = []

@@ -22,6 +22,7 @@ import signal
 import subprocess
 import time
 from pathlib import Path
+import ai_core
 
 HOME = Path.home()
 CACHE_DIR = HOME / ".cache/ai-agents-map/mcp-tools"
@@ -242,7 +243,7 @@ def cached(name: str, identity: str | None = None) -> dict | None:
     """With identity, only an answer of that server. One kept before answers carried
     it tells nothing of its server: it counts as none (left on disk) until asked again."""
     try:
-        data = json.loads(cache_file(name).read_text(encoding="utf-8"))
+        data = json.loads(ai_core.read_whole(cache_file(name), MAX_LINE, follow=False))
     except (OSError, ValueError):
         return None
     if not isinstance(data, dict):

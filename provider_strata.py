@@ -16,6 +16,7 @@ import gpu_usage
 import llm_engine
 from harnesses import Configure, Way
 from providers import Provider
+import ai_core
 
 # As Strata's own model ids (strata_control/models.py MODEL_ID) and launch preset slugs.
 MODEL_ID = re.compile(r"[a-z0-9](?:[a-z0-9_-]|\.(?!\.)){0,127}")
@@ -78,7 +79,7 @@ def _json(path: Path) -> dict:
     try:
         if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_JSON:
             return {}
-        data = json.loads(path.read_bytes())
+        data = json.loads(ai_core.read_whole(path, MAX_JSON, follow=False))
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}

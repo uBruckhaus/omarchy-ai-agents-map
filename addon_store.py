@@ -165,9 +165,7 @@ def catalog(online: bool, fetch=None, cache: Path = CACHE, now: float | None = N
 
 def _load_cache(cache: Path) -> dict | None:
     try:
-        fd = os.open(cache, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
-        with os.fdopen(fd, "rb") as handle:
-            data = json.loads(handle.read(MAX_CATALOG * 2))
+        data = json.loads(ai_core.read_whole(cache, MAX_CATALOG * 3, follow=False))   # regular file only, never blocks
     except (OSError, ValueError):
         return None
     ok = isinstance(data, dict) and isinstance(data.get("text"), str) and isinstance(data.get("sig"), str) \

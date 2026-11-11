@@ -395,7 +395,7 @@ def lmstudio_entry(name: str, root: Path = LMSTUDIO) -> dict:
     try:
         if path.stat().st_size > MAX_LMS_INDEX:
             return {}
-        data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+        data = json.loads(ai_core.read_whole(path, MAX_LMS_INDEX).decode("utf-8", "replace"))
     except (OSError, ValueError):
         return {}
     for entry in (data.get("models") if isinstance(data, dict) and isinstance(data.get("models"), list) else [])[:500]:
@@ -435,7 +435,7 @@ def lmstudio_settings(entry: dict, defaults: Path = LMS_DEFAULTS) -> tuple[int, 
     """(context set for the model — 0: LM Studio's own default —, KV cache type)."""
     path = lmstudio_defaults_file(entry, defaults)
     try:
-        data = json.loads(path.read_text()) if path else {}
+        data = json.loads(ai_core.read_whole(path, 1024 * 1024)) if path else {}
     except (OSError, ValueError):
         data = {}
     ctx, cache = 0, "f16"

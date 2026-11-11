@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Callable
 
 import inventory
+import ai_core
 
 MARK = "ai_agents_map"            # the key telling a .kcpps we made (KoboldCpp ignores unknown keys)
 DEFAULT_CONTEXT = 8192
@@ -65,7 +66,7 @@ def read(path: Path) -> dict:
     try:
         if path.stat().st_size > MAX_FILE:
             return {}
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(ai_core.read_whole(path, MAX_FILE))
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
