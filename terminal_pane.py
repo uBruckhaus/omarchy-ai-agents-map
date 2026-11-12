@@ -203,7 +203,9 @@ class TerminalPane(Gtk.Box):
         """End the agent and what it started (its MCP servers, tools): SIGHUP to its process
         group, as a terminal closing would; SIGTERM after 3 s and SIGKILL after 6 s to whatever
         of the group is still there, also when the agent itself ended on SIGHUP and VTE reaped
-        it. The members are held by pidfds (process_group.Group), so a reused pid is never hit."""
+        it. The signals go to the group through the agent's pidfd (process_group.Group), so a
+        member started at any time, also by the agent's SIGHUP handler just before it exits, is
+        reached, and a reused pid or group number is never hit."""
         if self.pid is None or not self.running or self.leader_fd is None:
             return
         import process_group
@@ -278,6 +280,12 @@ class TerminalPane(Gtk.Box):
 
     def on_key(self, _controller, keyval, _keycode, state):
         ctrl_shift = Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK
+        mods = state & (ctrl_shift | Gdk.ModifierType.ALT_MASK | Gdk.ModifierType.SUPER_MASK)
+        if keyval in (Gdk.KEY_Insert, Gdk.KEY_KP_Insert) and mods == Gdk.ModifierType.SHIFT_MASK:
+            # VTE's own Shift+Insert reads PRIMARY with no size limit and no deadline (and does
+            # not emit paste-clipboard): the same bounded read instead, of PRIMARY.
+            self.bounded_paste(primary=True)
+            return True
         if state & ctrl_shift == ctrl_shift:
             if keyval in (Gdk.KEY_C, Gdk.KEY_c):
                 self.terminal.copy_clipboard_format(vte().Format.TEXT)
@@ -291,10 +299,11 @@ class TerminalPane(Gtk.Box):
         terminal.stop_emission_by_name("paste-clipboard")
         self.bounded_paste()
 
-    def bounded_paste(self):
-        """The clipboard's text read with a byte cap and a deadline (ai_core.clipboard_text, on a
-        worker), then handed to VTE with paste_text (its bracketed paste stays). One at a time:
-        a paste while one is being read is dropped."""
+    def bounded_paste(self, primary: bool = False):
+        """The clipboard's text (`primary`: the PRIMARY selection, Shift+Insert) read with a byte
+        cap and a deadline (ai_core.clipboard_text, on a worker), then handed to VTE with
+        paste_text (its bracketed paste stays). One at a time: a paste while one is being read
+        is dropped. Middle-click PRIMARY paste is off app-wide (gtk-enable-primary-paste)."""
         import threading
         import ai_core
         if self.pasting:
@@ -302,7 +311,8 @@ class TerminalPane(Gtk.Box):
         self.pasting = True
 
         def worker():
-            text = ai_core.clipboard_text(max_bytes=ai_core.MAX_TERMINAL_PASTE, terminal=True)
+            text = ai_core.clipboard_text(max_bytes=ai_core.MAX_TERMINAL_PASTE, terminal=True,
+                                          primary=primary)
             GLib.idle_add(self.finish_paste, text)
 
         threading.Thread(target=worker, daemon=True).start()

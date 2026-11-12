@@ -526,20 +526,22 @@ MAX_TERMINAL_PASTE = 1024 * 1024       # text pasted into the embedded terminal
 
 
 def clipboard_text(max_bytes: int = MAX_PASTE_BYTES, timeout: float = 2.0, lines: bool = False,
-                   terminal: bool = False) -> str | None:
+                   terminal: bool = False, primary: bool = False) -> str | None:
     """Plain text from the Wayland clipboard, read with `wl-paste` under a
     byte cap and a deadline (GTK's own paste buffers the whole offer with
     neither). Control characters become spaces (line breaks stay when
     `lines`). '' when the clipboard has no text; None when the offer was too
     long, too slow or failed. `terminal`: for the embedded terminal (tabs stay, nothing else
-    of the control characters)."""
-    types_raw, _ = read_bounded_output(["wl-paste", "--list-types"], max_bytes=65536, timeout=timeout)
+    of the control characters). `primary`: the PRIMARY selection (Shift+Insert) instead of the
+    clipboard, read the same bounded way."""
+    which = ["--primary"] if primary else []
+    types_raw, _ = read_bounded_output(["wl-paste", *which, "--list-types"], max_bytes=65536, timeout=timeout)
     # An empty clipboard makes wl-paste fail: nothing to paste, not an error.
     offered = {line.strip() for line in types_raw.decode("utf-8", "replace").splitlines()}
     for mime in _TEXT_MIMES:
         if mime not in offered:
             continue
-        data, ok = read_bounded_output(["wl-paste", "--no-newline", "--type", mime],
+        data, ok = read_bounded_output(["wl-paste", *which, "--no-newline", "--type", mime],
                                        max_bytes=max_bytes, timeout=timeout)
         if not ok:
             return None

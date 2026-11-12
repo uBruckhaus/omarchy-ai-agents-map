@@ -150,6 +150,94 @@ class GroupTest(unittest.TestCase):
         self.assertFalse(running(child))
         self.assertFalse(group.alive())
 
+    def test_child_started_by_the_sighup_handler_after_the_snapshot(self):
+        """HANCORE at b8b6b1f: the leader starts a child in its SIGHUP handler and exits at once;
+        "VTE" reaps it before any rescan, so no held member anchors the group. SIGTERM/SIGKILL
+        must still reach that child (through the leader's pidfd, PIDFD_SIGNAL_PROCESS_GROUP)."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        pidfile = Path(tmp.name) / "child.pid"
+        ready = Path(tmp.name) / "ready"
+        code = ("import os, signal, subprocess, sys, time\n"
+                "def hup(*_):\n"
+                "    c = subprocess.Popen([sys.executable, '-c', 'import signal, time\\n"
+                "signal.signal(signal.SIGHUP, signal.SIG_IGN)\\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\\n"
+                "time.sleep(120)'])\n"
+                f"    open({str(pidfile)!r}, 'w').write(str(c.pid))\n"
+                "    os._exit(0)\n"
+                "signal.signal(signal.SIGHUP, hup)\n"
+                f"open({str(ready)!r}, 'w').write('1')\n"
+                "time.sleep(120)\n")
+        leader = subprocess.Popen([sys.executable, "-c", code], start_new_session=True)
+        self.addCleanup(lambda: leader.poll() is None and leader.kill())
+        for _ in range(100):
+            if ready.exists():
+                break
+            time.sleep(0.05)
+        group = process_group.Group(leader.pid, os.pidfd_open(leader.pid))
+        self.addCleanup(group.close)
+        self.assertEqual(list(group.fds), [leader.pid])   # the snapshot: only the leader
+        group.signal(signal.SIGHUP)
+        leader.wait(timeout=5)                             # "VTE" reaps it before any rescan
+        for _ in range(100):
+            if pidfile.exists() and pidfile.read_text():
+                break
+            time.sleep(0.05)
+        child = int(pidfile.read_text())
+        self.addCleanup(lambda: running(child) and os.kill(child, signal.SIGKILL))
+        time.sleep(0.3)                                    # the child has set SIG_IGN by now
+        self.assertNotIn(child, group.fds)
+        self.assertTrue(group.alive())                     # the group still has a running member
+        group.signal(signal.SIGTERM)
+        time.sleep(0.2)
+        self.assertTrue(running(child))                    # it ignores SIGTERM …
+        group.signal(signal.SIGKILL)                       # … not SIGKILL
+        for _ in range(60):
+            if not running(child):
+                break
+            time.sleep(0.05)
+        self.assertFalse(running(child))
+        for _ in range(60):
+            if not group.alive():
+                break
+            time.sleep(0.05)
+        self.assertFalse(group.alive())
+
+    def test_each_member_gets_a_signal_once(self):
+        """Codex: the whole-group signal must not be followed by a second copy to each held
+        member (a SIGHUP handler that is still running would run twice)."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        count = Path(tmp.name) / "count"
+        ready = Path(tmp.name) / "ready"
+        code = ("import signal, time\n"
+                "def hup(*_):\n"
+                f"    open({str(count)!r}, 'a').write('x')\n"
+                "signal.signal(signal.SIGHUP, hup)\n"
+                f"open({str(ready)!r}, 'w').write('1')\n"
+                "time.sleep(30)\n")
+        leader = subprocess.Popen([sys.executable, "-c", code], start_new_session=True)
+        self.addCleanup(lambda: leader.poll() is None and leader.kill())
+        for _ in range(100):
+            if ready.exists():
+                break
+            time.sleep(0.05)
+        group = process_group.Group(leader.pid, os.pidfd_open(leader.pid))
+        self.addCleanup(group.close)
+        group.signal(signal.SIGHUP)
+        time.sleep(0.5)
+        self.assertEqual(count.read_text(), "x")
+
+    def test_whole_group_signal_after_the_group_is_gone(self):
+        """After the group is gone its number may belong to another group; the leader's pidfd
+        names the old group, so nothing is signalled."""
+        leader = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
+        fd = os.pidfd_open(leader.pid)
+        leader.wait()
+        group = process_group.Group(leader.pid, fd)
+        self.addCleanup(group.close)
+        self.assertIs(group._whole_group(signal.SIGKILL), False)
+
     def test_a_pid_reused_outside_the_group_is_not_held(self):
         leader = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
         self.addCleanup(leader.kill)

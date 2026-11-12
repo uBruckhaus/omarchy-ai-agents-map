@@ -9,9 +9,14 @@ is its pid. Signalling that group is only safe while the id cannot belong to som
   had SIGTERM, a short grace and SIGKILL. Only then is it reaped. This also covers a program
   that exits at once while a child it started ignores SIGTERM.
 - Group: a group whose leader somebody else reaps (VTE reaps the agent in the embedded
-  terminal). Each member found is held by a pidfd and signalled through it, so a reused pid is
-  never signalled; new members are only looked up while a held member still exists (then the
-  group id is still taken and every process in the group is one of ours).
+  terminal). The leader's pidfd names the group itself: pidfd_send_signal with
+  PIDFD_SIGNAL_PROCESS_GROUP (Linux 6.9+) signals every process whose group is the one that
+  leader led, also after the leader ended and was reaped, and never a group that got the same
+  number later (the kernel resolves the pidfd's own struct pid, not a number). So a member the
+  agent starts at any moment, also one its SIGHUP handler starts just before it exits, still
+  gets SIGTERM and SIGKILL. Older kernels: each member found is held by a pidfd and signalled
+  through it, so a reused pid is never signalled; new members are only looked up while a held
+  member still exists (then the group id is still taken and every process in it is ours).
 """
 
 from __future__ import annotations
@@ -22,6 +27,7 @@ import subprocess
 import time
 
 GRACE = 2.0                       # seconds between SIGTERM and SIGKILL
+PIDFD_SIGNAL_PROCESS_GROUP = 1 << 2   # linux/pidfd.h (6.9+): the pidfd's process group
 
 
 def end_child(proc: subprocess.Popen, grace: float = GRACE, wait: float = 0.0) -> int | None:
@@ -104,9 +110,24 @@ class Group:
     def __init__(self, pgid: int, leader_fd: int | None = None):
         self.pgid = pgid
         self.fds: dict[int, int] = {}
+        self.leader_fd = leader_fd        # names the group itself (see the module docstring)
         if leader_fd is not None:
             self.fds[pgid] = leader_fd
         self.refresh()
+
+    def _whole_group(self, sig) -> bool | None:
+        """sig to the leader's whole group through its pidfd. True: some member got it; False:
+        the group has no member left; None: not possible here (old kernel, no leader pidfd)."""
+        fd = self.leader_fd
+        if fd is None or fd not in self.fds.values():
+            return None
+        try:
+            signal.pidfd_send_signal(fd, sig, None, PIDFD_SIGNAL_PROCESS_GROUP)
+            return True
+        except ProcessLookupError:
+            return False
+        except OSError:                   # EINVAL: the kernel has no PIDFD_SIGNAL_PROCESS_GROUP
+            return None
 
     def _alive_fds(self) -> list[int]:
         """The held processes that still exist AND are still in the group: only such an anchor
@@ -152,8 +173,12 @@ class Group:
         return stat is not None and stat[1] == self.pgid and alive()
 
     def signal(self, sig) -> None:
-        """Every held member that is still in the group (one that left it, by setsid, is spared)."""
+        """Every process still in the group, each once: through the leader's pidfd when the
+        kernel can (also members never seen before); otherwise every held member that is still
+        in the group (one that left it, by setsid, is spared)."""
         self.refresh()
+        if self._whole_group(sig) is not None:
+            return                        # the kernel reached the whole group: no second copy
         for pid, fd in self.fds.items():
             if not self._in_group(fd, pid):
                 continue
@@ -163,7 +188,11 @@ class Group:
                 pass
 
     def alive(self) -> bool:
-        """Whether a held member still runs (a zombie does not count)."""
+        """Whether a held member still runs (a zombie does not count), or, when the kernel can
+        tell, whether any process is still in the leader's group."""
+        whole = self._whole_group(0)
+        if whole is not None and whole and self._group_runs():
+            return True
         for pid, fd in self.fds.items():
             try:
                 signal.pidfd_send_signal(fd, 0)
@@ -174,7 +203,13 @@ class Group:
                 return True
         return False
 
+    def _group_runs(self) -> bool:
+        """A non-zombie process in the group. Only asked right after the leader's pidfd showed
+        the group still has a member, so the number is still that group's."""
+        return any((_stat(pid) or ("Z", 0))[0] != "Z" for pid in members(self.pgid))
+
     def close(self) -> None:
+        self.leader_fd = None
         for fd in self.fds.values():
             try:
                 os.close(fd)

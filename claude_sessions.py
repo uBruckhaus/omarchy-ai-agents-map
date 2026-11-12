@@ -160,7 +160,10 @@ def read_file(path: Path, state: dict, budget: int) -> int:
                 break
             if not line.endswith(b"\n"):
                 if len(line) <= MAX_LINE:
-                    break                       # still being written, or past the budget: next time
+                    # Still being written, or cut at the budget: kept for next time (the offset
+                    # stays), but its bytes were read and count against this run's budget.
+                    read += len(line)
+                    break
                 skipping = True                 # longer than MAX_LINE: keep nothing of it
                 read += len(line)
                 offset += len(line)
