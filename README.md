@@ -431,7 +431,10 @@ plugin's own source (`release_pins.py`: tag, file names, sizes and the SHA-256, 
 Google's Antigravity CLI); nothing is chosen at run time and no release listing is asked, so every
 executable it can install is a reviewed file, and a newer version arrives only with a plugin update.
 Every download must match its pinned checksum before it is unpacked or run; a file that does not
-match is not installed. The checked file is opened once and unpacked or run from that open
+match is not installed. Where each pinned file comes from (the tag's source commit, the
+workflow that builds it, GitHub build attestations where the project publishes them) and the
+licenses of the programs and their bundled parts are listed in
+[docs/release-provenance.md](docs/release-provenance.md). The checked file is opened once and unpacked or run from that open
 file, so a file swapped in under its name afterwards is never used. The program folder must be
 yours and writable only by you, and every folder above it yours or root's (one others may write,
 such as `/tmp`, only with the sticky bit); a shared folder is refused. Downloads stop when the
@@ -463,6 +466,11 @@ hours (**Install** again continues it).
   window opens or after a download; uninstalling removes the ones AI Agents Map made.
 
 ### Agents AI Agents Map installs
+
+Agents installed with mise (their recipes' **Install…** and **Update…**, `mise use` / `mise upgrade`) and
+**Install Node.js** in the first-agent guide (`mise use -g node@lts`) are not pinned: mise runs in a
+terminal you watch, chooses the version at that moment and checks downloads only where its backends
+publish checksums. The same holds for Claude Code's own `claude update`.
 
 Agents Omarchy's menu does not offer are installed the same way (their card on the Agents column's page, ⋯ →
 **Install…**, **Update…**, **Uninstall…**; a version folder, the command in `~/.local/bin`):
@@ -771,10 +779,11 @@ the backup and Undo), and the agent is told the same context. A context you set 
   rate file on `www.ecb.europa.eu` (at most once a day, see **Cost for API users**); the marketplace catalog on `raw.githubusercontent.com` when **Information** (Help) opens
   (see there); `skills.sh`, `api.github.com` and
   `raw.githubusercontent.com` for skills; the update check (automatic when the window opens, at
-  most every 6 h): the npm registry's dist-tags of `@anthropic-ai/claude-code`, the release API
-  of the local LLMs and agents AI Agents Map installed, and what `mise outdated` asks; a search site you added yourself (Add a site…: https
+  most every 6 h): the npm registry's dist-tags of `@anthropic-ai/claude-code` and what `mise outdated` asks (the
+  local LLMs and agents AI Agents Map installed are compared with the pins in `release_pins.py`, with no
+  request); a search site you added yourself (Add a site…: https
   only, no redirects, only when you search on it); an MCP server's own address when you click **Test**; and,
-  for a newly installed unknown agent (automatic, see above), whatever Claude Code or Codex
+  for an unknown agent you choose **Look up on the web…** for (see above), whatever Claude Code or Codex
   searches. All web requests AI Agents Map makes itself (not the local LLMs' APIs on 127.0.0.1
   above, and not what an agent fetches during its own look-up) go through `curl` with https only, at most a few https redirects
   (none for skills and the registry), size and time limits, and request headers handed over on
