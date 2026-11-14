@@ -31,8 +31,8 @@ from pathlib import Path
 
 import ai_core
 import harnesses
-import netfetch
 import providers
+import release_pins
 
 HOME = Path.home()
 BIN_DIR = HOME / ".local/bin"
@@ -273,31 +273,6 @@ def open_verified(path: Path, digest: str) -> VerifiedFile:
 
 
 # --- downloads ------------------------------------------------------------------------------------
-
-def _curl_json(url: str) -> dict:
-    try:
-        data = netfetch.fetch_json(url, max_bytes=2_000_000, timeout=API_TIMEOUT)
-    except netfetch.FetchError as error:
-        raise RuntimeError(str(error)) from error
-    if not isinstance(data, dict):
-        raise RuntimeError("unexpected answer")
-    return data
-
-
-def github_asset(asset: dict) -> tuple:
-    """(name, url, size, sha256) of a GitHub release asset. GitHub lists a SHA-256
-    for every asset ("digest": "sha256:<hex>"); without one nothing is downloaded."""
-    name = str(asset.get("name", ""))
-    match = re.fullmatch(r"sha256:([0-9a-f]{64})", str(asset.get("digest") or ""))
-    if not match:
-        raise RuntimeError(f"{name}: the release lists no SHA-256 checksum")
-    return name, asset["browser_download_url"], int(asset.get("size", 0)), match.group(1)
-
-
-def github_release(version: str, assets: list) -> Release:
-    picked = [github_asset(a) for a in assets]
-    return Release(version, [(n, u, s) for n, u, s, _d in picked], {n: d for n, _u, _s, d in picked})
-
 
 def _hasher(expected: str = ""):
     """The hash a release's checksum is in: SHA-512 for 128 hex digits, else SHA-256."""
@@ -590,13 +565,6 @@ def set_env_value(path: Path, key: str, value: str):
 
 
 # --- installers ------------------------------------------------------------------------------------
-
-def _curl_json_any(url: str):
-    try:
-        return netfetch.fetch_json(url, max_bytes=5_000_000, timeout=API_TIMEOUT)
-    except netfetch.FetchError as error:
-        raise RuntimeError(str(error)) from error
-
 
 def unpack_appimage(archive: Path, folder: Path):
     """An AppImage whose SHA-256 was checked against its release (Installer.install):
@@ -956,15 +924,9 @@ class Ollama(Installer):
     address = "127.0.0.1:11434"
 
     def latest(self, gpu: Gpu, build: str = "") -> Release:
-        data = _curl_json("https://api.github.com/repos/ollama/ollama/releases/latest")
-        version = str(data.get("tag_name", ""))
-        if not re.fullmatch(r"v\d+\.\d+\.\d+", version):
-            raise RuntimeError("no release found")
-        wanted = ["ollama-linux-amd64.tar.zst"] + (["ollama-linux-amd64-rocm.tar.zst"] if gpu.vendor == "amd" else [])
-        assets = {a.get("name"): a for a in data.get("assets", []) if isinstance(a, dict)}
-        if any(name not in assets for name in wanted):
-            raise RuntimeError(f"{version} has no Linux build")
-        return github_release(version, [assets[n] for n in wanted])
+        """The release pinned in release_pins.py; nothing is chosen at run time."""
+        tag, files = release_pins.github_files("ollama", "rocm" if gpu.vendor == "amd" else "")
+        return Release(tag, [(n, u, sz) for n, u, sz, _d in files], {n: d for n, _u, _sz, d in files})
 
     def models_folder(self) -> str:
         return read_env(self.env_file).get("OLLAMA_MODELS", "")
@@ -1022,24 +984,10 @@ class LlamaCpp(Installer):
         return "cpu"
 
     def latest(self, gpu: Gpu, build: str = "") -> Release:
+        """The release pinned in release_pins.py; nothing is chosen at run time."""
         build = build or self.default_build(gpu)
-        data = _curl_json_any("https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=5")
-        pattern = {"vulkan": r"llama-(b\d+)-bin-ubuntu-vulkan-x64\.tar\.gz", "rocm": r"llama-(b\d+)-bin-ubuntu-rocm-[\d.]+-x64\.tar\.gz",
-                   "cuda": r"llama-(b\d+)-bin-ubuntu-cuda-12[\d.]*-x64\.tar\.gz", "cpu": r"llama-(b\d+)-bin-ubuntu-x64\.tar\.gz"}[build]
-        for release in data if isinstance(data, list) else []:
-            assets = [a for a in release.get("assets", []) if isinstance(a, dict)]
-            main = next((a for a in assets if re.fullmatch(pattern, str(a.get("name")))), None)
-            if main is None:
-                continue
-            version = re.fullmatch(pattern, main["name"]).group(1)
-            picked = [main]
-            if build == "cuda":
-                runtime = next((a for a in assets if re.fullmatch(rf"cudart-llama-{version}-bin-ubuntu-cuda-12[\d.]*-x64\.tar\.gz",
-                                                                    str(a.get("name")))), None)
-                if runtime:
-                    picked.append(runtime)
-            return github_release(f"{version}-{build}", picked)
-        raise RuntimeError(f"no {build} build for Linux found")
+        tag, files = release_pins.github_files("llamacpp", build)
+        return Release(f"{tag}-{build}", [(n, u, sz) for n, u, sz, _d in files], {n: d for n, _u, _sz, d in files})
 
     def models_folder(self) -> str:
         return read_env(self.env_file).get("LLAMA_ARG_MODELS_DIR", "")
@@ -1142,14 +1090,12 @@ class Vllm(Installer):
     env_file = HOME / ".config/vllm/server.env"
     address = "127.0.0.1:8000"
 
+    # pip resolves vLLM's dependencies (torch, CUDA wheels) at install time without a hash
+    # lock, so the files are not a reviewed set: not installed or updated from here.
+    can_install = False
+
     def latest(self, gpu: Gpu, build: str = "") -> Release:
-        if gpu.vendor != "nvidia":
-            raise RuntimeError("vLLM can be installed here for NVIDIA cards only; on AMD use llama.cpp or Ollama")
-        data = _curl_json("https://pypi.org/pypi/vllm/json")
-        version = str((data.get("info") or {}).get("version", ""))
-        if not re.fullmatch(r"\d+\.\d+\.\d+", version):
-            raise RuntimeError("no vLLM release found")
-        return Release(f"v{version}", [])          # pip downloads it (several GB)
+        raise RuntimeError(f"{self.name} is not installed or updated from here; use its own installer")
 
     def install(self, folder: Path, models: Path | None, start_at_login: bool, start_now: bool, gpu: Gpu,
                 release: Release, progress, cancelled):
@@ -1220,17 +1166,10 @@ class KoboldCpp(Installer):
         return "cuda" if gpu.vendor == "nvidia" else "vulkan" if gpu.vendor == "amd" else "cpu"
 
     def latest(self, gpu: Gpu, build: str = "") -> Release:
+        """The release pinned in release_pins.py; nothing is chosen at run time."""
         build = build or self.default_build(gpu)
-        data = _curl_json("https://api.github.com/repos/LostRuins/koboldcpp/releases/latest")
-        version = str(data.get("tag_name", ""))
-        if not re.fullmatch(r"v\d+\.\d+(\.\d+)?", version):
-            raise RuntimeError("no release found")
-        assets = {a.get("name"): a for a in data.get("assets", []) if isinstance(a, dict)}
-        wanted = self.ASSETS[build]
-        if wanted not in assets:
-            raise RuntimeError(f"{version} has no Linux build")
-        asset = assets[wanted]
-        return github_release(f"{version}-{build}", [asset])
+        tag, files = release_pins.github_files("koboldcpp", build)
+        return Release(f"{tag}-{build}", [(n, u, sz) for n, u, sz, _d in files], {n: d for n, _u, _sz, d in files})
 
     def unpack(self, archive: Path, folder: Path):
         """One program file: copied in as `koboldcpp`, made executable."""
@@ -1326,18 +1265,12 @@ class Strata(Installer):
         import provider_strata
         return provider_strata.data_dir() / "terminal"
 
+    # Strata's install.sh downloads further files of its own choosing, so they are not a
+    # reviewed set: not installed or updated from here.
+    can_install = False
+
     def latest(self, gpu: Gpu, build: str = "") -> Release:
-        data = _curl_json(self.RELEASES)
-        version = str(data.get("tag_name", ""))
-        if not self.TAG_RE.fullmatch(version):
-            raise RuntimeError("no release found")
-        assets = [a for a in data.get("assets", []) if isinstance(a, dict) and a.get("name") == "install.sh"]
-        if len(assets) != 1:
-            raise RuntimeError(f"{version} has no install.sh")
-        release = github_release(version, assets)
-        if release.assets[0][1] != f"{self.DOWNLOADS}{version}/install.sh":
-            raise RuntimeError("the installer is not in Strata's release")
-        return release
+        raise RuntimeError(f"{self.name} is not installed or updated from here; use its own installer")
 
     def current_version_in(self, folder: Path) -> str:
         """Its `current` link is absolute (install.sh: ln -sfn <folder>/<version>): the version's name."""
@@ -1425,15 +1358,9 @@ class Jan(Installer):
     desktop = HOME / ".local/share/applications/jan-ai-agents-map.desktop"
 
     def latest(self, gpu: Gpu, build: str = "") -> Release:
-        data = _curl_json("https://api.github.com/repos/janhq/jan/releases/latest")
-        version = str(data.get("tag_name", ""))
-        if not re.fullmatch(r"v\d+\.\d+\.\d+", version):
-            raise RuntimeError("no release found")
-        wanted = f"Jan_{version[1:]}_amd64.AppImage"
-        asset = next((a for a in data.get("assets", []) if isinstance(a, dict) and a.get("name") == wanted), None)
-        if asset is None:
-            raise RuntimeError(f"{version} has no Linux AppImage")
-        return github_release(version, [asset])
+        """The release pinned in release_pins.py; nothing is chosen at run time."""
+        tag, files = release_pins.github_files("jan", "")
+        return Release(tag, [(n, u, sz) for n, u, sz, _d in files], {n: d for n, _u, _sz, d in files})
 
     def unpack(self, archive: Path, folder: Path):
         unpack_appimage(archive, folder)
@@ -1547,13 +1474,12 @@ class Dsh(Installer):
     uses_models = False
     PACKAGE = "@deepseek-ai/dsh"
 
+    # npm resolves the package's dependency tree at install time without a lockfile,
+    # so the files are not a reviewed set: not installed or updated from here.
+    can_install = False
+
     def latest(self, gpu: Gpu, build: str = "") -> Release:
-        data = _curl_json("https://registry.npmjs.org/@deepseek-ai%2fdsh")
-        tags = data.get("dist-tags") if isinstance(data.get("dist-tags"), dict) else {}
-        version = str(tags.get("latest", ""))
-        if not re.fullmatch(r"\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?", version):
-            raise RuntimeError("no release found")
-        return Release(f"v{version}", [])             # npm downloads it
+        raise RuntimeError(f"{self.name} is not installed or updated from here; use its own installer")
 
     def install(self, folder: Path, models: Path | None, start_at_login: bool, start_now: bool, gpu: Gpu,
                 release: Release, progress, cancelled):
@@ -1594,22 +1520,18 @@ class Agy(Installer):
     has_service = False
     uses_models = False
     site = "https://antigravity.google"
-    MANIFEST = "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/linux_{0}.json"
     DOWNLOADS = "https://storage.googleapis.com/antigravity-public/antigravity-cli/"
     ARCHES = {"x86_64": "amd64", "aarch64": "arm64"}
 
     def latest(self, gpu: Gpu, build: str = "") -> Release:
+        """The release pinned in release_pins.py (Google's file and its SHA-512); nothing is chosen at run time."""
         arch = self.ARCHES.get(os.uname().machine)
         if arch is None:
             raise RuntimeError(f"no Antigravity CLI for {os.uname().machine}")
-        data = _curl_json(self.MANIFEST.format(arch))
-        version, url, sha512 = (str(data.get(k) or "") for k in ("version", "url", "sha512"))
+        version, files = release_pins.AGY
+        url, digest = files[arch]
         name = url.rsplit("/", 1)[-1]
-        if not re.fullmatch(r"\d+\.\d+\.\d+", version) or not re.fullmatch(r"[0-9a-f]{128}", sha512) \
-                or not url.startswith(self.DOWNLOADS) or not name.endswith(".tar.gz") or not NAME_RE.fullmatch(name) \
-                or any(c in url for c in "\"'\\ \n\r\t") or "/../" in url:
-            raise RuntimeError("Google's release manifest is not in the expected form; nothing was installed")
-        return Release(f"v{version}", [(name, url, 0)], {name: sha512})
+        return Release(f"v{version}", [(name, url, 0)], {name: digest.split(":", 1)[1]})
 
 
 class Mise(Installer):
@@ -1625,18 +1547,12 @@ class Mise(Installer):
     ARCHES = {"x86_64": "x64", "aarch64": "arm64"}
 
     def latest(self, gpu: Gpu, build: str = "") -> Release:
+        """The release pinned in release_pins.py; nothing is chosen at run time."""
         arch = self.ARCHES.get(os.uname().machine)
         if arch is None:
             raise RuntimeError(f"no mise build for {os.uname().machine}")
-        data = _curl_json("https://api.github.com/repos/jdx/mise/releases/latest")
-        version = str(data.get("tag_name", ""))
-        if not re.fullmatch(r"v\d{4}\.\d{1,2}\.\d{1,3}", version):
-            raise RuntimeError("no mise release found")
-        wanted = f"mise-{version}-linux-{arch}-musl.tar.gz"
-        assets = [a for a in data.get("assets", []) if isinstance(a, dict) and a.get("name") == wanted]
-        if not assets:
-            raise RuntimeError(f"mise {version} has no {wanted}")
-        return github_release(version, assets)
+        tag, files = release_pins.github_files("mise", arch)
+        return Release(tag, [(n, u, sz) for n, u, sz, _d in files], {n: d for n, _u, _sz, d in files})
 
 
 # Tools the first-agent guide installs before an agent (not a local LLM, not an agent).
@@ -1706,23 +1622,12 @@ class Declared(Installer):
         known = [b for b, _p in self.spec.assets]
         return wanted if wanted in known else known[0]
 
+    # An add-on's download would be the newest matching release, chosen at run time; only
+    # releases pinned in release_pins.py are installed, so this path installs nothing.
+    can_install = False
+
     def latest(self, gpu: Gpu, build: str = "") -> Release:
-        build = build or self.default_build(gpu)
-        pattern = dict(self.spec.assets).get(build)
-        if pattern is None:
-            raise RuntimeError(f"no build {build!r}")
-        releases = _curl_json_any(f"https://api.github.com/repos/{self.spec.repo}/releases?per_page=10")
-        for data in releases if isinstance(releases, list) else []:
-            tag = str(data.get("tag_name", "")) if isinstance(data, dict) else ""
-            if data.get("draft") or data.get("prerelease") or not re.fullmatch(self.spec.tag, tag) \
-                    or not NAME_RE.fullmatch(tag):
-                continue
-            assets = [a for a in data.get("assets", []) if isinstance(a, dict)
-                      and re.fullmatch(pattern, str(a.get("name", "")))]
-            if assets:
-                suffix = f"-{build}" if build and len(self.spec.assets) > 1 else ""
-                return github_release(f"{tag}{suffix}", assets[:1])
-        raise RuntimeError(f"no release of {self.spec.repo} has a file for this PC")
+        raise RuntimeError(f"{self.name} is not installed or updated from here; use its own installer")
 
     def unpack(self, archive: Path, folder: Path):
         if self.spec.single_file:

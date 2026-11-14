@@ -25,6 +25,7 @@ LIBRARIES = {
     "providers.py": "the registry (the built-ins' order)",
     "inventory.py": "detect functions the provider modules call",
     "install_ctl.py": "installers the provider modules call",
+    "release_pins.py": "the exact releases those installers install",
     "models_ctl.py": "Ollama's library and pull API, called from its provider module",
     "agent_readers.py": "agents' settings readers (Bionic is LM Studio, OpenClaw's own provider names)",
     "model_layout.py": "the shared flat model folder keeps its old name (llama.cpp)",

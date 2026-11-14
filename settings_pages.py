@@ -676,10 +676,6 @@ class SettingsPages:
         # Its own group after General's rows, with the disclaimer on top.
         ai = Adw.PreferencesGroup(title=GLib.markup_escape_text(_("AI features")),
                                   description=GLib.markup_escape_text(self.own_risk_text()))
-        self.switch_row(ai, _("Look up new agents"),
-                        _("When a new agent is installed, Claude Code or Codex finds out on the web where it keeps "
-                          "MCP servers and skills (once, a few minutes in the background)."),
-                        ai_core.setting("look_up_new_agents"), lambda on: self.save_setting(look_up_new_agents=on))
         self.switch_row(ai, _("Daily AI checks"),
                         _("Once a day, an installed agent looks on the web for new versions of your MCP servers "
                           "and shows them as hints, with “Do it with …” to let it do the update. This uses the "

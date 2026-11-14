@@ -194,7 +194,7 @@ SCHEMA: dict[str, Setting] = {
     "providers_with_agents": Setting(True, _bool, "Settings › Start local LLMs with their agents"),
     "models_root": Setting(None, _text, "Settings › Models folder"),
     "removed_models_folders": Setting({}, _mapping, "{local LLM: its models folder} of local LLMs uninstalled here"),
-    "look_up_new_agents": Setting(True, _bool, "Settings › Look up new agents"),
+    "look_up_new_agents": Setting(False, _bool, "no longer used: a new agent is looked up only from the map menu"),
     "ai_checks": Setting(False, _bool, "Settings › Daily AI checks (an agent looks up MCP server updates; uses tokens)"),
     "model_advice_count": Setting(10, lambda v: v in (5, 10, 15, 20) and not isinstance(v, bool),
                                   "Models › Ask an agent: how many models it suggests (model_advice.MODEL_COUNTS)"),

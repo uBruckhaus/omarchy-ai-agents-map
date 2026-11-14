@@ -29,8 +29,7 @@ with it.
 
 Requires Python with PyGObject, GTK4 and libadwaita in an Omarchy/Hyprland session; all come with a
 standard Omarchy install (libadwaita with Nautilus). Running agents inside the window (▶ on an agent's box, or **Start here** in its menu) needs VTE for GTK4
-(`sudo pacman -S vte4`); **Start in terminal** opens it in a terminal window of its own. Installing local LLMs uses `curl` and `tar` (and `uv` for
-vLLM); the MCP and skills search uses `curl`.
+(`sudo pacman -S vte4`); **Start in terminal** opens it in a terminal window of its own. Installing local LLMs uses `curl` and `tar`; the MCP and skills search uses `curl`.
 
 ## The window and the map (1.0.0)
 
@@ -121,8 +120,9 @@ installs what was named:
 - Claude Code also by its own release channel (`autoUpdatesChannel` in `~/.claude/settings.json`,
   from the npm registry's dist-tags), like its "Update available!" message; installed with its own
   installer, the update runs `claude update`;
-- local LLMs and agents AI Agents Map installed: their latest release; **Update…** opens the
-  Update page (SHA-256 checked as on install);
+- local LLMs and agents AI Agents Map installed: the release pinned in this version of the plugin
+  (`release_pins.py`), so a newer one arrives with a plugin update; **Update…** opens the
+  Update page (checksum checked as on install);
 - system packages are left to the system's updates.
 
 Nothing is installed or run by the check itself (except `mise outdated`); an update starts only on a
@@ -363,13 +363,13 @@ AI Agents Map looks for new programs and skill folders in the background; new on
 ### New agents
 
 When Omarchy offers an agent this plugin does not know yet and it is installed, AI Agents Map asks
-an installed agent once to find out on the web where it keeps skills and MCP servers: Claude Code
+an installed agent, only when you choose **Look up on the web…** in its map menu (right-click), to find out on the web where it keeps skills and MCP servers: Claude Code
 (`claude -p` with only its WebSearch and WebFetch tools: no shell, no file access, no MCP servers)
 or else Codex (`codex --search exec` in its read-only sandbox). The prompt holds only the agent's
 name, command and version. The answer is checked before use (folders only under your home folder,
 never `~/.ssh`, `~/.gnupg` or credential files; JSON, TOML or YAML only; a fixed list of field
-names; nothing in it is ever run) and kept in `~/.config/omarchy/ai-agents-map/agents/`. Settings →
-**Look up new agents** switches this off; right-click the agent on the map to look it up again.
+names; nothing in it is ever run) and kept in `~/.config/omarchy/ai-agents-map/agents/`. Nothing is
+sent by itself; the look-up uses that agent's tokens, and the same menu looks it up again.
 
 ### Smart Check and Daily AI checks
 
@@ -426,9 +426,12 @@ into a program folder you choose (one folder per version, a `current` link, the 
 folder (the one your other local LLMs use is suggested) and whether it starts at login. Installed
 this way: **Update…** (new version folder, the previous one is kept as a fallback), **Model folder…**
 (change it later) and **Uninstall…** (program, command, service and settings; never the models).
-Installs made by hand are shown but never changed. Every download must match the SHA-256 checksum
-its GitHub release lists before it is unpacked or run; a release without one, or a file that does
-not match, is not installed. The checked file is opened once and unpacked or run from that open
+Installs made by hand are shown but never changed. Each program is one release pinned in the
+plugin's own source (`release_pins.py`: tag, file names, sizes and the SHA-256, or SHA-512 for
+Google's Antigravity CLI); nothing is chosen at run time and no release listing is asked, so every
+executable it can install is a reviewed file, and a newer version arrives only with a plugin update.
+Every download must match its pinned checksum before it is unpacked or run; a file that does not
+match is not installed. The checked file is opened once and unpacked or run from that open
 file, so a file swapped in under its name afterwards is never used. The program folder must be
 yours and writable only by you, and every folder above it yours or root's (one others may write,
 such as `/tmp`, only with the sticky bit); a shared folder is refused. Downloads stop when the
@@ -442,8 +445,9 @@ hours (**Install** again continues it).
 - **LM Studio**: not installed or updated from here, since LM Studio publishes no checksum or
   signature for its download; get it from lmstudio.ai. A copy installed by an earlier version of
   AI Agents Map can still be uninstalled and its model folder changed. Its server runs with `lms server`.
-- **vLLM**: for NVIDIA cards, in its own Python environment (uv); on AMD cards vLLM needs ROCm
-  containers, so it is not offered there.
+- **vLLM**: not installed or updated from here: pip would resolve its dependencies (torch, CUDA
+  wheels) at install time without a hash lock, so the files would not be a reviewed set. Install
+  it yourself (for example with uv); a copy installed by an earlier version can still be uninstalled.
 - **Jan**: its AppImage, unpacked (no FUSE needed), with a desktop entry (`jan-desktop`). For agents,
   Jan's own engine (`jan-llama-worker`, a llama.cpp router) runs without the app as the user service
   `jan` on 127.0.0.1:6767, with the models of Jan's data folder (`~/.local/share/Jan/data` unless
@@ -460,11 +464,12 @@ hours (**Install** again continues it).
 
 ### Agents AI Agents Map installs
 
-Three agents Omarchy's menu does not offer are installed the same way (their card on the Agents column's page, ⋯ →
+Agents Omarchy's menu does not offer are installed the same way (their card on the Agents column's page, ⋯ →
 **Install…**, **Update…**, **Uninstall…**; a version folder, the command in `~/.local/bin`):
 
-- **DeepSeek Harness** (`dsh`, developer preview): from npm with install scripts switched off
-  (`npm install --ignore-scripts`; needs Node.js). Lines to local LLMs go into its web profile's
+- **DeepSeek Harness** (`dsh`, developer preview): not installed or updated from here, since npm
+  would resolve its dependency tree at install time without a lockfile; install it yourself
+  (`npm install -g @deepseek-ai/dsh`). Lines to local LLMs go into its web profile's
   patch `~/.dsh/profiles/web/cordis.patch.yml`, the file its own Settings › Models writes: a
   provider per local LLM (OpenAI Chat Completions, with a placeholder `Authorization: Bearer local`
   header because dsh refuses a request without a key) and, for "Use it now", its default model.
@@ -478,9 +483,8 @@ Three agents Omarchy's menu does not offer are installed the same way (their car
   card; MCP servers drawn to it go into its `extensions` as `stdio` or `streamable_http` entries, as
   one planned change with backup and Undo); API keys stay in the system keyring or its
   `secrets.yaml` (only whether that file is there is checked). **Configure…** runs `goose configure`.
-- **Antigravity CLI** (`agy`, Google): the release Google's own install script would take, from
-  its release manifest (version, a tarball on `storage.googleapis.com` and its SHA-512); only that
-  bucket and a full SHA-512 are accepted, and the tarball is checked before anything is unpacked.
+- **Antigravity CLI** (`agy`, Google): the tarball of the version pinned in `release_pins.py`
+  (Google's file on `storage.googleapis.com` and its SHA-512), checked before anything is unpacked.
   Google's script itself is not run (its last step only adds `~/.local/bin` to shell profiles).
 - **LM Studio Bionic**: not installed or updated from here (no checksum or signature, as LM Studio);
   get it from lmstudio.ai. A copy installed by an earlier version can still be uninstalled. Bionic runs local models
@@ -747,12 +751,12 @@ the backup and Undo), and the agent is told the same context. A context you set 
   `herdr api snapshot` (per running session), only when that session's socket exists and is
   yours; of its answer (capped at 4 MiB) only the agent, its state, the folder and the workspace
   name are kept, no terminal titles or screen text.
-- **Network** (each only on a click, except where noted): GitHub's release API and release
-  downloads for Ollama, llama.cpp, Jan and KoboldCpp (each checked against the release's SHA-256;
+- **Network** (each only on a click, except where noted): the pinned release files of Ollama,
+  llama.cpp, Jan, KoboldCpp and mise from `github.com/<owner>/<repo>/releases/download/…` (each
+  checked against its pinned SHA-256; no release API is asked;
   every download, models included, goes into a `.part` file that is created new without following
   links, or resumed only when it is your own regular file, and curl writes into that open file),
-  the npm registry for DeepSeek Harness, PyPI
-  (and `uv`) for vLLM; `huggingface.co` for model search, a model's page (its numbers and GGUF facts) and its model card (`/raw/main/README.md`, at most 200 kB, shown as plain text), and downloads; for Antigravity CLI Google's release manifest (`antigravity-cli-auto-updater-…run.app/manifests/linux_<arch>.json`) and its tarball on `storage.googleapis.com` (checked against the manifest's SHA-512); the local Ollama on
+  `huggingface.co` for model search, a model's page (its numbers and GGUF facts) and its model card (`/raw/main/README.md`, at most 200 kB, shown as plain text), and downloads; for Antigravity CLI its pinned tarball on `storage.googleapis.com` (checked against the pinned SHA-512); the local Ollama on
   127.0.0.1 only after checking that the listening socket belongs to you (before a Hugging Face
   model's download options are shown for Ollama, `huggingface.co/v2/<repo>/manifests/<quant>` is
   asked for each of its files, the same request Ollama sends first, at most 256 KiB, 15 s, 30 files
@@ -833,8 +837,7 @@ the backup and Undo), and the agent is told the same context. A context you set 
   it writes into its folder is measured twice a second, and its whole process group, children it
   left behind included, is ended as soon as that passes 20 GB, after 15 minutes, or when it ends;
   on a failure, the timeout or the limit, the partial folder is removed, as for a release archive
-  that fails to unpack; what it could write in half a second, or elsewhere, is not bounded), `uv venv`/`uv pip install`,
-  `npm install --ignore-scripts` for DeepSeek Harness (installer);
+  that fails to unpack; what it could write in half a second, or elsewhere, is not bounded) (installer);
   the watcher service described above (service-management: `systemctl --user start/stop` of the
   connected LLMs' services, `lms server start/stop`, `lms daemon down`; a hidden LM Studio it
   started is signalled through a pidfd taken when it is found, so a reused PID is never hit);
@@ -965,7 +968,7 @@ links not followed; nothing is deleted from here.
 The gear (Ctrl+,) opens the settings: **Language** (system or one of English, Deutsch, Français,
 Español, Italiano, Português, Nederlands, Polski), **Look** (the colours from the Omarchy theme,
 or GNOME's Adwaita with the system's light/dark and accent colour), **Map animations** (agents and other programs, only my agents, off; with a moving preview), **Terminal tabs above the map**, **Corners** (like windows, rounded or square, as
-in App Manager and Theme Manager), **AI features** (its own group, headed by the at-your-own-risk note: **Look up new agents**, **Daily AI checks** (off by default; uses the agent's tokens), **Agent for AI checks**), **Start local LLMs with their agents**, **Too narrow for the map** (what the header's "Maximize for more room" does: move the window to a
+in App Manager and Theme Manager), **AI features** (its own group, headed by the at-your-own-risk note: **Daily AI checks** (off by default; uses the agent's tokens), **Agent for AI checks**), **Start local LLMs with their agents**, **Too narrow for the map** (what the header's "Maximize for more room" does: move the window to a
 free workspace, maximize it where it is, or show no hint; with an animated preview), **In the app
 launcher** (the launcher entry; off removes it) and **Agents start in** (the folder for Start). Backspace or Esc goes back. Settings
 live in `~/.config/omarchy/ai-agents-map/settings.json`.

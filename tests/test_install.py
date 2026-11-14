@@ -10,6 +10,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import ai_core  # noqa: E402
 import install_ctl as ic  # noqa: E402
+import netfetch  # noqa: E402
 
 
 class InstallTest(unittest.TestCase):
@@ -199,22 +200,12 @@ class DeclaredInstallTest(unittest.TestCase):
             with self.assertRaises((ValueError, re.error), msg=str(bad)):
                 ic.check_download(self.spec(**bad))
 
-    def test_release_build_and_checksum(self):
-        from unittest import mock
+    def test_add_on_downloads_install_nothing(self):
         inst = ic.Declared("acme", "Acme LLM", self.spec(), True)
-        releases = [{"tag_name": "nightly", "assets": []},
-                    {"tag_name": "v2.0.0", "prerelease": True, "assets": []},
-                    {"tag_name": "v1.4.0", "assets": [
-                        {"name": "llm-1.4.0-cpu-x64.tar.gz", "browser_download_url": "https://x/c", "size": 5,
-                         "digest": "sha256:" + "a" * 64},
-                        {"name": "llm-1.4.0-vulkan-x64.tar.gz", "browser_download_url": "https://x/v", "size": 6,
-                         "digest": "sha256:" + "b" * 64}]}]
-        gpu = ic.Gpu(vendor="amd") if "vendor" in ic.Gpu.__dataclass_fields__ else mock.Mock(vendor="amd")
-        with mock.patch.object(ic, "_curl_json_any", lambda url: releases):
-            release = inst.latest(gpu)
-        self.assertEqual(release.version, "v1.4.0-vulkan")
-        self.assertEqual(release.assets, [("llm-1.4.0-vulkan-x64.tar.gz", "https://x/v", 6)])
-        self.assertEqual(release.digests, {"llm-1.4.0-vulkan-x64.tar.gz": "b" * 64})
+        self.assertFalse(inst.can_install)
+        with mock.patch.object(netfetch, "fetch", side_effect=AssertionError("no network")), \
+                self.assertRaises(RuntimeError):
+            inst.latest(ic.Gpu())
 
     def test_service_from_data(self):
         inst = ic.Declared("acme", "Acme LLM", self.spec(), True)
@@ -394,23 +385,48 @@ class IntegrityTest(unittest.TestCase):
         plain.write_bytes(b"x")
         self.assertTrue(ic.own_regular_file(plain))
 
-    def test_github_asset_needs_a_sha256(self):
-        asset = {"name": "Jan_1.0.0_amd64.AppImage", "browser_download_url": "https://github.com/x", "size": 5}
-        for digest in (None, "", "md5:abc", "sha256:" + "0" * 63, "sha256:" + "G" * 64):
-            with self.assertRaises(RuntimeError):
-                ic.github_asset({**asset, "digest": digest})
-        self.assertEqual(ic.github_asset({**asset, "digest": "sha256:" + self.digest})[3], self.digest)
+    def test_every_release_is_the_one_pinned_in_the_source(self):
+        import release_pins
+        gpus = [ic.Gpu("nvidia"), ic.Gpu("amd"), ic.Gpu("cpu")]
+        cases = [(ic.Ollama(), "ollama", [""]), (ic.LlamaCpp(), "llamacpp", ["vulkan", "rocm", "cuda", "cpu"]),
+                 (ic.KoboldCpp(), "koboldcpp", ["vulkan", "cuda", "cpu"]), (ic.Jan(), "jan", [""])]
+        with mock.patch.object(netfetch, "fetch", side_effect=AssertionError("no network")):
+            for inst, key, builds in cases:
+                repo, tag, pinned = release_pins.GITHUB[key]
+                for build in builds:
+                    release = inst.latest(gpus[0], build) if build else inst.latest(gpus[0])
+                    self.assertTrue(release.version.startswith(tag), (key, build))
+                    for name, url, size in release.assets:
+                        self.assertEqual(url, f"https://github.com/{repo}/releases/download/{tag}/{name}")
+                        self.assertGreater(size, 0)
+                        self.assertRegex(release.digests[name], r"^[0-9a-f]{64}$")
+            self.assertEqual([a[0] for a in ic.Ollama().latest(ic.Gpu("amd")).assets],
+                             ["ollama-linux-amd64.tar.zst", "ollama-linux-amd64-rocm.tar.zst"])
+            self.assertEqual(len(ic.LlamaCpp().latest(ic.Gpu("nvidia"), "cuda").assets), 2)   # + CUDA runtime
+            with mock.patch.object(ic.os, "uname", return_value=mock.Mock(machine="x86_64")):
+                mise = ic.Mise().latest(ic.Gpu())
+            self.assertTrue(mise.assets[0][0].endswith("linux-x64-musl.tar.gz"))
 
-    def test_jan_and_kobold_releases_carry_digests(self):
-        jan = {"tag_name": "v1.0.0", "assets": [{"name": "Jan_1.0.0_amd64.AppImage", "size": 5,
-                                                 "browser_download_url": "https://github.com/j",
-                                                 "digest": "sha256:" + self.digest}]}
-        with mock.patch.object(ic, "_curl_json", return_value=jan):
-            release = ic.Jan().latest(ic.Gpu())
-        self.assertEqual(release.digests, {"Jan_1.0.0_amd64.AppImage": self.digest})
-        del jan["assets"][0]["digest"]
-        with mock.patch.object(ic, "_curl_json", return_value=jan), self.assertRaises(RuntimeError):
-            ic.Jan().latest(ic.Gpu())
+    def test_pins_are_complete_and_well_formed(self):
+        import release_pins
+        for key, (repo, tag, builds) in release_pins.GITHUB.items():
+            self.assertRegex(repo, r"^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$")
+            self.assertTrue(ic.NAME_RE.fullmatch(tag), key)
+            for build, files in builds.items():
+                for name, size, digest in files:
+                    self.assertTrue(ic.NAME_RE.fullmatch(name), name)
+                    self.assertRegex(digest, r"^sha256:[0-9a-f]{64}$")
+        version, files = release_pins.AGY
+        for url, digest in files.values():
+            self.assertTrue(url.startswith(ic.Agy.DOWNLOADS))
+            self.assertRegex(digest, r"^sha512:[0-9a-f]{128}$")
+
+    def test_unpinnable_installers_are_not_offered(self):
+        for inst in (ic.Vllm(), ic.Dsh(), ic.Strata()):
+            self.assertFalse(inst.can_install, inst.key)
+            with mock.patch.object(netfetch, "fetch", side_effect=AssertionError("no network")), \
+                    self.assertRaises(RuntimeError):
+                inst.latest(ic.Gpu("nvidia"))
 
     def test_install_without_digest_downloads_and_runs_nothing(self):
         release = ic.Release("v1.0.0", [("Jan_1.0.0_amd64.AppImage", "https://github.com/j", 5)])
@@ -421,33 +437,17 @@ class IntegrityTest(unittest.TestCase):
         download.assert_not_called()
         run.assert_not_called()
 
-    def agy_manifest(self, **change):
-        good = {"version": "1.4.0", "sha512": "a" * 128,
-                "url": "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.4.0-1/linux-x64/"
-                       "cli_linux_x64.tar.gz"}
-        return {**good, **change}
-
-    def test_agy_takes_only_googles_checksummed_tarball(self):
-        with mock.patch.object(ic, "_curl_json", return_value=self.agy_manifest()) as fetch, \
+    def test_agy_takes_only_the_pinned_tarball(self):
+        import release_pins
+        with mock.patch.object(netfetch, "fetch", side_effect=AssertionError("no network")), \
                 mock.patch.object(ic.os, "uname", return_value=mock.Mock(machine="x86_64")):
             release = ic.Agy().latest(ic.Gpu())
-        self.assertIn("/manifests/linux_amd64.json", fetch.call_args.args[0])
-        self.assertEqual(release.version, "v1.4.0")
-        self.assertEqual(release.digests, {"cli_linux_x64.tar.gz": "a" * 128})
-        for bad in ({"sha512": ""}, {"sha512": "a" * 64}, {"sha512": "G" * 128}, {"version": "1.4"},
-                    {"version": "1.4.0; rm -rf ~"}, {"url": "https://evil.example/antigravity-cli/x.tar.gz"},
-                    {"url": "http://storage.googleapis.com/antigravity-public/antigravity-cli/x.tar.gz"},
-                    {"url": "https://storage.googleapis.com/antigravity-public/antigravity-cli/../x/x.tar.gz"},
-                    {"url": "https://storage.googleapis.com/antigravity-public/antigravity-cli/1/x.zip"},
-                    {"url": "https://storage.googleapis.com/antigravity-public/antigravity-cli/1/x y.tar.gz"}):
-            with mock.patch.object(ic, "_curl_json", return_value=self.agy_manifest(**bad)), \
-                    mock.patch.object(ic.os, "uname", return_value=mock.Mock(machine="x86_64")), \
-                    self.assertRaises(RuntimeError, msg=bad):
-                ic.Agy().latest(ic.Gpu())
-        with mock.patch.object(ic.os, "uname", return_value=mock.Mock(machine="riscv64")), \
-                mock.patch.object(ic, "_curl_json") as fetch, self.assertRaises(RuntimeError):
+        url, digest = release_pins.AGY[1]["amd64"]
+        self.assertEqual(release.version, "v" + release_pins.AGY[0])
+        self.assertEqual(release.assets, [("cli_linux_x64.tar.gz", url, 0)])
+        self.assertEqual(release.digests, {"cli_linux_x64.tar.gz": digest.split(":", 1)[1]})
+        with mock.patch.object(ic.os, "uname", return_value=mock.Mock(machine="riscv64")), self.assertRaises(RuntimeError):
             ic.Agy().latest(ic.Gpu())
-        fetch.assert_not_called()
 
     def test_lm_studio_and_bionic_are_not_installed_from_here(self):
         for inst in (ic.LmStudio(), ic.Bionic()):

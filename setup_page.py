@@ -130,7 +130,6 @@ class SetupPage:
         self.refresh_map()
         self.refresh_setup()
         self.sync_provider_watch()
-        self.research_new_agents()
         self.ai_check_mcp_updates()
         self.refresh_mcp_list()
         self.check_new_apps()

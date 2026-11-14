@@ -3476,5 +3476,8 @@
  "Add-ons come with AI Agents Map and are updated with it.": "Add-ons kommen mit AI Agents Map und werden mit ihm aktualisiert.",
  "Too many files in the model folders to look through at once; nothing is moved.": "Zu viele Dateien in den Modellordnern, um sie auf einmal durchzusehen; nichts wird verschoben.",
  "The search stopped at its limit (too many files or folders), so this list may be incomplete.": "Die Suche hat an ihrer Grenze angehalten (zu viele Dateien oder Ordner); diese Liste ist eventuell unvollständig.",
- "Looking at the model…": "Modell wird angesehen…"
+ "Looking at the model…": "Modell wird angesehen…",
+ "Right-click the agent on the map: Look up on the web (an installed agent does it and uses its tokens).": "Rechtsklick auf den Agenten in der Karte: Im Web nachschlagen (ein installierter Agent macht das und verbraucht seine Tokens).",
+ "Look up on the web…": "Im Web nachschlagen…",
+ "An installed agent (Claude Code, else Codex) does it and uses its tokens.": "Ein installierter Agent (Claude Code, sonst Codex) macht das und verbraucht seine Tokens."
 }

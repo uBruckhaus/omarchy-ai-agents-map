@@ -475,24 +475,19 @@
   or <code>claude update</code> — in a terminal window of its own, so you can follow it.</p>
 
   <h2 id="installed-agents">Agents the app can install</h2>
-  <p>Four agents can be installed, updated and uninstalled from the map (right-click the agent ›
-  <b>Install…</b>):</p>
+  <p>Agents that Omarchy's menu does not offer (right-click the agent › <b>Install…</b> where it is offered):</p>
   <ul>
     <li><b>Goose</b> (<code>goose</code>, from the Agentic AI Foundation, formerly Block), its GitHub release
       through mise. It works with many providers and with local LLMs; <b>Configure…</b> runs
       <code>goose configure</code>.</li>
-    <li><b>DeepSeek Harness</b> (<code>dsh</code>, developer preview), from npm. It can use local LLMs.</li>
-    <li><b>Antigravity CLI</b> (<code>agy</code>, Google), from Google's release manifest; the
-      download is checked against its SHA-512.</li>
+    <li><b>DeepSeek Harness</b> (<code>dsh</code>, developer preview): not installed from here, because npm would choose its dependencies only while installing; install it yourself (<code>npm install -g @deepseek-ai/dsh</code>). It can use local LLMs.</li>
+    <li><b>Antigravity CLI</b> (<code>agy</code>, Google): the version pinned in this release of AI Agents Map; the download is checked against its SHA-512.</li>
     <li><b>LM Studio Bionic</b> cannot be installed from here (no published checksum); get it from
       lmstudio.ai. It always uses LM Studio's engine and models.</li>
   </ul>
 
   <h2 id="new-agents">New agents</h2>
-  <p>When an agent turns up that the app does not know yet, it asks an installed agent (Claude Code,
-  else Codex) once to find out on the web where that agent keeps its skills and MCP servers. The
-  answer is checked before use, and nothing in it is ever run. Settings › <b>Look up new agents</b>
-  switches this off.</p>
+  <p>When an agent turns up that the app does not know yet, its map menu (right-click) offers <b>Look up on the web…</b>: an installed agent (Claude Code, else Codex) then finds out on the web where that agent keeps its skills and MCP servers. Nothing is sent by itself, and the look-up uses that agent's tokens. The answer is checked before use, and nothing in it is ever run.</p>
 </section>
 
 <!-- ============================== 5 Local LLMs ============================== -->
@@ -502,28 +497,24 @@
   never leave the computer. The app installs, starts and stops them for you.</p>
 
   <h2 id="install-runtime">Installing a local LLM</h2>
-  <p>Right-click a grey (not installed) local LLM on the map › <b>Install…</b>. You choose the
-  program folder, the model folder (the one your other local LLMs use is suggested) and whether it
-  starts at login. It is installed for your user only, with a user service, so no password is
-  needed. Every download must match the SHA-256 checksum its release publishes before it is unpacked
-  or run.</p>
+  <p>Right-click a grey (not installed) local LLM on the map › <b>Install…</b>. You choose the program folder, the model folder (the one your other local LLMs use is suggested) and whether it starts at login. It is installed for your user only, with a user service, so no password is needed. Each program is one release pinned in this version of AI Agents Map (its files and their checksums); a newer version arrives with a plugin update. Every download must match its pinned checksum before it is unpacked or run.</p>
   <table>
     <thead><tr><th>Runtime</th><th>Notes</th></tr></thead>
     <tbody>
       <tr><td><b>Ollama</b></td><td>The official release (with ROCm for AMD cards).</td></tr>
       <tr><td><b>llama.cpp</b></td><td>The build of your choice (Vulkan, ROCm, CUDA, CPU), run as a model router: every GGUF in the model folder, one loaded at a time.</td></tr>
       <tr><td><b>LM Studio</b></td><td>Not installed from here (no published checksum); get it from lmstudio.ai. Shown and managed once installed.</td></tr>
-      <tr><td><b>vLLM</b></td><td>For NVIDIA cards, in its own Python environment.</td></tr>
+      <tr><td><b>vLLM</b></td><td>Not installed from here (pip would choose its dependencies only while installing); install it yourself. Shown and managed once installed.</td></tr>
       <tr><td><b>Jan</b></td><td>Its AppImage, unpacked, with Jan's engine as a background service for agents.</td></tr>
       <tr><td><b>KoboldCpp</b></td><td>The official single-file build, run as a model router.</td></tr>
-      <tr><td><b>Strata</b></td><td>Its own installer (<code>install.sh</code> of the latest release, checked against the SHA-256 the release lists), which puts Strata’s terminal in <code>~/.local/share/strata/terminal</code>. Its engine and models come later, in Strata’s own screens (see <a href="#strata">Strata</a>). AI Agents Map offers no <b>Uninstall…</b> for it; how to remove it is in that section too.</td></tr>
+      <tr><td><b>Strata</b></td><td>Not installed from here (its installer downloads further files of its own choosing); install it with Strata’s own installer. Its engine and models come later, in Strata’s own screens (see <a href="#strata">Strata</a>), where removing it is described too.</td></tr>
     </tbody>
   </table>
   <p>Installed this way, a local LLM also offers <b>Update…</b> (the previous version is kept as a
   fallback), <b>Model folder…</b> and <b>Uninstall…</b>, which removes the program, command, service
   and settings but never the models. Local LLMs you installed yourself are shown, but never changed.</p>
-  <p>A local LLM that is not installed yet shows <b>Install</b> under Providers and models, and the first-agent guide offers <b>Install mise</b>, <b>Install Node.js</b> and <b>Install</b> for the local LLM its route needs. AI Agents Map first looks up the latest release and shows it on a card: its files and their size, the program folder (<code>~/.local/share/ai-agents-map/&lt;name&gt;</code>, one folder per version), the model folder inside it and your graphics card. For llama.cpp and KoboldCpp, choose the build there (Vulkan, ROCm, CUDA or CPU); another build is looked up again before anything is installed. A local LLM with a user service also offers <b>Start now</b> and <b>Start at login</b>.</p>
-  <p><b>Install</b> downloads the files, checks each one against the checksum its release lists, and unpacks them; nothing of the download runs while it is installed (Jan’s AppImage unpacks itself in a closed-in sandbox). Strata is the exception: its own <code>install.sh</code>, checked against its release’s checksum, runs and installs it under your home folder. A program that is already installed some other way, or a settings file or service that already exists, is never replaced: the card refuses it. Ollama, llama.cpp, KoboldCpp, Jan, Strata and mise install this way; LM Studio and vLLM do not, because no checksummed release can be taken for them.</p>
+  <p>A local LLM that is not installed yet shows <b>Install</b> under Providers and models, and the first-agent guide offers <b>Install mise</b>, <b>Install Node.js</b> and <b>Install</b> for the local LLM its route needs. AI Agents Map shows the pinned release on a card: its files and their size, the program folder (<code>~/.local/share/ai-agents-map/&lt;name&gt;</code>, one folder per version), the model folder inside it and your graphics card. For llama.cpp and KoboldCpp, choose the build there (Vulkan, ROCm, CUDA or CPU). A local LLM with a user service also offers <b>Start now</b> and <b>Start at login</b>.</p>
+  <p><b>Install</b> downloads the files, checks each one against its pinned checksum, and unpacks them; nothing of the download runs while it is installed (Jan’s AppImage unpacks itself in a closed-in sandbox). A program that is already installed some other way, or a settings file or service that already exists, is never replaced: the card refuses it. Ollama, llama.cpp, KoboldCpp, Jan and mise install this way; LM Studio, vLLM and Strata do not, because no pinned, checksummed set of files can be taken for them.</p>
   <p>Every step you start from the first-agent guide — installing, signing in, the test question, Providers and models, Connections — brings you back to the guide with <b>Back</b>, refreshed, so the step just done shows as done.</p>
 
   <h2 id="start-with-agents">Starting and stopping with agents</h2>
@@ -876,7 +867,6 @@
       <tr><td><b>Start local LLMs with their agents</b></td><td>The background watcher described in <a href="#start-with-agents">Starting and stopping with agents</a>.</td></tr>
       <tr><td><b>In the app launcher</b></td><td>The launcher entry; off removes it.</td></tr>
       <tr><td><b>Agents start in</b></td><td>The folder agents start in.</td></tr>
-      <tr><td><b>AI features</b>: <b>Look up new agents</b></td><td>Ask an installed agent where an unknown agent keeps its settings (on by default).</td></tr>
       <tr><td><b>AI features</b>: <b>Daily AI checks</b></td><td>Once a day, an agent looks on the web for new versions of your MCP servers (off by default; it uses the agent's tokens). See <a href="#smart-check">Smart Check</a>.</td></tr>
       <tr><td><b>AI features</b>: <b>Agent for AI checks</b></td><td>Claude Code or Codex: does the AI checks and look-ups and takes the <b>Do it with …</b> and <b>Fix it with …</b> tasks.</td></tr>
       <tr><td><b>AI features</b>: <b>Local helper</b></td><td>An agent with a model of your local LLM for the AI help that needs no web (off until you choose one). See <a href="#local-helper">The local helper</a>.</td></tr>
@@ -1317,8 +1307,7 @@
       on your click, for that instance only; nothing of it is stored.</li>
     <li><b>Network only when asked</b> — searching models, MCP servers or skills, installing, testing
       a server — plus an update check every few hours.</li>
-    <li><b>Checked downloads.</b> Programs are installed only when the download matches the checksum
-      its release publishes.</li>
+    <li><b>Checked downloads.</b> Programs are installed only from releases pinned in the plugin, and only when the download matches the pinned checksum.</li>
     <li><b>Previews and Undo.</b> Every change to another program's settings is previewed, backed up
       and can be undone. Settings that may hold keys are written readable only by you.</li>
     <li><b>Bounded.</b> Every program runs without a shell, and every answer is read with a size and

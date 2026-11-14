@@ -1953,14 +1953,6 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
                              ai_helper.name_of(agent)))],
                          lambda _step: mcp_updates.check(installed, force=True), done)
 
-    def research_new_agents(self):
-        """Once per new installed agent (setting "look_up_new_agents", on by default)."""
-        if not ai_core.setting("look_up_new_agents"):
-            return
-        for agent in self.agent_list:
-            if agent.installed and self.is_new_agent(agent.command) and agent_profiles.needs_research(agent.command):
-                self.start_research(agent)
-
     def start_research(self, agent):
         command = agent.command
         if command in self.researching:
@@ -1992,7 +1984,8 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             return (_("Setup"), _("Looking up on the web where it keeps MCP servers and skills…"), "")
         profile = agent_profiles.load(agent.command)
         if profile is None:
-            return (_("Setup"), _("Not looked up yet"), "")
+            return (_("Setup"), _("Not looked up yet"),
+                    _("Right-click the agent on the map: Look up on the web (an installed agent does it and uses its tokens)."))
         if profile["status"] != "ok":
             return (_("Setup"), _("Look-up failed: {0}").format(profile.get("error", "")),
                     _("Right-click the agent on the map to try again."))
@@ -3861,8 +3854,10 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
     def research_menu(self, agent, popover) -> list:
         """A new agent: what the web look-up found, and Look up again."""
         _label, value, _tip = self.research_row(agent)
+        label = _("Look up again on the web") if agent_profiles.load(agent.command) else _("Look up on the web…")
         return [self.menu_note(value),
-                self.menu_item(_("Look up again on the web"), popover, lambda: self.start_research(agent),
+                self.menu_note(_("An installed agent (Claude Code, else Codex) does it and uses its tokens.")),
+                self.menu_item(label, popover, lambda: self.start_research(agent),
                                enabled=agent.command not in self.researching)]
 
     def ask_stop_runtime(self, key: str):
@@ -4579,7 +4574,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         self.sync_provider_watch()
         if show:
             self.start_gpu_poll()
-        self.research_new_agents()
+        # A new agent is looked up only when the user asks for it (map menu); nothing is sent by itself.
         self.ai_check_mcp_updates()
         self.refresh_mcp_list()
         self.check_new_apps()
