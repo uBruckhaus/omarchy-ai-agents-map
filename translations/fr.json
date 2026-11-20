@@ -3479,5 +3479,14 @@
  "Looking at the model…": "Examen du modèle…",
  "Right-click the agent on the map: Look up on the web (an installed agent does it and uses its tokens).": "Clic droit sur l'agent dans la carte : Rechercher sur le web (un agent installé s'en charge et utilise ses jetons).",
  "Look up on the web…": "Rechercher sur le web…",
- "An installed agent (Claude Code, else Codex) does it and uses its tokens.": "Un agent installé (Claude Code, sinon Codex) s'en charge et utilise ses jetons."
+ "An installed agent (Claude Code, else Codex) does it and uses its tokens.": "Un agent installé (Claude Code, sinon Codex) s'en charge et utilise ses jetons.",
+  "Checking your setup…": "Vérification de votre configuration…",
+  "Your setup could not be checked. Your last choices are kept.": "Votre configuration n’a pas pu être vérifiée. Vos derniers choix sont conservés.",
+  "Your setup choice could not be saved. Try again.": "Votre choix de configuration n’a pas pu être enregistré. Réessayez.",
+  "Your previous setup choice is no longer available. Choose another route or check its add-on.": "Votre choix de configuration précédent n’est plus disponible. Choisissez une autre option ou vérifiez son extension.",
+  "Next step: {0}": "Étape suivante : {0}",
+  "This step needs manual setup. Follow its details, then refresh or check its add-on.": "Cette étape nécessite une configuration manuelle. Suivez ses indications, puis actualisez ou vérifiez son extension.",
+  "Your setup progress could not be saved. Try again.": "La progression de votre configuration n’a pas pu être enregistrée. Réessayez.",
+  "No setup options are available. Check your add-ons or Setup.": "Aucune option de configuration n’est disponible. Vérifiez vos modules ou la Configuration.",
+  "Saving…": "Enregistrement…"
 }

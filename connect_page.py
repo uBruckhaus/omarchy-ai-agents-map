@@ -6,6 +6,7 @@ from gi.repository import Adw, GLib, Gdk, Gtk
 import agent_security
 import ai_core
 import connect
+import guide_navigation
 import harnesses
 import inventory
 import link_check
@@ -665,7 +666,7 @@ class ConnectPage:
         if agent is None or runtime is None:
             return
         self.connecting = {"agent": agent, "runtime": runtime, "from": self.view, "replaces": replaces,
-                           "remove_only": remove_only}
+                           "remove_only": remove_only, "origin_page": guide_navigation.guide_origin(self)}
         self.connect_title.set_label((_("Remove {0}'s connection to {1}").format(agent.name, runtime.name)
                                       if remove_only else
                                       _("Move {0} from {1} to {2}").format(agent.name, replaces.name, runtime.name)
@@ -1005,10 +1006,15 @@ class ConnectPage:
             # The new versions unpacked first (in the background), then the plan.
             self.connect_ok.set_sensitive(False)
 
+            def progress(text):
+                if self.connecting is info:
+                    self.connect_status.set_label(text)
+                return False
+
             def work():
                 error = ""
                 for number, image in enumerate(images, 1):
-                    GLib.idle_add(self.connect_status.set_label, _("Unpacking {0}…").format(image.name) +
+                    GLib.idle_add(progress, _("Unpacking {0}…").format(image.name) +
                                   (f" ({number}/{len(images)})" if len(images) > 1 else ""))
                     try:
                         mcp_scan.unpack(image)
@@ -1018,9 +1024,9 @@ class ConnectPage:
                 GLib.idle_add(done, error)
 
             def done(error):
-                self.connect_ok.set_sensitive(True)
                 if self.connecting is not info:
                     return False
+                self.connect_ok.set_sensitive(True)
                 if error:
                     self.connect_status.set_label(_("Not changed: {0}").format(error))
                 else:
@@ -1050,7 +1056,7 @@ class ConnectPage:
             if plan_now.empty():
                 if link is not None and (remove or info.get("remove_only")) and link_hints.forget(link[0]):
                     self.refresh_map()            # nothing left to remove: the line's hints go
-                self.close_connect()
+                self.close_connect(navigate=self.page_name() == "connect")
                 return
             backup = connect.apply(plan_now)
         except (OSError, ValueError, RuntimeError) as error:
@@ -1065,12 +1071,12 @@ class ConnectPage:
                 link_check.hint("warning", _("Nothing in {0}'s settings was changed. Fix the cause, then click the "
                                              "line → Try again, or drag it off to remove it.").format(info["agent"].name))],
                 target)
-            self.close_connect()
+            self.close_connect(navigate=self.page_name() == "connect")
             self.refresh_map()
             self.show_note(_("{0} could not be connected: see the red line on the map.").format(info["agent"].name))
             return
         if "security" in info:
-            self.close_connect()
+            self.close_connect(navigate=self.page_name() == "connect")
             self.show_undo(_("{0}: {1} is now {2}").format(info["agent"].name, info["title"], info["label"]), backup)
             return
         if "skill_update" in info:
@@ -1079,7 +1085,7 @@ class ConnectPage:
                 skill_update.remember(file, info["server"], info["tools"])
             except OSError:
                 pass
-            self.close_connect()
+            self.close_connect(navigate=self.page_name() == "connect")
             self.show_undo(_("Skill {0} updated").format(file.parent.name), backup)
             return
         remove = remove or bool(info.get("remove_only"))
@@ -1090,7 +1096,7 @@ class ConnectPage:
         if updates:
             self.found_mcp = None
             self.configured_now = None
-            self.close_connect()
+            self.close_connect(navigate=self.page_name() == "connect")
             self.collect()
             self.refresh_overview()
             self.refresh_map()
@@ -1100,7 +1106,7 @@ class ConnectPage:
             self.check_new_apps()
             return
         if "delete" in info:
-            self.close_connect()
+            self.close_connect(navigate=self.page_name() == "connect")
             self.collect()
             self.refresh_overview()
             self.refresh_map()
@@ -1112,7 +1118,7 @@ class ConnectPage:
         if info.get("replaces") and not remove:
             message = _("{0} moved from {1} to {2}").format(info["agent"].name, info["replaces"].name,
                                                             info["runtime"].name)
-        self.close_connect()
+        self.close_connect(navigate=self.page_name() == "connect")
         self.collect()
         self.refresh_overview()
         self.refresh_map()
@@ -1249,9 +1255,12 @@ class ConnectPage:
         popover.connect("closed", lambda p: GLib.idle_add(p.unparent))
         popover.popup()
 
-    def close_connect(self):
+    def close_connect(self, navigate=True):
         info = getattr(self, "connecting", None)
         self.connecting = None
+        if not navigate:
+            guide_navigation.defer_return(self, "connect", info)
+            return
         if info and "security" in info:
             self.open_agent_status(info["agent"])      # back to its page, read again
             return
@@ -1260,5 +1269,7 @@ class ConnectPage:
             return
         if info and info.get("page") == "smartcheck":
             self.show_smart_check_again()
+            return
+        if guide_navigation.resume_guide(self, info):
             return
         self.show_view(info["from"] if info else self.view, save=False)

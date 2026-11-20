@@ -3479,5 +3479,14 @@
  "Looking at the model…": "Model wordt bekeken…",
  "Right-click the agent on the map: Look up on the web (an installed agent does it and uses its tokens).": "Klik met rechts op de agent op de kaart: Op het web opzoeken (een geïnstalleerde agent doet dat en gebruikt zijn tokens).",
  "Look up on the web…": "Op het web opzoeken…",
- "An installed agent (Claude Code, else Codex) does it and uses its tokens.": "Een geïnstalleerde agent (Claude Code, anders Codex) doet dat en gebruikt zijn tokens."
+ "An installed agent (Claude Code, else Codex) does it and uses its tokens.": "Een geïnstalleerde agent (Claude Code, anders Codex) doet dat en gebruikt zijn tokens.",
+  "Checking your setup…": "Je configuratie controleren…",
+  "Your setup could not be checked. Your last choices are kept.": "Je configuratie kon niet worden gecontroleerd. Je laatste keuzes blijven behouden.",
+  "Your setup choice could not be saved. Try again.": "Je configuratiekeuze kon niet worden opgeslagen. Probeer het opnieuw.",
+  "Your previous setup choice is no longer available. Choose another route or check its add-on.": "Je vorige configuratiekeuze is niet meer beschikbaar. Kies een andere route of controleer de bijbehorende add-on.",
+  "Next step: {0}": "Volgende stap: {0}",
+  "This step needs manual setup. Follow its details, then refresh or check its add-on.": "Deze stap vereist handmatige configuratie. Volg de aanwijzingen en vernieuw daarna of controleer de bijbehorende add-on.",
+  "Your setup progress could not be saved. Try again.": "Je configuratievoortgang kon niet worden opgeslagen. Probeer het opnieuw.",
+  "No setup options are available. Check your add-ons or Setup.": "Er zijn geen configuratieopties beschikbaar. Controleer je add-ons of Setup.",
+  "Saving…": "Opslaan…"
 }

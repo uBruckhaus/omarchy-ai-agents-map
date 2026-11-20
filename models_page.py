@@ -8,6 +8,7 @@ import ai_core
 import ai_helper
 import connect
 import context_ctl
+import guide_navigation
 import datetime as dt
 import install_ctl
 import inventory
@@ -215,6 +216,7 @@ class ModelsPage:
     def open_models(self, rt, into=None):
         """into: download into this folder (a folder card's Add model on Setup), else rt's own."""
         self.models_state = {"rt": rt, "busy": False, "cancel": False, "from": self.view, "repo": None,
+                             "origin_page": guide_navigation.guide_origin(self),
                              "vram": install_ctl.detect_gpu().vram, "ram": models_ctl.system_ram(),
                              "scanned": False, "scanning": False, "searched": False,
                              "into": str(into) if into else ""}
@@ -1407,6 +1409,8 @@ class ModelsPage:
         """Back: a download keeps running in the background (the main page shows it)."""
         state = self.models_state
         self.models_state = None
+        if guide_navigation.resume_guide(self, state):
+            return
         self.show_view(state["from"] if state else self.view, save=False)
 
     # --- a model: move to another local LLM's folder, delete -----------------------------------

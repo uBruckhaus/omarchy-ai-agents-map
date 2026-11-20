@@ -11,10 +11,11 @@ from __future__ import annotations
 import threading
 import types
 
-from gi.repository import GLib, Gtk
+from gi.repository import GLib, Gtk, Pango
 
 import ai_core
 import first_agent
+from first_agent_state import FirstAgentState, READ_ERROR, CHOICE_ERROR, SAVE_ERROR, valid_steps, merge_changes, remaining_retry
 from i18n import _
 from ui_helpers import size_text
 
@@ -23,6 +24,39 @@ GB = 1000 ** 3
 
 class FirstAgentPage:
     first_catalog = None
+    FIRST_TIMEOUT_MS = 90000
+
+    def first_state(self):
+        if "_first_state" not in self.__dict__:
+            self._first_state = FirstAgentState()
+        return self._first_state
+
+    def first_progress(self):
+        saved = self.first_state().saved
+        return saved if isinstance(saved, dict) else first_agent.state()
+
+    def first_abandon_read(self, *, internal=False):
+        if not internal:
+            self._first_visit = object()  # page-away/hide invalidates presentation-only callbacks
+        self.first_state().abandon_read()
+        self._first_generation = getattr(self, "_first_generation", 0) + 1
+        timer = getattr(self, "_first_read_timer", 0)
+        if timer:
+            GLib.source_remove(timer)
+        self._first_read_timer = 0
+        for timer in self.__dict__.get("_first_fit_timers", {}).values():
+            GLib.source_remove(timer)
+        self._first_fit_timers = {}
+        fits = self.__dict__.get("first_fits", {})
+        for key in list(fits):
+            if fits[key] is None:
+                fits.pop(key)  # cancellation must not leave a permanent "being read" sentinel
+
+    def first_resume(self):
+        """Back from a guided native page: check again, without saving a choice."""
+        previous = getattr(self, "first_return", "main")
+        self.open_first_agent()
+        self.first_return = previous
 
     def build_first_agent_page(self) -> Gtk.Widget:
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
@@ -36,45 +70,182 @@ class FirstAgentPage:
     first_hw = None                          # (gpu, gpu_stack.Stack), looked at on a thread (first_look)
 
     def first_look(self):
-        """The graphics card and its software, once per open (lspci, pacman: seconds at worst), on a
-        thread; the page is filled again when they are known."""
+        """Read the bundled/add-on catalog and hardware off GTK's thread, with a bounded wait."""
         import gpu_stack
         import install_ctl
+        state = self.first_state()
+        if state.write_pending:
+            return
+        self.first_abandon_read(internal=True)
+        token = state.begin_read()
+        if token is None:
+            return
+        addons = tuple(getattr(self, "addons", ()))
+
+        def expired():
+            if state.read_failed(token):
+                self._first_read_timer = 0
+                if self.page_name() == "firstagent":
+                    self.fill_first_agent()
+            return False
+
+        self._first_read_timer = GLib.timeout_add(self.FIRST_TIMEOUT_MS, expired)
 
         def work():
             try:
+                catalog = first_agent.load(loaded_addons=addons)
                 gpu = install_ctl.detect_gpu()
                 hw = (gpu, gpu_stack.look(gpu.vendor))
+                saved = first_agent.state()
+                if not isinstance(catalog, first_agent.Catalog) or not isinstance(saved, dict):
+                    raise ValueError("Invalid guide data")
+                result = (catalog, hw, saved)
             except Exception:
-                hw = (install_ctl.Gpu("", count=0, vram=0), gpu_stack.Stack())
-            GLib.idle_add(done, hw)
+                result = None
+            GLib.idle_add(done, result)
 
-        def done(hw):
-            self.first_hw = hw
+        def done(result):
+            if not state.read_current(token):
+                return False
+            timer = getattr(self, "_first_read_timer", 0)
+            if timer:
+                GLib.source_remove(timer)
+            self._first_read_timer = 0
+            if result is None:
+                state.read_failed(token)
+            else:
+                state.read_done(token, *result)
+                self.first_catalog, self.first_hw = state.catalog, state.hardware
             if self.page_name() == "firstagent":
                 self.fill_first_agent()
             return False
         threading.Thread(target=work, daemon=True).start()
 
     def open_first_agent(self):
+        self._first_visit = object()
         if self.page_name() != "firstagent":
             self.first_return = self.view if self.page_name() in ai_core.VIEWS else "main"
-        self.first_catalog = first_agent.load(loaded_addons=getattr(self, "addons", ()))
-        self.first_hw = None
         self.first_fits = {}                     # model headers read again on every open
-        self.first_look()
-        self.fill_first_agent()
         self.empty_area.set_visible(False)       # its "set up your first agent" is this page
         self.show_page("firstagent")
+        self.first_look()
+        self.fill_first_agent()
 
     def close_first_agent(self):
+        self.first_abandon_read()
         self.show_view(getattr(self, "first_return", self.view), save=False)
         self.refresh_overview()                  # the card above the map again, where it stands
 
-    def first_save(self, **changes):
-        value = dict(first_agent.state())
-        value.update(changes)
-        self.save_setting(first_agent=value)
+    def first_save(self, on_saved=None, **changes):
+        """A checked settings write: save_setting deliberately hides write failures elsewhere."""
+        state = self.first_state()
+        if state.write_pending:
+            if "verified" in changes or "answer" in changes:
+                self.__dict__.setdefault("_first_save_queue", []).append((dict(changes), on_saved))
+            return False
+        self.first_abandon_read(internal=True)
+        previous_retry = dict(state.retry_changes or {})
+        previous_retry = remaining_retry(previous_retry, changes)
+        previous_callback = getattr(self, "_first_retry_callback", None)
+        if not previous_retry:
+            previous_callback = None
+        token = state.begin_save(changes)
+        if token is None:
+            return False
+        self._first_retry_callback = on_saved
+
+        def retry_callback():
+            for callback in (previous_callback, on_saved):
+                if callback is not None:
+                    callback()
+
+        def expired():
+            if state.save_timeout(token):
+                state.retry_changes = merge_changes(previous_retry, changes)
+                state.error = CHOICE_ERROR if "route" in state.retry_changes else SAVE_ERROR
+                self._first_retry_callback = retry_callback
+                self._first_save_timer = 0
+                if self.page_name() == "firstagent":
+                    self.fill_first_agent()
+            return False
+
+        self._first_save_timer = GLib.timeout_add(self.FIRST_TIMEOUT_MS, expired)
+
+        def work():
+            try:
+                value = dict(first_agent.state())
+                previous_verified = value.get("verified", [])
+                value.update(changes)
+                # Test completions add verification; queued background answers
+                # must not replace another completion saved ahead of them.
+                if isinstance(changes.get("verified"), list):
+                    old = previous_verified if isinstance(previous_verified, list) else []
+                    value["verified"] = list(dict.fromkeys(
+                        command for command in [*old, *changes["verified"]] if isinstance(command, str)))
+                ai_core.update_settings(first_agent=value)
+                result = value
+            except Exception:
+                result = None
+            GLib.idle_add(done, result)
+
+        def done(result):
+            timely = state.saving
+            timer = getattr(self, "_first_save_timer", 0)
+            if timer:
+                GLib.source_remove(timer)
+            self._first_save_timer = 0
+            if not state.save_done(token, result, failed=result is None):
+                return False
+            if timely and result is not None:
+                self._first_retry_callback = None
+                unresolved = remaining_retry(previous_retry, changes, result)
+                if unresolved:
+                    state.retry_changes = unresolved
+                    state.error = CHOICE_ERROR if "route" in unresolved else SAVE_ERROR
+                    self._first_retry_callback = previous_callback
+                if on_saved is not None:
+                    try:
+                        on_saved()
+                    except Exception:
+                        state.error = READ_ERROR  # the write succeeded; only the view refresh failed
+            elif timely:
+                state.retry_changes = merge_changes(previous_retry, changes)
+                state.error = CHOICE_ERROR if "route" in state.retry_changes else SAVE_ERROR
+                self._first_retry_callback = retry_callback
+            queue = self.__dict__.get("_first_save_queue", [])
+            if queue:
+                pending, callback = queue.pop(0)
+                self.first_save(on_saved=callback, **pending)
+            elif self.page_name() == "firstagent":
+                if not state.error and (self.first_hw is None or self.first_catalog is None):
+                    self.first_look()
+                self.fill_first_agent()
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
+        if self.page_name() == "firstagent":
+            self.fill_first_agent()
+        return True
+
+    def first_retry(self):
+        state = self.first_state()
+        if state.busy:
+            return
+        if state.retry_changes is not None:
+            if state.retry_changes.get("later") is True and "route" not in state.retry_changes:
+                original = getattr(self, "_first_retry_callback", None)
+                leave = self.first_later_callback()
+
+                def saved():
+                    if original is not None:
+                        original()
+                    leave()
+
+                self.first_save(on_saved=saved, **state.retry_changes)
+            else:
+                self.first_save(on_saved=getattr(self, "_first_retry_callback", None), **state.retry_changes)
+        else:
+            self.first_refresh()
 
     # --- what is there -------------------------------------------------------------------------------
 
@@ -94,8 +265,8 @@ class FirstAgentPage:
             return False
 
     def first_route(self):
-        catalog = self.first_catalog or first_agent.load(loaded_addons=getattr(self, "addons", ()))
-        chosen = first_agent.state().get("route")
+        catalog = self.first_catalog if self.first_catalog is not None else first_agent.load(loaded_addons=getattr(self, "addons", ()))
+        chosen = self.first_progress().get("route")
         return next((r for r in catalog.routes if r.id == chosen), None)
 
     # --- the page ------------------------------------------------------------------------------------
@@ -103,22 +274,68 @@ class FirstAgentPage:
     def fill_first_agent(self):
         body = self.first_body
         self.clear_box(body)
-        if self.first_hw is None:
+        state = self.first_state()
+        if state.loading or state.write_pending:
             waiting = Gtk.Box(spacing=ai_core.GAP_INLINE)
             waiting.append(Gtk.Spinner(spinning=True))
-            label = Gtk.Label(label=_("Looking at this PC's graphics card…"), xalign=0)
+            label = Gtk.Label(label=_("Saving…") if state.write_pending else _("Checking your setup…"),
+                              xalign=0, wrap=True, max_width_chars=1, hexpand=True)
             label.add_css_class("am-agent-detail")
             waiting.append(label)
             body.append(waiting)
+        actions = []
+        if hasattr(self, "open_addons"):
+            actions.append(self.first_button(_("Add-ons"), self.open_addons))
+        if hasattr(self, "open_my_setup"):
+            actions.append(self.first_button(_("Setup"), self.open_my_setup))
+        actions.append(self.first_button(_("Check again"), self.first_refresh))
+        body.append(self.first_actions(*actions))
+        if state.error:
+            self.note(body, _(state.error))
+            body.append(self.first_actions(self.first_button(_("Try again"), self.first_retry)))
+        if self.first_hw is None or self.first_catalog is None:
             return
-        route = self.first_route()
+        try:
+            route = self.first_route()
+            steps = self.first_steps(route) if route is not None else None
+            if route is not None and not valid_steps(steps):
+                raise ValueError("Invalid guide checklist")
+        except Exception:
+            state.error = READ_ERROR
+            self.note(body, _(READ_ERROR))
+            body.append(self.first_actions(self.first_button(_("Try again"), self.first_retry)))
+            return
         if route is None:
             self.fill_first_choice(body)
         else:
-            self.fill_first_steps(body, route)
+            self.fill_first_steps(body, route, steps)
+
+    def first_button(self, label, callback, **kwargs):
+        button = self.action_button(label, on_click=lambda: callback() if not self.first_state().busy else None, **kwargs)
+        child = button.get_child()
+        if isinstance(child, Gtk.Label):
+            child.set_wrap(True)
+            child.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            child.set_max_width_chars(24)
+        button.set_sensitive(not self.first_state().busy)
+        return button
+
+    @staticmethod
+    def first_actions(*buttons):
+        flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, row_spacing=8, column_spacing=8,
+                           min_children_per_line=1, max_children_per_line=3, halign=Gtk.Align.START)
+        for button in buttons:
+            flow.append(button)
+        return flow
 
     def fill_first_choice(self, body):
         catalog = self.first_catalog or first_agent.load()
+        if not catalog.routes:
+            self.note(body, _("No setup options are available. Check your add-ons or Setup."))
+            return
+        selected = self.first_progress().get("route")
+        if selected is not None and selected != "":
+            self.note(body, _("Your previous setup choice is no longer available. Choose another route or check its add-on."))
         card = self.info_card(_("Get one agent working"), "info")
         self.card_text(card.body, _("An agent is the program you talk to: it reads, writes and runs things for you. "
                                     "It needs either an online account (a plan or an API key) or a model running "
@@ -151,11 +368,10 @@ class FirstAgentPage:
                 row = self.plain_row(route.title, "\n".join(filter(None, lines)))
                 if route.pricing:
                     row.add_suffix(self.action_button(_("Prices"), on_click=lambda r=route: self.open_uri(r.pricing)))
-                row.add_suffix(self.action_button(_("Choose"), role="primary",
-                                                  on_click=lambda r=route: self.first_choose(r)))
+                row.add_suffix(self.first_button(_("Choose"), lambda r=route: self.first_choose(r), role="primary"))
                 rows.append(row)
             body.append(rows)
-        body.append(self.action_row(self.action_button(_("Later"), size="page", on_click=self.first_later)))
+        body.append(self.first_actions(self.first_button(_("Later"), self.first_later, size="page")))
 
     def first_unavailable(self, route) -> str:
         """Why this edition cannot offer the route ("" when it can): its agent or its local LLM is
@@ -171,11 +387,14 @@ class FirstAgentPage:
 
     def first_choose(self, route):
         self.first_save(route=route.id, later=False)
-        self.fill_first_agent()
 
     def first_later(self):
-        self.first_save(later=True)
-        self.close_first_agent()
+        self.first_save(later=True, on_saved=self.first_later_callback())
+
+    def first_later_callback(self):
+        visit = self.__dict__.setdefault("_first_visit", object())
+        return lambda: self.close_first_agent() if (self.page_name() == "firstagent"
+                       and self.__dict__.get("_first_visit") is visit) else None
 
     # --- the steps -----------------------------------------------------------------------------------
 
@@ -221,7 +440,8 @@ class FirstAgentPage:
                           _(route.access), _("Sign in…"), lambda: self.offer_sign_in(route.agent), ""))
         else:
             steps += self.first_local_steps(route, name, installed)
-        verified = route.agent in first_agent.working(self.first_installed())
+        verified_list = self.first_progress().get("verified", [])
+        verified = installed and isinstance(verified_list, list) and route.agent in verified_list
         steps.append((_("A test question"), verified,
                       _("{0} answers one short question, so you see that it works.").format(name),
                       _("Send the test question"), lambda: self.first_test(route), ""))
@@ -285,7 +505,8 @@ class FirstAgentPage:
         if model_file is not None and vram:
             fit = self.first_fit(model_file, vram, cache or "f16")
             if fit is None:                         # being read on a thread; the page fills again then
-                return (title, False, _("Looking at the model…"), "", None, "")
+                waiting = _("Looking at the model…")
+                return (title, False, waiting, "", None, waiting)
             if fit.known:
                 best = min(best, fit.best)          # 0: the model leaves no room at all (blocked below)
         if best < first_agent.MIN_CONTEXT:
@@ -305,6 +526,20 @@ class FirstAgentPage:
         if key in fits:
             return fits[key]
         fits[key] = None
+        generation = getattr(self, "_first_generation", 0)
+        timers = self.__dict__.setdefault("_first_fit_timers", {})
+
+        def expired():
+            timers.pop(key, None)
+            if generation != getattr(self, "_first_generation", 0):
+                return False
+            fits[key] = context_ctl.Fit(0, 0, 0, 0, known=False)
+            self.first_state().error = READ_ERROR
+            if self.page_name() == "firstagent":
+                self.fill_first_agent()
+            return False
+
+        timers[key] = GLib.timeout_add(self.FIRST_TIMEOUT_MS, expired)
 
         def work():
             try:
@@ -314,6 +549,9 @@ class FirstAgentPage:
             GLib.idle_add(done, fit)
 
         def done(fit):
+            if generation != getattr(self, "_first_generation", 0) or key not in timers:
+                return False
+            GLib.source_remove(timers.pop(key))
             fits[key] = fit
             if self.page_name() == "firstagent":
                 self.fill_first_agent()
@@ -326,9 +564,11 @@ class FirstAgentPage:
         LLM's own way (Ollama: its API), on a thread."""
         import llm_engine
         engine = llm_engine.of(rt)
+        generation = getattr(self, "_first_generation", 0)
         if engine.context_changes(rt, name, ctx) is not None:
             self.apply_tuning(rt, name, "ctx-size", str(ctx))
-            GLib.timeout_add(1500, lambda: self.page_name() == "firstagent" and self.first_refresh() and False)
+            GLib.timeout_add(1500, lambda: generation == getattr(self, "_first_generation", 0)
+                             and self.page_name() == "firstagent" and self.first_refresh() and False)
             return
 
         def work():
@@ -343,7 +583,8 @@ class FirstAgentPage:
                 self.show_error(_("Not changed: {0}").format(error))
             else:
                 self.toast(_("{0}: context set to {1}").format(name, ctx), 5)
-            self.first_refresh()
+            if generation == getattr(self, "_first_generation", 0) and self.page_name() == "firstagent":
+                self.first_refresh()
             return False
         threading.Thread(target=lambda: GLib.idle_add(done, work()), daemon=True).start()
 
@@ -375,31 +616,35 @@ class FirstAgentPage:
                     return model, str(name)
         return None
 
-    def fill_first_steps(self, body, route):
-        steps = self.first_steps(route)
+    def fill_first_steps(self, body, route, steps=None):
+        steps = self.first_steps(route) if steps is None else steps
         now = next((i for i, step in enumerate(steps) if not step[1]), None)
         card = self.info_card(route.title.upper(), "ok" if now is None else "info")
         self.card_text(card.body, _(route.access))
+        if now is not None:
+            self.card_text(card.body, _("Next step: {0}").format(steps[now][0]))
         body.append(card)
         rows = self.boxed_list()
         for index, (title, done, detail, label, action, blocked) in enumerate(steps):
             row = self.plain_row(title, blocked or detail)
+            if index == now and action is None and not blocked:
+                row.set_subtitle("\n".join(filter(None, [detail,
+                    _("This step needs manual setup. Follow its details, then refresh or check its add-on.")])))
             mark = Gtk.Label(label="✓" if done else ("→" if index == now else "·"))
             mark.add_css_class("am-check-mark")
             mark.add_css_class("am-state-ok" if done else "am-state-info")
             row.add_prefix(mark)
             if index == now and action is not None and not blocked:
-                row.add_suffix(self.action_button(label, role="primary", on_click=action))
+                row.add_suffix(self.first_button(label, action, role="primary"))
             rows.append(row)
         body.append(rows)
         if route.kind == "local":
             self.fill_first_optional(body)
         if now is None:
             self.fill_first_ready(body, route)
-        buttons = [self.action_button(_("Check again"), size="page", on_click=self.first_refresh),
-                   self.action_button(_("Choose another way"), size="page",
-                                      on_click=lambda: (self.first_save(route=""), self.fill_first_agent()))]
-        body.append(self.action_row(*buttons))
+        buttons = [self.first_button(_("Check again"), self.first_refresh, size="page"),
+                   self.first_button(_("Choose another way"), lambda: self.first_save(route=""), size="page")]
+        body.append(self.first_actions(*buttons))
 
     def fill_first_optional(self, body):
         """On an AMD card: ROCm (and PyTorch for ROCm) for more speed, not needed to start."""
@@ -411,11 +656,11 @@ class FirstAgentPage:
         card = self.info_card(_("Optional: more speed on AMD cards"))
         self.card_text(card.body, _("Vulkan is enough to start. ROCm, AMD's compute software, is often faster; "
                                     "PyTorch for ROCm lets speech and image tools use the graphics card."))
-        line = Gtk.Box(spacing=ai_core.GAP_INLINE)
+        buttons = []
         for key in extra:
-            line.append(self.action_button(_("Install {0}…").format(gpu_stack.PACKAGES[key][0]),
-                                           on_click=lambda k=key: self.offer_install("tool", k)))
-        card.body.append(line)
+            buttons.append(self.first_button(_("Install {0}…").format(gpu_stack.PACKAGES[key][0]),
+                                             lambda k=key: self.offer_install("tool", k)))
+        card.body.append(self.first_actions(*buttons))
         body.append(card)
 
     def fill_first_ready(self, body, route):
@@ -423,23 +668,28 @@ class FirstAgentPage:
         card = self.info_card(_("Your agent is ready"), "ok")
         self.card_text(card.body, _("{0} answered the test question. Start it here, or see it on the map.")
                        .format(agent.name if agent else route.title))
-        answer = first_agent.state().get("answer")
+        answer = self.first_progress().get("answer")
         if isinstance(answer, str) and answer:
             self.card_text(card.body, "“" + answer[:300] + "”")
-        line = Gtk.Box(spacing=ai_core.GAP_INLINE)
+        buttons = []
         if agent is not None:
-            line.append(self.action_button(_("Start {0}").format(agent.name), role="primary",
-                                           on_click=lambda: self.start_agent(agent)))
-        line.append(self.action_button(_("Show on the map"), on_click=lambda: self.show_view("main", save=False)))
-        card.body.append(line)
+            buttons.append(self.first_button(_("Start {0}").format(agent.name), lambda: self.start_agent(agent), role="primary"))
+        buttons.append(self.first_button(_("Show on the map"), lambda: self.show_view("main", save=False)))
+        card.body.append(self.first_actions(*buttons))
         body.append(card)
 
     def first_refresh(self):
-        self.first_hw = None                 # an install may have brought ROCm or Vulkan
+        if self.first_state().busy:
+            return
+        self.first_fits = {}                 # an install may have brought ROCm or Vulkan
         self.first_look()
-        self.collect()
-        self.refresh_overview()
-        self.refresh_map()
+        try:
+            self.collect()
+            self.refresh_overview()
+            self.refresh_map()
+        except Exception:
+            self.first_abandon_read(internal=True)
+            self.first_state().error = READ_ERROR
         self.fill_first_agent()
 
     # --- the actions ---------------------------------------------------------------------------------
@@ -530,13 +780,15 @@ class FirstAgentPage:
         def done(result):
             if isinstance(result, Exception):
                 return
-            verified = [c for c in first_agent.state().get("verified", []) if c != route.agent] + [route.agent]
-            self.first_save(verified=verified, answer=result[:300])
-            self.collect()
-            self.refresh_overview()
-            self.refresh_map()
-            if self.page_name() == "firstagent":
-                self.fill_first_agent()
+            previous = self.first_progress().get("verified", [])
+            verified = [c for c in previous if isinstance(c, str) and c != route.agent] if isinstance(previous, list) else []
+
+            def saved():
+                self.collect()
+                self.refresh_overview()
+                self.refresh_map()
+
+            self.first_save(verified=verified + [route.agent], answer=result[:300], on_saved=saved)
 
         steps = [("ask", _("{0} answers a test question").format(name))]
         if rt is not None and here is not None:
@@ -561,7 +813,7 @@ class FirstAgentPage:
         line = Gtk.Box(spacing=ai_core.GAP_INLINE)
         line.append(self.action_button(_("Get started") if route is None else _("Continue"), role="primary",
                                        on_click=self.open_first_agent))
-        line.append(self.action_button(_("Later"), on_click=lambda: (self.first_save(later=True), card.set_visible(False))))
+        line.append(self.first_button(_("Later"), lambda: self.first_save(later=True, on_saved=lambda: card.set_visible(False))))
         card.body.append(line)
         box.append(card)
         return card

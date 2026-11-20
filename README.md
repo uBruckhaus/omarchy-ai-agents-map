@@ -70,6 +70,19 @@ yellow or red with the problems and updates of that column, each with a button t
   folder are shown first). Settings › **Corners** sets how round cards, dialogs and boxes are (like windows,
   slightly rounded, rounded, square).
 
+### Settings and setup recovery
+
+Settings uses a compact section selector in narrow windows and with larger text,
+and a scrolling section list in wide windows. Search shows matching settings
+across sections, including their full hints. Resizing keeps the search, selected
+section and keyboard focus.
+
+The first-agent guide keeps confirmed choices when a check or save fails and
+offers an explicit retry. Empty or unavailable choices point to Add-ons or Setup;
+only the next incomplete step asks for action. Returning from a guided installer,
+connection or Add-ons page refreshes the checklist. Test questions remain explicit,
+and the guide keeps its existing saved answer and complete-checklist ready page.
+
 ### Ask AI
 
 **✦ Ask AI** (and the Ask AI bar of each column) takes a request in your own words: "update Claude",

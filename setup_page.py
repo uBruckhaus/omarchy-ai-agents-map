@@ -25,6 +25,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 import agent_updates
 import ai_core
+import guide_navigation
 import ai_helper
 import desktop
 from glyphs import MCP_GLYPHS, MCP_GROUP_GLYPHS, glyph
@@ -89,6 +90,7 @@ class SetupPage:
     def open_my_setup(self, focus=None):
         """Setup: the cards, with what was found on this PC looked up again; focus: only these sections
         (a map column's Expand)."""
+        guide_navigation.abandon_handoffs(self)
         self.setup_focus = focus
         if self.with_addons():
             self.setup_installed = self.installed_adapters(self.adapter_addons())

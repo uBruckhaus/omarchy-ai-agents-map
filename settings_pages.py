@@ -44,18 +44,21 @@ class SettingsPages:
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         page.append(self.page_header(Gtk.Label(label=_("Settings").upper()), self.close_settings,
                                      _("Back (Backspace, Esc)")))
-        self.settings_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP, margin_bottom=12)
+        self.settings_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP,
+                                    margin_bottom=12, vexpand=True)
         self.settings_box.add_css_class("am-settings")
         # One column: at most 760 px wide, centred. Two columns: the whole width, half and half.
         # Pixels, not libadwaita's default "sp", so the page does not grow and shrink with the text size.
-        clamp = Adw.Clamp(maximum_size=760, tightening_threshold=560, child=self.settings_box,
+        clamp = Adw.Clamp(maximum_size=760, tightening_threshold=560, child=self.settings_box, vexpand=True,
                           unit=Adw.LengthUnit.PX)
         self.settings_clamp = clamp
-        page.append(self.page_scroller(clamp))
+        # The content and navigation each scroll inside the available page height.
+        # Scrolling the entire layout would let a tall sidebar push controls offscreen.
+        page.append(clamp)
         return page
 
     @staticmethod
-    def ellipsize_dropdown(drop: Gtk.DropDown):
+    def ellipsize_dropdown(drop: Gtk.DropDown | Adw.ComboRow):
         """The chosen entry ends in … when it is long (GTK otherwise makes the dropdown as wide as
         its longest entry, and the page wider than the window); the open list shows it whole."""
         def setup(_factory, item, ellipsize):
@@ -64,6 +67,10 @@ class SettingsPages:
                 label.set_ellipsize(Pango.EllipsizeMode.END)
                 label.set_max_width_chars(1)
                 label.set_hexpand(True)
+            else:
+                label.set_wrap(True)
+                label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+                label.set_max_width_chars(40)
             item.set_child(label)
 
         def bind(_factory, item):
@@ -98,12 +105,30 @@ class SettingsPages:
         control.set_hexpand(wide)
         control.set_halign(Gtk.Align.FILL if wide else Gtk.Align.END)
         if wide:
-            control.set_size_request(260, -1)
+            control.set_size_request(120, -1)
         if isinstance(control, Gtk.DropDown):
             self.ellipsize_dropdown(control)
         row.add_suffix(control)
+        self.wrap_preference_labels(row)
         listbox.append(row)
         return row
+
+    @staticmethod
+    def wrap_preference_labels(row):
+        """Long translated titles can break within a word rather than widening the window."""
+        pending = [row]
+        while pending:
+            child = pending.pop()
+            if isinstance(child, Gtk.Label) and (
+                    child.has_css_class("title") or child.has_css_class("subtitle")):
+                child.set_wrap(True)
+                child.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+                child.set_ellipsize(Pango.EllipsizeMode.NONE)
+                child.set_max_width_chars(1)
+            item = child.get_first_child()
+            while item is not None:
+                pending.append(item)
+                item = item.get_next_sibling()
 
     # --- the Add pages' shared parts: On this PC | From the web, and the site to search ---------
 
@@ -256,6 +281,10 @@ class SettingsPages:
 
     def fill_settings(self):
         """The settings as libadwaita preference groups (in the theme's colours on Omarchy)."""
+        state = self.settings_navigation_state()
+        previous = getattr(self, "settings_layout", None)
+        if previous is not None:
+            self.settings_layout_unmapped(previous)
         self.settings_ready = False
         box = self.settings_box
         while (child := box.get_first_child()) is not None:
@@ -285,8 +314,12 @@ class SettingsPages:
         group = self.preference_group(right, _("About"))
         self.button_row(group, _("About {0}").format(desktop.app_name()),
                         _("Version, author, license and the project on GitHub."), _("About"), self.show_about)
-        self.settings_list.select_row(self.settings_section_rows["general"])
+        self.settings_current_section = state[0] if state[0] in self.settings_sections else "general"
+        self.settings_find.set_text(state[1])
+        self.find_in_settings()
         self.settings_ready = True
+        if state[2] is not None:
+            self.defer_settings_focus(state[2])
 
     # --- About: name, version, author, license and the GitHub project ------------------------------
 
@@ -339,36 +372,221 @@ class SettingsPages:
         (target or box).append(group)
 
     def build_settings_sections(self, box):
-        """The section list with Find in Settings left, the sections' pages right."""
-        layout = Gtk.Box(spacing=18)
-        side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        side.set_size_request(200, -1)
+        """Persistent search/content, with a compact selector or a scrolling sidebar."""
+        self.settings_current_section = getattr(self, "settings_current_section", "general")
+        self.settings_focus_revision = getattr(self, "settings_focus_revision", 0) + 1
+        if self.settings_current_section not in dict(self.SECTIONS):
+            self.settings_current_section = "general"
+        self.settings_syncing_navigation = False
+        self.settings_compact_selector = Gtk.DropDown.new_from_strings(
+            [_("Find in Settings")] + [_(name) for _key, name in self.SECTIONS])
+        self.ellipsize_dropdown(self.settings_compact_selector)
+        self.settings_compact_selector.set_hexpand(True)
+        self.settings_compact_selector.update_property([Gtk.AccessibleProperty.LABEL], [_("Settings")])
+        self.settings_compact_selector.connect("notify::selected", self.settings_compact_selected)
+        self.settings_compact_selector.set_visible(False)
+        box.append(self.settings_compact_selector)
         self.settings_find = Gtk.SearchEntry(placeholder_text=_("Find in Settings"))
-        self.settings_find.connect("search-changed", lambda *_: self.find_in_settings())
-        side.append(self.settings_find)
+        self.settings_find.connect("notify::text", lambda *_: self.find_in_settings())
+        box.append(self.settings_find)
+        layout = Gtk.Box(spacing=18, vexpand=True)
+        self.settings_layout = layout
+        self.settings_geometry = None
+        self.settings_last_focus = None
+        self.settings_compact = None
         self.settings_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
         self.settings_list.add_css_class("navigation-sidebar")
-        side.append(self.settings_list)
+        side = Gtk.ScrolledWindow(vexpand=True)
+        side.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        side.set_size_request(200, -1)
+        side.set_child(self.settings_list)
+        self.settings_navigation_scroll = side
         layout.append(side)
-        # Each section as wide as it needs (a homogeneous stack took the widest one's natural width: the
-        # AI features disclaimer on one line, wider than the window).
-        self.settings_stack = Gtk.Stack(hexpand=True, vhomogeneous=False, hhomogeneous=False)
-        self.settings_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
-        layout.append(self.settings_stack)
+        self.settings_content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP,
+                                        hexpand=True, valign=Gtk.Align.START)
+        self.settings_no_matches = Gtk.Label(xalign=0, wrap=True, max_width_chars=1, visible=False)
+        self.settings_content.append(self.settings_no_matches)
+        # Keep these viewport scrollers out of the app's full-page scroller list:
+        # its fit() imposes a minimum height, and this layout is rebuilt on open.
+        self.settings_content.set_margin_end(14)
+        self.settings_content_scroll = Gtk.ScrolledWindow(hexpand=True, vexpand=True)
+        self.settings_content_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.settings_content_scroll.set_child(self.settings_content)
+        layout.append(self.settings_content_scroll)
         self.settings_sections, self.settings_section_rows = {}, {}
+        self.settings_section_containers, self.settings_section_headings = {}, {}
         for key, name in self.SECTIONS:
+            container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
+            heading = Gtk.Label(label=_(name), xalign=0, wrap=True, max_width_chars=1, visible=False)
+            heading.add_css_class("am-setting-heading")
+            container.append(heading)
             page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP, valign=Gtk.Align.START)
-            self.settings_stack.add_named(page, key)
+            container.append(page)
+            self.settings_content.append(container)
             self.settings_sections[key] = page
+            self.settings_section_containers[key] = container
+            self.settings_section_headings[key] = heading
             row = Gtk.ListBoxRow()
             row.section = key
             row.set_child(Gtk.Label(label=_(name), xalign=0, margin_start=8, margin_end=8, margin_top=6,
                                     margin_bottom=6))
             self.settings_list.append(row)
             self.settings_section_rows[key] = row
-        self.settings_list.connect("row-selected", lambda _l, row: row is not None and
-                                   self.settings_stack.set_visible_child_name(row.section))
+        self.settings_list.connect("row-selected", self.settings_sidebar_selected)
+        layout.connect("map", self.settings_layout_mapped)
+        layout.connect("unmap", self.settings_layout_unmapped)
         box.append(layout)
+
+    @staticmethod
+    def compact_settings_width(width: int, font_points: float = 11) -> bool:
+        return width < 840 * max(1, min(2, font_points / 11))
+
+    def settings_layout_mapped(self, layout):
+        if not getattr(layout, "settings_tick", None):
+            layout.settings_tick = layout.add_tick_callback(self.settings_layout_tick)
+
+    def settings_layout_unmapped(self, layout):
+        tick = getattr(layout, "settings_tick", None)
+        if tick:
+            layout.remove_tick_callback(tick)
+            layout.settings_tick = None
+        if layout is getattr(self, "settings_layout", None):
+            self.settings_last_focus = None
+            self.settings_focus_revision += 1
+
+    def settings_focus(self):
+        root = self.settings_layout.get_root()
+        return root.get_focus() if root is not None and hasattr(root, "get_focus") else None
+
+    def settings_layout_tick(self, layout, _clock):
+        if layout is not getattr(self, "settings_layout", None):
+            return False
+        description = layout.get_pango_context().get_font_description()
+        font = description.get_size() / Pango.SCALE if description is not None else 11
+        geometry = (layout.get_width(), layout.get_height(), font)
+        focus = self.settings_focus()
+        if geometry != self.settings_geometry:
+            self.settings_geometry = geometry
+            self.update_settings_layout(geometry[0], font)
+            GLib.idle_add(self.settings_focus_visible)
+        elif focus is not self.settings_last_focus:
+            GLib.idle_add(self.settings_focus_visible)
+        self.settings_last_focus = focus
+        return True
+
+    def update_settings_layout(self, width: int, font_points: float = 11):
+        compact = self.compact_settings_width(width, font_points)
+        previous = getattr(self, "settings_compact", None)
+        if compact == previous:
+            return
+        focus = self.settings_focus()
+        navigation = focus is not None and (
+            focus is self.settings_compact_selector or focus.is_ancestor(self.settings_compact_selector)
+            or focus is self.settings_list or focus.is_ancestor(self.settings_list))
+        self.settings_compact = compact
+        self.settings_navigation_scroll.set_visible(not compact)
+        self.settings_compact_selector.set_visible(compact)
+        if navigation and (previous is not None or compact):
+            self.defer_settings_focus(("navigation",))
+
+    def settings_focus_visible(self):
+        """Keep keyboard navigation visible after a height-only resize as well."""
+        focus = self.settings_focus()
+        if focus is None or not focus.is_ancestor(self.settings_list):
+            return False
+        row = focus
+        while row.get_parent() is not self.settings_list and row.get_parent() is not None:
+            row = row.get_parent()
+        ok, bounds = row.compute_bounds(self.settings_list)
+        if ok:
+            adjustment = self.settings_navigation_scroll.get_vadjustment()
+            top, bottom = bounds.get_y(), bounds.get_y() + bounds.get_height()
+            value, size = adjustment.get_value(), adjustment.get_page_size()
+            if top < value:
+                adjustment.set_value(top)
+            elif bottom > value + size:
+                adjustment.set_value(bottom - size)
+        return False
+
+    def settings_navigation_state(self):
+        section = getattr(self, "settings_current_section", "general")
+        search = getattr(self, "settings_find", None)
+        query = search.get_text() if search is not None else ""
+        if getattr(self, "settings_layout", None) is None:
+            return section, query, None
+        focus = self.settings_focus()
+        signature = None
+        if focus is not None and (focus is self.settings_box or focus.is_ancestor(self.settings_box)):
+            if focus is search or focus.is_ancestor(search):
+                signature = ("search",)
+            elif focus is self.settings_compact_selector or focus.is_ancestor(self.settings_compact_selector) \
+                    or focus is self.settings_list or focus.is_ancestor(self.settings_list):
+                signature = ("navigation",)
+            else:
+                row = focus
+                while row is not None and not isinstance(row, Adw.PreferencesRow):
+                    row = row.get_parent()
+                if row is not None:
+                    key = next((key for key, page in self.settings_sections.items()
+                                if row.is_ancestor(page)), section)
+                    signature = ("row", key, row.get_title(), type(focus).__name__)
+        return section, query, signature
+
+    def defer_settings_focus(self, signature):
+        GLib.idle_add(self.restore_settings_focus, signature,
+                      self.settings_layout, self.settings_focus_revision)
+
+    def restore_settings_focus(self, signature, layout, revision):
+        # An idle queued before a page change or another rebuild must not
+        # steal focus back, or apply its signature to a different widget tree.
+        if layout is not getattr(self, "settings_layout", None) or \
+                revision != self.settings_focus_revision or not layout.get_mapped() or \
+                getattr(self, "page_name", lambda: "settings")() != "settings":
+            return False
+        if signature[0] == "search":
+            self.settings_find.grab_focus()
+        elif signature[0] == "navigation":
+            target = self.settings_compact_selector if getattr(self, "settings_compact", False) else \
+                self.settings_section_rows[self.settings_current_section]
+            target.grab_focus()
+            self.settings_focus_visible()
+        elif signature[0] == "row":
+            for row in self.settings_rows_of(self.settings_sections[signature[1]]):
+                if row.get_title() == signature[2]:
+                    pending = [row]
+                    while pending:
+                        child = pending.pop()
+                        if type(child).__name__ == signature[3] and child.grab_focus():
+                            return False
+                        item = child.get_first_child()
+                        while item is not None:
+                            pending.append(item)
+                            item = item.get_next_sibling()
+                    row.child_focus(Gtk.DirectionType.TAB_FORWARD)
+                    break
+        return False
+
+    def settings_sidebar_selected(self, _list, row):
+        if row is not None and not self.settings_syncing_navigation:
+            self.choose_settings_section(row.section)
+
+    def settings_compact_selected(self, drop, _param):
+        if self.settings_syncing_navigation:
+            return
+        index = drop.get_selected()
+        if 0 < index <= len(self.SECTIONS):
+            self.choose_settings_section(self.SECTIONS[index - 1][0])
+        else:
+            self.settings_find.grab_focus()
+            self.find_in_settings()
+
+    def choose_settings_section(self, section):
+        if section not in self.settings_sections:
+            return
+        self.settings_current_section = section
+        self.settings_find.set_text("")
+        self.find_in_settings()
+        self.settings_content_scroll.get_vadjustment().set_value(0)
 
     def settings_rows_of(self, widget) -> list:
         """Every preferences row inside a widget (its groups), for Find."""
@@ -382,29 +600,45 @@ class SettingsPages:
         return found
 
     def find_in_settings(self):
-        """Find in Settings: rows whose title or hint has the words; sections without one are greyed,
-        the first section with one is shown."""
+        """Show matching groups across sections, each with its section heading."""
         words = self.settings_find.get_text().strip().lower().split()
-        first = None
+        total = 0
         for key, page in self.settings_sections.items():
             hits = 0
             group = page.get_first_child()
             while group is not None:
                 shown = 0
+                heading = getattr(group, "get_title", lambda: "")()
+                description = getattr(group, "get_description", lambda: "")()
                 for row in self.settings_rows_of(group):
-                    text = " ".join(filter(None, [row.get_title(), getattr(row, "get_subtitle", lambda: "")()
-                                                  if isinstance(row, Adw.ActionRow) else ""])).lower()
+                    text = " ".join(filter(None, [heading, description, row.get_title(),
+                                                  getattr(row, "get_subtitle", lambda: "")()
+                                                  if isinstance(row, Adw.ActionRow) else "",
+                                                  row.get_tooltip_text()])).lower()
                     match = all(w in text for w in words)
                     row.set_visible(match)
                     shown += match
                 group.set_visible(shown > 0 or not words)
                 hits += shown
                 group = group.get_next_sibling()
-            self.settings_section_rows[key].set_sensitive(hits > 0 or not words)
-            if hits and first is None:
-                first = key
-        if words and first is not None:
-            self.settings_list.select_row(self.settings_section_rows[first])
+            total += hits
+            self.settings_section_containers[key].set_visible(hits > 0 if words else
+                                                               key == self.settings_current_section)
+            self.settings_section_headings[key].set_visible(bool(words))
+        self.settings_no_matches.set_label(_("No setting matches “{0}”").format(self.settings_find.get_text().strip()))
+        self.settings_no_matches.set_visible(bool(words) and total == 0)
+        self.settings_syncing_navigation = True
+        try:
+            if words:
+                self.settings_list.unselect_all()
+                self.settings_compact_selector.set_selected(0)
+            else:
+                section = self.settings_current_section
+                self.settings_list.select_row(self.settings_section_rows[section])
+                self.settings_compact_selector.set_selected(
+                    next(i for i, item in enumerate(self.SECTIONS, 1) if item[0] == section))
+        finally:
+            self.settings_syncing_navigation = False
 
     @staticmethod
     def short_hint(hint: str) -> str:
@@ -538,6 +772,9 @@ class SettingsPages:
     def switch_row(self, group, title: str, hint: str, active: bool, on_toggle) -> Adw.SwitchRow:
         short = self.short_hint(hint)
         row = Adw.SwitchRow(title=title, subtitle=short, active=active, use_markup=False)
+        row.set_title_lines(0)
+        row.set_subtitle_lines(0)
+        self.wrap_preference_labels(row)
         if short != hint:
             row.set_tooltip_text(hint)
         row.connect("notify::active", lambda r, *_: self.settings_ready and on_toggle(r.get_active()))
@@ -580,6 +817,10 @@ class SettingsPages:
         """A long explanation would squeeze the chosen value: its first sentence shows, all of it on hover."""
         short = self.short_hint(hint)
         row = Adw.ComboRow(title=title, subtitle=short, model=Gtk.StringList.new(labels), use_markup=False)
+        row.set_title_lines(0)
+        row.set_subtitle_lines(0)
+        self.wrap_preference_labels(row)
+        self.ellipsize_dropdown(row)
         if short != hint:
             row.set_tooltip_text(hint)
         row.set_selected(max(0, selected))
@@ -600,10 +841,18 @@ class SettingsPages:
 
     def button_row(self, group, title: str, hint: str, label: str, on_click) -> Adw.ActionRow:
         row = Adw.ActionRow(title=title, subtitle=hint, use_markup=False)
+        row.set_title_lines(0)
+        row.set_subtitle_lines(0)
         button = Gtk.Button(label=label, valign=Gtk.Align.CENTER)
+        text = button.get_child()
+        if isinstance(text, Gtk.Label):
+            text.set_wrap(True)
+            text.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            text.set_max_width_chars(24)
         button.connect("clicked", lambda *_: on_click())
         row.add_suffix(button)
         row.set_activatable_widget(button)
+        self.wrap_preference_labels(row)
         group.add(row)
         return row
 
@@ -799,6 +1048,10 @@ class SettingsPages:
     def back_to_last_page(self):
         page = getattr(self, "return_page", None)
         self.return_page = None
+        resume = getattr(self, "first_resume", None)
+        if page == "firstagent" and callable(resume):
+            resume()
+            return
         self.show_view(self.view, save=False)
         if page and self.right_stack.get_child_by_name(page) is not None:
             self.stack.set_visible_child_name("main")

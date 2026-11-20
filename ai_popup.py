@@ -117,6 +117,7 @@ from traffic_page import TrafficPage
 from smart_check_page import SmartCheckPage
 from llm_help_page import LlmHelpPage
 from first_agent_page import FirstAgentPage
+import guide_navigation
 from skills_page import SkillsPage
 from mcp_pages import McpPages
 from details_pages import DetailsPages
@@ -209,6 +210,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         self.job_layout = None       # (id, state) of the rows built last
 
     def do_shutdown(self):
+        guide_navigation.abandon_read(self)
         cleanup_pid()
         Adw.Application.do_shutdown(self)
 
@@ -1134,6 +1136,8 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         return inner if inner in RIGHT_PAGES else "main"
 
     def show_page(self, name: str):
+        if name != "firstagent" and self.page_name() == "firstagent":
+            guide_navigation.abandon_read(self)
         if name == "connect":
             self.connect_tidy()
         if name in RIGHT_PAGES:
@@ -2954,10 +2958,12 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         """Map or Setup, from any page (a click on the one in view keeps it in view)."""
         if self.updating_buttons:
             return
+        guide_navigation.abandon_handoffs(self)
         if name == "setup":
             self.open_my_setup()
         elif self.page_name() == "connect":
             self.close_connect()          # also drops the line being drawn
+            self.show_view("main", save=False)  # the header chooses Map, not a guided Back
         elif self.page_name() != "main":
             self.close_setup()
         self.update_header()
@@ -3463,7 +3469,8 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             self.show_note(_("{0} is busy: see the top of the main page.").format(rt.name))
             return
         self.installing = {"rt": rt, "inst": inst, "mode": mode, "release": None, "gpu": None,
-                           "cancel": False, "busy": False, "from": self.view, "build": ""}
+                           "cancel": False, "busy": False, "from": self.view, "build": "",
+                           "origin_page": guide_navigation.guide_origin(self)}
         self.install_build = None
         titles = {"install": _("Install {0}"), "update": _("Update {0}"), "models": _("Model folder of {0}"),
                   "uninstall": _("Uninstall {0}")}
@@ -3733,7 +3740,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             messages = {"install": _("{0} installed"), "update": _("{0} updated"),
                         "models": _("{0}: model folder changed"), "uninstall": _("{0} uninstalled")}
             if here:
-                self.close_install()
+                self.close_install(navigate=self.page_name() == "install")
             self.collect()
             self.refresh_overview()
             self.refresh_map()
@@ -3760,10 +3767,15 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             return
         self.close_install()
 
-    def close_install(self):
+    def close_install(self, navigate=True):
         """Back: a running install goes on in the background (the main page shows it)."""
         info = self.installing
         self.installing = None
+        if not navigate:
+            guide_navigation.defer_return(self, "install", info)
+            return
+        if guide_navigation.resume_guide(self, info):
+            return
         self.show_view(info["from"] if info else self.view, save=False)
 
     # --- right-click menus of a local LLM and an agent ---------------------------------------------------
@@ -4569,6 +4581,8 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         self.refresh_map()
         if show:
             self.window.present()
+            if self.page_name() == "firstagent" and callable(getattr(self, "first_resume", None)):
+                self.first_resume()
         if getattr(self, "splash_counted", True) is False:
             self.splash_counts()
         self.sync_provider_watch()
@@ -4696,6 +4710,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             self.close_connect()    # nor onto a half-made connection
         elif self.page_name() == "install":
             self.close_install()    # a running install goes on in the background
+        guide_navigation.abandon_read(self)
         self.window.hide()
         busy = any(pane.running for pane in self.sessions.values()) or bool(self.jobs.active())
         if not desktop.stays_in_background() and not busy:
