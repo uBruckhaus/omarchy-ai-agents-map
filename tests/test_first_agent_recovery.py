@@ -461,8 +461,29 @@ class PageLifecycleTest(unittest.TestCase):
                 self.scheduler.work()
                 self.scheduler.dispatch()
         saved.assert_called_once_with()
+        self.assertEqual(len(leaves), 5)
+        self.assertEqual(leaves[-1].call_count, 1)
         self.assertEqual(sum(leave.call_count for leave in leaves), 1)
         self.assertEqual(self.host.active, "main")
+
+    def test_failed_route_then_failed_later_retry_still_leaves_guide(self):
+        self.read()
+        with mock.patch.object(page.ai_core, "update_settings", side_effect=OSError("fixture")):
+            self.host.first_choose(types.SimpleNamespace(id="new"))
+            self.scheduler.work()
+            self.scheduler.dispatch()
+            self.host.first_later()
+            self.scheduler.work()
+            self.scheduler.dispatch()
+        self.assertEqual(self.host.active, "firstagent")
+        self.assertEqual(self.host.first_state().retry_changes, {"route": "new", "later": True})
+        with mock.patch.object(page.ai_core, "update_settings"):
+            self.host.first_retry()
+            self.scheduler.work()
+            self.scheduler.dispatch()
+        self.assertEqual(self.host.active, "main")
+        self.assertEqual(self.host.first_progress()["route"], "new")
+        self.assertTrue(self.host.first_progress()["later"])
 
     def test_failed_route_save_keeps_choice_error_after_read_failure(self):
         for timeout in (False, True):

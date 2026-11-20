@@ -254,7 +254,7 @@ class FirstAgentPage:
         if state.busy:
             return
         if state.retry_changes is not None:
-            if state.retry_changes.get("later") is True and "route" not in state.retry_changes:
+            if state.retry_changes.get("later") is True:
                 original = getattr(self, "_first_retry_callback", None)
                 leave = self.first_later_callback()
 
