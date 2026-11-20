@@ -85,6 +85,104 @@ class Box:
         self.children.append(value)
 
 
+class GuideWidget(Box):
+    def __init__(self, **properties):
+        super().__init__()
+        self.__dict__.update({"visible": True, "sensitive": True, "callback": None, **properties})
+
+    def get_child(self):
+        return self.child
+
+    def set_sensitive(self, value):
+        self.sensitive = value
+
+    def set_visible(self, value):
+        self.visible = value
+
+    def add_css_class(self, _value):
+        pass
+
+    def set_wrap(self, value):
+        self.wrap = value
+
+    def set_wrap_mode(self, _value):
+        pass
+
+    def set_max_width_chars(self, _value):
+        pass
+
+
+def action_button(label, on_click, **_kwargs):
+    return GuideWidget(child=GuideWidget(label=label), callback=on_click)
+
+
+class PageRenderingTest(unittest.TestCase):
+    def setUp(self):
+        self.host = Host()
+        self.host.first_body = Box()
+        self.host.clear_box = lambda box: box.children.clear()
+        self.host.note = lambda box, text: box.append(text)
+        self.host.action_button = action_button
+        self.host.open_addons = mock.Mock()
+        self.host.open_my_setup = mock.Mock()
+        self.host.first_refresh = mock.Mock()
+        self.host.first_retry = mock.Mock()
+        self.host.first_hw = self.host.first_catalog = object()
+        self.host.first_route = mock.Mock(return_value=object())
+        self.host.first_steps = mock.Mock(side_effect=ValueError("invalid checklist"))
+        self.patch = mock.patch.multiple(page.Gtk, Box=GuideWidget, Label=GuideWidget,
+                                         Spinner=GuideWidget, FlowBox=GuideWidget)
+        self.patch.start()
+        self.addCleanup(self.patch.stop)
+
+    def render(self):
+        page.FirstAgentPage.fill_first_agent(self.host)
+        return self.host.first_body.children
+
+    def buttons(self):
+        return [button for flow in self.host.first_body.children if isinstance(flow, GuideWidget)
+                for button in flow.children if button.callback is not None]
+
+    def test_timed_out_save_keeps_recovery_navigation_and_hides_retry_until_writer_exits(self):
+        state = self.host.first_state()
+        token = state.begin_save({"route": "new"})
+        state.save_timeout(token)
+        self.host.first_steps = mock.Mock(return_value=[("Test", False, "", "", None, "")])
+        self.host.fill_first_steps = mock.Mock()
+        self.render()
+        buttons = {button.child.label: button for button in self.buttons()}
+        for label, callback in (("Add-ons", self.host.open_addons), ("Setup", self.host.open_my_setup)):
+            self.assertTrue(buttons[label].sensitive)
+            self.assertTrue(buttons[label].child.wrap)
+            buttons[label].callback()
+            callback.assert_called_once_with()
+        self.assertNotIn("Try again", buttons)
+        state.save_done(token, failed=True)
+        self.render()
+        retry = next(button for button in self.buttons() if button.child.label == "Try again")
+        self.assertTrue(retry.sensitive)
+        retry.callback()
+        self.host.first_retry.assert_called_once_with()
+
+    def test_invalid_checklist_render_preserves_errors_and_refreshes_only_once(self):
+        state = self.host.first_state()
+        for error in ("", READ_ERROR, CHOICE_ERROR, SAVE_ERROR):
+            for invalid in (ValueError("invalid checklist"), []):
+                with self.subTest(error=error, invalid=invalid):
+                    state.error = error
+                    self.host.first_steps.side_effect = invalid if isinstance(invalid, Exception) else None
+                    self.host.first_steps.return_value = invalid
+                    for _ in range(2):
+                        children = self.render()
+                        self.assertEqual(state.error, error)
+                        self.assertEqual(children.count(READ_ERROR), 1)
+                        if error != READ_ERROR:
+                            retry = children[children.index(READ_ERROR) + 1].children[0]
+                            self.host.first_refresh.reset_mock()
+                            retry.callback()
+                            self.host.first_refresh.assert_called_once_with()
+
+
 class Row:
     def __init__(self, title, subtitle):
         self.title, self.subtitle = title, subtitle
@@ -271,6 +369,118 @@ class PageLifecycleTest(unittest.TestCase):
         self.scheduler.dispatch()
         self.assertFalse(self.host.first_state().loading)
         self.assertIs(self.host.first_catalog, self.catalog)
+
+    def test_background_save_restarts_cancelled_check_with_existing_snapshot(self):
+        self.read()
+        self.host.first_look()
+        self.host.first_save(verified=["fixture"])
+        with mock.patch.object(page.ai_core, "update_settings"):
+            self.scheduler.work(1)
+            self.scheduler.dispatch()
+        self.assertTrue(self.host.first_state().loading)
+        self.assertEqual(len(self.scheduler.threads), 2)  # cancelled worker and replacement
+        self.scheduler.work()  # cancelled read must not finish the replacement
+        self.scheduler.dispatch()
+        self.assertTrue(self.host.first_state().loading)
+        self.scheduler.work()
+        self.scheduler.dispatch()
+        self.assertFalse(self.host.first_state().loading)
+
+    def test_pending_write_restarts_skipped_check_after_queue_drains(self):
+        self.read()
+        self.host.first_save(verified=["first"])
+        self.host.first_save(verified=["second"])
+        self.host.first_look()
+        with mock.patch.object(page.ai_core, "update_settings"):
+            self.scheduler.work()
+            self.scheduler.dispatch()
+            self.assertFalse(self.host.first_state().loading)
+            self.scheduler.work()
+            self.scheduler.dispatch()
+        self.assertTrue(self.host.first_state().loading)
+        self.assertEqual(len(self.scheduler.threads), 1)
+        self.scheduler.work()
+        self.scheduler.dispatch()
+
+    def test_leaving_clears_skipped_read_request(self):
+        self.read()
+        self.host.first_save(verified=["fixture"])
+        self.host.first_look()
+        self.assertTrue(getattr(self.host, "_first_read_wanted", False))
+        self.host.first_abandon_read()
+        self.assertFalse(self.host._first_read_wanted)
+        with mock.patch.object(page.ai_core, "update_settings"), mock.patch.object(self.host, "first_look") as look:
+            self.scheduler.work()
+            self.scheduler.dispatch()
+        look.assert_not_called()
+
+    def test_four_failed_verification_retries_call_saved_once_on_success(self):
+        self.read()
+        saved = mock.Mock()
+        with mock.patch.object(page.ai_core, "update_settings", side_effect=OSError("fixture")):
+            self.host.first_save(verified=["fixture"], answer="Ready", on_saved=saved)
+            self.scheduler.work()
+            self.scheduler.dispatch()
+            for _ in range(4):
+                self.host.first_retry()
+                self.scheduler.work()
+                self.scheduler.dispatch()
+        saved.assert_not_called()
+        with mock.patch.object(page.ai_core, "update_settings"):
+            self.host.first_retry()
+            self.scheduler.work()
+            self.scheduler.dispatch()
+        saved.assert_called_once_with()
+
+    def test_failed_route_save_keeps_choice_error_after_read_failure(self):
+        self.read()
+        with mock.patch.object(page.ai_core, "update_settings", side_effect=OSError("fixture")):
+            self.host.first_save(route="new")
+            self.scheduler.work()
+            self.scheduler.dispatch()
+        self.host.first_look()
+        with mock.patch.object(first_agent, "load", side_effect=OSError("fixture")):
+            self.scheduler.work()
+        self.scheduler.dispatch()
+        state = self.host.first_state()
+        self.assertEqual(state.retry_changes, {"route": "new"})
+        self.assertEqual(state.error, CHOICE_ERROR)
+
+    def test_failed_route_save_keeps_choice_error_after_fit_timeout(self):
+        self.read()
+        with mock.patch.object(page.ai_core, "update_settings", side_effect=OSError("fixture")):
+            self.host.first_save(route="new")
+            self.scheduler.work()
+            self.scheduler.dispatch()
+        state = self.host.first_state()
+        self.host.first_fit("fixture.gguf", 123, "f16")
+        self.scheduler.expire(next(iter(self.host._first_fit_timers.values())))
+        self.assertEqual(state.retry_changes, {"route": "new"})
+        self.assertEqual(state.error, CHOICE_ERROR)
+
+    def test_overview_later_failure_or_timeout_reports_error_and_keeps_card(self):
+        for timeout in (False, True):
+            with self.subTest(timeout=timeout):
+                host = Host()
+                host.active = "main"
+                host.first_route = lambda: None
+                card = GuideWidget(body=Box())
+                host.info_card = lambda *_: card
+                host.card_text = mock.Mock()
+                host.action_button = action_button
+                host.show_error = mock.Mock()
+                with mock.patch.multiple(page.Gtk, Box=GuideWidget, Label=GuideWidget):
+                    host.first_agent_card(Box())
+                    card.body.children[0].children[1].callback()
+                if timeout:
+                    self.scheduler.expire(host._first_save_timer)
+                    host.show_error.assert_called_once_with(SAVE_ERROR)
+                with mock.patch.object(page.ai_core, "update_settings", side_effect=OSError("fixture")):
+                    self.scheduler.work()
+                    self.scheduler.dispatch()
+                host.show_error.assert_called_once_with(SAVE_ERROR)
+                self.assertTrue(card.visible)
+                self.assertEqual(host.active, "main")
 
     def test_close_cancels_timer_and_late_worker_cannot_replace_a_new_read(self):
         self.host.open_first_agent()

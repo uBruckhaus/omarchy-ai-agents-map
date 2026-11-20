@@ -233,6 +233,29 @@ class ResponsiveSettingsTest(unittest.TestCase):
         self.assertTrue(view.settings_navigation_scroll.get_visible())
         self.assertFalse(view.settings_compact_selector.get_visible())
 
+    def test_unallocated_tick_keeps_wide_layout_and_geometry(self):
+        view = self.view
+        view.update_settings_layout(1400)
+        geometry = view.settings_geometry
+        view.settings_layout.set_width(0)
+        self.assertTrue(view.settings_layout_tick(view.settings_layout, None))
+        self.assertFalse(view.settings_compact)
+        self.assertIs(view.settings_geometry, geometry)
+        self.assertTrue(view.settings_navigation_scroll.get_visible())
+
+    def test_tick_normalizes_absolute_and_unset_font_sizes(self):
+        view = self.view
+        view.settings_layout.set_width(960)
+        for size, absolute, expected in ((14, True, 10.5), (0, False, 11), (-1, True, 11)):
+            with self.subTest(size=size, absolute=absolute):
+                description = SimpleNamespace(get_size=lambda: size * module.Pango.SCALE,
+                                              get_size_is_absolute=lambda: absolute)
+                context = SimpleNamespace(get_font_description=lambda: description)
+                with mock.patch.object(view.settings_layout, "get_pango_context", return_value=context):
+                    view.settings_layout_tick(view.settings_layout, None)
+                self.assertEqual(view.settings_geometry[2], expected)
+                self.assertFalse(view.settings_compact)
+
     def test_global_search_shows_all_matching_sections_and_no_selected_section(self):
         view = self.view
         view.settings_find.set_text("notify")
@@ -284,6 +307,18 @@ class ResponsiveSettingsTest(unittest.TestCase):
         self.assertTrue(view.settings_section_containers["agents"].get_visible())
         self.assertTrue(group.get_first_child().get_visible())
 
+    def test_search_unescapes_group_titles_and_descriptions(self):
+        view = self.view
+        group = view.settings_sections["agents"].get_first_child()
+        for field in ("title", "description"):
+            group.set_title("")
+            group.set_description("")
+            getattr(group, "set_" + field)(module.GLib.markup_escape_text("An agent's findings & limits"))
+            for query, expected in (("agent's", True), ("&", True), ("apos", False), ("amp", False)):
+                with self.subTest(field=field, query=query):
+                    view.settings_find.set_text(query)
+                    self.assertEqual(group.get_first_child().get_visible(), expected)
+
     def test_resize_keeps_search_focus_and_transfers_navigation_focus(self):
         view = self.view
         view.update_settings_layout(1400)
@@ -325,6 +360,50 @@ class ResponsiveSettingsTest(unittest.TestCase):
         self.assertTrue(view.settings_section_containers["agents"].get_visible())
         view.update_settings_layout(540)
         self.assertFalse(view.settings_navigation_scroll.get_visible())
+
+    def test_compact_rebuild_restores_selector_focus_before_any_tick(self):
+        view, queued = self.view, []
+        view.update_settings_layout(540)
+        view.settings_compact_selector.grab_focus()
+        with mock.patch.object(module.GLib, "idle_add", lambda callback, *args: queued.append((callback, args)) or 1):
+            view.fill_settings()
+        self.assertIs(view.settings_compact, True)
+        self.assertTrue(view.settings_compact_selector.get_visible())
+        self.assertFalse(view.settings_navigation_scroll.get_visible())
+        for callback, args in queued:
+            callback(*args)
+        self.assertIs(view.root.focus, view.settings_compact_selector)
+
+    def test_queued_scroll_rejects_left_unmapped_rebuilt_or_remapped_settings(self):
+        for change in ("leave", "unmap", "rebuild", "remap"):
+            with self.subTest(change=change):
+                view, queued = View(), []
+                view.update_settings_layout(1400)
+                view.settings_layout.set_width(1400)
+                row = view.settings_section_rows["about"]
+                row.properties["y"] = 650
+                row.grab_focus()
+                old_adjustment = view.settings_navigation_scroll.get_vadjustment()
+                with mock.patch.object(module.GLib, "idle_add", lambda callback, *args: queued.append((callback, args)) or 1):
+                    view.settings_layout_tick(view.settings_layout, None)
+                self.assertTrue(queued)
+                if change == "leave":
+                    view.page = "main"
+                elif change == "unmap":
+                    view.settings_layout.set_mapped(False)
+                elif change == "rebuild":
+                    view.fill_settings()
+                    row = view.settings_section_rows["about"]
+                    row.properties["y"] = 650
+                    row.grab_focus()
+                else:
+                    view.settings_layout_unmapped(view.settings_layout)
+                    view.settings_layout_mapped(view.settings_layout)
+                adjustment = view.settings_navigation_scroll.get_vadjustment()
+                for callback, args in queued:
+                    callback(*args)
+                self.assertEqual(old_adjustment.value, 0)
+                self.assertEqual(adjustment.value, 0)
 
     def test_mapping_installs_one_tick_and_unmapping_removes_it(self):
         view, layout = self.view, self.view.settings_layout

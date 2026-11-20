@@ -58,10 +58,30 @@ class OriginTest(unittest.TestCase):
             first_resume=lambda: self.fail("Map is not a Back action"),
             show_view=lambda name, save=False: events.append(name), update_header=lambda: None,
         )
-        app.close_connect = lambda: connect_page.ConnectPage.close_connect(app)
+        app.close_connect = lambda **kwargs: connect_page.ConnectPage.close_connect(app, **kwargs)
         ai_popup.AgentsMap.on_view_button(app, None, "main")
         self.assertIsNone(app.connecting)
         self.assertEqual(events[-1], "main")
+
+    def test_map_header_cleans_special_connection_without_special_returns(self):
+        for marker in ({"security": True, "agent": "fixture"},
+                       {"skill_update": True, "server": "fixture"}, {"page": "smartcheck"}):
+            with self.subTest(marker=marker):
+                events = []
+                app = types.SimpleNamespace(
+                    view="setup", updating_buttons=False, page_name=lambda: "connect",
+                    connecting={"from": "setup", **marker}, update_header=lambda: None,
+                    open_agent_status=mock.Mock(), open_mcp_details=mock.Mock(),
+                    show_smart_check_again=mock.Mock(),
+                    show_view=lambda name, save=False: events.append(name),
+                )
+                app.close_connect = lambda **kwargs: connect_page.ConnectPage.close_connect(app, **kwargs)
+                ai_popup.AgentsMap.on_view_button(app, None, "main")
+                self.assertIsNone(app.connecting)
+                self.assertEqual(events, ["main"])
+                app.open_agent_status.assert_not_called()
+                app.open_mcp_details.assert_not_called()
+                app.show_smart_check_again.assert_not_called()
 
     def test_internal_return_through_main_keeps_active_guided_page_origin(self):
         app = types.SimpleNamespace(
@@ -246,6 +266,29 @@ class LifecycleTest(unittest.TestCase):
                 mock.patch.object(ai_popup.desktop, "stays_in_background", return_value=False):
             ai_popup.AgentsMap.hide_window(app)
         self.assertEqual(events, ["abandon", "hide"])
+
+    def test_hiding_guided_forms_cleans_up_without_resuming_guide(self):
+        for name, field in (("connect", "connecting"), ("install", "installing")):
+            with self.subTest(page=name):
+                events = []
+                app = types.SimpleNamespace(
+                    view="main", **{field: {"from": "setup", "origin_page": "firstagent"}},
+                    window=types.SimpleNamespace(get_width=lambda: 540, get_height=lambda: 400,
+                                                 hide=lambda: events.append("hide")),
+                    page_name=lambda: name, first_resume=mock.Mock(),
+                    first_abandon_read=lambda: events.append("abandon"),
+                    show_view=lambda name, save=False: events.append(name),
+                    stop_gpu_poll=lambda: None, map_view=types.SimpleNamespace(set_shift=lambda _: None),
+                    sessions={}, jobs=types.SimpleNamespace(active=lambda: ["running-job"]),
+                )
+                app.close_connect = lambda: connect_page.ConnectPage.close_connect(app)
+                app.close_install = lambda: ai_popup.AgentsMap.close_install(app)
+                with mock.patch.object(ai_popup.ai_core, "setting", return_value=[540, 400]), \
+                        mock.patch.object(ai_popup.desktop, "stays_in_background", return_value=True):
+                    ai_popup.AgentsMap.hide_window(app)
+                self.assertIsNone(getattr(app, field))
+                app.first_resume.assert_not_called()
+                self.assertEqual(events, ["setup", "abandon", "hide"])
 
 
 if __name__ == "__main__":

@@ -103,7 +103,7 @@ identified independently by the author.
    > regressions. Explicit close still preserves the existing special
    > security, skill-update and Smart Check return paths.
 
-## Final verdict — CLEAN
+## Round 2 verdict — CLEAN (Codex source review)
 
 **CLEAN — independent Codex source review.** All reported findings are
 addressed in the reviewed working tree. The port keeps native sections and
@@ -155,3 +155,75 @@ The review request for a later Claude run is saved in
 `docs/reviews/claude-review-prompt.md`. Integration is supplied as a local commit
 and patch because the canonical source is read-only in this session; no live
 installation is updated.
+
+## Round 3 — independent Claude + Antigravity review and fixes
+
+On 2026-11-20, both external reviews of `2681d46930298263d3654e2e68570b6f492ea591`
+against base `17c937f` completed outside the sandbox and returned **NOT CLEAN**.
+These completed reviews supersede the unsuccessful external attempts described
+above; the earlier CLEAN verdict applies only to the Codex source-review round.
+The independent reports are saved at:
+
+- `/home/uwe/ai-agents-map-reviews/2681d46/claude-terminal-result.txt`
+- `/home/uwe/ai-agents-map-reviews/2681d46/agy-terminal-result.txt`
+
+Claude reported M1, M2 and L1–L4, and identified S2/S4 as integration concerns.
+Antigravity independently confirmed those eight issues and reported A1–A4.
+All 12 verified findings are fixed in this author fix round. No new independent
+CLEAN verdict is claimed for the fixes.
+
+Test names below are in `tests/test_first_agent_recovery.py` for M/L findings,
+`tests/test_guide_navigation.py` for S findings, and
+`tests/test_settings_responsive.py` for A findings.
+
+| Finding | Fix | Focused regression tests |
+| --- | --- | --- |
+| M1 — fixed | Remember canceled/skipped reads, restart after the save queue drains even with an existing snapshot, and clear the request on leave or actual read start. | `test_background_save_restarts_cancelled_check_with_existing_snapshot`; `test_pending_write_restarts_skipped_check_after_queue_drains`; `test_leaving_clears_skipped_read_request` |
+| M2 — fixed | Keep wrapping Add-ons/Setup navigation usable during a blocked writer; hide Try again until the writer exits. | `test_timed_out_save_keeps_recovery_navigation_and_hides_retry_until_writer_exits` |
+| L1 — fixed | Invoke identical previous/current save callbacks only once on retry. | `test_four_failed_verification_retries_call_saved_once_on_success` |
+| L2 — fixed | Rendering leaves error state intact, emits one checklist READ_ERROR, and binds its retry to a fresh check. | `test_invalid_checklist_render_preserves_errors_and_refreshes_only_once` |
+| L3 — fixed | Preserve the unsaved choice and corresponding save error after a failed read or model-fit timeout. | `test_failed_route_save_keeps_choice_error_after_read_failure`; `test_failed_route_save_keeps_choice_error_after_fit_timeout` |
+| L4 — fixed | Give the overview card's Later save an error callback; show translated error feedback on failure/timeout and keep the card visible. | `test_overview_later_failure_or_timeout_reports_error_and_keeps_card` |
+| S2 — fixed | Discard guided handoffs before hide closes connect/install forms, preventing a throwaway guide resume/read. | `test_hiding_guided_forms_cleans_up_without_resuming_guide` |
+| S4 — fixed | Header Map closes connections with `navigate=False`, then opens Map directly, bypassing security/skill-update/Smart Check returns. | `test_map_header_cleans_special_connection_without_special_returns` |
+| A1 — fixed | Ignore unallocated widths; default missing/nonpositive fonts to 11pt and convert absolute pixel sizes to points. | `test_unallocated_tick_keeps_wide_layout_and_geometry`; `test_tick_normalizes_absolute_and_unset_font_sizes` |
+| A2 — fixed | Unescape group titles/descriptions before searching, so literal apostrophes/ampersands match and entity names do not. | `test_search_unescapes_group_titles_and_descriptions` |
+| A3 — fixed | Preserve the known compact/wide state during rebuild and apply visibility before restoring navigation focus. | `test_compact_rebuild_restores_selector_focus_before_any_tick` |
+| A4 — fixed | Capture layout/revision for queued scroll callbacks and require the same mapped layout, revision, and active Settings page. | `test_queued_scroll_rejects_left_unmapped_rebuilt_or_remapped_settings` |
+
+All **16 new regression tests fail by assertion against the original `2681d46`
+source**, loaded in memory without replacing working-tree files, and pass with
+the fixes. This includes both M1 paths, failure and timeout of overview Later,
+both L3 paths, escaped headings and descriptions, all three special connection
+returns, and leaving/unmapping/rebuilding/remapping before queued scroll work.
+
+Author validation: **106 related tests passed**, including 84 in the three
+changed groups (24 Settings, 40 guide recovery, 20 navigation). The remaining
+22 cover first-agent behavior, i18n, manual structure/PDF presence,
+no-run-on-open, window method names, and the three display-independent Back-key
+checks. The exact related-only command was:
+
+```sh
+PYTHONPATH=tests python3 -m unittest -v \
+  test_settings_responsive test_first_agent_recovery test_guide_navigation \
+  test_first_agent test_i18n test_manual test_manual_translations \
+  test_no_run_on_open test_window_names \
+  test_back_keys.BackKeysTest.test_every_back_page_goes_back_with_both_keys \
+  test_back_keys.BackKeysTest.test_keys_stay_in_a_field_being_edited \
+  test_back_keys.BackKeysTest.test_terminal_keeps_its_keys
+```
+
+`python3 docs/manual/translations.py check`, `py_compile` on all seven changed
+Python files, and `git diff --check` passed. All three reused dynamic error
+messages retain all seven translations; no new UI strings were introduced.
+The test output is `/tmp/maprisma-parity-related.log`. Display-dependent GTK
+allocation, rendering and physical keyboard behavior remain unverified here.
+No full suite, push, `/mnt/Data` write, live settings change, or version bump
+was performed.
+
+Delivery limitation: this sandbox mounts the target repository's `.git`
+read-only; staging failed while creating `.git/index.lock`. The fix commit is
+therefore prepared on the same branch in the separate writable checkout
+`/tmp/ai-agents-map-parity-review-fix`. The requested working tree contains
+the reviewed changes, but its HEAD cannot be advanced inside this sandbox.
+A binary diff and a Git-format patch are exported under `/tmp` for delivery.

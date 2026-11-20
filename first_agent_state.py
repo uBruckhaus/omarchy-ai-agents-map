@@ -80,7 +80,7 @@ class FirstAgentState:
         if not self.read_current(token):
             return False
         self.loading = False
-        self.error = READ_ERROR
+        self.error = self._save_error() if self.retry_changes is not None else READ_ERROR
         return True
 
     def abandon_read(self):

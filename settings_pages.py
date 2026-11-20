@@ -1,6 +1,7 @@
 """AI Agents Map: the Settings, Reorganize models and Help pages of the
 window (a mixin of ai_popup.AgentsMap, split off to keep ai_popup.py small)."""
 
+import html
 import os
 import re
 import sys
@@ -373,6 +374,7 @@ class SettingsPages:
 
     def build_settings_sections(self, box):
         """Persistent search/content, with a compact selector or a scrolling sidebar."""
+        was_compact = getattr(self, "settings_compact", None)
         self.settings_current_section = getattr(self, "settings_current_section", "general")
         self.settings_focus_revision = getattr(self, "settings_focus_revision", 0) + 1
         if self.settings_current_section not in dict(self.SECTIONS):
@@ -393,7 +395,7 @@ class SettingsPages:
         self.settings_layout = layout
         self.settings_geometry = None
         self.settings_last_focus = None
-        self.settings_compact = None
+        self.settings_compact = was_compact
         self.settings_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
         self.settings_list.add_css_class("navigation-sidebar")
         side = Gtk.ScrolledWindow(vexpand=True)
@@ -435,6 +437,9 @@ class SettingsPages:
         self.settings_list.connect("row-selected", self.settings_sidebar_selected)
         layout.connect("map", self.settings_layout_mapped)
         layout.connect("unmap", self.settings_layout_unmapped)
+        if was_compact is not None:
+            side.set_visible(not was_compact)
+            self.settings_compact_selector.set_visible(was_compact)
         box.append(layout)
 
     @staticmethod
@@ -461,16 +466,23 @@ class SettingsPages:
     def settings_layout_tick(self, layout, _clock):
         if layout is not getattr(self, "settings_layout", None):
             return False
+        width = layout.get_width()
+        if width <= 0:
+            return True
         description = layout.get_pango_context().get_font_description()
-        font = description.get_size() / Pango.SCALE if description is not None else 11
-        geometry = (layout.get_width(), layout.get_height(), font)
+        font = 11
+        if description is not None and description.get_size() > 0:
+            font = description.get_size() / Pango.SCALE
+            if getattr(description, "get_size_is_absolute", lambda: False)():
+                font *= 72 / 96
+        geometry = (width, layout.get_height(), font)
         focus = self.settings_focus()
         if geometry != self.settings_geometry:
             self.settings_geometry = geometry
             self.update_settings_layout(geometry[0], font)
-            GLib.idle_add(self.settings_focus_visible)
+            GLib.idle_add(self.settings_focus_visible, layout, self.settings_focus_revision)
         elif focus is not self.settings_last_focus:
-            GLib.idle_add(self.settings_focus_visible)
+            GLib.idle_add(self.settings_focus_visible, layout, self.settings_focus_revision)
         self.settings_last_focus = focus
         return True
 
@@ -489,8 +501,16 @@ class SettingsPages:
         if navigation and (previous is not None or compact):
             self.defer_settings_focus(("navigation",))
 
-    def settings_focus_visible(self):
+    def settings_focus_visible(self, layout=None, revision=None):
         """Keep keyboard navigation visible after a height-only resize as well."""
+        if layout is None:
+            layout = getattr(self, "settings_layout", None)
+        if revision is None:
+            revision = self.settings_focus_revision
+        if layout is None or layout is not getattr(self, "settings_layout", None) or \
+                revision != self.settings_focus_revision or not layout.get_mapped() or \
+                getattr(self, "page_name", lambda: "settings")() != "settings":
+            return False
         focus = self.settings_focus()
         if focus is None or not focus.is_ancestor(self.settings_list):
             return False
@@ -608,8 +628,8 @@ class SettingsPages:
             group = page.get_first_child()
             while group is not None:
                 shown = 0
-                heading = getattr(group, "get_title", lambda: "")()
-                description = getattr(group, "get_description", lambda: "")()
+                heading = html.unescape(getattr(group, "get_title", lambda: "")() or "")
+                description = html.unescape(getattr(group, "get_description", lambda: "")() or "")
                 for row in self.settings_rows_of(group):
                     text = " ".join(filter(None, [heading, description, row.get_title(),
                                                   getattr(row, "get_subtitle", lambda: "")()

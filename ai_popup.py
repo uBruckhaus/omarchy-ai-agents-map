@@ -2962,7 +2962,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         if name == "setup":
             self.open_my_setup()
         elif self.page_name() == "connect":
-            self.close_connect()          # also drops the line being drawn
+            self.close_connect(navigate=False)  # also drops the line being drawn
             self.show_view("main", save=False)  # the header chooses Map, not a guided Back
         elif self.page_name() != "main":
             self.close_setup()
@@ -4704,6 +4704,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
                 pass
         self.stop_gpu_poll()
         self.map_view.set_shift(False)   # Shift may have been let go elsewhere
+        guide_navigation.abandon_handoffs(self)
         if self.page_name() == "settings":
             self.close_settings()   # never reopen onto the settings page
         elif self.page_name() == "connect":
