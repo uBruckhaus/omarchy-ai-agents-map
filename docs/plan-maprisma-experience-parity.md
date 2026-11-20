@@ -59,15 +59,8 @@ files compile, manual translation stamps are current for all seven translated
 editions, dynamic error messages are translated, and `git diff --check` is clean.
 No full suite was run and nothing was pushed.
 
-Independent Codex review found and verified fixes for stale focus callbacks,
-pending model-fit reads, manual-step detail, concurrent verification saves,
-retry intent across unrelated saves, context completion after leaving, and
-background installation/connection navigation. See the review record. Agy's
-CLI review could not start because the sandbox denies its local TCP listener.
-The no-tools Claude CLI review timed out after 120 seconds without a verdict;
-no CLI result is inferred from the independent Codex review.
-
-The port is delivered as an isolated local commit and a patch checked against
-the read-only source base. Neither the canonical `/mnt/Data` checkout nor a
-live installation is changed. Desktop visual/physical-keyboard checks and
-regenerating shipped manual PDFs remain integration/release checks.
+Independent Codex, Claude, and Antigravity reviews all reached **CLEAN** at
+`e9b89dd` (109 related tests passing, `py_compile`, manual translation stamps,
+and `git diff --check` clean; see `docs/reviews/maprisma-experience-parity.md`).
+Desktop visual/physical-keyboard checks and regenerating shipped manual PDFs
+remain integration/release checks; no full suite was run and nothing was pushed.

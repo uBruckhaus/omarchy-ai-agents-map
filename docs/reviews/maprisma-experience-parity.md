@@ -250,3 +250,17 @@ identified three remaining edge cases:
    > Fix: suppress guide resume only for the page `hide_window()` is actually
    > closing (`settings`, `connect`, `install`), preserving `models`/`addons`
    > guided Back across hide/reopen. Added `test_hiding_models_or_addons_keeps_guided_return_while_settings_skips_resume`.
+
+## Round 5 — final verification and TRIPLE CLEAN (`e9b89dd`)
+
+- **Codex Round 3 (`2f447f4`)**: **CLEAN** (`/home/uwe/ai-agents-map-reviews/2f447f4/codex-result.txt`).
+- **Claude Round 3 (`2f447f4`)**: verified Fixes 2 and 3; flagged one Low finding (linear `leave()` closure stacking across repeated failed Later retries).
+  > Fix (`30fc44f`): track `self._first_later_leave` separately from `_first_retry_callback` so repeated Later retries keep non-leave callbacks flat and attach one fresh current-visit `leave()`.
+- **Codex Round 4 (`30fc44f`)**: **CLEAN** (`/home/uwe/ai-agents-map-reviews/30fc44f/codex-result.txt`).
+- **Claude Round 4 (`30fc44f`)**: flagged one Low/Medium edge case (failed `first_choose(route)` followed by failed `first_later()` stayed on `firstagent` on retry because `first_retry()` excluded `"route"` from the Later branch) plus a fresh-leave test assertion nit.
+  > Fix (`e9b89dd`): trigger the Later retry branch whenever `state.retry_changes.get("later") is True` (`first_choose` always sets `later=False`); added `test_failed_route_then_failed_later_retry_still_leaves_guide` and pinned `len(leaves) == 5` and `leaves[-1].call_count == 1`.
+- **Claude Round 5 (`e9b89dd`)**: **CLEAN** (`/home/uwe/ai-agents-map-reviews/e9b89dd/claude-result.txt`).
+- **Codex Round 5 (`e9b89dd`)**: **CLEAN** (`/home/uwe/ai-agents-map-reviews/e9b89dd/codex-result.txt`).
+- **Antigravity (`e9b89dd`)**: **CLEAN** — **109 related tests passed** (24 Settings, 42 guide recovery, 21 navigation, plus 22 existing first-agent/i18n/manual/no-run-on-open/window-name/Back-key checks), `py_compile`, `docs/manual/translations.py check`, and `git diff --check` all pass.
+
+Display-dependent GTK allocation, rendering, and physical keyboard checks remain desktop smoke-test items. No full suite was run and nothing was pushed.
