@@ -4704,12 +4704,18 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
                 pass
         self.stop_gpu_poll()
         self.map_view.set_shift(False)   # Shift may have been let go elsewhere
-        guide_navigation.abandon_handoffs(self)
-        if self.page_name() == "settings":
+        page = self.page_name()
+        if page == "settings":
+            if getattr(self, "return_page", None) == "firstagent":
+                self.return_page = None
             self.close_settings()   # never reopen onto the settings page
-        elif self.page_name() == "connect":
+        elif page == "connect":
+            if isinstance(getattr(self, "connecting", None), dict):
+                self.connecting.pop("origin_page", None)
             self.close_connect()    # nor onto a half-made connection
-        elif self.page_name() == "install":
+        elif page == "install":
+            if isinstance(getattr(self, "installing", None), dict):
+                self.installing.pop("origin_page", None)
             self.close_install()    # a running install goes on in the background
         guide_navigation.abandon_read(self)
         self.window.hide()

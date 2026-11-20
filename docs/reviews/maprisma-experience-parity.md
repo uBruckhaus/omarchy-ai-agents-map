@@ -221,9 +221,32 @@ allocation, rendering and physical keyboard behavior remain unverified here.
 No full suite, push, `/mnt/Data` write, live settings change, or version bump
 was performed.
 
-Delivery limitation: this sandbox mounts the target repository's `.git`
-read-only; staging failed while creating `.git/index.lock`. The fix commit is
-therefore prepared on the same branch in the separate writable checkout
-`/tmp/ai-agents-map-parity-review-fix`. The requested working tree contains
-the reviewed changes, but its HEAD cannot be advanced inside this sandbox.
-A binary diff and a Git-format patch are exported under `/tmp` for delivery.
+Delivery note: committed onto `task/maprisma-settings-setup-parity` as `821f1cb`.
+
+## Round 4 — independent Claude + Antigravity re-review of `821f1cb` and fixes
+
+On 2026-11-20, independent Claude Round 2 review (`/home/uwe/ai-agents-map-reviews/821f1cb/claude-result.txt`)
+and Antigravity Round 2 inspection confirmed ten of the twelve Round 3 fixes and
+identified three remaining edge cases:
+
+1. **Low/Medium — L1 Later-retry callback doubling** (`first_agent_page.py`):
+   When a verification save failed and a subsequent Later save also failed,
+   retrying via the Later branch wrapped `original` in a new `saved` closure
+   while `previous_callback` still referenced `original`, bypassing the identity
+   deduplication check.
+   > Fix: assign `self._first_retry_callback = saved` before `self.first_save(...)`
+   > in the Later retry branch. Added `test_later_retry_after_failed_verification_calls_saved_once_on_success`.
+2. **Low — L3 suppressed read/fit failure never re-checked after save retry** (`first_agent_page.py`):
+   When a read failure/timeout or model-fit timeout kept the save error because
+   `retry_changes` was set, a subsequent successful save retry rendered the old
+   snapshot (or unknown fit) without restarting `first_look()`.
+   > Fix: set `_first_read_wanted = True` when a read failure/timeout or model-fit
+   > timeout defers to `retry_changes`, and clear `first_fits` when restarting a
+   > wanted read after the save succeeds. Extended both L3 regression tests.
+3. **Low — `hide_window()` discarded active `models`/`addons` guided handoffs** (`ai_popup.py`):
+   Calling `guide_navigation.abandon_handoffs(self)` unconditionally during
+   `hide_window()` dropped `models_state["origin_page"]` and `return_page` even
+   when hiding from `models` or `addons`, which remain open on reopen.
+   > Fix: suppress guide resume only for the page `hide_window()` is actually
+   > closing (`settings`, `connect`, `install`), preserving `models`/`addons`
+   > guided Back across hide/reopen. Added `test_hiding_models_or_addons_keeps_guided_return_while_settings_skips_resume`.

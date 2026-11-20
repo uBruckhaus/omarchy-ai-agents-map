@@ -432,19 +432,62 @@ class PageLifecycleTest(unittest.TestCase):
             self.scheduler.dispatch()
         saved.assert_called_once_with()
 
-    def test_failed_route_save_keeps_choice_error_after_read_failure(self):
+    def test_later_retry_after_failed_verification_calls_saved_once_on_success(self):
         self.read()
+        saved = mock.Mock()
         with mock.patch.object(page.ai_core, "update_settings", side_effect=OSError("fixture")):
-            self.host.first_save(route="new")
+            self.host.first_save(verified=["fixture"], answer="Ready", on_saved=saved)
             self.scheduler.work()
             self.scheduler.dispatch()
-        self.host.first_look()
-        with mock.patch.object(first_agent, "load", side_effect=OSError("fixture")):
+            self.host.first_later()
             self.scheduler.work()
-        self.scheduler.dispatch()
-        state = self.host.first_state()
-        self.assertEqual(state.retry_changes, {"route": "new"})
-        self.assertEqual(state.error, CHOICE_ERROR)
+            self.scheduler.dispatch()
+            for _ in range(3):
+                self.host.first_retry()
+                self.scheduler.work()
+                self.scheduler.dispatch()
+        saved.assert_not_called()
+        with mock.patch.object(page.ai_core, "update_settings"):
+            self.host.first_retry()
+            self.scheduler.work()
+            self.scheduler.dispatch()
+        saved.assert_called_once_with()
+        self.assertEqual(self.host.active, "main")
+
+    def test_failed_route_save_keeps_choice_error_after_read_failure(self):
+        for timeout in (False, True):
+            with self.subTest(timeout=timeout):
+                self.host = Host()
+                self.scheduler = Scheduler()
+                with mock.patch.object(page.GLib, "timeout_add", self.scheduler.timeout_add), \
+                        mock.patch.object(page.GLib, "source_remove", self.scheduler.source_remove), \
+                        mock.patch.object(page.GLib, "idle_add", self.scheduler.idle_add), \
+                        mock.patch.object(page.threading, "Thread", self.scheduler.thread):
+                    self.read()
+                    with mock.patch.object(page.ai_core, "update_settings", side_effect=OSError("fixture")):
+                        self.host.first_save(route="new")
+                        self.scheduler.work()
+                        self.scheduler.dispatch()
+                    self.host.first_look()
+                    if timeout:
+                        self.scheduler.expire(self.host._first_read_timer)
+                        self.scheduler.threads.clear()
+                    else:
+                        with mock.patch.object(first_agent, "load", side_effect=OSError("fixture")):
+                            self.scheduler.work()
+                        self.scheduler.dispatch()
+                    state = self.host.first_state()
+                    self.assertEqual(state.retry_changes, {"route": "new"})
+                    self.assertEqual(state.error, CHOICE_ERROR)
+                    with mock.patch.object(page.ai_core, "update_settings"):
+                        self.host.first_retry()
+                        self.scheduler.work()
+                        self.scheduler.dispatch()
+                    self.assertTrue(state.loading)
+                    self.assertEqual(len(self.scheduler.threads), 1)
+                    self.scheduler.work()
+                    self.scheduler.dispatch()
+                    self.assertFalse(state.loading)
 
     def test_failed_route_save_keeps_choice_error_after_fit_timeout(self):
         self.read()
@@ -455,8 +498,18 @@ class PageLifecycleTest(unittest.TestCase):
         state = self.host.first_state()
         self.host.first_fit("fixture.gguf", 123, "f16")
         self.scheduler.expire(next(iter(self.host._first_fit_timers.values())))
+        self.scheduler.threads.clear()
         self.assertEqual(state.retry_changes, {"route": "new"})
         self.assertEqual(state.error, CHOICE_ERROR)
+        with mock.patch.object(page.ai_core, "update_settings"):
+            self.host.first_retry()
+            self.scheduler.work()
+            self.scheduler.dispatch()
+        self.assertTrue(state.loading)
+        self.assertEqual(self.host.first_fits, {})
+        self.scheduler.work()
+        self.scheduler.dispatch()
+        self.assertFalse(state.loading)
 
     def test_overview_later_failure_or_timeout_reports_error_and_keeps_card(self):
         for timeout in (False, True):

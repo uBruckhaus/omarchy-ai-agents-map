@@ -88,6 +88,8 @@ class FirstAgentPage:
         def expired():
             if state.read_failed(token):
                 self._first_read_timer = 0
+                if state.retry_changes is not None:
+                    self._first_read_wanted = True
                 if self.page_name() == "firstagent":
                     self.fill_first_agent()
             return False
@@ -116,6 +118,8 @@ class FirstAgentPage:
             self._first_read_timer = 0
             if result is None:
                 state.read_failed(token)
+                if state.retry_changes is not None:
+                    self._first_read_wanted = True
             else:
                 state.read_done(token, *result)
                 self.first_catalog, self.first_hw = state.catalog, state.hardware
@@ -229,6 +233,8 @@ class FirstAgentPage:
             elif self.page_name() == "firstagent":
                 if not state.error and (getattr(self, "_first_read_wanted", False)
                                         or self.first_hw is None or self.first_catalog is None):
+                    if getattr(self, "_first_read_wanted", False):
+                        self.first_fits = {}
                     self.first_look()
                 self.fill_first_agent()
             return False
@@ -252,6 +258,7 @@ class FirstAgentPage:
                         original()
                     leave()
 
+                self._first_retry_callback = saved
                 self.first_save(on_saved=saved, **state.retry_changes)
             else:
                 self.first_save(on_saved=getattr(self, "_first_retry_callback", None), **state.retry_changes)
@@ -549,7 +556,11 @@ class FirstAgentPage:
                 return False
             fits[key] = context_ctl.Fit(0, 0, 0, 0, known=False)
             state = self.first_state()
-            state.error = state._save_error() if state.retry_changes is not None else READ_ERROR
+            if state.retry_changes is not None:
+                state.error = state._save_error()
+                self._first_read_wanted = True
+            else:
+                state.error = READ_ERROR
             if self.page_name() == "firstagent":
                 self.fill_first_agent()
             return False

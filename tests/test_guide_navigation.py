@@ -290,6 +290,38 @@ class LifecycleTest(unittest.TestCase):
                 app.first_resume.assert_not_called()
                 self.assertEqual(events, ["setup", "abandon", "hide"])
 
+    def test_hiding_models_or_addons_keeps_guided_return_while_settings_skips_resume(self):
+        events = []
+        app = types.SimpleNamespace(
+            view="main", return_page="firstagent",
+            models_state={"from": "main", "origin_page": "firstagent"},
+            window=types.SimpleNamespace(get_width=lambda: 540, get_height=lambda: 400,
+                                         hide=lambda: events.append("hide")),
+            page_name=lambda: "models", first_resume=mock.Mock(),
+            first_abandon_read=lambda: events.append("abandon"),
+            stop_gpu_poll=lambda: None, map_view=types.SimpleNamespace(set_shift=lambda _: None),
+            sessions={}, jobs=types.SimpleNamespace(active=lambda: ["running-job"]),
+        )
+        with mock.patch.object(ai_popup.ai_core, "setting", return_value=[540, 400]), \
+                mock.patch.object(ai_popup.desktop, "stays_in_background", return_value=True):
+            ai_popup.AgentsMap.hide_window(app)
+        self.assertEqual(app.models_state["origin_page"], "firstagent")
+        self.assertEqual(app.return_page, "firstagent")
+        app.first_resume.assert_not_called()
+
+        events.clear()
+        app.page_name = lambda: "settings"
+        app.show_view = lambda name, save=False: events.append(name)
+        app.close_settings = lambda: settings_pages.SettingsPages.back_to_last_page(app)
+        import settings_pages
+        with mock.patch.object(ai_popup.ai_core, "setting", return_value=[540, 400]), \
+                mock.patch.object(ai_popup.desktop, "stays_in_background", return_value=True):
+            ai_popup.AgentsMap.hide_window(app)
+        self.assertIsNone(app.return_page)
+        self.assertEqual(app.models_state["origin_page"], "firstagent")
+        app.first_resume.assert_not_called()
+        self.assertEqual(events, ["main", "abandon", "hide"])
+
 
 if __name__ == "__main__":
     unittest.main()
