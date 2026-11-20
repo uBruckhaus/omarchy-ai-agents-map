@@ -163,11 +163,15 @@ class FirstAgentPage:
             return False
         self._first_retry_callback = on_saved
 
-        def retry_callback():
-            if previous_callback is not None and previous_callback is not on_saved:
+        if on_saved is not None and on_saved is getattr(self, "_first_later_leave", None):
+            retry_callback = previous_callback
+        elif previous_callback is None or previous_callback is on_saved:
+            retry_callback = on_saved
+        else:
+            def retry_callback():
                 previous_callback()
-            if on_saved is not None:
-                on_saved()
+                if on_saved is not None:
+                    on_saved()
 
         def expired():
             if state.save_timeout(token):
@@ -210,6 +214,7 @@ class FirstAgentPage:
                 return False
             if timely and result is not None:
                 self._first_retry_callback = None
+                self._first_later_leave = None
                 unresolved = remaining_retry(previous_retry, changes, result)
                 if unresolved:
                     state.retry_changes = unresolved
@@ -258,7 +263,7 @@ class FirstAgentPage:
                         original()
                     leave()
 
-                self._first_retry_callback = saved
+                self._first_later_leave = saved
                 self.first_save(on_saved=saved, **state.retry_changes)
             else:
                 self.first_save(on_saved=getattr(self, "_first_retry_callback", None), **state.retry_changes)
@@ -410,7 +415,9 @@ class FirstAgentPage:
         self.first_save(route=route.id, later=False)
 
     def first_later(self):
-        self.first_save(later=True, on_saved=self.first_later_callback())
+        leave = self.first_later_callback()
+        self._first_later_leave = leave
+        self.first_save(later=True, on_saved=leave)
 
     def first_later_callback(self):
         visit = self.__dict__.setdefault("_first_visit", object())

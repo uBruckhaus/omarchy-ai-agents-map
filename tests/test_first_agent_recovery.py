@@ -435,23 +435,33 @@ class PageLifecycleTest(unittest.TestCase):
     def test_later_retry_after_failed_verification_calls_saved_once_on_success(self):
         self.read()
         saved = mock.Mock()
-        with mock.patch.object(page.ai_core, "update_settings", side_effect=OSError("fixture")):
-            self.host.first_save(verified=["fixture"], answer="Ready", on_saved=saved)
-            self.scheduler.work()
-            self.scheduler.dispatch()
-            self.host.first_later()
-            self.scheduler.work()
-            self.scheduler.dispatch()
-            for _ in range(3):
+        leaves = []
+
+        def make_leave():
+            real = page.FirstAgentPage.first_later_callback(self.host)
+            wrapped = mock.Mock(side_effect=real)
+            leaves.append(wrapped)
+            return wrapped
+
+        with mock.patch.object(self.host, "first_later_callback", side_effect=make_leave):
+            with mock.patch.object(page.ai_core, "update_settings", side_effect=OSError("fixture")):
+                self.host.first_save(verified=["fixture"], answer="Ready", on_saved=saved)
+                self.scheduler.work()
+                self.scheduler.dispatch()
+                self.host.first_later()
+                self.scheduler.work()
+                self.scheduler.dispatch()
+                for _ in range(3):
+                    self.host.first_retry()
+                    self.scheduler.work()
+                    self.scheduler.dispatch()
+            saved.assert_not_called()
+            with mock.patch.object(page.ai_core, "update_settings"):
                 self.host.first_retry()
                 self.scheduler.work()
                 self.scheduler.dispatch()
-        saved.assert_not_called()
-        with mock.patch.object(page.ai_core, "update_settings"):
-            self.host.first_retry()
-            self.scheduler.work()
-            self.scheduler.dispatch()
         saved.assert_called_once_with()
+        self.assertEqual(sum(leave.call_count for leave in leaves), 1)
         self.assertEqual(self.host.active, "main")
 
     def test_failed_route_save_keeps_choice_error_after_read_failure(self):
