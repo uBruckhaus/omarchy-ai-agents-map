@@ -264,3 +264,16 @@ identified three remaining edge cases:
 - **Antigravity (`e9b89dd`)**: **CLEAN** — **109 related tests passed** (24 Settings, 42 guide recovery, 21 navigation, plus 22 existing first-agent/i18n/manual/no-run-on-open/window-name/Back-key checks), `py_compile`, `docs/manual/translations.py check`, and `git diff --check` all pass.
 
 Display-dependent GTK allocation, rendering, and physical keyboard checks remain desktop smoke-test items. No full suite was run and nothing was pushed.
+
+## Desktop GTK4 verification, manual PDFs, and full suite
+
+On 2026-11-20, verified on the live desktop (`WAYLAND_DISPLAY=wayland-1`, isolated temporary config/state):
+
+- **Real GTK4/Adw1 widget & allocation checks**:
+  - `test_back_keys` (all 4 tests, including real-widget `test_editing_sees_real_fields`) passed.
+  - Live `Adw.ApplicationWindow` + `build_settings_page` + `fill_settings` + `build_first_agent_page` + `fill_first_agent` verified with zero GTK/Adw warnings:
+    - Compact/wide switching, 22 pt (200%) scale threshold, search unescaping (`agent's` matches, `apos` has no matches), no-selected-section during search, and compact rebuild preserving compact visibility/state.
+    - Real GTK4 horizontal `measure()` across all 7 sections in German (`de_DE.UTF-8`, compact 540 px / 22 pt): `general` 122 px, `appearance` 104 px, `map` 314 px, `agents` 114 px, `llms` 132 px, `addons` 122 px, `about` 122 px; `first_body` 341 px (no horizontal overflow).
+- **Manual PDFs rebuilt**: `python3 docs/manual/build.py --all` rebuilt all 8 `assets/user-manual[.<lang>].pdf` editions (all passing the marketplace binary-asset check; chapter 1 on page 5 across all 8 languages).
+- **Full suite**: ran `python3 -m unittest discover -s tests -p 'test_*.py'` (**1328 tests**). Zero failures or errors in any changed or related test (**110/110 related tests pass**, including all 4 `test_back_keys` tests); 4 pre-existing host-environment failures (`test_agents.test_wrapper_alone_is_not_installed` due to system `/usr/bin/claude`, and 3 `desktop_generic` terminal-launcher tests in `test_agent_updates`/`test_terminal_pane`) plus 1 locale-dependent `test_battery` check that passes under `LANG=C`.
+- Nothing was pushed or installed into the desktop shell.
