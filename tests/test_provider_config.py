@@ -814,10 +814,11 @@ class EditorTest(unittest.TestCase):
         view.provider_config_draft.edit('gpu-memory-utilization', float('nan'))
         view.provider_config_validate()
         self.assertEqual(view.provider_config_snippet.buffer.text, '')
+        self.assertFalse(view.provider_config_snippet_card.get_visible())
         view.provider_config_fit.set_level.assert_called_with('error')
 
 
-    def build_forms(self, interaction=None):
+    def build_forms(self, interaction=None, state=None):
         from tests.test_settings_responsive import Widget, Entry, Selector
         module = self.module
         class Box(Widget):
@@ -848,7 +849,8 @@ class EditorTest(unittest.TestCase):
         checks = []
         def checkbox(**kwargs):
             item = Box(**kwargs)
-            checks.append(item)
+            if kwargs.get('label') == 'Use the default':
+                checks.append(item)
             return item
         fake_gtk = SimpleNamespace(Box=Box, Label=Box, Switch=Box, CheckButton=checkbox, DropDown=Selector,
                                   Entry=ChangedEntry, Expander=Box, LevelBar=Box,
@@ -858,7 +860,13 @@ class EditorTest(unittest.TestCase):
                     mock.patch.object(module, 'readonly_text', side_effect=lambda text: Text()), \
                     mock.patch.object(module, 'copy_button', return_value=Box()):
                 view = module.ProviderConfigPage()
-                view.provider_config_draft = module.Draft(facts(key), model='m' if key == 'llamacpp' else None)
+                found = facts(key)
+                missing = state == 'missing' and key in ('lmstudio', 'jan', 'koboldcpp')
+                if missing:
+                    found.update(models=[], scope_models=[], settings={})
+                elif state == 'unavailable':
+                    found.update(writable=False, read_only_reason='Fixture configuration unavailable')
+                view.provider_config_draft = module.Draft(found, model='m' if key == 'llamacpp' else None)
                 checks.clear()
                 view.provider_config_title = Box()
                 view.provider_config_body = Box()
@@ -866,19 +874,38 @@ class EditorTest(unittest.TestCase):
                 view.card_text = card_text
                 labels = []
                 actions = {}
+                buttons = {}
                 def button(label, **kwargs):
                     labels.append(label)
                     actions[label] = kwargs.get('on_click')
-                    return Box()
+                    buttons[label] = Box()
+                    return buttons[label]
                 view.action_button = button
                 view.action_row = lambda *a, **k: Box()
                 view.clear_box = lambda box: box.children.clear()
-                view.note_card = lambda *a: Box()
+                view.note_card = mock.Mock(return_value=Box())
+                view.ask_helpers = lambda: [SimpleNamespace(name='Fixture helper', command='fake', web=True, local=False)]
                 view.guard_text_fields_in = mock.Mock()
                 view.render_provider_config()
                 view.guard_text_fields_in.assert_called_once_with(view.provider_config_body)
                 self.assertGreater(len(view.provider_config_body.children), 5)
                 self.assertFalse(view.provider_config_apply_button.get_sensitive())
+                self.assertEqual(buttons['Ask AI'].get_sensitive(), not missing)
+                self.assertEqual(buttons['Use recommended'].get_sensitive(), not missing)
+                self.assertEqual(buttons['Ask AI'].parent.children[0].get_sensitive(), not missing)
+                if missing:
+                    self.assertEqual(view.provider_config_draft.model, '')
+                    view.note_card.assert_called_once_with(view.provider_config_body, 'info',
+                                                          'Add a model before configuring this provider.')
+                if missing or state == 'unavailable':
+                    advice_writer = found['schema'][0]['writer'] in ('environment', 'command_advice', 'launch_advice')
+                    self.assertEqual(view.provider_config_snippet_card.get_visible(), not missing and advice_writer)
+                    if state == 'unavailable' and not advice_writer:
+                        view.note_card.assert_called_once_with(view.provider_config_body, 'info',
+                                                              'Fixture configuration unavailable')
+                for field in found['schema']:
+                    control = view.provider_config_labels[field['id']].parent.children[1]
+                    self.assertEqual(control.get_sensitive(), field['verified'] and not missing)
                 for field in view.provider_config_draft.facts['schema']:
                     for special in field.get('special', []):
                         self.assertIn(str(special), labels)
@@ -900,6 +927,12 @@ class EditorTest(unittest.TestCase):
 
     def test_builds_complete_forms_headlessly_for_all_scopes(self):
         self.build_forms()
+
+    def test_per_model_providers_without_models_disable_editors_and_ai(self):
+        self.build_forms(state='missing')
+
+    def test_unavailable_config_shows_notice_without_empty_advice(self):
+        self.build_forms(state='unavailable')
 
     def test_typing_enables_use_default_without_rerender(self):
         self.build_forms(interaction='default')
@@ -1038,6 +1071,30 @@ class EditorTest(unittest.TestCase):
         self.assertIs(view.provider_config_draft, draft)
         self.assertEqual(draft.values['threads'], 4)
         self.assertFalse(view.provider_config_busy)
+
+    def test_ask_without_model_never_invokes_online_or_local_helper(self):
+        for key in ('lmstudio', 'jan', 'koboldcpp'):
+            for local in (False, True):
+                with self.subTest(provider=key, local=local):
+                    view = self.callback_view()
+                    found = facts(key)
+                    found.update(models=[], scope_models=[], settings={})
+                    view.provider_config_draft = self.module.Draft(found)
+                    view.run_ai_help = mock.Mock()
+                    view.ready_helper_model = mock.Mock()
+                    helper = SimpleNamespace(local=local, command='fake',
+                                             candidate=SimpleNamespace(agent='fake', model='m', runtime='llamacpp'))
+                    with mock.patch.object(config, 'require_allowed') as allowed, \
+                            mock.patch.object(config, 'collect') as collect, \
+                            mock.patch.object(config, 'ask') as ask:
+                        view.ask_provider_config(helper, '', False)
+                    allowed.assert_not_called()
+                    collect.assert_not_called()
+                    ask.assert_not_called()
+                    view.run_ai_help.assert_not_called()
+                    view.ready_helper_model.assert_not_called()
+                    self.assertFalse(view.provider_config_busy)
+                    self.assertTrue(view.provider_config_body.get_sensitive())
 
     def test_stale_job_restores_sensitivity(self):
         view = self.callback_view()

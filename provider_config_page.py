@@ -36,6 +36,10 @@ class Draft:
         self.web = False
 
     @property
+    def missing_model(self):
+        return self.facts['schema'][0]['scope'] == 'per_model' and not self.model
+
+    @property
     def math(self):
         return config.ConfigMath(self.facts, self.model)
 
@@ -233,7 +237,7 @@ class ProviderConfigPage:
                 for special in field.get('special', []):
                     control.append(self.action_button(str(special),
                         on_click=lambda value=special, e=editor, k=key: self.provider_config_special(k, value, e)))
-            control.set_sensitive(field['verified'] and not (current is None and key in draft.values))
+            control.set_sensitive(field['verified'] and not draft.missing_model and not (current is None and key in draft.values))
             if not field['verified']:
                 control.set_tooltip_text(_('Not verified on this PC'))
             row.append(control)
@@ -258,11 +262,16 @@ class ProviderConfigPage:
         self.provider_config_snippet_card.body.append(copy_button(lambda: self.provider_config_snippet.get_buffer().get_text(
             self.provider_config_snippet.get_buffer().get_start_iter(), self.provider_config_snippet.get_buffer().get_end_iter(), False), label=_('Copy')))
         body.append(self.provider_config_snippet_card)
-        if not config.can_write(facts, draft.model):
-            self.card_text(self.provider_config_snippet_card.body, facts['read_only_reason'] or _('Configuration file is unavailable'))
+        if not config.can_write(facts, draft.model) and not draft.missing_model:
+            reason = facts['read_only_reason'] or _('Configuration file is unavailable')
+            if facts['schema'][0]['writer'] in ('environment', 'command_advice', 'launch_advice'):
+                self.card_text(self.provider_config_snippet_card.body, reason)
+            else:
+                self.note_card(body, 'info', reason)
         self.provider_config_apply_button = self.action_button(_('Apply…'), role='primary', on_click=self.review_provider_config)
         reset = self.action_button(_('Reset'), on_click=lambda: self.provider_config_reset())
         use = self.action_button(_('Use recommended'), on_click=lambda: self.provider_config_recommended())
+        use.set_sensitive(not draft.missing_model)
         undo = self.action_button(_('Undo'), on_click=self.undo_provider_config)
         undo.set_sensitive(draft.backup is not None)
         body.append(self.action_row(use, reset, undo, self.provider_config_apply_button))
@@ -363,9 +372,12 @@ class ProviderConfigPage:
         self.provider_config_fit_bar.set_value(min(1, f['total'] / f['available']) if f and f['available'] else 0)
         self.provider_config_messages.set_label('\n'.join(e['text'] for e in check['errors'] + check['warnings']))
         self.provider_config_apply_button.set_sensitive(bool(draft.changed and not check['errors'] and config.can_write(draft.facts, draft.model)))
-        advice = config.snippet(draft.facts, draft.math.effective(draft.values)) if not check['errors'] and not config.can_write(draft.facts, draft.model) else ''
+        advice = config.snippet(draft.facts, draft.math.effective(draft.values)) if (
+            not check['errors'] and not draft.missing_model
+            and not config.can_write(draft.facts, draft.model)
+            and draft.facts['schema'][0]['writer'] in ('environment', 'command_advice', 'launch_advice')) else ''
         self.provider_config_snippet.get_buffer().set_text(advice)
-        self.provider_config_snippet_card.set_visible(not config.can_write(draft.facts, draft.model))
+        self.provider_config_snippet_card.set_visible(bool(advice))
         return False
 
     def provider_config_cancel_timer(self):
@@ -511,6 +523,7 @@ class ProviderConfigPage:
         picker = Gtk.DropDown.new_from_strings(names)
         index = next((i for i, h in enumerate(helpers) if h.command == draft.helper_command), 0)
         picker.set_selected(index)
+        picker.set_sensitive(not draft.missing_model)
         card.body.append(picker)
         focus = Gtk.Entry(text=draft.focus, placeholder_text=_('What matters most?'), max_length=500)
         focus.connect('changed', lambda w: setattr(draft, 'focus', w.get_text()))
@@ -528,8 +541,10 @@ class ProviderConfigPage:
         picker.connect('notify::selected', helper_changed)
         web.connect('toggled', lambda w: setattr(draft, 'web', w.get_active()))
         helper_changed()
-        card.body.append(self.action_button(_('Ask AI'), on_click=lambda: self.ask_provider_config(
-            helpers[picker.get_selected()], focus.get_text(), web.get_active())))
+        ask = self.action_button(_('Ask AI'), on_click=lambda: self.ask_provider_config(
+            helpers[picker.get_selected()], focus.get_text(), web.get_active()))
+        ask.set_sensitive(not draft.missing_model)
+        card.body.append(ask)
         if draft.ai_answer is not None:
             self.provider_config_ai_badge = self.card_text(card.body, _('From Ask AI') if draft.from_ai else _('AI advice (draft edited manually)'))
             self.card_text(card.body, draft.ai_answer['summary'])
@@ -539,7 +554,7 @@ class ProviderConfigPage:
 
     def ask_provider_config(self, helper, focus, web):
         draft = self.provider_config_draft
-        if self.provider_config_busy:
+        if self.provider_config_busy or draft.missing_model:
             return
         try:
             config.require_allowed(draft.facts['key'])
