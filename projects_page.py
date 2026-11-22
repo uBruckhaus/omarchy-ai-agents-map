@@ -195,8 +195,19 @@ class ProjectsBoard:
         content.append(Gtk.Label(label=text))
         button.set_child(content)
         button.add_css_class("am-chip")
-        button.connect("clicked", lambda *_a: clicked())
+
+        def pressed(*_a):
+            clicked()
+            # The chip shows the filter, not its own toggle: All stays on while no filter is chosen
+            # (a click on it then changes nothing, so the summary is not drawn again).
+            if not self.ctrl.disposed and button.get_active() != self.chip_active(button):
+                button.set_active(self.chip_active(button))
+        button.filter_code = None
+        button.connect("clicked", pressed)
         return button
+
+    def chip_active(self, button) -> bool:
+        return self.ctrl.filter == button.filter_code
 
     def render_summary(self):
         ctrl = self.ctrl
@@ -221,14 +232,17 @@ class ProjectsBoard:
 
         def named(name, code):
             return _(name) if counts is None else f"{_(name)} {counts.get(code, 0)}"
-        self.chips.append(self._chip(named("All", "all"), texts.ALL_ICON, ctrl.filter is None,
-                                     lambda: ctrl.set_filter(None)))
+        self.all_chip = self._chip(named("All", "all"), texts.ALL_ICON, ctrl.filter is None,
+                                   lambda: ctrl.set_filter(None))
+        self.chips.append(self.all_chip)
         marks = ctrl.importance_counts()
         if marks is not None:
             self.chips.append(self._importance_chip(marks))
         for code, name, icon_name in texts.FILTERS:
-            self.chips.append(self._chip(named(name, code), icon_name, ctrl.filter == code,
-                                         lambda code=code: ctrl.set_filter(code)))
+            chip = self._chip(named(name, code), icon_name, ctrl.filter == code,
+                              lambda code=code: ctrl.set_filter(code))
+            chip.filter_code = code
+            self.chips.append(chip)
         named_views = self.width >= VIEW_NAMED
         for code, name, icon_name in texts.VIEWS:
             button = self.view_buttons[code]

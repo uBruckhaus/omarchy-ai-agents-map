@@ -197,6 +197,12 @@ def main():
     spin(lambda: board.order == ["blocked"])
     ctrl.set_filter(None)
     spin(lambda: len(board.order) == 4)
+    # All stays on when it is clicked again with no filter chosen.
+    assert board.all_chip.get_active()
+    board.all_chip.emit("clicked")
+    spin(lambda: True, 0.1)
+    assert board.all_chip.get_active() and ctrl.filter is None
+    spin(lambda: len(board.order) == 4)
     # Resizing across every breakpoint keeps one child per card (no duplicates left behind).
     for width in (500, 800, 1200, 650, 1200):
         board.on_width(width)
