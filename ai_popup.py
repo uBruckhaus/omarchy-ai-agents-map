@@ -101,6 +101,7 @@ import model_layout
 import jobs
 import health
 import web_sources
+import map_3d                   # Settings › Map › 3D map layout
 from map_view import ORDER_KEEP, PIN, PIN_OUTLINE, LegendSample, MapView, Meter
 from gi.repository import Graphene, PangoCairo  # noqa: E402  (map_view asked for their versions)
 from palette import ThemePalette, outside_color
@@ -2625,6 +2626,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         colors = look.get("line_colors") if isinstance(look, dict) else None
         self.side_map.line_colors = {str(k): v for k, v in (colors.items() if isinstance(colors, dict) else ())
                                      if isinstance(v, str) and len(v) <= 20}
+        self.side_map.three_d = map_3d.enabled(look)          # Settings › Map › 3D map layout (on by default)
 
     def save_map_layout(self):
         self.save_setting(map_layout={"order": self.side_map.order,

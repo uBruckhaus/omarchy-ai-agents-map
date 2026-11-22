@@ -43,6 +43,7 @@ import math
 import cairo
 
 import graph as graph_model
+import map_3d
 import usage_box
 from glyphs import MCP_GLYPHS, glyph
 
@@ -247,6 +248,10 @@ class MapView(Gtk.DrawingArea):
         self.usage_size = usage_box.SIZES[0]  # its text size in pt
         self.outside = {}        # runtime id -> {model id: "in use · Video Trans"}: an app outside the map generates
         self.texture = None      # ((width, height, scale), Gdk.Texture): the map's last drawing
+        self.three_d = True      # Settings › Map › 3D map layout (map_3d.py; Maprisma task 069b)
+        self.sockets = []        # (x, y, rgba) where the cables drawn this time meet their boxes (3D)
+        self.stage = map_3d.Stage()   # the 3D floor, kept per size and palette
+        self.pal_cache = (None, None)  # (self.colors, map_3d.Palette of them)
         self.scroll_adjustment = None
         self.connect("map", lambda *_: self.follow_scrolling())
         self.set_hexpand(True)
@@ -269,6 +274,25 @@ class MapView(Gtk.DrawingArea):
         scroll = Gtk.EventControllerScroll(flags=Gtk.EventControllerScrollFlags.VERTICAL)
         scroll.connect("scroll", self.on_scroll)
         self.add_controller(scroll)
+
+    def set_three_d(self, on: bool):
+        """Settings › Map › 3D map layout: raised cards and boxes, cables, a floor; off: the flat map."""
+        on = bool(on)
+        if on != self.three_d:
+            self.three_d = on
+            self.queue_draw()
+            if self.flow_layer is not None:
+                self.flow_layer.queue_draw()
+
+    def palette_3d(self):
+        """map_3d's colours of this palette, worked out once per palette (None: the flat map)."""
+        if not self.three_d:
+            return None
+        colors, pal = getattr(self, "pal_cache", (None, None))
+        if pal is None or colors is not self.colors:
+            pal = map_3d.palette(self.color)
+            self.pal_cache = (self.colors, pal)
+        return pal
 
     def set_palette(self, colors: dict, radius: int):
         self.colors = dict(colors)
@@ -358,12 +382,20 @@ class MapView(Gtk.DrawingArea):
             start, c1, c2, base = curve
             self.agent_link_points.append((user, used, [self.bezier(curve, i / 24) for i in range(25)]))
             end = (base[0] + 7, base[1])                              # the box of the agent used
+
+            def trace(cr, start=start, c1=c1, c2=c2, base=base, end=end):
+                cr.move_to(*start)
+                cr.curve_to(*c1, *c2, *base)
+                cr.line_to(*end)
+            if self.three_d:                                          # a cable, without sockets (Maprisma)
+                map_3d.paint_cable(cr, trace, self.color("collab", 0.95), 1.8, self.palette_3d())
+                cr.set_line_cap(cairo.LINE_CAP_ROUND)
+            else:
+                trace(cr)
+                cr.set_source_rgba(*self.color("collab", 0.95))
+                cr.set_line_width(1.8)
+                cr.stroke()
             cr.set_source_rgba(*self.color("collab", 0.95))
-            cr.set_line_width(1.8)
-            cr.move_to(*start)
-            cr.curve_to(*c1, *c2, *base)
-            cr.line_to(*end)
-            cr.stroke()
             for x, y in (start, end):                                 # both agents take part
                 cr.arc(x, y, 2.6, 0, 2 * math.pi)
                 cr.fill()
@@ -1319,13 +1351,20 @@ class MapView(Gtk.DrawingArea):
         y1 = sy + sh / 2
         x2, y2 = link["x"], link["y"]
         bend = (x2 - x1) * 0.5
+
+        def trace(cr):
+            cr.move_to(x1, y1)
+            cr.curve_to(x1 + bend, y1, x2 - bend, y2, x2, y2)
+        if self.three_d:                    # the cable being drawn floats with its shadow
+            map_3d.paint_cable(cr, trace, self.color("accent", 0.95), 2.2, self.palette_3d(), dash=[6, 4])
+        else:
+            cr.set_source_rgba(*self.color("accent", 0.95))
+            cr.set_line_width(2.2)
+            cr.set_dash([6, 4])
+            trace(cr)
+            cr.stroke()
+            cr.set_dash([])
         cr.set_source_rgba(*self.color("accent", 0.95))
-        cr.set_line_width(2.2)
-        cr.set_dash([6, 4])
-        cr.move_to(x1, y1)
-        cr.curve_to(x1 + bend, y1, x2 - bend, y2, x2, y2)
-        cr.stroke()
-        cr.set_dash([])
         cr.arc(x2, y2, 4, 0, 2 * math.pi)
         cr.fill()
 
@@ -1980,7 +2019,10 @@ class MapView(Gtk.DrawingArea):
                     marks.append(("line", ax, ay, bx, by, 1.0 + 3.5 * fade, (*light, 0.9 * fade * fade * ends)))
                 x, y = points[0]
                 marks.append(("glow", x, y, 18, light, accent[:3], ends))
-                marks.append(("dot", x, y, 3.2, self.color("fg", ends)))
+                if getattr(self, "three_d", False):          # a shaded sphere (map_3d), its catchlight last
+                    marks += map_3d.sphere_marks(x, y, accent, ends)
+                else:
+                    marks.append(("dot", x, y, 3.2, self.color("fg", ends)))
         return marks
 
     def with_flow_layer(self) -> Gtk.Widget:
@@ -2046,7 +2088,10 @@ class MapView(Gtk.DrawingArea):
         # Hover and pins only fade the rest; a selection draws nothing but its own connections.
         only_lit = self.focus() is None and lit_edges is not None and bool(self.selected)
         layout = PangoCairo.create_layout(cr)
-
+        pal = self.palette_3d()
+        if pal is not None:
+            self.stage.paint(cr, width, height, pal)
+        self.sockets = []
 
         # Edges first, under the boxes; the active paths last, on top.
         active_edges, _active_models = self.active_now(lit_edges)
@@ -2082,26 +2127,39 @@ class MapView(Gtk.DrawingArea):
                 alpha = min(alpha, 0.25)        # a subagent that finished: its line as dim as its box
             if edge.failed:
                 # Failed (red) or with warnings (yellow), dotted, until it is removed by hand.
-                cr.set_source_rgba(*self.color("red" if edge.failed == "error" else "yellow",
-                                               max(alpha, 0.85) if not (lit_edges is not None and alpha < 0.5) else alpha))
-                cr.set_line_width(3.2 if picked else 2.4)
+                line_rgba = self.color("red" if edge.failed == "error" else "yellow",
+                                       max(alpha, 0.85) if not (lit_edges is not None and alpha < 0.5) else alpha)
+                line_w = 3.2 if picked else 2.4
                 cr.set_line_cap(cairo.LINE_CAP_ROUND)
-                cr.set_dash([0.1, 5])
+                dash = [0.1, 5]
             else:
                 # Loaded in its local LLM but no agent's: solid and light (EDGE_COLORS["loaded"]).
                 # Agents on different models: violet; the one picked agent's own path stays in the accent;
                 # an agent another one uses now: its path in the collaboration colour, as the arrow to it.
                 tint = "collab" if active and index in collab else None if index in own_path else self.tints.get(index)
-                cr.set_source_rgba(*self.color(tint or ("accent" if active else "outside" if outside
-                                               else self.edge_color(edge.kind, loaded)),
-                                               0.85 if loaded and alpha == 1.0 else alpha))
-                cr.set_line_width(3.2 if picked else 2.8 if active or outside else 2.2 if loaded else
-                                  2.0 if lit_edges is not None and index in lit_edges else 1.4)
+                line_rgba = self.color(tint or ("accent" if active else "outside" if outside
+                                       else self.edge_color(edge.kind, loaded)),
+                                       0.85 if loaded and alpha == 1.0 else alpha)
+                line_w = (3.2 if picked else 2.8 if active or outside else 2.2 if loaded else
+                          2.0 if lit_edges is not None and index in lit_edges else 1.4)
                 # Dashed: set up but not in use (an agent's second provider).
-                cr.set_dash([5, 4] if edge.kind == "available" else [1.5, 4] if edge.kind == "offer" else [])
-            cr.move_to(x1, y1)
-            cr.curve_to(x1 + bend, y1, x2 - bend, y2, x2, y2)
-            cr.stroke()
+                dash = [5, 4] if edge.kind == "available" else [1.5, 4] if edge.kind == "offer" else []
+
+            def trace(cr, x1=x1, y1=y1, x2=x2, y2=y2, bend=bend):
+                cr.move_to(x1, y1)
+                cr.curve_to(x1 + bend, y1, x2 - bend, y2, x2, y2)
+            if pal is not None:
+                # A floating cable; faded ones lie flat (no shadow, no sockets), as Maprisma's.
+                part = lit_edges is None or index in lit_edges
+                map_3d.paint_cable(cr, trace, line_rgba, line_w, pal, shadow=part, dash=dash)
+                if part and line_rgba[3] > 0.3:
+                    self.sockets += [(x1, y1, line_rgba), (x2, y2, line_rgba)]
+            else:
+                cr.set_source_rgba(*line_rgba)
+                cr.set_line_width(line_w)
+                cr.set_dash(dash)
+                trace(cr)
+                cr.stroke()
             cr.set_dash([])
             drawn.add(index)
             cr.set_line_cap(cairo.LINE_CAP_BUTT)
@@ -2150,6 +2208,9 @@ class MapView(Gtk.DrawingArea):
             selected = node.id in self.selected
             self.draw_box(cr, layout, node, x, y, w, h, faded, alpha, lit_nodes)
 
+        if pal is not None:
+            for sx, sy, rgba_ in self.sockets:     # over the boxes' edges: where each cable plugs in
+                map_3d.paint_socket(cr, sx, sy, rgba_, pal)
         self.draw_agent_links(cr)                 # over the agents' card: an agent using another one
         self.draw_hooks(cr)                       # over the boxes: a hook is never half hidden
         self.draw_link(cr)
@@ -2163,16 +2224,29 @@ class MapView(Gtk.DrawingArea):
         selected = node.id in self.selected
         running = node.status == "running"
         dim_factor = 0.4 if faded else 1.0
+        joined = lit_nodes is not None and node.id in lit_nodes
+        framed = node.id == self.hover or selected or joined
+        tint = ("accent", 0.22 * dim_factor) if running else ("fg", (0.07 if node.kind == "agent" else 0.045) * dim_factor)
+        pal = self.palette_3d()
+        if pal is not None:
+            # A solid block, tiered by column, lifted while hovered, selected or running, flat when faded.
+            lifted = framed or running
+            face = map_3d.mix(pal.bg, self.color(tint[0])[:3], tint[1])
+            map_3d.paint_block_back(cr, x, y, w, h, self.radius, face,
+                                    map_3d.block_depth(node.column, lifted and not faded, faded), pal,
+                                    accent=pal.accent if framed or running else None,
+                                    elevated=lifted and not faded, dimmed=faded)
         self.rounded(cr, x, y, w, h, self.radius)
         cr.set_source_rgba(*self.color("bg", 1.0))
         cr.fill_preserve()
-        if running:
-            cr.set_source_rgba(*self.color("accent", 0.22 * dim_factor))
+        cr.set_source_rgba(*self.color(*tint))
+        if pal is not None:
+            cr.fill()
+            map_3d.paint_block_front(cr, x, y, w, h, self.radius, pal, elevated=(framed or running) and not faded,
+                                     dimmed=faded)
+            self.rounded(cr, x, y, w, h, self.radius)
         else:
-            cr.set_source_rgba(*self.color("fg", (0.07 if node.kind == "agent" else 0.045) * dim_factor))
-        cr.fill_preserve()
-        joined = lit_nodes is not None and node.id in lit_nodes
-        framed = node.id == self.hover or selected or joined
+            cr.fill_preserve()
         border = "accent" if framed or running else "fg"
         cr.set_source_rgba(*self.color(border, (0.9 if framed else 0.6 if running else 0.16) * (0.3 if faded else 1)))
         cr.set_line_width(3 if selected else 2 if framed else 1.2 if running else 1)
@@ -2330,9 +2404,14 @@ class MapView(Gtk.DrawingArea):
             if only is not None and key != only:
                 continue
             lifted = key == moving
+            folded = key in self.collapsed
+            if self.three_d:
+                # A raised plinth (map_3d.paint_card): walls, a shadow, its tray when open.
+                map_3d.paint_card(cr, x, y, w, h, self.radius + 2, self.palette_3d(), folded, lifted)
             self.rounded(cr, x, y, w, h, self.radius + 2)
             cr.set_source_rgba(*self.color("bg", 1.0))           # opaque: a card over another hides it
-            cr.fill_preserve()
+            if not self.three_d:                                # in 3D its face is the plinth's
+                cr.fill_preserve()
             cr.set_source_rgba(*self.color("fg", 0.045 if lifted else 0.03))
             if lifted:                                          # no frame, only while it is dragged
                 cr.fill_preserve()
@@ -2342,7 +2421,6 @@ class MapView(Gtk.DrawingArea):
             else:
                 cr.fill()
             # The header band: a little stronger, with a line under it (a collapsed card is only this).
-            folded = key in self.collapsed
             if folded:
                 self.rounded(cr, x, y, w, CARD_HEAD, self.radius + 2)
             else:
@@ -2492,6 +2570,18 @@ class MapView(Gtk.DrawingArea):
             on = sum(1 for n in self.shown(column) if n.kind != "more" and not n.dim)
             available, found = self.summary_counts(column) if self.summary_counts is not None else (0, 0)
             empty = on == 0
+            pal = self.palette_3d()
+            if pal is not None:
+                # Maprisma's column card as a block (Map3dBlock), as deep as its column's boxes; an empty
+                # column's lies nearly flat.
+                face = map_3d.mix(pal.bg, pal.fg, 0.0 if empty else 0.07)
+                map_3d.paint_block_back(cr, x, y, w, h, self.radius + 2, face, map_3d.block_depth(column, dimmed=empty),
+                                        pal, dimmed=empty)
+                self.rounded(cr, x, y, w, h, self.radius + 2)
+                cr.set_source_rgba(*pal.bg, 1.0)
+                cr.fill()
+                if not empty:
+                    map_3d.paint_block_front(cr, x, y, w, h, self.radius + 2, pal)
             self.rounded(cr, x, y, w, h, self.radius + 2)
             if empty:
                 cr.set_source_rgba(*self.color("fg", 0.45))
@@ -3141,6 +3231,8 @@ def draw_marks(cr, marks):
             cr.set_source(glow)
             cr.arc(x, y, radius, 0, 2 * math.pi)
             cr.fill()
+        elif mark[0] == "sphere":
+            map_3d.paint_sphere(cr, *mark[1:])
         else:
             _kind, x, y, radius, rgba_ = mark
             cr.set_source_rgba(*rgba_)
