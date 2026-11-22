@@ -104,6 +104,36 @@ class GeometryTest(unittest.TestCase):
         self.assertFalse(map_3d.recessed(False, True, True))      # … unless it is lit
         self.assertFalse(map_3d.recessed(False, False, False))
 
+    def test_part_of_a_curve(self):
+        points = (0, 0, 50, 0, 50, 100, 100, 100)
+        self.assertEqual(map_3d.sub_bezier(points, 0, 1), points)
+        part = map_3d.sub_bezier(points, 0.25, 0.75)
+        for a, b in ((part[:2], map_3d.bezier_point(points, 0.25)), (part[6:], map_3d.bezier_point(points, 0.75))):
+            self.assertAlmostEqual(a[0], b[0])
+            self.assertAlmostEqual(a[1], b[1])
+        middle = map_3d.bezier_point(part, 0.5)
+        self.assertAlmostEqual(middle[0], map_3d.bezier_point(points, 0.5)[0])
+
+    def test_the_stretch_under_a_card_is_left_out(self):
+        points = (0, 0, 50, 0, 50, 0, 100, 0)          # a straight line
+        t0, t1 = map_3d.uncovered_span(points, [(-10, -10, 40, 20)], [])
+        self.assertTrue(0.25 < t0 < 0.4)
+        self.assertEqual(t1, 1.0)
+        t0, t1 = map_3d.uncovered_span(points, [(-10, -10, 200, 20)], [])
+        self.assertGreaterEqual(t0, t1)                 # all of it under the card
+
+    def test_a_hole_shows_where_a_card_lies_over_it(self):
+        image, cr = surface(100, 100)
+        map_3d.clip_hidden(cr, [((10, 10, 60, 60, 0), [(40, 10, 50, 60)])])
+        cr.paint()
+        self.assertEqual(alpha_at(image, 5, 5), 255)     # outside the hole
+        self.assertEqual(alpha_at(image, 20, 40), 0)     # the hole
+        self.assertEqual(alpha_at(image, 50, 40), 255)   # the hole, under a later card
+        image, cr = surface(100, 100)
+        map_3d.clip_hidden(cr, [((10, 10, 60, 60, 6), []), ((50, 50, 40, 40, 6), [])])
+        cr.paint()
+        self.assertEqual(alpha_at(image, 60, 60), 0)     # two holes overlapping
+
     def test_floor_grid(self):
         lines = map_3d.stage_lines(1200, 600)
         rows = [line for line in lines if line[1] == line[3]]
@@ -373,19 +403,24 @@ def headless(three_d=True, edges=(), collapsed=(), moved=None):
                  graph.Node("skills:~/s", 0, "~/s", "", "skills"),
                  graph.Node("cloud:anthropic", 2, "Anthropic", "", "cloud")):
         g.add(node)
-    for source, target, kind in edges:
+    for source, target, kind, *failed in edges:
         g.link(source, target, kind)
+        g.edges[-1].failed = failed[0] if failed else ""
     view.set_palette(COLORS, 6)
     view.set_graph(g, ["", "", "", ""])
     view.set_three_d(three_d)
     view.collapsed = {view.group_key(n) for n in g.nodes if n.id in collapsed}
-    if moved:
-        node_id, place = moved
-        view.cards = {view.group_key(next(n for n in g.nodes if n.id == node_id)): list(place)}
+    if moved:                                   # (node id, place), or a list of them in the order moved
+        view.cards = {view.group_key(next(n for n in g.nodes if n.id == node_id)): list(place)
+                      for node_id, place in ([moved] if isinstance(moved[0], str) else moved)}
+    return view, redraw(view)
+
+
+def redraw(view):
     image = cairo.ImageSurface(cairo.FORMAT_ARGB32, 1300, 600)
     view.on_draw(view, cairo.Context(image), 1300, 600)
     image.flush()
-    return view, image
+    return image
 
 
 def pixels(image, rect, inset=6):
@@ -434,6 +469,42 @@ class WholeMapTest(unittest.TestCase):
             x, y, w, h = view.boxes[node_id]
             shown = (x, y, min(w, 700 - x), h)            # the part the moved card does not lie over
             self.assertEqual(pixels(wired, shown), pixels(plain, shown), node_id)
+
+    def test_a_box_partly_under_a_later_card_stays_clean_where_it_shows(self):
+        moved = [("skills:~/s", (400, 240)), ("agent:pi", (500, 240))]     # Skills, then the agents on it
+        view, plain = headless(True, (), moved=moved)
+        _view, wired = headless(True, self.EDGES, moved=moved)
+        x, y, w, h = view.boxes["skills:~/s"]
+        agents = view.card_rects[view.group_key(next(n for n in view.graph.nodes if n.id == "agent:pi"))]
+        shown = (x, y, agents[0] - x, h)              # left of the agents' card
+        self.assertGreater(shown[2], 20)
+        self.assertEqual(pixels(wired, shown), pixels(plain, shown))
+
+    FAILED = (("agent:claude", "cloud:anthropic", "uses", "error"),)
+
+    def test_a_marker_under_a_box_neither_shows_nor_takes_clicks(self):
+        moved = [("skills:~/s", (700, 260)), ("cloud:anthropic", (1000, 277))]
+        view, plain = headless(True, (), moved=moved)
+        _view, wired = headless(True, self.FAILED, moved=moved)
+        box = view.boxes["skills:~/s"]
+        self.assertEqual(pixels(wired, box, 2), pixels(plain, box, 2))
+        x, y, w, h = box
+        self.assertFalse([p for p in _view.marker_points if x <= p[1] <= x + w and y <= p[2] <= y + h])
+
+    def test_marker_clicks_follow_the_failures(self):
+        view, _image = headless(True, self.FAILED)
+        self.assertEqual([key for key, *_xy in view.marker_points], [("agent:claude", "cloud:anthropic")])
+        view.graph.edges[0].failed = ""               # repaired
+        redraw(view)
+        self.assertEqual(view.marker_points, [])
+        view.graph.edges.clear()                      # removed
+        redraw(view)
+        self.assertEqual(view.marker_points, [])
+        for three_d in (True, False):                 # the flat map the same
+            view, _image = headless(three_d, self.FAILED)
+            view.graph.edges[0].failed = ""
+            redraw(view)
+            self.assertEqual(view.marker_points, [], three_d)
 
     def test_the_flat_map_is_drawn_as_before(self):
         _view, image = headless(False, self.EDGES)

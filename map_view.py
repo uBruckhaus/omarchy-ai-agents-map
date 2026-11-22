@@ -1004,34 +1004,39 @@ class MapView(Gtk.DrawingArea):
             cr.set_source_rgba(*self.color("bg", 0.9 * alpha))
             cr.fill()
 
-    def draw_markers(self, cr, edges, only=None):
-        """A "!" on every failed line (click the line for its hints), apart from each other. `only`: paint
-        just these edges' (3D paints each with its cable), all placed as one."""
+    def place_markers(self, edges) -> list:
+        """[(edge, t, x, y)]: where the "!" of each failed line goes, apart from each other."""
         placed = []
-        self.marker_points = []
         for edge in sorted(edges, key=lambda e: e.failed != "error"):     # errors first: they keep the middle
             for t in (0.5, 0.38, 0.62, 0.28, 0.72, 0.2, 0.8):
                 mx, my = self.curve_point(edge, t)
-                if all(math.hypot(mx - px, my - py) >= 18 for px, py in placed):
+                if all(math.hypot(mx - px, my - py) >= 18 for _e, _t, px, py in placed):
                     break
-            placed.append((mx, my))
+            placed.append((edge, t, mx, my))
+        return placed
+
+    def draw_markers(self, cr, edges):
+        """A "!" on every failed line (click the line for its hints), apart from each other."""
+        self.marker_points = []
+        for edge, _t, mx, my in self.place_markers(edges):
             self.marker_points.append(((edge.source, edge.target), mx, my))
-            if only is not None and not any(edge is e for e in only):
-                continue
-            color = "red" if edge.failed == "error" else "yellow"
-            cr.arc(mx, my, 7.5, 0, 2 * math.pi)
-            cr.set_source_rgba(*self.color("bg"))
-            cr.fill_preserve()
-            cr.set_source_rgba(*self.color(color))
-            cr.set_line_width(1.8)
-            cr.stroke()
-            cr.set_line_cap(cairo.LINE_CAP_ROUND)
-            cr.move_to(mx, my - 3.8)
-            cr.line_to(mx, my + 0.9)
-            cr.stroke()
-            cr.set_line_cap(cairo.LINE_CAP_BUTT)
-            cr.arc(mx, my + 3.4, 1.0, 0, 2 * math.pi)
-            cr.fill()
+            self.paint_marker(cr, edge, mx, my)
+
+    def paint_marker(self, cr, edge, mx, my):
+        color = "red" if edge.failed == "error" else "yellow"
+        cr.arc(mx, my, 7.5, 0, 2 * math.pi)
+        cr.set_source_rgba(*self.color("bg"))
+        cr.fill_preserve()
+        cr.set_source_rgba(*self.color(color))
+        cr.set_line_width(1.8)
+        cr.stroke()
+        cr.set_line_cap(cairo.LINE_CAP_ROUND)
+        cr.move_to(mx, my - 3.8)
+        cr.line_to(mx, my + 0.9)
+        cr.stroke()
+        cr.set_line_cap(cairo.LINE_CAP_BUTT)
+        cr.arc(mx, my + 3.4, 1.0, 0, 2 * math.pi)
+        cr.fill()
 
     def edge_distance(self, edge, x, y) -> float:
         """How far (x, y) is from the line, sampled along its curve."""
@@ -2158,7 +2163,8 @@ class MapView(Gtk.DrawingArea):
                 # A floating cable, painted later with its cards (draw_3d); faded ones lie flat (no
                 # shadow, no sockets), as Maprisma's.
                 part = lit_edges is None or index in lit_edges
-                cables.append(map_3d.Cable(edge, trace, line_rgba, line_w, part, dash, bool(edge.failed),
+                cables.append(map_3d.Cable(edge, (x1, y1, x1 + bend, y1, x2 - bend, y2, x2, y2), line_rgba,
+                                           line_w, part, dash, bool(edge.failed),
                                            ((edge.source, (x1, y1)), (edge.target, (x2, y2))),
                                            part and line_rgba[3] > 0.3))
             else:
@@ -2175,6 +2181,8 @@ class MapView(Gtk.DrawingArea):
 
         if pal is None:
             self.draw_markers(cr, markers)
+        else:
+            self.marker_points = []          # draw_3d places the ones it shows
         allowed = self.animations_allowed() and self.link is None
         if self.flow_layer is not None:
             outside = self.outside_paths(drawn) if allowed and self.animate == "all" else []
@@ -2234,16 +2242,21 @@ class MapView(Gtk.DrawingArea):
     def covering(self, point, own: int, upto: int, layers: dict) -> list:
         """The rectangles of the cards in layers above `own`, up to `upto`, that lie over `point`."""
         px, py = point
-        return [rect for key, rect, *_rest in self.group_labels
-                if own < layers.get(key, 0) <= upto
-                and rect[0] <= px <= rect[0] + rect[2] and rect[1] <= py <= rect[1] + rect[3]]
+        return [rect for rect in self.cards_between(own, upto, layers)
+                if rect[0] <= px <= rect[0] + rect[2] and rect[1] <= py <= rect[1] + rect[3]]
+
+    def cards_between(self, own: int, upto: int, layers: dict) -> list:
+        """The rectangles of the cards in layers above `own`, up to `upto`."""
+        return [rect for key, rect, *_rest in self.group_labels if own < layers.get(key, 0) <= upto]
 
     def draw_3d(self, cr, layout, pal, cables, markers, lit_nodes):
         """The 3D map's cards, cables and boxes, layer by layer (card_layers), as Maprisma paints them:
         the plinths, the cables over them, the boxes over the cables, then the sockets. A cable goes with
-        the higher layer of its two ends and is clipped out of what lies over it there: folded headers
-        (as on the flat map, its end stays under the header), the boxes and moved cards of lower layers,
-        and a card lying over its other end."""
+        the higher layer of its two ends. Where something painted before lies over it, it is hidden:
+        the faces of lower boxes and the folded headers (as on the flat map, a line's end stays under
+        its header), each only where no card painted since lies over it; and the stretch of a cable
+        that starts under a card moved over its end is left out up to where it comes out from under
+        that card. A failed line's "!" shows (and takes clicks) only where its cable does."""
         layers = self.card_layers()
         card_of = {n.id: self.group_key(n) for n in self.graph.nodes if n.id in self.boxes}
         by_layer = {}                # layer -> {card key: [nodes]} in the cards' order
@@ -2253,62 +2266,75 @@ class MapView(Gtk.DrawingArea):
                 key = card_of[node.id]
                 by_layer.setdefault(layers.get(key, 0), {}).setdefault(key, []).append(node)
         radius = self.radius + 2
-        # A folded header hides its cables' ends, as on the flat map (a pixel more: no antialiased seam).
-        folded_cards = [(x - 1, y - 1, w + 2, h + 2, radius + 1)
-                        for key, (x, y, w, h), *_rest in self.group_labels if key in self.collapsed]
+        # (shape, its layer): what may lie over a later cable. A folded header a pixel larger (no
+        # antialiased seam); the boxes as they are added (draw order).
+        hiding = [((x - 1, y - 1, w + 2, h + 2, radius + 1), layers.get(key, 0))
+                  for key, (x, y, w, h), *_rest in self.group_labels if key in self.collapsed]
 
         def layer_of(node_id):
             return layers.get(card_of.get(node_id), 0)
+
+        def hidden_at(point, layer) -> bool:
+            px, py = point
+            return any(own <= layer and x <= px <= x + w and y <= py <= y + h
+                       and not self.covering(point, own, layer, layers)
+                       for (x, y, w, h, _r), own in hiding)
         cable_layer = {id(c): max(layer_of(node_id) for node_id, _p in c.ends) for c in cables}
-        failed = {id(edge) for edge in markers}
-        under = []                   # holes for the next layers' cables: lower boxes and moved cards
+        placed = {id(edge): (t, mx, my) for edge, t, mx, my in self.place_markers(markers)}
+        self.marker_points = []      # rebuilt every drawing: only the markers shown now take clicks
+        shown_markers = []           # (edge, x, y, layer)
         for layer in sorted(set(by_layer) | set(cable_layer.values())):
             cards = by_layer.get(layer, {})
             for key in cards:
                 self.draw_cards(cr, layout, key)
                 self.draw_add_card(cr, layout, key)
-            mine = [c for c in cables if cable_layer[id(c)] == layer]
-            cr.save()
-            # A lower box under a card moved over it is hidden: a cable may cross that card there.
-            map_3d.clip_out(cr, folded_cards + [hole for hole, centre, own in under
-                                                if not self.covering(centre, own, layer, layers)])
-            for cable in mine:
-                extra = [(*rect, radius) for node_id, point in cable.ends if layer_of(node_id) < layer
-                         for rect in self.covering(point, layer_of(node_id), layer, layers)]
-                if extra:
-                    cr.save()
-                    map_3d.clip_out(cr, extra)
-                cr.set_line_cap(cairo.LINE_CAP_ROUND if cable.failed else cairo.LINE_CAP_BUTT)
-                map_3d.paint_cable(cr, cable.trace, cable.rgba, cable.width, pal, shadow=cable.shadow,
-                                   dash=cable.dash)
-                if extra:
-                    cr.restore()
-            cr.restore()
-            cr.set_line_cap(cairo.LINE_CAP_BUTT)
-            shown = [c.edge for c in mine if id(c.edge) in failed]
-            if shown:
-                self.draw_markers(cr, markers, only=shown)     # the "!" over its cable, under the boxes
+            mine = []                # (cable, from t, to t) of this layer, the part to paint
+            for cable in (c for c in cables if cable_layer[id(c)] == layer):
+                ends = [self.covering(point, layer_of(node_id), layer, layers) for node_id, point in cable.ends]
+                t0, t1 = map_3d.uncovered_span(cable.points, ends[0], ends[1])
+                if t0 < t1:
+                    mine.append((cable, t0, t1))
+            if mine:
+                bounds = map_3d.bounds_of([c.points for c, _t0, _t1 in mine], 12)
+                holes = [(shape, self.cards_between(own, layer, layers)) for shape, own in hiding
+                         if own <= layer and map_3d.overlaps(shape, bounds)]
+                cr.save()
+                map_3d.clip_hidden(cr, holes)
+                for cable, t0, t1 in mine:
+                    points = map_3d.sub_bezier(cable.points, t0, t1)
+
+                    def trace(cr, p=points):
+                        cr.move_to(p[0], p[1])
+                        cr.curve_to(*p[2:])
+                    cr.set_line_cap(cairo.LINE_CAP_ROUND if cable.failed else cairo.LINE_CAP_BUTT)
+                    map_3d.paint_cable(cr, trace, cable.rgba, cable.width, pal, shadow=cable.shadow,
+                                       dash=cable.dash)
+                cr.restore()
+                cr.set_line_cap(cairo.LINE_CAP_BUTT)
+            for cable, t0, t1 in mine:       # the "!" where its cable shows, under this layer's boxes
+                spot = placed.get(id(cable.edge))
+                if spot is not None and t0 <= spot[0] <= t1 and not hidden_at(spot[1:], layer):
+                    self.paint_marker(cr, cable.edge, *spot[1:])
+                    shown_markers.append((cable.edge, *spot[1:], layer))
             for nodes in cards.values():
                 for node in nodes:
                     if node.id in self.folded:
                         continue           # its card is collapsed: only the header shows
                     self.draw_node(cr, layout, node, lit_nodes)
-                    x, y, w, h = self.boxes[node.id]
-                    centre = (x + w / 2, y + h / 2)
-                    under += [((x, y, w, h, self.radius), centre, layer),    # its face and walls
-                              ((x + map_3d.WALL_ROOM[0], y + map_3d.WALL_ROOM[1], w, h, self.radius), centre, layer)]
-            for key, (x, y, w, h), *_rest in self.group_labels:
-                if layers.get(key, 0) == layer and layer > 0:
-                    under.append(((x, y, w, h, radius), (x + w / 2, y + h / 2), layer))
-            for cable in mine:               # where each cable plugs into a box, unless a card lies over it
+                    hiding.append((self.boxes[node.id] + (self.radius,), layer))
+            for cable, t0, t1 in mine:       # where each cable plugs into a box, unless a card lies over it
                 if not cable.sockets:
                     continue
-                for node_id, point in cable.ends:
-                    if node_id in self.folded or self.covering(point, layer_of(node_id), layer, layers):
+                for (node_id, point), t in zip(cable.ends, (t0, t1)):
+                    if node_id in self.folded or t not in (0.0, 1.0):
                         continue
                     map_3d.paint_socket(cr, *point, cable.rgba, pal)
                     self.sockets.append((*point, cable.rgba, layer_of(node_id)))
         cr.set_line_cap(cairo.LINE_CAP_BUTT)
+        top = max(layers.values(), default=0)
+        for edge, mx, my, layer in shown_markers:  # a card moved over a "!" later takes its clicks
+            if not self.covering((mx, my), layer, top, layers):
+                self.marker_points.append(((edge.source, edge.target), mx, my))
 
     def draw_box(self, cr, layout, node, x, y, w, h, faded, alpha, lit_nodes):
         """A box as Maprisma's (map_editor.dart): a card, filled in the accent colour while it runs,

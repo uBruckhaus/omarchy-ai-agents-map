@@ -27,7 +27,6 @@ WHITE = (1.0, 1.0, 1.0)
 CARD_DEPTH = (5.0, 6.8)          # an open card's plinth
 CARD_DEPTH_FOLDED = (3.0, 4.2)   # a folded card: only its header
 WELL_TOP = 27                    # an open card's tray: just under its header's line (MapView's CARD_HEAD + 1)
-WALL_ROOM = (6.7, 8.8)           # the deepest a block's walls reach (Agents, lifted): what covers a cable
 CABLE_SHADOW = (3.5, 7.5)        # where a cable's shadow falls on the floor below it
 ARC_STEP = math.pi / 16          # the walls' rounded corners: a point every 11.25°
 
@@ -62,11 +61,11 @@ def recessed(faded: bool, dim: bool, lit: bool) -> bool:
 
 @dataclass(frozen=True)
 class Cable:
-    """A 3D cable waiting to be painted with its cards (MapView.draw_3d): its edge, trace(cr), colour,
-    width, whether it casts a shadow, its dash, round caps (a failed line's dots), its two ends
-    ((node id, (x, y)) each) and whether it gets sockets."""
+    """A 3D cable waiting to be painted with its cards (MapView.draw_3d): its edge, its curve's points
+    (x1, y1, c1x, c1y, c2x, c2y, x2, y2), colour, width, whether it casts a shadow, its dash, round caps
+    (a failed line's dots), its two ends ((node id, (x, y)) each) and whether it gets sockets."""
     edge: object
-    trace: object
+    points: tuple
     rgba: tuple
     width: float
     shadow: bool
@@ -76,18 +75,93 @@ class Cable:
     sockets: bool
 
 
-def clip_out(cr, holes):
-    """Clip away each (x, y, w, h, radius) from what is painted next (within cr.save/restore). One clip
-    per hole: their intersection, so overlapping holes stay out too."""
+def bezier_point(points, t: float) -> tuple:
+    x1, y1, ax, ay, bx, by, x2, y2 = points
+    u = 1 - t
+    return (u ** 3 * x1 + 3 * u * u * t * ax + 3 * u * t * t * bx + t ** 3 * x2,
+            u ** 3 * y1 + 3 * u * u * t * ay + 3 * u * t * t * by + t ** 3 * y2)
+
+
+def sub_bezier(points, t0: float, t1: float) -> tuple:
+    """The part of a cubic curve from t0 to t1, as a cubic curve of its own (de Casteljau)."""
+    if t0 <= 0 and t1 >= 1:
+        return tuple(points)
+
+    def split(p, t):                         # the part from t to the end
+        (x1, y1, ax, ay, bx, by, x2, y2) = p
+        def lerp(a, b):
+            return a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t
+        p0, p1, p2, p3 = (x1, y1), (ax, ay), (bx, by), (x2, y2)
+        q0, q1, q2 = lerp(p0, p1), lerp(p1, p2), lerp(p2, p3)
+        r0, r1 = lerp(q0, q1), lerp(q1, q2)
+        s0 = lerp(r0, r1)
+        return (*s0, *r1, *q2, *p3), (*p0, *q0, *r0, *s0)
+    head = split(points, t0)[0] if t0 > 0 else tuple(points)
+    if t1 < 1:
+        head = split(head, (t1 - t0) / (1 - t0))[1]
+    return head
+
+
+def uncovered_span(points, start_covers, end_covers, steps: int = 64) -> tuple:
+    """(t0, t1): the part of a curve that is not still under the cards lying over its start or its end
+    (rectangles): from where it comes out from under them at its start to where it goes under at its
+    end. t0 >= t1: none of it shows."""
+    def inside(t, covers):
+        x, y = bezier_point(points, t)
+        return any(cx <= x <= cx + cw and cy <= y <= cy + ch for cx, cy, cw, ch in covers)
+    t0, t1 = 0.0, 1.0
+    if start_covers:
+        t0 = next((i / steps for i in range(steps + 1) if not inside(i / steps, start_covers)), 1.0)
+    if end_covers:
+        t1 = next((1 - i / steps for i in range(steps + 1) if not inside(1 - i / steps, end_covers)), 0.0)
+    return t0, t1
+
+
+def bounds_of(curves, reach: float) -> tuple:
+    """(x0, y0, x1, y1) around these curves' points, `reach` more (line widths, shadows)."""
+    xs = [v for p in curves for v in p[0::2]]
+    ys = [v for p in curves for v in p[1::2]]
+    return min(xs) - reach, min(ys) - reach, max(xs) + reach, max(ys) + reach
+
+
+def overlaps(shape, bounds) -> bool:
+    x, y, w, h = shape[:4]
+    return x <= bounds[2] and x + w >= bounds[0] and y <= bounds[3] and y + h >= bounds[1]
+
+
+def _rounded_reverse(cr, x, y, w, h, r):
+    """rounded() the other way round (for a hole in a nonzero-winding path)."""
+    r = max(0.0, min(r, w / 2, h / 2))
+    cr.new_sub_path()
+    if r <= 0:
+        cr.move_to(x, y)
+        cr.line_to(x, y + h)
+        cr.line_to(x + w, y + h)
+        cr.line_to(x + w, y)
+        cr.close_path()
+        return
+    cr.arc_negative(x + r, y + r, r, 3 * math.pi / 2, math.pi)
+    cr.arc_negative(x + r, y + h - r, r, math.pi, math.pi / 2)
+    cr.arc_negative(x + w - r, y + h - r, r, math.pi / 2, 0)
+    cr.arc_negative(x + w - r, y + r, r, 0, -math.pi / 2)
+    cr.close_path()
+
+
+def clip_hidden(cr, holes):
+    """Clip away each (x, y, w, h, radius) shape except where one of its covers ((x, y, w, h) cards
+    painted over it since) lies: holes = [(shape, [cover])]. Nonzero winding: the plane +1, the shape
+    -1, each cover +1; one clip per hole, so overlapping shapes stay out too."""
     import cairo
     if not holes:
         return
     rule = cr.get_fill_rule()
-    cr.set_fill_rule(cairo.FILL_RULE_EVEN_ODD)
-    for x, y, w, h, r in holes:
+    cr.set_fill_rule(cairo.FILL_RULE_WINDING)
+    for (x, y, w, h, r), covers in holes:
         cr.new_path()
         cr.rectangle(-1e6, -1e6, 3e6, 3e6)
-        rounded(cr, x, y, w, h, r)
+        _rounded_reverse(cr, x, y, w, h, r)
+        for cx, cy, cw, ch in covers:
+            cr.rectangle(cx, cy, cw, ch)
         cr.clip()
     cr.set_fill_rule(rule)
 
