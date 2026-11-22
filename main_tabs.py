@@ -230,8 +230,45 @@ class MainTabs:
         if tab == "projects" and self.page_name() in ("main", "setup"):
             self.main_tab = "projects"
             self.open_projects()
+        elif self.map_stale:
+            self.refresh_map_async()           # the map's first drawing waited for the decision
         self.update_main_tabs()
         self.update_header()
+
+    def map_work_waits(self) -> bool:
+        """The map is not drawn and its polls stay light: on the Projects tab, or while the start tab
+        is still being decided (a start on Projects makes no map scan, task 086)."""
+        return self.main_tab == "projects" or not self.tab_decided
+
+    _map_read_seq = 0
+
+    def refresh_map_async(self):
+        """The deferred map drawn again from facts read on a worker (agents, local LLMs, details: file
+        and session scans stay off the GTK thread); a newer read or the Projects tab drops the answer."""
+        self.map_stale = False
+        self._map_read_seq += 1
+        seq = self._map_read_seq
+
+        def work():
+            try:
+                facts = self.read_map_facts()
+            except Exception:
+                facts = None
+            GLib.idle_add(done, facts)
+
+        def done(facts):
+            if seq != self._map_read_seq or self.map_work_waits():
+                self.map_stale = self.map_stale or self.map_work_waits()
+                return False
+            if facts is None:
+                self.map_stale = True
+                return False
+            try:
+                self.refresh_map(facts=facts)
+            except Exception:
+                self.map_stale = True
+            return False
+        threading.Thread(target=work, name="map-read", daemon=True).start()
 
     def save_tab(self, tab: str):
         if ai_core.setting("main_tab") != tab:
@@ -250,9 +287,8 @@ class MainTabs:
             self.forget_map_mark()
         self.main_tab = tab
         self.update_main_tabs()
-        if tab == "map" and self.map_stale and callable(getattr(self, "refresh_map", None)):
-            self.map_stale = False
-            self.refresh_map()                 # deferred while Projects was shown
+        if tab == "map" and self.map_stale:
+            self.refresh_map_async()           # deferred while Projects was shown
 
     def follow_tab(self):
         """A page shown by any route: a page of the map (details, a terminal, Ask AI…) is on the AI Map
@@ -377,6 +413,7 @@ class MainTabs:
         def left(ok):
             if not ok:
                 return
+            self.tab_decided = True
             if self.main_tab != "map":
                 self.set_main_tab("map")
                 self.save_tab("map")
@@ -443,14 +480,18 @@ class MainTabs:
 
     def discovery_fingerprint(self):
         """What the project center discovers that the map shows: the agents (installed, version), the
-        local LLMs (installed, running, their models). Redraws for other reasons leave it alone."""
+        local LLMs (installed, running, address, their models, the agents connected to them — what its
+        _member_options reads as bindings) and the agents' own settings (models_stamp: installs and
+        setup files, so a line drawn or removed counts). Redraws for other reasons leave it alone."""
         found_agents = tuple(sorted((a.command, bool(a.installed), str(getattr(a, "version", "") or ""))
                                     for a in getattr(self, "agent_list", [])))
         inventory = getattr(self, "inventory", None)
         runtimes = tuple(sorted((r.key, bool(r.installed), bool(getattr(r, "running", False)),
-                                 tuple(sorted(str(m) for m in getattr(r, "models", []) or [])))
+                                 str(getattr(r, "address", "") or ""),
+                                 tuple(sorted(str(m) for m in getattr(r, "models", []) or [])),
+                                 tuple(sorted(str(a) for a in getattr(r, "agents", []) or [])))
                                 for r in getattr(inventory, "runtimes", []) or []))
-        return found_agents, runtimes
+        return found_agents, runtimes, repr(getattr(self, "models_stamp", None))
 
     def projects_map_changed(self):
         """The map's data was read again: only when what it found changed does the next project list
@@ -493,6 +534,7 @@ class MainTabs:
             self.forget_map_mark()
             self._reveal_seq += 1
             seq = self._reveal_seq
+            self.tab_decided = True
             self.map_stale = False             # drawn below from the fresh facts
             self.set_main_tab("map")
             self.save_tab("map")
@@ -580,6 +622,7 @@ class MainTabs:
             if not ok:
                 return
             self.return_page = None
+            self.tab_decided = True
             self.set_main_tab("projects")
             self.open_projects(command, name)
             self.save_tab("projects")

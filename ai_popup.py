@@ -555,7 +555,8 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         self.info_button = None             # the author's other plugins: on the Help page
         # Reports (tasks 075/076): the activity log, topic reports and the report library.
         self.reports_button = symbol("x-office-document-symbolic", _("Reports"),
-                                     lambda: self.after_leaving(self.open_reports))
+                                     lambda: None if self.page_name() == "reports"
+                                     else self.after_leaving(self.open_reports))
         self.help_button = symbol("help-browser-symbolic", _("Help (F1)"), lambda: self.after_leaving(self.open_help))
         self.settings_button = symbol("emblem-system-symbolic", _("Settings"),
                                       lambda: self.after_leaving(self.open_settings))
@@ -1361,7 +1362,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         keep = (ai_core.setting("subagents_minutes"), ai_core.setting("subagents_kept"))   # Settings › Subagents
         # On the Projects tab only what does not belong to the map: which agents run and work (the
         # terminals, closing) and the opt-in activity log; GPU, usage box, subagents and the rest wait.
-        light = getattr(self, "main_tab", "map") == "projects"
+        light = getattr(self, "main_tab", "map") == "projects" or not getattr(self, "tab_decided", True)
         logging = ai_core.setting("ai_activity_log") is True
 
         def work():
@@ -1439,10 +1440,19 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
                 self.observe_activity(working, pids, usage, runtimes)   # the AI activity log (opt-in)
             except Exception:
                 pass
-            GLib.idle_add(light_done, running, working)
+            # Kept on Projects too: an agent's usage record written again (plan, limits) for the red-limit
+            # and daily-cost notifications (small files, only the agents whose record changed).
+            try:
+                records = agent_details.usage_stamps()
+                renewed = {c: agent_details.details_for(c)
+                           for c in agent_details.renewed_records(getattr(self, "usage_stamps", None), records, commands)}
+            except Exception:
+                records, renewed = None, {}
+            GLib.idle_add(light_done, running, working, records, renewed)
 
-        def light_done(running, working):
+        def light_done(running, working, records=None, renewed=None):
             self.gpu_reading = False
+            self.limits_maintenance(records, renewed)
             if working != self.working_agents:
                 self.working_agents = set(working)
                 self.update_terminal_tabs()
@@ -1454,18 +1464,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         def done(usage, running, working, outside, stamp, mcp_busy, readings, helpers, using, records=None,
                  renewed=None):
             self.gpu_reading = False
-            if records is not None:
-                self.usage_stamps = records
-            if renewed:
-                infos = getattr(self, "agent_infos", None)
-                for command, info in renewed.items():
-                    if isinstance(infos, dict):
-                        infos[command] = info
-                    self.set_agent_battery(command, info.limits, show=False)
-                self.show_batteries()
-                self.update_costs(force=True)
-            self.batteries_past_reset()
-            self.update_costs()
+            self.limits_maintenance(records, renewed)
             self.set_subagent_lists(helpers)
             self.side_map.set_agent_links({(f"agent:{user}", f"agent:{used}") for user, used in using})
             self.side_map.set_working(working)
@@ -1499,6 +1498,22 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
 
         threading.Thread(target=work, daemon=True).start()
         return True
+
+    def limits_maintenance(self, records, renewed):
+        """Every poll, on either tab: renewed usage records become the agents' batteries, limits past
+        their reset are cleared, and today's costs are checked (the red and daily-cost notifications)."""
+        if records is not None:
+            self.usage_stamps = records
+        if renewed:
+            infos = getattr(self, "agent_infos", None)
+            for command, info in renewed.items():
+                if isinstance(infos, dict):
+                    infos[command] = info
+                self.set_agent_battery(command, info.limits, show=False)
+            self.show_batteries()
+            self.update_costs(force=True)
+        self.batteries_past_reset()
+        self.update_costs()
 
     def refresh_gpu_software(self):
         """The GPU card's software line, looked at on a thread (llama.cpp's devices take a few
@@ -2970,7 +2985,8 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
                                                  for a in found if a.installed}
 
     def refresh_map(self, facts=None):
-        if facts is None and getattr(self, "main_tab", "map") == "projects":
+        if facts is None and (getattr(self, "main_tab", "map") == "projects"
+                              or not getattr(self, "tab_decided", True)):
             # On the Projects tab the map is not drawn again (its scans wait until it shows); what
             # the projects need from it (agents and local LLMs changed) is passed on.
             self.map_stale = True
@@ -4841,6 +4857,8 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             # Still starting (nothing runs here yet): other desktops quit, Omarchy hides.
             self.window.hide() if desktop.stays_in_background() else self.quit()
             return
+        if not getattr(self, "close_asked", False) and self.dialog_open():
+            return                                 # a question is open (also "still running here"): it answers first
         if self.page_name() == "projects" and getattr(self, "close_commit", None) is None:
             # The open project's unsaved changes ask first (Save / Discard / Cancel). A Discard is only
             # carried out once every question of closing has been answered (prepare_leave's commit).
@@ -4908,6 +4926,8 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         if hasattr(self, "reports_hidden"):
             self.reports_hidden()        # the Reports page's timers stop with the window
         self.map_view.set_shift(False)   # Shift may have been let go elsewhere
+        self.close_commit = None         # a close not carried out keeps no Discard for later
+        self.close_asked = False
         if hasattr(self, "forget_map_mark"):
             self.forget_map_mark()       # no reveal or pulse goes on while hidden
             self.left_page(self.page_name())   # a dictation stops, its transcription is dropped

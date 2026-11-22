@@ -657,11 +657,13 @@ class AskAiPage:
         helper answer, checked by provider_config); Review then opens the Setup page filled in. Without
         values (an answer it cannot use) Review opens the page empty, where Ask AI can be tried again."""
         import provider_config
+        dropped = []
         for candidate in result.get("candidates") or []:
             if candidate.get("kind") != "provider_config" or cancel.is_set():
                 continue
             rt = next((r for r in self.inventory.runtimes if r.key == candidate["key"] and r.installed), None)
             if rt is None:
+                dropped.append((candidate, smart_card.NOT_POSSIBLE))
                 continue
             import action_rules
             if not action_rules.allows(ai_core.setting("action_rules"), "update", "providers", rt.key):
@@ -676,13 +678,19 @@ class AskAiPage:
                 focus = " ".join(filter(None, [request, candidate.get("focus")]))[:500]
                 answer = provider_config.ask(helper, facts, model, candidate["profile"], focus)
             except Exception as error:
-                candidate["reason"] = smart_card.line(str(error)) or ""
+                # Facts that do not fit (a model of another scope, a provider gone): not offered, so its
+                # Review cannot open an empty page.
+                dropped.append((candidate, smart_card.line(str(error)) or smart_card.NOT_POSSIBLE))
                 continue
             candidate["model"] = candidate["action"]["model"] = model
             candidate["prefill"] = candidate["action"]["prefill"] = answer
             candidate["reason"] = answer.get("summary", "")
             if not result.get("summary"):
                 result["summary"] = answer.get("summary", "")
+        if dropped:
+            result["candidates"] = [c for c in result.get("candidates") or [] if all(c is not d for d, _w in dropped)]
+            if not result["candidates"] and result.get("status") == "proposal":
+                result["status"], result["summary"] = "error", dropped[0][1]
 
     def ask_done(self, result: dict):
         if result.get("status") == "cancelled":
@@ -899,6 +907,7 @@ class AskAiPage:
                     "start": rt.installed and not rt.running, "stop": rt.running,
                     "performance": rt.installed,
                     "configurable": bool(rt.installed and llm_engine.of(rt).config),
+                    "config_scope": (llm_engine.of(rt).config or [{}])[0].get("scope") if rt.installed else None,
                     "models": [m if isinstance(m, str) else getattr(m, "name", "") for m in list(rt.models)[:40]],
                 })
             facts["providers"] = providers

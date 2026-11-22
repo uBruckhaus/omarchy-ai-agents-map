@@ -158,6 +158,9 @@ class ProviderConfigPage:
 
     def render_provider_config(self):
         self.provider_config_cancel_timer()
+        # The form is built anew (a profile, a model, Reset…): a recording behind the old microphone
+        # stops, and its transcription is dropped.
+        self.stop_provider_config_dictation()
         draft = self.provider_config_draft
         if draft is None:
             return

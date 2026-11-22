@@ -525,7 +525,7 @@ class KeysTest(unittest.TestCase):
         panes = [SimpleNamespace(running=True, agent=SimpleNamespace(name="Pi"), stop=mock.Mock()) for _ in running]
         app = SimpleNamespace(booting=False, page_name=lambda: "projects", sessions=dict(enumerate(panes)),
                               hide_window=mock.Mock(), projects_ctrl=ctrl, toast=mock.Mock(), departing=False,
-                              ask_close=mock.Mock())
+                              ask_close=mock.Mock(), dialog_open=lambda: False)
         app.close = lambda: ai_popup.AgentsMap.close(app)
         return app, ctrl, asked
 
@@ -576,6 +576,142 @@ class ReturnPageTest(unittest.TestCase):
         self.assertEqual(shown, ["projects"])
 
 
+class ReviewRound2Test(unittest.TestCase):
+    """The second review round of WP7 (Codex and agy)."""
+
+    def setUp(self):
+        self.saved = {}
+        patched_settings(self, self.saved)
+
+    def test_show_on_map_scrolls_the_box_into_view(self):
+        def adjustment(value, page, upper):
+            a = SimpleNamespace(value=value, get_page_size=lambda: page, get_lower=lambda: 0,
+                                get_upper=lambda: upper)
+            a.get_value = lambda: a.value
+            a.set_value = lambda v: setattr(a, "value", v)
+            return a
+        h, v = adjustment(0, 500, 2000), adjustment(0, 400, 3000)
+        host = Host(page="projects")
+        host.main_tab = "projects"
+        host.side_map.boxes["agent:claude"] = (1200, 1500, 100, 40)
+        host.map_scroller = SimpleNamespace(get_hadjustment=lambda: h, get_vadjustment=lambda: v)
+        host.show_on_map_link("claude")
+        self.assertEqual((h.value, v.value), (1200 + 50 - 250, 1500 + 20 - 200))   # centred on the box
+        self.assertEqual(host.side_map.focused, "agent:claude")
+
+    def test_stale_map_is_read_on_a_worker(self):
+        """Codex r2 #3: back on the AI Map the deferred map is drawn from facts read off the GTK thread."""
+        host = Host(page="projects")
+        host.main_tab = "projects"
+        host.map_stale = True
+        host.refresh_project_summary = lambda then=None: None
+        host.select_tab("map")
+        self.assertIn(("refresh_map", "fresh"), host.calls)
+        self.assertNotIn(("refresh_map",), host.calls)
+        self.assertFalse(host.map_stale)
+
+    def test_no_map_scan_before_the_start_tab_is_decided(self):
+        """Codex r2 #5 / agy r2 #4: while the summary decides, the map waits; the decision draws it."""
+        app = SimpleNamespace(main_tab="map", tab_decided=False, map_stale=False, projects_map_changed=mock.Mock())
+        ai_popup.AgentsMap.refresh_map(app)
+        self.assertTrue(app.map_stale)
+        app.projects_map_changed.assert_called_once_with()
+        host = Host()
+        host.map_stale = True
+        host.tab_decided = True
+        host.apply_start_tab("map")
+        self.assertIn(("refresh_map", "fresh"), host.calls)
+
+    def test_light_poll_keeps_the_limit_notifications(self):
+        """Codex r2 #4: on Projects the poll stays light but renewed limits and costs are still checked."""
+        app = SimpleNamespace(gpu_reading=False, inventory=SimpleNamespace(runtimes=[]), main_tab="projects",
+                              tab_decided=True, installed_commands=lambda: ["claude"],
+                              running_now=lambda pids: {"claude": 1}, working_now=lambda *a: set(),
+                              observe_activity=mock.Mock(), working_agents=set(), running={"claude": 1},
+                              limits_maintenance=mock.Mock(), update_terminal_tabs=mock.Mock())
+        renewed = {"claude": SimpleNamespace(limits=[])}
+        with mock.patch.object(ai_popup.threading, "Thread",
+                               side_effect=lambda target, **_k: SimpleNamespace(start=target)), \
+                mock.patch.object(ai_popup.GLib, "idle_add", lambda fn, *a: fn(*a)), \
+                mock.patch.object(ai_popup.agent_details, "usage_stamps", return_value={"claude": 2}), \
+                mock.patch.object(ai_popup.agent_details, "renewed_records", return_value=["claude"]), \
+                mock.patch.object(ai_popup.agent_details, "details_for", side_effect=lambda c: renewed[c]), \
+                mock.patch.object(ai_popup.gpu_usage, "snapshot") as snapshot:
+            ai_popup.AgentsMap.poll_gpu(app)
+        app.limits_maintenance.assert_called_once_with({"claude": 2}, renewed)
+        snapshot.assert_not_called()                      # no GPU read without the activity log
+        app.observe_activity.assert_called_once()
+
+    def test_fingerprint_counts_connections_and_setup(self):
+        """Codex r2 #6 / agy r2 #2: a line drawn to a running LLM (same models) is a discovery change."""
+        host = Host()
+        runtime = SimpleNamespace(key="ollama", installed=True, running=True, models=["qwen"], agents=[],
+                                  address="127.0.0.1:11434")
+        host.inventory = SimpleNamespace(runtimes=[runtime])
+        before = host.discovery_fingerprint()
+        runtime.agents = ["pi"]
+        self.assertNotEqual(host.discovery_fingerprint(), before)
+        before = host.discovery_fingerprint()
+        host.models_stamp = ("models", "installs", "setup changed")
+        self.assertNotEqual(host.discovery_fingerprint(), before)
+
+    def test_close_waits_for_an_open_dialog(self):
+        """agy r2 #1: the close button under an open question does nothing (no second question)."""
+        app = SimpleNamespace(booting=False, close_asked=False, dialog_open=lambda: True, page_name=lambda: "main",
+                              sessions={}, hide_window=mock.Mock(), ask_close=mock.Mock())
+        ai_popup.AgentsMap.close(app)
+        app.hide_window.assert_not_called()
+        app.close_asked = True                     # the question's own Keep running / Stop and close
+        ai_popup.AgentsMap.close(app)
+        app.hide_window.assert_called_once_with()
+        source = Path(ai_popup.__file__).read_text()
+        hide = source[source.index("    def hide_window(self):"):source.index("\ndef main():")]
+        self.assertIn("self.close_commit = None", hide)
+
+    def test_find_in_settings_escape(self):
+        """agy r2 #3: Esc in Find in Settings clears a search, then gives up the keyboard."""
+        entry = SimpleNamespace(text="map")
+        entry.get_text = lambda: entry.text
+        entry.set_text = lambda t: setattr(entry, "text", t)
+        app = SimpleNamespace(window=SimpleNamespace(set_focus=mock.Mock()))
+        settings_pages.SettingsPages.settings_find_escape(app, entry)
+        self.assertEqual(entry.text, "")
+        app.window.set_focus.assert_not_called()
+        settings_pages.SettingsPages.settings_find_escape(app, entry)
+        app.window.set_focus.assert_called_once_with(None)
+
+    def test_all_models_only_where_the_scope_allows(self):
+        """Codex r2 #1: "*" for a per-model provider is refused; invalid candidates are not offered."""
+        facts = {"providers": [{"key": "lmstudio", "name": "LM Studio", "configurable": True, "models": ["m"],
+                                "config_scope": "per_model"},
+                               {"key": "ollama", "name": "Ollama", "configurable": True, "models": [],
+                                "config_scope": "global"}]}
+        with self.assertRaises(smart_card.SmartError):
+            smart_card.providers_answer({"action": "provider_config", "provider": "lmstudio", "model": "*"}, facts)
+        found = smart_card.providers_answer({"action": "provider_config", "provider": "ollama", "model": "*"}, facts)
+        self.assertEqual(found["candidates"][0]["model"], "*")
+        import askai_page
+        import provider_config
+        app = SimpleNamespace(inventory=SimpleNamespace(runtimes=[SimpleNamespace(key="lmstudio", installed=True)]))
+        result = {"status": "proposal", "candidates": [
+            {"kind": "provider_config", "key": "lmstudio", "profile": "fast", "model": "*",
+             "action": {"kind": "provider_config", "key": "lmstudio", "model": "*"}}]}
+        with mock.patch.object(provider_config, "collect", return_value={}), \
+                mock.patch.object(provider_config, "select_model", side_effect=ValueError("Choose an available model")), \
+                mock.patch("action_rules.allows", return_value=True):
+            askai_page.AskAiPage.ask_provider_values(app, None, result, "q", lambda _t: None,
+                                                     SimpleNamespace(is_set=lambda: False))
+        self.assertEqual((result["candidates"], result["status"]), ([], "error"))
+
+    def test_rebuilding_configuration_stops_dictation(self):
+        """Codex r2 #2: a new form (profile, model, Reset) stops the recording behind the old mic."""
+        import provider_config_page
+        app = SimpleNamespace(provider_config_cancel_timer=lambda: None, provider_config_draft=None,
+                              stop_provider_config_dictation=mock.Mock())
+        provider_config_page.ProviderConfigPage.render_provider_config(app)
+        app.stop_provider_config_dictation.assert_called_once_with()
+
+
 class ActivityAndConfigTest(unittest.TestCase):
     def test_progress_line(self):
         self.assertEqual(terminal_pane.progress_text({"done": 2, "total": 5, "step": "Tests", "note": None}),
@@ -595,7 +731,8 @@ class ActivityAndConfigTest(unittest.TestCase):
     def test_provider_config_answers(self):
         """agy r1 #7: "*" (all models) is accepted, and an automatic answer without an area is the
         providers' step."""
-        facts = {"providers": [{"key": "llamacpp", "name": "llama.cpp", "configurable": True, "models": []}]}
+        facts = {"providers": [{"key": "llamacpp", "name": "llama.cpp", "configurable": True, "models": [],
+                                "config_scope": "default"}]}
         found = smart_card.providers_answer({"action": "provider_config", "provider": "llamacpp", "model": "*"},
                                             facts)
         self.assertEqual(found["candidates"][0]["model"], "*")

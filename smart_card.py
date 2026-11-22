@@ -300,9 +300,12 @@ def provider_config_answer(answer: dict, facts: dict) -> dict:
                   if p.get("key") == answer.get("provider") and p.get("configurable") is True), None)
     profile = answer.get("profile") or "balanced"
     model = answer.get("model") or None
-    # "*": all models (a provider whose settings are per default or global); the page checks the scope.
+    # "*": all models, only for a provider whose settings are per default or global (config_scope);
+    # a per-model provider needs one of its models.
+    scope = found.get("config_scope") if found is not None else None
     if found is None or profile not in CONFIG_PROFILES or (
             model is not None and (not isinstance(model, str)
+                                   or (model == "*" and scope not in ("default", "global"))
                                    or (model != "*" and model not in (found.get("models") or [])))):
         raise SmartError(N_("This provider configuration is unavailable"))
     focus = line(answer.get("focus"), 500)
