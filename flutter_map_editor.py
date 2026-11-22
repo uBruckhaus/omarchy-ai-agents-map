@@ -24,7 +24,7 @@ def _color(value) -> bool:
 
 
 def valid_layout(value) -> bool:
-    if not isinstance(value, dict) or set(value) - {'cards', 'order', 'collapsed', 'pins', 'card_order', 'column_widths', 'column_defaults', 'used_only', 'line_colors', 'card_border', 'dim_lines'}:
+    if not isinstance(value, dict) or set(value) - {'cards', 'order', 'collapsed', 'pins', 'card_order', 'column_widths', 'column_defaults', 'used_only', 'line_colors', 'card_border', 'dim_lines', 'three_d'}:
         return False
     def ident(v):
         return isinstance(v, str) and 0 < len(v) <= 8192 and not any(ord(c) < 32 for c in v)
@@ -42,6 +42,8 @@ def valid_layout(value) -> bool:
     if 'color' in border and not _color(border['color']):
         return False
     if type(value.get('dim_lines', True)) is not bool:
+        return False
+    if type(value.get('three_d', True)) is not bool:
         return False
     lines = value.get('line_colors', {})
     if not isinstance(lines, dict) or any(

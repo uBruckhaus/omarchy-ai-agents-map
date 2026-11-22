@@ -14,6 +14,7 @@ from gi.repository import Gtk
 
 import ai_core
 import graph
+import map_3d
 import map_view
 import subagents
 from i18n import _, ngettext
@@ -30,6 +31,7 @@ class SubagentsPage:
         self.subagents_note.add_css_class("dim-label")
         page.append(self.subagents_note)
         self.sub_map = map_view.MapView()
+        self.sub_map.three_d = map_3d.enabled(ai_core.setting("flutter_map_layout"))   # Settings › Map › 3D
         self.sub_map.group_titles = {"agents": _("Agents"), "subagents": _("Subagents")}
         self.sub_map.traffic_tip = self.traffic_tip
         self.sub_map.on_traffic = lambda node_id: self.open_traffic(node_id.partition(":")[2])
@@ -110,6 +112,7 @@ class SubagentsPage:
         view, agent_id = self.sub_map, f"agent:{command}"
         view.set_palette(self.side_map.colors, self.side_map.radius)
         view.set_animate(self.side_map.animate)
+        view.set_three_d(self.side_map.three_d)
         view.set_traffic({k: v for k, v in self.side_map.traffic.items() if k == agent_id})
         view.set_batteries({k: v for k, v in self.side_map.batteries.items() if k == agent_id})
         view.set_subagents({agent_id: (working, len(subs))})

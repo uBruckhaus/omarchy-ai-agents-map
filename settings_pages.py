@@ -21,6 +21,7 @@ import disk_usage
 import install_ctl
 import inventory
 import llm_engine
+import map_3d
 import model_layout
 import previews
 import provider_watch
@@ -980,6 +981,9 @@ class SettingsPages:
         # The map's animations, with a sketch of what each choice animates (its own group: libadwaita
         # puts what is not a row after a group's list).
         group = self.preference_group(side, _("Map"))
+        self.switch_row(group, _("3D map layout"),
+                        _("Raised cards, layered boxes, shadowed lines and a depth grid. Off: flat map."),
+                        map_3d.enabled(ai_core.setting("flutter_map_layout")), self.save_three_d)
         modes = ("all", "agents", "off")
         self.combo_row(group, _("Map animations"),
                        _("Light runs along the lines on the map: a working agent's line to its provider and "
@@ -1015,6 +1019,13 @@ class SettingsPages:
                         _("Moves every local LLM's models into this folder in one layout and points the local LLMs "
                           "there. Shows a preview first; Undo puts everything back."),
                         _("Reorganize models…"), lambda: (self.save_models_root(models), self.open_reorganize()))
+
+    def save_three_d(self, on: bool):
+        """Settings › Map › 3D map layout: kept as Maprisma keeps it (flutter_map_layout's three_d)."""
+        self.save_setting(flutter_map_layout={**ai_core.setting("flutter_map_layout"), "three_d": bool(on)})
+        for view in (self.side_map, getattr(self, "sub_map", None)):   # the map and the Subagents map
+            if view is not None:
+                view.set_three_d(on)
 
     def set_look(self, look: str):
         """Settings › Look: the new colours at once (the cards, the map, the terminal's next start)."""
