@@ -2054,5 +2054,382 @@ class AdapterProjectTest(unittest.TestCase):
         self.assertTrue(found["claude"]["native_subagents"])
 
 
+OLD_SUPERVISOR = """import json, sys
+sys.stdin.buffer.readline()
+print(json.dumps({"locked": True}), flush=True)
+line = sys.stdin.buffer.readline()
+if line:
+    with open("go_ahead_seen", "w") as handle:
+        handle.write(line.decode("utf-8", "replace"))
+print(json.dumps({"stopped": True}), flush=True)
+"""
+
+
+class CoreRegressionTest(CenterCase):
+    """Dedicated regression tests for Project Center core (task 096 behaviour)."""
+
+    def test_pause_during_send_now_wins(self):
+        item = self.started([{"agent": "fixture", "role": "lead"}, {"agent": "fixture", "role": "implementer"}])
+        gate = threading.Event()
+        self.addCleanup(gate.set)
+        self.processes[0].stop_gate = gate
+        sent, paused = {}, {}
+
+        def send_now():
+            sent.update(self.center.call("message", {
+                "id": item["id"], "run_id": item["run_id"], "text": "Switch approach.",
+                "mode": "now", "acknowledge_interrupted": True,
+            }))
+
+        sender = threading.Thread(target=send_now)
+        sender.start()
+        wait_until(lambda: self.processes[0].stop_calls >= 1)
+        pauser = threading.Thread(target=lambda: paused.update(self.center.call("pause", {"id": item["id"]})))
+        pauser.start()
+        wait_until(lambda: self.processes[0].stop_calls >= 2)
+        gate.set()
+        pauser.join(10)
+        sender.join(10)
+        self.assertFalse(pauser.is_alive())
+        self.assertFalse(sender.is_alive())
+        self.assertEqual(paused["project"]["status"], "paused")
+        self.assertEqual((sent["continued"], sent["reason"]), (False, "project_changed"))
+        self.assertEqual(sent["message"]["state"], "queued")
+        self.assertEqual(len(self.processes), 1)
+        current = self.get(item["id"])
+        self.assertEqual(current["status"], "paused")
+        self.assertEqual(current["messages_queued"], 1)
+        self.assertEqual(current["messages"][0]["state"], "queued")
+        self.assertIn("message_waiting", self.types(current))
+        self.idle()
+
+    def test_message_drop_during_send_now_has_no_message_waiting_and_none_message(self):
+        item = self.started([{"agent": "fixture", "role": "lead"}, {"agent": "fixture", "role": "implementer"}])
+        gate = threading.Event()
+        self.addCleanup(gate.set)
+        self.processes[0].stop_gate = gate
+        sent = {}
+
+        def send_now():
+            sent.update(self.center.call("message", {
+                "id": item["id"], "run_id": item["run_id"], "text": "Actually ignore this.",
+                "mode": "now", "acknowledge_interrupted": True,
+            }))
+
+        sender = threading.Thread(target=send_now)
+        sender.start()
+        wait_until(lambda: self.processes[0].stop_calls >= 1)
+        stored_messages = self.get(item["id"])["messages"]
+        self.assertEqual(len(stored_messages), 1)
+        self.center.call("message_drop", {"id": item["id"], "message_id": stored_messages[0]["id"]})
+        gate.set()
+        sender.join(10)
+        self.assertFalse(sender.is_alive())
+        self.assertEqual((sent["continued"], sent["reason"]), (False, "project_message_unknown"))
+        self.assertIsNone(sent["message"])
+        self.assertNotIn("message_waiting", self.types(sent["project"]))
+        self.assertIn("message_dropped", self.types(sent["project"]))
+        self.assertEqual(len(self.processes), 1)
+        current = self.get(item["id"])
+        self.assertEqual(current["status"], "paused")
+        self.assertEqual(current["messages"], [])
+        self.assertEqual(current["messages_queued"], 0)
+        self.assertNotIn("message_waiting", self.types(current))
+        self.idle()
+
+    def test_message_drop_refused_while_pending_then_delivered_on_start(self):
+        item = self.started([{"agent": "fixture", "role": "lead"}, {"agent": "fixture", "role": "implementer"}])
+        sent = self.center.call("message", {
+            "id": item["id"], "run_id": item["run_id"], "text": "Keep backwards compatibility.", "mode": "queue",
+        })
+        msg_id = sent["message"]["id"]
+        starting, release = threading.Event(), threading.Event()
+        self.addCleanup(release.set)
+
+        def wait_start():
+            starting.set()
+            return release.wait(5)
+
+        self.start_gate = wait_start
+        self.processes[0].finish("Lead done.")
+        self.assertTrue(starting.wait(5))
+        self.assertEqual(self.get(item["id"])["messages"][0]["state"], "queued")
+        self.assertCode("project_message_pending", self.center.call, "message_drop",
+                        {"id": item["id"], "message_id": msg_id})
+        release.set()
+        wait_until(lambda: self.get(item["id"])["messages"][0]["state"] == "delivered")
+        current = self.get(item["id"])
+        self.assertEqual(current["messages_queued"], 0)
+        self.assertEqual(current["messages"][0]["delivered_to"], {
+            "phase": "execution", "position": 1, "agent": "fixture", "role": "implementer",
+        })
+        self.assertIn("Keep backwards compatibility.", self.commands[1][-1])
+        self.assertCode("project_message_delivered", self.center.call, "message_drop",
+                        {"id": item["id"], "message_id": msg_id})
+        self.processes[1].finish("Implemented.")
+        self.idle()
+
+    def test_eviction_past_max_messages_drops_oldest_delivered_never_queued(self):
+        team = [
+            {"agent": "fixture", "role": "lead"},
+            {"agent": "fixture", "role": "implementer"},
+            {"agent": "fixture", "role": "implementer"},
+            {"agent": "fixture", "role": "implementer"},
+            {"agent": "fixture", "role": "reviewer"},
+        ]
+        item = self.started(team)
+        pid, run_id = item["id"], item["run_id"]
+
+        def queue_msg(text):
+            return self.center.call("message", {"id": pid, "run_id": run_id, "text": text, "mode": "queue"})
+
+        # Deliver 20 messages across three assignment handoffs (8 + 8 + 4).
+        for batch, proc_index in ((range(0, 8), 0), (range(8, 16), 1), (range(16, 20), 2)):
+            for idx in batch:
+                queue_msg(f"D{idx:02d}")
+            self.processes[proc_index].finish(f"Step {proc_index} done.")
+            wait_until(lambda idx=proc_index: len(self.processes) == idx + 2)
+            wait_until(lambda: self.get(pid)["messages_queued"] == 0)
+
+        current = self.get(pid)
+        self.assertEqual(len(current["messages"]), pc.MAX_MESSAGES)
+        self.assertEqual([m["text"] for m in current["messages"]], [f"D{i:02d}" for i in range(20)])
+        self.assertTrue(all(m["state"] == "delivered" for m in current["messages"]))
+
+        # Queue 8 more messages: oldest 8 delivered messages are evicted, all queued ones stay.
+        for idx in range(pc.MAX_QUEUED_MESSAGES):
+            queue_msg(f"Q{idx}")
+        current = self.get(pid)
+        self.assertEqual(len(current["messages"]), pc.MAX_MESSAGES)
+        self.assertEqual(current["messages_queued"], pc.MAX_QUEUED_MESSAGES)
+        self.assertEqual([m["text"] for m in current["messages"]],
+                         [f"D{i:02d}" for i in range(8, 20)] + [f"Q{i}" for i in range(pc.MAX_QUEUED_MESSAGES)])
+        self.assertEqual([m["state"] for m in current["messages"]],
+                         ["delivered"] * 12 + ["queued"] * pc.MAX_QUEUED_MESSAGES)
+
+        # A 9th queued message is refused rather than dropping any queued message.
+        self.assertCode("project_messages_full", queue_msg, "Q_overflow")
+        self.assertEqual([m["text"] for m in self.get(pid)["messages"] if m["state"] == "queued"],
+                         [f"Q{i}" for i in range(pc.MAX_QUEUED_MESSAGES)])
+
+        # Delivering Q0..Q7 then queuing two more evicts D08 and D09 next.
+        self.processes[3].finish("Step 3 done.")
+        wait_until(lambda: len(self.processes) == 5)
+        wait_until(lambda: self.get(pid)["messages_queued"] == 0)
+        queue_msg("N0")
+        queue_msg("N1")
+        current = self.get(pid)
+        self.assertEqual(len(current["messages"]), pc.MAX_MESSAGES)
+        self.assertEqual([m["text"] for m in current["messages"]],
+                         [f"D{i:02d}" for i in range(10, 20)] + [f"Q{i}" for i in range(8)] + ["N0", "N1"])
+        self.assertEqual([m["state"] for m in current["messages"]], ["delivered"] * 18 + ["queued"] * 2)
+
+        self.processes[4].finish("Review done.")
+        self.idle()
+        self.center.detach()
+        reopened = self.make()
+        self.assertEqual(len(reopened.call("get", {"id": pid})["project"]["messages"]), pc.MAX_MESSAGES)
+
+    def test_message_refused_with_store_full_does_not_halt_or_fault(self):
+        item = self.started([{"agent": "fixture", "role": "lead"}])
+        store = self.root / "ai-project-center" / "projects.json"
+        self.center.store_limit = store.stat().st_size + 2000
+        big = "m" * 3500
+        self.assertCode("project_store_full", self.center.call, "message", {
+            "id": item["id"], "run_id": item["run_id"], "text": big, "mode": "queue",
+        })
+        self.assertCode("project_store_full", self.center.call, "message", {
+            "id": item["id"], "run_id": item["run_id"], "text": big, "mode": "now",
+            "acknowledge_interrupted": True,
+        })
+        summary = self.center.summary()
+        self.assertNotIn("error", summary)
+        self.assertEqual(summary["running"], 1)
+        self.assertIsNone(self.center._storage_fault)
+        self.assertFalse(self.processes[0].stopped)
+        self.assertFalse(self.processes[0].ended.is_set())
+        running = self.get(item["id"])
+        self.assertEqual(running["status"], "running")
+        self.assertEqual(running["messages"], [])
+        small = self.center.call("message", {
+            "id": item["id"], "run_id": item["run_id"], "text": "Short note.", "mode": "queue",
+        })
+        self.assertEqual(small["message"]["state"], "queued")
+        self.processes[0].finish("Done.")
+        self.idle()
+        done = self.get(item["id"])
+        self.assertEqual(done["status"], "completed")
+        self.assertNotIn("error", self.center.summary())
+
+    def test_hard_linked_store_is_refused(self):
+        item = self.save(title="Linked")
+        self.center.detach()
+        store = self.root / "ai-project-center" / "projects.json"
+        alias = self.root / "projects-hardlink.json"
+        os.link(store, alias)
+        self.assertEqual(store.stat().st_nlink, 2)
+        self.assertCode("project_store_unavailable", self.make)
+        alias.unlink()
+        reopened = self.make()
+        self.assertEqual(reopened.call("get", {"id": item["id"]})["project"]["title"], "Linked")
+
+    def test_store_growing_past_limit_while_read_is_unavailable(self):
+        self.save(title="Growing")
+        self.center.detach()
+        store = self.root / "ai-project-center" / "projects.json"
+        store_stat = store.stat()
+        self.assertLess(store_stat.st_size, pc.MAX_STORE)
+        real_read = os.read
+        grew = {"done": False, "reads": 0}
+
+        def growing_read(fd, length):
+            try:
+                info = os.fstat(fd)
+            except OSError:
+                info = None
+            if info is not None and info.st_ino == store_stat.st_ino and info.st_dev == store_stat.st_dev:
+                grew["reads"] += 1
+                if not grew["done"]:
+                    grew["done"] = True
+                    with open(store, "r+b") as handle:
+                        handle.seek(pc.MAX_STORE)
+                        handle.write(b" ")
+            return real_read(fd, length)
+
+        with mock.patch.object(pc.os, "read", side_effect=growing_read):
+            self.assertCode("project_store_unavailable", self.make)
+        self.assertTrue(grew["done"])
+        self.assertGreater(grew["reads"], 1)
+        self.assertGreater(store.stat().st_size, pc.MAX_STORE)
+
+    def test_detach_while_running_stops_setsid_grandchild_through_supervisor(self):
+        script = self.root / "agent.py"
+        script.write_text(AGENT)
+        self.profiles[0].update(plan_argv=[sys.executable, str(script), "read", "{prompt}"],
+                                run_argv=[sys.executable, str(script), "tree", "{prompt}"])
+        self.center.detach()
+        self.center = self.make(runner=None, environment={**os.environ, "CLAUDECODE": "1"})
+        item = self.approve(self.save(plan="The plan."))
+        self.center.call("run", {"id": item["id"], "revision": item["revision"]})
+        marker = Path(self.workspace) / "grandchild.pid"
+        wait_until(marker.exists, timeout=20)
+        grandchild = int(marker.read_text())
+        birth = ps.start_time(grandchild)
+        self.assertIsNotNone(birth)
+
+        def grandchild_alive():
+            fields = ps._stat_fields(grandchild)
+            return fields is not None and fields[19] == birth and fields[0] not in ("Z", "X")
+
+        def kill_if_leftover():
+            if grandchild_alive():
+                try:
+                    os.kill(grandchild, 9)
+                except OSError:
+                    pass
+        self.addCleanup(kill_if_leftover)
+
+        self.assertTrue(self.center._run_held(item["id"]))
+        began = time.monotonic()
+        self.center.detach()
+        self.assertLess(time.monotonic() - began, 1.0)
+        self.assertCode("project_center_closed", self.center.call, "list", {})
+
+        reopened = self.make(runner=None)
+        recovered = reopened.call("get", {"id": item["id"]})["project"]
+        self.assertEqual(recovered["status"], "interrupted")
+
+        wait_until(lambda: not grandchild_alive(), timeout=20)
+        wait_until(lambda: not reopened._run_held(item["id"]), timeout=20)
+        wait_until(lambda: not self.center._active, timeout=20)
+        self.assertFalse(reopened.call("get", {"id": item["id"]})["project"]["processes_stopping"])
+        self.assertEqual([args for args in SupervisorTest._own_command_lines()
+                          if str(script) in args and "tree" in args], [])
+
+    def test_older_supervisor_without_start_ack_is_refused_before_launch(self):
+        script = self.root / "old_supervisor.py"
+        script.write_text(OLD_SUPERVISOR)
+        lock = self.root / "run.lock"
+        lock.write_text("")
+        authorize_calls = []
+        go_ahead_marker = self.root / "go_ahead_seen"
+
+        def authorize(process):
+            authorize_calls.append(process)
+            return True
+
+        with self.assertRaises(ProjectError) as caught:
+            ps.run([sys.executable, "-c", "pass"], str(self.root), dict(os.environ), None, str(lock),
+                   authorize, supervisor=[sys.executable, str(script)])
+        self.assertEqual(caught.exception.code, "project_agent_unavailable")
+        self.assertEqual(authorize_calls, [])
+        self.assertFalse(go_ahead_marker.exists())
+
+    def test_invalid_utf8_on_control_pipe_handled_without_crash(self):
+        import subprocess
+        lock = str(self.root / "run.lock")
+        open(lock, "w").close()
+        controller = {"pid": os.getpid(), "start": ps.start_time(os.getpid())}
+
+        # 1. Invalid UTF-8 on the start line.
+        proc = subprocess.Popen(ps.command(), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, cwd=str(self.root))
+        out, err = proc.communicate(b"\xff\xfe\n", timeout=15)
+        self.assertEqual(proc.returncode, 2)
+        self.assertEqual(err, b"")
+        self.assertEqual([json.loads(line) for line in out.splitlines()],
+                         [{"error": "invalid_start"}, {"stopped": True}])
+
+        # 2. Invalid UTF-8 on the go-ahead line launches nothing.
+        marker = str(self.root / "should_not_exist")
+        start = {"argv": [sys.executable, "-c", f"open({marker!r}, 'w')"], "cwd": str(self.root),
+                 "input": None, "lock": lock, "controller": controller}
+        proc = subprocess.Popen(ps.command(), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, cwd=str(self.root))
+        out, err = proc.communicate(json.dumps(start).encode("utf-8") + b"\n\xff\xfe\n", timeout=15)
+        self.assertEqual(proc.returncode, 2)
+        self.assertEqual(err, b"")
+        self.assertEqual([json.loads(line) for line in out.splitlines()],
+                         [{"locked": True, "start_ack": True}, {"error": "launch_withdrawn"}, {"stopped": True}])
+        self.assertFalse(os.path.exists(marker))
+
+        # 3. Invalid UTF-8 on the control pipe while an agent is running triggers a clean stop.
+        start_sleep = {"argv": [sys.executable, "-c", "import time; time.sleep(30)"], "cwd": str(self.root),
+                       "input": None, "lock": lock, "controller": controller}
+        proc = subprocess.Popen(ps.command(), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, cwd=str(self.root))
+        try:
+            proc.stdin.write(json.dumps(start_sleep).encode("utf-8") + b"\n")
+            proc.stdin.write(b'{"launch": true}\n')
+            proc.stdin.flush()
+            events = []
+            while True:
+                line = proc.stdout.readline()
+                self.assertTrue(line, "supervisor ended before starting agent")
+                event = json.loads(line)
+                events.append(event)
+                if event.get("started") is True:
+                    break
+            proc.stdin.write(b"\xff\xfe\n")
+            proc.stdin.flush()
+            proc.stdin.close()
+            for line in proc.stdout:
+                events.append(json.loads(line))
+            proc.wait(timeout=15)
+            err = proc.stderr.read()
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=5)
+            for pipe in (proc.stdin, proc.stdout, proc.stderr):
+                try:
+                    pipe.close()
+                except OSError:
+                    pass
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(err, b"")
+        self.assertEqual(events[-1], {"stopped": True})
+
+
 if __name__ == "__main__":
     unittest.main()
