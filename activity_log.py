@@ -222,7 +222,13 @@ def plain(text: str) -> str:
 _QUERY_SECRET = re.compile(r"(?:token|key|secret|auth|sig|password)$", re.IGNORECASE)
 # A path starts after anything that is not part of a name ([/home/u/x.py], (~/a), "=/x", ":/x") and
 # ends at a space, a quote or a bracket.
-_PATH = re.compile(r"""(^|[^A-Za-z0-9_.~%+-])((?:~/|/)[^\s<>"'()\[\]{},;|`]+)""")
+_SEGMENT = r"""(?:[^\s<>"'()\[\]{},;|`\\]|\\.)+"""      # a backslash-escaped space ("a\ b") belongs to it
+# A path, and the words after it that go on with a "/" ("/home/a/Private Client/src/x.py" written without
+# quotes): all of it is one path, of which only the last name is kept.
+_PATH = re.compile(r"""(^|[^A-Za-z0-9_.~%+-])((?:~/|/)""" + _SEGMENT + r"""(?:\s+""" + _SEGMENT + r"""/""" +
+                   r"""(?:""" + _SEGMENT + r""")?)*)""")
+# A quoted path: everything up to the closing quote, spaces included.
+_QUOTED_PATH = re.compile(r"""(["'`])((?:~/|/)[^"'`\n]*)\1""")
 
 
 def _redact(text: str) -> str:
@@ -237,7 +243,12 @@ def _short_paths(text: str, depth: int = 0) -> str:
     """Paths in text cut to their names, and URLs inside it cleaned the same way (one level deep)."""
     if depth < 2:
         text = _URL.sub(lambda m: _clean_url(m.group(0), depth + 1), text)
-    return _PATH.sub(lambda m: m.group(1) + os.path.basename(m.group(2).rstrip("/")), text)
+    text = _QUOTED_PATH.sub(lambda m: m.group(1) + _last_name(m.group(2)) + m.group(1), text)
+    return _PATH.sub(lambda m: m.group(1) + _last_name(m.group(2)), text)
+
+
+def _last_name(path: str) -> str:
+    return os.path.basename(path.rstrip("/").replace("\\ ", " ")) or "…"
 
 
 def _clean_url(raw: str, depth: int = 0) -> str:
@@ -422,10 +433,13 @@ class ActivityLog:
     def pause(self, at: dt.datetime | None = None):
         """Nothing watches the agents from `at` on (the window hides): observations are ignored until
         resume(), and what was open then ends at `at` (end_open, or the first observation after
-        resume() when that comes first). Cheap, for the window's thread: no lock is waited for."""
+        resume() when that comes first). Hidden again before that happened, the earlier cutoff stays:
+        nothing was observed in between. Cheap, for the window's thread: no lock is waited for."""
         self.accepting = False
-        self.hidden_at = at or now_utc()
-        return self.hidden_at
+        at = at or now_utc()
+        if self.hidden_at is None:
+            self.hidden_at = at
+        return at
 
     def resume(self):
         """Observed again. The spans of before the pause are still ended at the pause's time: by
@@ -455,8 +469,8 @@ class ActivityLog:
                 self.pending.clear()
                 self.hidden_at = None
                 return
-            if self.hidden_at != at:
-                return
+            if self.hidden_at is None or self.hidden_at > at:
+                return                        # already ended (by an observation or an earlier worker)
             self.pending.extend(self._finish_pause(usage_for))
             if self.pending:
                 self._observe(set(), {}, None, at, flush_only=True)

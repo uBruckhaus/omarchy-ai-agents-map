@@ -1728,6 +1728,41 @@ class RoundSevenTest(TempCase):
         self.assertIsNotNone(self.rows("2026-11-21")[0]["superseded_by"])
 
 
+class RoundEightTest(TempCase):
+    def test_paths_with_spaces_never_reach_the_helper(self):
+        self.log.directory.mkdir(parents=True)
+        topics = ['a fix "/home/alice/Private Client/project/src/login.py"',
+                  "b fix /home/alice/Private Client/project/src/login.py now",
+                  "c edit '~/Work Stuff/notes/a.md' please",
+                  "d open /home/alice/My\\ Secret\\ Dir/b.py",
+                  "e see https://e.com/?f=%2Fhome%2Falice%2FPrivate%20Client%2Fsrc%2Fx.py"]
+        rows = [{"version": 1, "origin": "history", "session": f"s{i}", "source_kind": "agent", "source": "claude",
+                 "topic": t, "started_at": f"2026-11-20T1{i}:00:00Z", "ended_at": f"2026-11-20T1{i}:10:00Z",
+                 "duration_ms": 0} for i, t in enumerate(topics)]
+        (self.log.directory / "2026-11-20.jsonl").write_text(jl(*rows))
+        prompts = []
+        answer = json.dumps({"title": "t", "text": "x", "topics": []})
+        reports_ctl.generate_topic_report(self.log, {"helper": "h"}, lambda p: prompts.append(p) or answer,
+                                          now=at("2026-11-20T23:00:00"))
+        for leak in ("alice", "Private", "Client", "project/", "Work Stuff", "notes", "Secret", "src/"):
+            self.assertNotIn(leak, prompts[0])
+        for kept in ("login.py", "a.md", "b.py", "x.py", "please", "now"):
+            self.assertIn(kept, prompts[0])
+        self.assertEqual(activity_log.sanitize_topic("ratio 2/3 and a/b"), "ratio 2/3 and a/b")
+
+    def test_two_hides_before_any_finalizer_keep_the_first_cutoff(self):
+        t0 = at("2026-11-20T10:00:00")
+        self.log.observe({"agent:claude"}, now=t0)
+        first = self.log.pause(t0 + dt.timedelta(seconds=10))
+        self.log.resume()                                     # shown, but no poll came before it hid again
+        second = self.log.pause(t0 + dt.timedelta(seconds=40))
+        self.log.end_open(second)                             # the later worker runs first
+        self.log.end_open(first)                              # then the earlier: nothing left
+        self.log.resume()
+        self.log.observe(set(), now=t0 + dt.timedelta(minutes=5))
+        self.assertEqual([r["duration_ms"] for r in self.rows("2026-11-20")], [10000])
+
+
 class SchemaTest(unittest.TestCase):
     def test_defaults(self):
         import settings_schema
