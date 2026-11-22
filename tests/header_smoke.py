@@ -1,8 +1,9 @@
 """A real GTK build of the window's header (run by test_tab_links.HeaderNarrowTest under a headless
-Broadway display with an isolated HOME): wide, every symbol in the row; narrow (600 px), Reports, Help,
-Settings and Refresh in More and nothing cut off. Prints HEADER OK."""
+Broadway display with an isolated HOME), with the app's CSS and room kept free for the desktop's window
+buttons as in a header bar: wide, every symbol in the row; narrower, Reports, Help, Settings and Refresh in
+More, then no title, then the legend in More too. At every width, also when the counts, the status and the
+legend appear later at an unchanged width, nothing that shows is cut off. Prints HEADER OK."""
 
-import os
 import sys
 import time
 from pathlib import Path
@@ -17,22 +18,32 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk  # noqa: E402
 
 import ai_popup  # noqa: E402
+import palette  # noqa: E402
 from main_tabs import MainTabs  # noqa: E402
 
-WINDOW_BUTTONS = 110
-COPIED = ("build_header", "build_header_more", "header_clipper", "update_header_layout", "setup_header_order", "apply_header_order",
-          "header_items", "header_position", "header_item_at")
+WINDOW_BUTTONS = 110            # what the desktop's minimize / maximize / close take beside the header
+COPIED = ("build_header", "build_header_more", "header_clipper", "update_header_layout", "setup_header_order",
+          "apply_header_order", "header_items", "header_position", "header_item_at", "header_child_shown",
+          "header_need", "queue_header_layout", "run_header_layout", "update_header", "apply_theme_css",
+          "apply_style_scheme", "adw_colors_css", "header_wanted", "header_child_changed", "set_header_wanted")
+FULL = {"connected": True, "running": 3, "pausing": 1, "needs_you": 12, "attention_projects": 7,
+        "error": "project_store_corrupt"}
 
 
 class Host(MainTabs):
     HEADER_ITEMS = ai_popup.AgentsMap.HEADER_ITEMS
     HEADER_NARROW = ai_popup.AgentsMap.HEADER_NARROW
+    HEADER_LEVELS = ai_popup.AgentsMap.HEADER_LEVELS
     MORE_ITEMS = ai_popup.AgentsMap.MORE_ITEMS
 
     def __init__(self, window):
         self.window = window
-        self.project_summary = {"connected": True, "running": 1, "needs_you": 1}
+        self.project_summary = {"connected": True}
         self.opened = []
+        self.view_buttons = {}
+        self.updating_buttons = False
+        self.theme = SimpleNamespace(colors=dict(palette.DEFAULT_COLORS))
+        self.style_provider = None
 
     def page_name(self):
         return "main"
@@ -52,6 +63,9 @@ class Host(MainTabs):
     def refresh_everything(self):
         self.opened.append("refresh")
 
+    def open_legend(self):
+        self.opened.append("legend")
+
     def to_map_first(self, then):
         then()
 
@@ -59,9 +73,6 @@ class Host(MainTabs):
         pass
 
     def open_ask_ai(self, *a, **k):
-        pass
-
-    def open_legend(self):
         pass
 
 
@@ -78,49 +89,101 @@ def spin(seconds):
         time.sleep(0.01)
 
 
+def settled(host, header):
+    """Laid out again since the last change: no layout check is waiting, and every symbol that shows has
+    been given its place (a symbol shown again keeps its old empty place until the next frame; Broadway's
+    frames come when they come: wait for them, at most a few seconds)."""
+    deadline = time.monotonic() + 4
+    spin(0.3)
+    while time.monotonic() < deadline:
+        child = header.get_first_child()
+        done = not getattr(host, "header_layout_queued", False) \
+            and header.get_width() <= host.header_clip.get_width() + 0.5 \
+            and header.measure(Gtk.Orientation.HORIZONTAL, -1)[0] <= header.get_width() + 0.5
+        while child is not None and done:
+            if child.get_visible() and isinstance(child, (Gtk.Button, Gtk.MenuButton)) and child.get_width() < 20:
+                done = False
+            child = child.get_next_sibling()
+        if done:
+            return
+        spin(0.1)
+
+
+def fits(host, header, label):
+    """Every child that shows lies inside the room the header row was given."""
+    settled(host, header)
+    room = host.header_clip.get_width()
+    child = header.get_first_child()
+    if "--debug" in sys.argv:
+        c = header.get_first_child()
+        while c is not None:
+            ok, b = c.compute_bounds(host.header_clip)
+            print(label, type(c).__name__, c.get_visible(), c.get_tooltip_text(), ok and (round(b.get_x()), round(b.get_width())))
+            c = c.get_next_sibling()
+    while child is not None:
+        if child.get_visible():
+            ok, bounds = child.compute_bounds(host.header_clip)
+            assert ok and bounds.get_x() >= -0.5 and bounds.get_x() + bounds.get_width() <= room + 0.5, \
+                (label, type(child).__name__, round(bounds.get_x()), round(bounds.get_width()), room)
+        child = child.get_next_sibling()
+
+
 def check(width: int):
     window = Gtk.Window(default_width=width, default_height=200)
     host = Host(window)
+    try:
+        host.apply_theme_css()             # the app's own sizes (title, tabs, symbols, paddings)
+    except Exception as error:             # a missing theme part must not hide the layout check
+        print("css:", error, flush=True)
     header = host.build_header()
     holder = Gtk.Box()
+    holder.add_css_class("am-header-row")
     holder.append(host.header_clipper(header))
-    header.set_hexpand(True)
+    holder.append(Gtk.Box(width_request=WINDOW_BUTTONS))       # the window buttons' place
     window.set_child(holder)
     window.present()
     spin(0.6)
-    host.update_header_layout()
-    spin(0.6)
-    narrow = width < Host.HEADER_NARROW
-    assert host.header_narrow == narrow, (width, host.header_narrow)
-    assert host.header_more.get_visible() == narrow
-    for key in Host.MORE_ITEMS:
-        assert getattr(host, f"{key}_button").get_visible() == (not narrow), key
-    # Nothing that shows is cut off: every visible child lies inside the space the header row was given.
-    room = host.header_clip.get_width()
-    child = header.get_first_child()
-    while child is not None:
-        if child.get_visible():
-            ok, bounds = child.compute_bounds(header)
-            assert ok and bounds.get_x() + bounds.get_width() <= room + 0.5 and bounds.get_x() >= -0.5, \
-                (width, type(child).__name__, bounds.get_x(), bounds.get_width(), room)
-        child = child.get_next_sibling()
-    assert room <= width, (room, width)
-    # The window does not grow for it: the header's least width fits, with room for the desktop's window
-    # buttons beside it (a header bar), WINDOW_BUTTONS px.
-    minimum = header.measure(Gtk.Orientation.HORIZONTAL, -1)[0]
     assert window.get_width() <= width + 0.5, ("the header widened the window", window.get_width(), width)
-    assert minimum <= width - WINDOW_BUTTONS, ("header needs", minimum, "of", width)
-    print(f"{width}: header needs {minimum} px", flush=True)
-    if narrow:
+    fits(host, header, f"{width} at start")
+    # Later, at the same width: the counts, the status symbol and Ask AI appear, the map shows the legend.
+    host.project_summary = dict(FULL)
+    host.update_main_tabs()
+    host.set_header_wanted(host.problem_button, True)          # as update_problem_button does
+    host.set_header_wanted(host.smartcheck_button, True)       # as update_smart_check_button does
+    host.main_tab = "map"
+    host.update_header()
+    spin(0.6)
+    assert window.get_width() <= width + 0.5, ("the content widened the window", window.get_width(), width)
+    fits(host, header, f"{width} with counts and status")
+    level = host.header_level
+    if width < Host.HEADER_NARROW:
+        assert level >= 1, (width, level)
+    if level >= 1:
+        assert host.header_more.get_visible()
         for key in Host.MORE_ITEMS:
+            assert not getattr(host, f"{key}_button").get_visible(), key
             host.header_more_items[key].emit("clicked")
-        assert host.opened == ["reports", "help", "settings", "refresh"], host.opened
+        assert host.opened[:4] == ["reports", "help", "settings", "refresh"], host.opened
+    else:
+        assert not host.header_more.get_visible()
+    assert host.header_more_items["legend"].get_visible() == (level >= 3)
+    assert host.header_more_items["ask"].get_visible() == (level >= 4)
+    assert host.smartcheck_button.get_visible() == (level < 4)
+    # The content goes again (no counts, no status): the row grows back where it fits, still inside.
+    host.project_summary = {"connected": True}
+    host.update_main_tabs()
+    host.set_header_wanted(host.problem_button, False)
+    host.set_header_wanted(host.smartcheck_button, False)
+    spin(1.5)
+    fits(host, header, f"{width} after the content went")
+    print(f"{width}: level {level} with content, {host.header_level} without", flush=True)
     window.destroy()
     spin(0.2)
+    return level
 
 
 Adw.init()
-os.environ.setdefault("AI_AGENTS_MAP_TEST", "1")
-check(1300)
-check(600)
+levels = {width: check(width) for width in (1400, 900, 800, 760, 600, 500, 420)}
+assert levels[1400] == 0, levels
+assert levels[420] >= levels[600] >= levels[800] >= levels[1400], levels
 print("HEADER OK")

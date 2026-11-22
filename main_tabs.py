@@ -155,6 +155,8 @@ class MainTabs:
         if projects is not None:
             projects.set_tooltip_text(describe(counts) + " (Ctrl+1)")
         self.fill_tab_counts(counts)
+        if callable(getattr(self, "queue_header_layout", None)):
+            self.queue_header_layout()         # the counts may need more room in the header
 
     def fill_tab_counts(self, counts: dict):
         holder = getattr(self, "tab_counts_box", None)
@@ -334,8 +336,8 @@ class MainTabs:
         if page in NEUTRAL_PAGES:
             return
         self.set_main_tab("projects" if page == "projects" else "map")
-        if getattr(self, "legend_button", None) is not None:
-            self.legend_button.set_visible(self.main_tab == "map")
+        if callable(getattr(self, "update_header", None)):
+            self.update_header()               # the legend only on the map, as the header's room allows
 
     def left_page(self, page):
         """Whatever route left a page (a tab, Help, Settings, Reports, Back, hiding): what it was doing

@@ -519,6 +519,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             icon.set_pixel_size(22)
             icon.set_valign(Gtk.Align.CENTER)
             header.append(icon)
+            self.header_icon = icon
         title = Gtk.Label(label=desktop.app_name(), xalign=0)     # the app's own name (Asterism, AI Agents Map)
         title.add_css_class("am-title")
         title.set_ellipsize(Pango.EllipsizeMode.END)
@@ -581,7 +582,13 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         header.append(self.header_more)
         self.setup_header_order(header)
         self.header_narrow = None
-        self.update_header_layout()
+        self.header_level = None
+        # The header's content or its room changes (counts, the status, the legend, a resize): check again.
+        child = header.get_first_child()
+        while child is not None:
+            child.connect("notify::visible", lambda widget, _p: self.header_child_changed(widget))
+            child = child.get_next_sibling()
+        header.connect("map", self.queue_header_layout)
         return header
 
     HEADER_NARROW = 760              # Maprisma: below this width the header's page actions live in More
@@ -592,6 +599,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         clip = Gtk.ScrolledWindow(hexpand=True, propagate_natural_height=True, propagate_natural_width=True)
         clip.set_policy(Gtk.PolicyType.EXTERNAL, Gtk.PolicyType.NEVER)
         clip.set_child(header)
+        clip.get_hadjustment().connect("notify::page-size", self.queue_header_layout)   # its room changed
         self.header_clip = clip
         return clip
     MORE_ITEMS = ("reports", "help", "settings", "refresh")
@@ -608,41 +616,143 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
                  else self.after_leaving(self.open_reports)),
                 ("help", _("Help (F1)"), lambda: self.after_leaving(self.open_help)),
                 ("settings", _("Settings"), lambda: self.after_leaving(self.open_settings)),
-                ("refresh", _("Refresh"), lambda: self.refresh_everything())):
+                ("refresh", _("Refresh"), lambda: self.refresh_everything()),
+                ("legend", _("What the marks mean"), lambda: self.open_legend()),
+                ("ask", _("Ask AI"), lambda: self.to_map_first(self.open_ask_ai))):
             item = Gtk.Button(label=label)
             item.add_css_class("flat")
             item.get_child().set_xalign(0)
             item.connect("clicked", lambda _b, run=action: (popover.popdown(), run()))
             menu.append(item)
             self.header_more_items[key] = item
+        self.header_more_items["legend"].set_visible(False)     # only when the legend itself has no room
+        self.header_more_items["ask"].set_visible(False)        # only when Ask AI itself has no room
         popover.set_child(menu)
         more.set_popover(popover)
         return more
 
+    # The header's levels, from the full row down (Maprisma's _headerActions(narrow), task 086):
+    # 0 every symbol; 1 Reports, Help, Settings and Refresh in More, the title shortened; 2 also no app icon
+    # and title (Maprisma's header has none); 3 the legend in More too; 4 Ask AI in More too (the smallest
+    # windows: the tabs, the status and More always stay).
+    HEADER_LEVELS = 5
+
+    def header_child_shown(self, child, level: int) -> bool:
+        """Whether a header child shows at that level (problem and Ask AI keep their own visibility)."""
+        if child is getattr(self, "header_drop", None):
+            return False
+        if child is getattr(self, "header_icon", None) or child is getattr(self, "title_label", None):
+            return level < 2
+        if child is getattr(self, "header_more", None):
+            return level >= 1
+        if child is getattr(self, "legend_button", None):
+            return getattr(self, "main_tab", "map") == "map" and level < 3
+        if any(child is getattr(self, f"{key}_button", None) for key in self.MORE_ITEMS):
+            return level == 0
+        if child is getattr(self, "smartcheck_button", None):
+            return self.header_wanted(child) and level < 4
+        if child is getattr(self, "problem_button", None):
+            return self.header_wanted(child)
+        return True
+
+    def header_wanted(self, child) -> bool:
+        """Whether the status or Ask AI symbol should show, as their own code last set it (the layout's
+        own hiding does not count)."""
+        return getattr(self, "header_wants", {}).get(child, child.get_visible())
+
+    def header_child_changed(self, _child):
+        if not getattr(self, "header_layout_busy", False):
+            self.queue_header_layout()
+
+    def set_header_wanted(self, widget, on: bool):
+        """The status or Ask AI symbol wanted or not by its own code; whether it shows is the layout's
+        (Ask AI moves into More in the smallest windows)."""
+        if not hasattr(self, "header_wants"):
+            self.header_wants = {}
+        self.header_wants[widget] = bool(on)
+        allowed = widget is not getattr(self, "smartcheck_button", None) or (getattr(self, "header_level", 0) or 0) < 4
+        self.header_layout_busy = True
+        try:
+            widget.set_visible(bool(on) and allowed)
+        finally:
+            self.header_layout_busy = False
+        self.queue_header_layout()
+
+    def header_need(self, level: int) -> int:
+        """The least width the header row needs at a level, from its children's own least widths
+        (measured whether shown or not), so it never depends on what is shown right now."""
+        header = self.header
+        total, count = 0, 0
+        child = header.get_first_child()
+        while child is not None:
+            if self.header_child_shown(child, level):
+                if child is getattr(self, "title_label", None):
+                    metrics = child.get_pango_context().get_metrics(None, None)
+                    width = metrics.get_approximate_char_width() / Pango.SCALE * (12 if level == 0 else 1)
+                else:
+                    width = child.measure(Gtk.Orientation.HORIZONTAL, -1)[0]
+                total += width
+                count += 1
+            child = child.get_next_sibling()
+        return int(total + header.get_spacing() * max(0, count - 1) + 0.5)
+
+    def queue_header_layout(self, *_args):
+        """Once per main-loop turn: after the header's content or its room changed."""
+        if not getattr(self, "header_layout_queued", False) and getattr(self, "header", None) is not None:
+            self.header_layout_queued = True
+            GLib.idle_add(self.run_header_layout)
+
+    def run_header_layout(self):
+        self.header_layout_queued = False
+        self.update_header_layout()
+        return False
+
     def update_header_layout(self):
-        """Wide: every header symbol in the row (and draggable). Narrow: Reports, Help, Settings and
-        Refresh in More, the title shortened; the tabs and status, Ask AI and the legend stay."""
-        width = self.window.get_width() if getattr(self, "window", None) is not None else 0
-        if not getattr(self, "header_narrow", None) and getattr(self, "header", None) is not None:
-            # What the full row needs (measured while it is shown in full): the window may be wider than
-            # the breakpoint and still too narrow for it (a long title, larger text).
-            self.header_wide_need = self.header.measure(Gtk.Orientation.HORIZONTAL, -1)[0]
-        clip = getattr(self, "header_clip", None)
-        room = clip.get_width() if clip is not None else 0
-        narrow = 0 < width < self.HEADER_NARROW or (room > 0 and getattr(self, "header_wide_need", 0) > room)
-        if narrow == getattr(self, "header_narrow", None):
+        """Wide: every header symbol in the row (and draggable). Narrower: the lowest level whose row fits
+        the room the header has (also re-checked when the counts, the status or the legend change), and
+        at least level 1 below 760 px."""
+        if getattr(self, "header", None) is None:
             return
-        self.header_narrow = narrow
-        for key in self.MORE_ITEMS:
-            button = getattr(self, f"{key}_button", None)
-            if button is not None:
-                button.set_visible(not narrow)
-        more = getattr(self, "header_more", None)
-        if more is not None:
-            more.set_visible(narrow)
-        title = getattr(self, "title_label", None)
-        if title is not None:
-            title.set_width_chars(1 if narrow else 12)      # ellipsized: the tabs keep their room
+        width = self.window.get_width() if getattr(self, "window", None) is not None else 0
+        clip = getattr(self, "header_clip", None)
+        room = clip.get_width() if clip is not None and clip.get_mapped() else 0
+        level = 1 if 0 < width < self.HEADER_NARROW else 0
+        if room > 0:
+            while level < self.HEADER_LEVELS - 1 and self.header_need(level) > room:
+                level += 1
+        self.header_level = level
+        self.header_narrow = level >= 1
+        self.header_layout_busy = True
+        try:
+            for key in self.MORE_ITEMS:
+                button = getattr(self, f"{key}_button", None)
+                if button is not None:
+                    button.set_visible(level == 0)
+            more = getattr(self, "header_more", None)
+            if more is not None:
+                if level == 0 and more.get_popover() is not None:
+                    more.popdown()                       # an open More menu goes with it
+                more.set_visible(level >= 1)
+            on_map = getattr(self, "main_tab", "map") == "map"
+            if getattr(self, "legend_button", None) is not None:
+                self.legend_button.set_visible(on_map and level < 3)
+            items = getattr(self, "header_more_items", None) or {}
+            if items.get("legend") is not None:
+                items["legend"].set_visible(on_map and level >= 3)
+            ask = getattr(self, "smartcheck_button", None)
+            if ask is not None:
+                wanted = self.header_wanted(ask)
+                ask.set_visible(wanted and level < 4)
+                if items.get("ask") is not None:
+                    items["ask"].set_visible(wanted and level >= 4)
+            for widget in (getattr(self, "header_icon", None), getattr(self, "title_label", None)):
+                if widget is not None:
+                    widget.set_visible(level < 2)
+            title = getattr(self, "title_label", None)
+            if title is not None:
+                title.set_width_chars(12 if level == 0 else 1)      # ellipsized: the tabs keep their room
+        finally:
+            self.header_layout_busy = False
 
     # The header's symbols in the user's order: hold the left mouse button on one and drag it.
     HEADER_ITEMS = ("problem", "smartcheck", "legend", "reports", "help", "settings", "refresh")   # Maprisma's order
@@ -3218,9 +3328,12 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         for name, button in self.view_buttons.items():
             button.set_active(name == page)
         self.updating_buttons = False
-        # The legend only on the AI Map (Maprisma), Reports marked while it is shown.
+        # The legend only on the AI Map (Maprisma) and while the header has room (update_header_layout),
+        # Reports marked while it is shown.
         if getattr(self, "legend_button", None) is not None:
-            self.legend_button.set_visible(getattr(self, "main_tab", "map") == "map")
+            self.legend_button.set_visible(getattr(self, "main_tab", "map") == "map"
+                                           and (getattr(self, "header_level", 0) or 0) < 3)
+            self.queue_header_layout()
         reports = getattr(self, "reports_button", None)
         if reports is not None:
             (reports.add_css_class if page == "reports" else reports.remove_css_class)("am-header-on")
@@ -3269,7 +3382,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         self.hints_heading.set_visible(hints > 0)
         # Maprisma's status symbol: shown once there is a report (never on an empty map); red for something
         # to fix, yellow for tips and updates, green when all is fine.
-        self.problem_button.set_visible(report is not None and not self.map_empty)
+        self.set_header_wanted(self.problem_button, report is not None and not self.map_empty)
         icon = "dialog-error-symbolic" if problems else "dialog-warning-symbolic" if hints else "object-select-symbolic"
         self.problem_button.set_child(Gtk.Image.new_from_icon_name(icon))
         for css, on in (("am-status-red", problems > 0), ("am-status-yellow", not problems and hints > 0),
@@ -4605,7 +4718,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             self.place_panes()
             self.update_header()
         self.auto_layers()
-        self.update_header_layout()          # narrow: Reports, Help, Settings and Refresh in More
+        self.queue_header_layout()           # narrow: Reports, Help, Settings and Refresh in More
         compact = 0 < self.window.get_width() < main_tabs.COMPACT_WIDTH
         if compact != getattr(self, "tabs_compact", None):
             self.tabs_compact = compact
@@ -4873,6 +4986,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         self.decide_start_tab()          # once, before the map's work: a start on Projects defers it (task 086)
         self.refresh_overview()
         self.refresh_map()
+        self.queue_header_layout()       # the status, Ask AI and the counts are known now
         if show:
             self.window.present()
             if self.page_name() == "firstagent" and callable(getattr(self, "first_resume", None)):
