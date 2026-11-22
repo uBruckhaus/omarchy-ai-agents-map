@@ -42,7 +42,7 @@ EXCLUDED = {".git", "build", ".dart_tool", "__pycache__", "node_modules", "auth.
             ".credentials.json"}
 WALK_ENTRIES, WALK_SECONDS, WALK_DEPTH = 4000, 0.25, 8
 STUCK_MS = 600_000
-CONTROL = re.compile("[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]")
+CONTROL = re.compile("[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069\ud800-\udfff]")
 
 # The session forms the app can read for What is it doing? and Collect history. Which one an agent
 # writes, and where, is its adapter's [sessions] activity_reader (else its reader) and activity_dir.
@@ -387,7 +387,7 @@ def trajectory_text(data: bytes, path) -> str:
         text = data.decode("utf-8")
     except UnicodeDecodeError:
         raise ValueError("Invalid text") from None
-    return re.sub("[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]", "", text).strip()[:2000]
+    return re.sub("[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069\ud800-\udfff]", "", text).strip()[:2000]
 
 
 def restrict_reads(con) -> None:
@@ -949,4 +949,4 @@ def report_text(report: dict) -> str:
     if origin.get("close_risk") == "possible":
         lines.append(_("Closing this terminal may stop the work."))
     lines.append(" ← ".join(f"{p['label']} ({p['pid']})" for p in origin["ancestors"]))
-    return "\n".join(lines)
+    return activity_log.plain("\n".join(lines))        # file names that are not UTF-8 included

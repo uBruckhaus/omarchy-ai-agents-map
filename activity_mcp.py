@@ -70,6 +70,7 @@ def log_call(name: str, arguments: dict) -> dict:
         if name == "reports_list":
             query, cursor = arguments.get("query", ""), arguments.get("cursor")
             if any(k not in ("query", "cursor") for k in arguments) or not isinstance(query, str) or len(query) > 200 \
+                    or not _encodable(query) \
                     or (cursor is not None and (type(cursor) is not int or not 1 <= cursor <= INT64)):
                 return _text({"code": "invalid_request"}, True)
             return _text(reports_ctl.ReportsLibrary().list(query, cursor))

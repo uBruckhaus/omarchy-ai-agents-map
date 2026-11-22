@@ -283,7 +283,10 @@ class ReportsPage:
                 setattr(self, name, None)
 
     def reports_shown(self):
-        """The window is shown again: the Log tab's refresh goes on where it stopped."""
+        """The window is shown again: the log observes again, and the Log tab's refresh goes on."""
+        store = getattr(self, "_activity_store", None)
+        if store is not None:
+            store.resume()
         if self.page_name() != "reports":
             return
         if self.reports_tab == "log" and not getattr(self, "reports_timer", None):
@@ -298,11 +301,18 @@ class ReportsPage:
         nothing watches the agents while the window is hidden."""
         self.stop_reports_timer()
         store = getattr(self, "_activity_store", None)
-        if store is not None and store.enabled:
+        if store is None:
+            return
+        store.pause()                       # at once: a poll still under way can no longer open a span
+        hidden_at = activity_log.now_utc()
+        usage_for = self.activity_usage_reader(dict(getattr(self, "agent_pids", {}) or {}))
+
+        def finish():                       # reading usage and writing the day file: not on the window's thread
             try:
-                store.observe(set(), usage_for=self.activity_usage_reader(dict(getattr(self, "agent_pids", {}) or {})))
+                store.end_open(hidden_at, usage_for)
             except OSError:
                 pass
+        threading.Thread(target=finish, daemon=True).start()
 
     # --- small parts -------------------------------------------------------------------------------
 

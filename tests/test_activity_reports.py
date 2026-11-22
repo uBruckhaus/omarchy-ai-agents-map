@@ -1542,8 +1542,21 @@ class RoundFiveTest(TempCase):
         page.agent_pids = {}
         page.reports_timer = page.reports_pulse = None
         self.log.observe({"agent:claude"}, now=activity_log.now_utc() - dt.timedelta(seconds=30))
-        page.reports_hidden()
+        workers = []
+        with mock.patch.object(reports_page.threading, "Thread",
+                               side_effect=lambda target, daemon: workers.append(target) or mock.Mock()):
+            page.reports_hidden()
+        self.assertEqual(len(workers), 1)                  # the window's thread only marks it paused
+        self.assertIn("agent:claude", self.log.active)
+        self.log.observe({"agent:pi"})                      # a poll that was still under way: ignored
+        workers[0]()
         self.assertEqual(self.log.active, {})
+        rows = [r for d in (activity_log.day_of(activity_log.now_utc()),) for r in self.rows(d)]
+        self.assertEqual([r["source"] for r in rows], ["claude"])
+        self.assertLess(rows[0]["duration_ms"], 60_000)
+        page.reports_tab, page.page_name = "log", lambda: "main"
+        page.reports_shown()
+        self.assertTrue(self.log.accepting)
 
     def test_building_the_page_reads_nothing(self):
         import reports_page
@@ -1582,6 +1595,63 @@ class RoundFiveTest(TempCase):
         self.assertTrue(page.reports_tab_buttons["log"].get_active())
         page.reports_tab_buttons["library"].set_active(True)
         page.show_reports_tab.assert_called_once_with("library")
+
+
+class RoundSixTest(TempCase):
+    def test_lone_surrogates_never_stop_an_import(self):
+        root = self.tmp / "claude/projects/-w-app"
+        root.mkdir(parents=True)
+        (root / "s.jsonl").write_text(
+            '{"type":"user","timestamp":"2026-11-20T10:00:00Z","cwd":"/w/app","message":{"role":"user",'
+            '"content":"fix emoji \\ud83d header"}}\n'
+            '{"type":"assistant","timestamp":"2026-11-20T10:05:00Z","message":{"role":"assistant","content":"ok \\udc00"}}\n')
+        source = {"source": "agent:claude", "name": "Claude Code", "supported": True, "form": "claude-files",
+                  "root": str(self.tmp / "claude/projects")}
+        result = history_import.HistoryImporter(self.log, [source], now=at("2026-11-20T18:00:00")).run()
+        self.assertEqual((result["sources"][0]["added"], result["sources"][0]["status"]), (1, "ok"))
+        row = self.rows("2026-11-20")[0]
+        self.assertEqual(row["topic"], "fix emoji header")
+        (self.log.directory / "2026-11-20.jsonl").read_bytes().decode("utf-8")
+        tail = (root / "s.jsonl").read_text()
+        activity = live.jsonl_session_activity(tail, "s")
+        json.dumps(activity, ensure_ascii=False).encode("utf-8")
+        self.assertEqual(activity_log.plain("a\udcff"), "a\ufffd")
+        self.assertEqual(reports_ctl.report_field("t\ud800x", 10), "t x")
+
+    def test_a_crafted_library_is_bounded(self):
+        library = reports_ctl.ReportsLibrary(self.tmp / "reports")
+        library.save(DRAFT, "ok")
+        db = self.tmp / "reports/reports.db"
+        con = sqlite3.connect(db)
+        con.execute("UPDATE reports SET title=? WHERE id=1", ("x" * 300,))
+        con.commit()
+        con.close()
+        rows = library.list()["reports"]
+        self.assertTrue(rows[0].get("damaged"))             # longer than a title can be
+        with self.assertRaises(reports_ctl.ReportError) as caught:
+            library.get(1)
+        self.assertEqual(caught.exception.code, "report_damaged")
+        con = sqlite3.connect(db)
+        con.execute("ALTER TABLE reports RENAME TO real_reports")
+        con.execute("CREATE VIEW reports AS SELECT id, zeroblob(2000000) AS title, note, saved_at, from_day, "
+                    "through_day, filters_json, helper, generated_at, entry_count, total_entries, capped, topic_names, "
+                    "topics_json, text FROM real_reports")
+        con.commit()
+        con.close()
+        with self.assertRaises(reports_ctl.ReportError):
+            library.list()                                  # the value limit, never a 2 MB title
+        con = sqlite3.connect(db)
+        con.execute("DROP VIEW reports")
+        con.execute("CREATE VIEW reports AS WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n) "
+                    "SELECT i AS id, '' AS title, '' AS note, '' AS saved_at, '' AS from_day, '' AS through_day, "
+                    "'{}' AS filters_json, '' AS helper, '' AS generated_at, 0 AS entry_count, 0 AS total_entries, "
+                    "0 AS capped, '' AS topic_names, '[]' AS topics_json, '' AS text FROM n WHERE i < 0")
+        con.commit()
+        con.close()
+        started = time.monotonic()
+        with mock.patch.object(reports_ctl, "QUERY_SECONDS", 0.3), self.assertRaises(reports_ctl.ReportError):
+            library.list()                                  # a query that never ends is stopped
+        self.assertLess(time.monotonic() - started, 5)
 
 
 class SchemaTest(unittest.TestCase):

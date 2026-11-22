@@ -191,7 +191,7 @@ def meta_text(value, most: int = 200) -> str:
     """One line of plain text: control characters become spaces, whitespace collapsed, at most `most` characters."""
     if not isinstance(value, str):
         return ""
-    text = "".join(" " if ord(c) < 32 or 0x7f <= ord(c) < 0xa0 else c for c in value)
+    text = "".join(" " if ord(c) < 32 or 0x7f <= ord(c) < 0xa0 or 0xd800 <= ord(c) <= 0xdfff else c for c in value)
     return " ".join(text.split())[:most]
 
 
@@ -209,7 +209,16 @@ _SECRETS = [re.compile(p, re.IGNORECASE | re.DOTALL) for p in (
     r"(?<![A-Za-z0-9+/_])(?:[A-Fa-f0-9]{32,}|[A-Za-z0-9+/]{30,}==|[A-Za-z0-9+/]{31,}=|[A-Za-z0-9+/]{32,})(?![A-Za-z0-9+/=_])",
     r"(?<![A-Za-z0-9.!#$%&*+/=?^_{}|~-])[A-Za-z0-9.!#$%&*+/=?^_{}|~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b",
 )]
-_CONTROL = re.compile("[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]")
+# Control and bidi characters, and lone UTF-16 surrogates ("\ud83d" from a cut emoji in an agent's
+# JSON: they cannot be written as UTF-8, shown by GTK or sent anywhere).
+_CONTROL = re.compile("[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069\ud800-\udfff]")
+SURROGATES = re.compile("[\ud800-\udfff]")
+
+
+def plain(text: str) -> str:
+    """Text safe to write as UTF-8 and to hand to GTK: lone surrogates (also from file names that are
+    not UTF-8) become the replacement character."""
+    return SURROGATES.sub("\ufffd", text)
 _QUERY_SECRET = re.compile(r"(?:token|key|secret|auth|sig|password)$", re.IGNORECASE)
 # A path starts after anything that is not part of a name ([/home/u/x.py], (~/a), "=/x", ":/x") and
 # ends at a space, a quote or a bracket.
@@ -343,7 +352,7 @@ def clean_rows(text: str):
 
 
 def _encoded(rows) -> bytes:
-    return ("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n").encode("utf-8")
+    return plain("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n").encode("utf-8")
 
 
 def _fits(rows) -> bool:
@@ -383,6 +392,7 @@ class ActivityLog:
         self.active: dict[str, tuple] = {}
         self.last_seen: dt.datetime | None = None      # the last observe(): a longer gap closes open spans
         self.unobserved = UNOBSERVED
+        self.accepting = True                           # False while nothing watches (the window hidden)
         self.mutex = threading.Lock()
 
     @property
@@ -408,7 +418,31 @@ class ActivityLog:
         with self.mutex:
             self._observe(set(active), working_dirs or {}, usage_for, now)
 
-    def _observe(self, active: set, working_dirs: dict, usage_for, now: dt.datetime):
+    def pause(self):
+        """Nothing watches the agents from now on (the window hides): later observations, even one a
+        poll had already begun, are ignored until resume(). Cheap, for the window's thread."""
+        self.accepting = False
+
+    def resume(self):
+        self.accepting = True
+        self.last_seen = None
+
+    def end_open(self, at: dt.datetime, usage_for=None):
+        """End every open span at `at` (when the window hid), on a worker: the same lock as observe()
+        keeps the two in order; a span begun after `at` by a late poll is dropped, never written."""
+        with self.mutex:
+            completed = []
+            for source in list(self.active):
+                start, cwd, usage = self.active.pop(source)
+                if start < at:
+                    completed.append(self._live_row(source, start, cwd, usage, usage_for, at))
+            self.pending.extend(completed)
+            if self.pending and self.enabled:
+                self._observe(set(), {}, None, at, flush_only=True)
+
+    def _observe(self, active: set, working_dirs: dict, usage_for, now: dt.datetime, flush_only: bool = False):
+        if not self.accepting and not flush_only:
+            return
         enabled = self.enabled
         keep = self.keep
         cutoff = local_date(now, 1 - keep).isoformat()
@@ -417,7 +451,7 @@ class ActivityLog:
             self.pending.clear()
         completed = list(self.pending)
         self.pending.clear()
-        last, self.last_seen = self.last_seen, now
+        last, self.last_seen = (None, self.last_seen) if flush_only else (self.last_seen, now)
         if enabled and last is not None and now - last > self.unobserved:
             # Not looked at meanwhile (window hidden, PC asleep): what was working is counted only up
             # to the last look, never across the gap; still working now, it starts a new span.
@@ -758,8 +792,8 @@ def totals_text(report: dict) -> list[str]:
 
 def log_text(report: dict) -> str:
     """The Log tab's Copy and TXT export: free-text topics as they are, editing/testing as words."""
-    return "\n".join([f"{report['from_day']} – {report['through_day']}"]
-                     + [row_text(r) for r in report["entries"]] + totals_text(report))
+    return plain("\n".join([f"{report['from_day']} – {report['through_day']}"]
+                           + [row_text(r) for r in report["entries"]] + totals_text(report)))
 
 
 def format_activity_log(report: dict, as_json: bool) -> str:

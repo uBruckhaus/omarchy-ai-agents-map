@@ -237,7 +237,11 @@ class HistoryImporter:
                     if span.start < cutoff or self.now - span.end < RUNNING:
                         result["skipped"] += 1
                         continue
-                    self._write(command, parsed, span, cutoff, result)
+                    try:
+                        self._write(command, parsed, span, cutoff, result)
+                    except (ValueError, UnicodeError, OSError):    # this span only: the import goes on
+                        result["skipped"] += 1
+                        self._raise(result, "partial")
         self.validate()
         import ai_core
         ai_core.atomic_write(self.log.directory / STATE, json.dumps({"completed_at": iso(self.now)}))

@@ -46,7 +46,7 @@ COLUMNS = ("title,note,saved_at,from_day,through_day,filters_json,helper,generat
 PAGE = 50
 HOT_JOURNAL = b"\xd9\xd5\x05\xf9\x20\xa1\x63\xd7"     # a rollback journal SQLite would play back
 LOCK_WAIT = 5.0
-CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f\ud800-\udfff]")
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS reports (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -95,7 +95,7 @@ def report_field(value, limit: int, required: bool = False, multiline: bool = Fa
     """A title or note: text of at most `limit` characters, control characters out (ValueError)."""
     if not isinstance(value, str) or len(value) > limit:
         raise ValueError("Invalid report text")
-    pattern = r"[\x00-\x09\x0b-\x1f\x7f-\x9f]" if multiline else r"[\x00-\x1f\x7f-\x9f]"
+    pattern = r"[\x00-\x09\x0b-\x1f\x7f-\x9f\ud800-\udfff]" if multiline else r"[\x00-\x1f\x7f-\x9f\ud800-\udfff]"
     clean = re.sub(pattern, " ", value.replace("\r\n", "\n")).strip()
     if required and not clean:
         raise ValueError("Missing title")
@@ -131,17 +131,32 @@ def _maybe_count(value) -> bool:
 
 
 def _texts(value) -> bool:
-    return isinstance(value, list) and len(value) <= 2000 and all(isinstance(v, str) for v in value)
+    return isinstance(value, list) and len(value) <= 2000 and all(_text_within(v, 200) for v in value)
 
 
 INT64 = (1 << 63) - 1
+QUERY_SECONDS = 5.0           # one library call's SQL in all; the library's lock is held meanwhile
+
+
+def bound(con) -> None:
+    """The library is a file on disk anyone of this account could have changed: values up to 1 MiB,
+    short SQL, few columns (agent_activity_report.restrict_reads) and a deadline for its queries."""
+    import agent_activity_report
+    agent_activity_report.restrict_reads(con)
+    deadline = time.monotonic() + QUERY_SECONDS
+    con.set_progress_handler(lambda: int(time.monotonic() > deadline), 1000)
+
+
+def _text_within(value, most: int) -> bool:
+    return isinstance(value, str) and len(value) <= most
 
 
 def listing_row(row) -> dict:
     """One library row as the list shows it; a row whose stored values are not of their kind (a BLOB
     title, a number for a day) is listed as damaged, and opening it says so (report_damaged)."""
     report_id, title, saved_at, first, last, count = row
-    fine = all(isinstance(v, str) for v in (title, saved_at, first, last)) and _count(count)
+    fine = _text_within(title, 200) and _text_within(saved_at, 40) and _count(count) \
+        and all(isinstance(d, str) and activity_log.DAY.match(d) for d in (first, last))
     if fine:
         return {"id": report_id, "title": title, "saved_at": saved_at, "from_day": first, "through_day": last,
                 "topic_count": count}
@@ -150,8 +165,8 @@ def listing_row(row) -> dict:
 
 
 def valid_topic(topic) -> bool:
-    """Every field the page and the exports read, of the right kind."""
-    return isinstance(topic, dict) and isinstance(topic.get("name"), str) and isinstance(topic.get("summary"), str) \
+    """Every field the page and the exports read, of the right kind and within the sizes a report has."""
+    return isinstance(topic, dict) and _text_within(topic.get("name"), 200) and _text_within(topic.get("summary"), 2000) \
         and _texts(topic.get("sources")) and _texts(topic.get("projects")) and _count(topic.get("spans")) \
         and _count(topic.get("elapsed_ms")) and _maybe_count(topic.get("tokens_in")) \
         and _maybe_count(topic.get("tokens_out")) and _count(topic.get("usage_unknown"))
@@ -159,9 +174,10 @@ def valid_topic(topic) -> bool:
 
 def valid_report(report: dict) -> bool:
     filters = report.get("filters")
-    return all(isinstance(report.get(f), str) for f in ("title", "from_day", "through_day", "text", "helper",
-                                                        "generated_at", "saved_at")) \
-        and (report.get("note") is None or isinstance(report.get("note"), str)) \
+    sizes = {"title": 200, "from_day": 10, "through_day": 10, "text": BUDGET, "helper": 200, "generated_at": 40,
+             "saved_at": 40}
+    return all(_text_within(report.get(f), most) for f, most in sizes.items()) \
+        and (report.get("note") is None or _text_within(report.get("note"), 2000)) \
         and isinstance(filters, dict) and all(v is None or isinstance(v, str) for v in filters.values()) \
         and _count(report.get("entry_count")) and _count(report.get("total_entries")) \
         and isinstance(report.get("capped"), bool) and isinstance(report.get("topics"), list) \
@@ -261,6 +277,7 @@ class ReportsLibrary:
                                   check_same_thread=False)
             try:
                 con.execute("PRAGMA trusted_schema=OFF")
+                bound(con)
                 con.execute("PRAGMA user_version").fetchone()
             except BaseException:
                 con.close()
@@ -279,6 +296,7 @@ class ReportsLibrary:
         try:
             con.deserialize(image)
             con.execute("PRAGMA trusted_schema=OFF")
+            bound(con)
         except BaseException:
             con.close()
             raise
@@ -327,6 +345,7 @@ class ReportsLibrary:
                     probe.close()
             con = sqlite3.connect(self._path(dir_fd), timeout=5.0, isolation_level=None, check_same_thread=False)
             try:
+                bound(con)
                 version = con.execute("PRAGMA user_version").fetchone()[0]
                 con.execute("PRAGMA trusted_schema=OFF")
                 if version > 1:
