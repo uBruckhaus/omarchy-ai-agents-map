@@ -1966,8 +1966,8 @@ class RoundElevenTest(TempCase):
 
     def test_encoded_whitespace_review_examples(self):
         cases = [
-            ("see https://user:top%20secret@localhost", "see …"),
-            ("see https://user:my%20secret%20pass@ex.com", "see …"),
+            ("see https://user:top%20secret@localhost", "…"),   # credentials: the whole topic goes
+            ("see https://user:my%20secret%20pass@ex.com", "…"),
             ("see https://ex.com/doc?token=my%20super%20secret%20value", "see https://ex.com/doc"),
             ("check https://jira.corp.internal/issues/?jql=project%20=%20SecretClient",
              "check https://jira.corp.internal"),
@@ -2000,8 +2000,8 @@ class RoundElevenTest(TempCase):
             ('fix "/home/alice/Documents/Projects/My Private Client/src/x.py"', 'fix x.py"'),
             ("fix key=/home/alice/My Private Client/src/x.py", "fix x.py"),
             ("fix Bearer /home/alice/My Private Client/src/x.py", "fix …"),
-            ("fix file:///home/alice@corp/My Private Client/src/x.py", "fix x.py"),
-            ("see https://user@ex.com/My Private Client/src/x.py", "see x.py"),
+            ("fix file:///home/alice@corp/My Private Client/src/x.py", "…"),
+            ("see https://user@ex.com/My Private Client/src/x.py", "…"),
             ("open /home/alice@corp.com My Private Client/src/x.py", "open x.py"),
         ]
         for topic, expected in cases:
@@ -2025,7 +2025,7 @@ class RoundElevenTest(TempCase):
                 for userinfo in (f"user:top{space}secret@", f"user:top{space}secret%40",
                                  f"user%3Atop{space}secret%2540"):
                     with self.subTest(scheme=scheme, space=space, userinfo=userinfo):
-                        self.assert_topic_prompt(f"see {scheme}://{userinfo}ex.com/dir/x.py", "see …")
+                        self.assert_topic_prompt(f"see {scheme}://{userinfo}ex.com/dir/x.py", "…")
 
     def test_url_prefixes_and_clean_names(self):
         for prefix, suffix in (("url=", ""), ("'", "'"), ("`", "`"), ("(", ")"), ("[docs](", ")"),
@@ -2356,6 +2356,28 @@ class RoundTwentyTwoTest(unittest.TestCase):
             self.assertNotIn("alice", out, (text, out))
         self.assertEqual(activity_log.sanitize_topic("mail bob@example.com"), "mail …")
         self.assertEqual(activity_log.sanitize_topic("clone user@host:path/x.py"), "clone x.py")
+
+
+class RoundTwentyThreeTest(unittest.TestCase):
+    """A topic with credentials is dropped whole; empty-user and cut-off userinfo; deep-encoded chains."""
+
+    def test_review_examples_never_leak(self):
+        import activity_log
+        for text in ("open /home/uwe/My Secret Folder/alice:pass@host",
+                     "open /home/uwe/My Secret Folder/https://alice:pass@ex.com/a/b",
+                     "open /home/uwe/Private Client/a\\alice:pass@host",
+                     "see /home/uwe/My Secret/a:b@ex.com and /home/uwe/Other Secret/c:d@ey.com",
+                     "connect :my-secret-token@localhost", "connect :my-secret-token@127.0.0.1:6379",
+                     "connect /:my-secret-token@localhost", "connect :my-secret-token%40localhost",
+                     "connect alice:my-secret-token@", "connect alice:my-secret-token%40",
+                     "see ftp://ex.com/a,https%252525253A//alice:mysecret",
+                     "see https://ex.com/a,https%252525253A//alice:mysecret",
+                     "see ftp://ex.com%252525253A//alice:mysecret"):
+            out = activity_log.sanitize_topic(text) or ""
+            for word in ("Secret", "Private", "Other", "secret", "alice", "pass"):
+                self.assertNotIn(word, out, (text, out))
+        self.assertEqual(activity_log.sanitize_topic("mail bob@example.com"), "mail …")
+        self.assertEqual(activity_log.sanitize_topic("note: @alice later"), "note: @alice later")
 
 
 if __name__ == "__main__":

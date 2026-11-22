@@ -269,9 +269,12 @@ _ENCODED_COLON = re.compile(r"%(?:25)*3a", re.IGNORECASE)
 
 
 def _userinfo(text: str) -> bool:
-    """user:password@host in linear time: a colon after a user name, then a later @ with a host."""
-    at = text.rfind("@", 0, len(text) - 1)
-    return at >= 2 and bool(_USER_COLON.search(text, 0, at))
+    """user:password@host in linear time, also :password@host (empty user) and a cut-off user:password@."""
+    at = text.rfind("@")
+    if at < 2:
+        return False
+    colon = text.find(":", 0, at)
+    return colon >= 0 and (at < len(text) - 1 or colon + 1 < at)
 
 
 def _credential_token(token: str) -> bool:
@@ -296,6 +299,7 @@ def _clean_url(raw: str) -> tuple[str, str]:
     # ("host:secret"), fails closed: the text after the scheme may be userinfo.
     # A chained URL hidden behind an encoded ? or # (raw, before decoding) fails closed as well.
     raw_head = re.split(r"[?#]", raw.split("://", 1)[1], maxsplit=1)[0] if "://" in raw else ""
+    raw_head = _ENCODED_COLON.sub(":", re.sub(r"%(?:25)*2f", "/", raw_head, flags=re.IGNORECASE))  # any depth
     if "://" in raw_head or "://" in _decode_url_part(raw_head):
         return "", "…"
     rest = decoded.split("://", 1)[1] if "://" in decoded else ""
@@ -406,15 +410,8 @@ def sanitize_topic(value) -> str | None:
                                    ("\\" if m.group(1).lower() == "5c" else "/"), text)
     # Whole secrets first (PEM, JWT, Authorization, key=/token=/password= assignments with quoted or URL
     # values): cutting paths could otherwise split a quoted value and leave its rest readable.
-    last_separator = max(text.rfind("/"), text.rfind("\\"))
-
-    def credential(m):
-        # "…/" keeps a separator, so a path continuing after the token (spaces in folders) is cut too.
-        if not _credential_token(m.group()):
-            return m.group()
-        return "…/" if m.end() <= last_separator else "…"
-
-    text = _CREDENTIAL_URL_TOKEN.sub(credential, text)
+    if any(_credential_token(word) for word in text.split()):
+        return "…"   # a topic that held credentials is not kept at all (nothing of its paths can leak)
     for pattern in _WHOLE_SECRETS:
         text = pattern.sub("…", text)
     text = _short_paths(text)
