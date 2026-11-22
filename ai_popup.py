@@ -1104,13 +1104,15 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         lead = Gtk.Box(spacing=8, hexpand=True)
         lead_scroll = Gtk.ScrolledWindow(hexpand=True, propagate_natural_width=True, propagate_natural_height=True)
         lead_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
-        lead_scroll.set_child(lead)
+        # The row at its natural width: what is selected and the narrow-window note scroll, never "…".
+        viewport = Gtk.Viewport(hscroll_policy=Gtk.ScrollablePolicy.NATURAL, scroll_to_focus=True)   # Tab
+        viewport.set_child(lead)
+        lead_scroll.set_child(viewport)
         self.map_bar_scroller = lead_scroll
         bar.append(lead_scroll)
         self.side_filter = Gtk.Label(xalign=0, hexpand=True)
         self.side_filter.add_css_class("am-agent-detail")
-        self.side_filter.set_ellipsize(Pango.EllipsizeMode.END)
-        self.side_filter.set_max_width_chars(1)
+        self.side_filter.set_ellipsize(Pango.EllipsizeMode.END)   # a very long selection in a wide window
         lead.append(self.side_filter)
         self.map_show_all = Gtk.Button(label=_("Clear selection"))
         self.map_show_all.add_css_class("flat")
@@ -1149,6 +1151,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
                                _("Put the cards back in their columns and the boxes in the map's own order"))
         reset.connect("clicked", lambda _b: self.side_map.default_layout())
         bar.append(reset)
+        self.map_layout_reset = reset
         side.append(bar)
         side.append(self.build_first_card())
         self.side_map = MapView()
@@ -2005,6 +2008,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
                                      _("AI Agents Map shows the agents and local LLMs you switch on. Set up switches on "
                                        "the ones found on this PC with one click."))
             row = Gtk.Box(spacing=ai_core.GAP_INLINE, halign=Gtk.Align.CENTER, margin_top=12)
+            self.empty_actions_row = row     # one under the other in a narrow window (narrow_map_page)
             # No agent works yet: the first-agent guide is the main way in; Setup and Add-ons beside it.
             first = self.first_agent_wanted()
             choices = ([(_("Set up your first agent"), self.open_first_agent)] if first else []) + \
@@ -2014,6 +2018,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
                                               on_click=run))
             empty.append(row)
             self.empty_area.append(empty)
+            self.narrow_map_page()
         if not getattr(self, "gpu_software_done", False):
             self.refresh_gpu_software()
         self.overview_hints(*self.new_found())
@@ -2871,9 +2876,15 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
 
         def play(*_args):
             if revealer.get_child() is None:          # made on the first Watch how only
-                revealer.set_child(self.drawing_sketch())
+                # The animation is 560 px wide: in a narrow window it scrolls sideways instead of making
+                # the page wider than the window.
+                self.first_sketch = self.drawing_sketch()
+                holder = Gtk.ScrolledWindow(propagate_natural_width=True, propagate_natural_height=True)
+                holder.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
+                holder.set_child(self.first_sketch)
+                revealer.set_child(holder)
             revealer.set_reveal_child(True)
-            revealer.get_child().start()
+            self.first_sketch.start()
         watch.connect("clicked", play)
         self.first_card = card
         return card
@@ -4755,14 +4766,20 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
     MAP_NARROW = 700     # below it the first connection's three steps stand one under the other
 
     def narrow_map_page(self):
-        """The map page in a narrow window: the first connection's steps one under the other."""
-        row = getattr(self, "first_steps_row", None)
-        if row is None or getattr(self, "window", None) is None:
+        """The map page in a narrow window: the first connection's steps, and the empty map's buttons, one
+        under the other."""
+        if getattr(self, "window", None) is None:
             return
-        narrow = 0 < self.window.get_width() < self.MAP_NARROW
-        row.set_orientation(Gtk.Orientation.VERTICAL if narrow else Gtk.Orientation.HORIZONTAL)
-        row.set_spacing(10 if narrow else 24)
-        row.set_homogeneous(not narrow)
+        width = self.real_width() or self.window.get_width()
+        narrow = 0 < width < self.MAP_NARROW
+        row = getattr(self, "first_steps_row", None)
+        if row is not None:
+            row.set_orientation(Gtk.Orientation.VERTICAL if narrow else Gtk.Orientation.HORIZONTAL)
+            row.set_spacing(10 if narrow else 24)
+            row.set_homogeneous(not narrow)
+        actions = getattr(self, "empty_actions_row", None)
+        if actions is not None:
+            actions.set_orientation(Gtk.Orientation.VERTICAL if narrow else Gtk.Orientation.HORIZONTAL)
 
     def width_changed(self, _width):
         split = self.split
