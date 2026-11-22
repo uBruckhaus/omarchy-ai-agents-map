@@ -18,6 +18,91 @@ def _installer():
 
 
 class Engine(llm_engine.Engine):
+    config = ({'id': 'contextsize',
+      'label': 'Context size',
+      'role': 'context',
+      'type': 'int',
+      'default': 8192,
+      'wire': 'contextsize',
+      'scope': 'per_model',
+      'importance': 'main',
+      'writer': 'kobold_json',
+      'restart': 'model_reload',
+      'verified': True,
+      'help': 'Context size',
+      'unit': 'tokens',
+      'range': [128, 10000000]},
+     {'id': 'gpulayers',
+      'label': 'GPU layers',
+      'role': 'gpu_layers',
+      'type': 'int_or_special',
+      'default': -1,
+      'wire': 'gpulayers',
+      'scope': 'per_model',
+      'importance': 'main',
+      'writer': 'kobold_json',
+      'restart': 'model_reload',
+      'verified': True,
+      'help': 'GPU layers',
+      'unit': '',
+      'range': [0, 999],
+      'special': [-1]},
+     {'id': 'flashattention',
+      'label': 'Flash attention',
+      'role': 'flash',
+      'type': 'bool',
+      'default': True,
+      'wire': 'flashattention',
+      'scope': 'per_model',
+      'importance': 'main',
+      'writer': 'kobold_json',
+      'restart': 'model_reload',
+      'verified': True,
+      'help': 'Flash attention',
+      'unit': ''},
+     {'id': 'quantkv',
+      'label': 'KV cache',
+      'role': 'cache_level',
+      'type': 'enum',
+      'default': 0,
+      'wire': 'quantkv',
+      'scope': 'per_model',
+      'importance': 'main',
+      'writer': 'kobold_json',
+      'restart': 'model_reload',
+      'verified': True,
+      'help': 'KV cache',
+      'unit': '',
+      'values': [0, 1, 2]},
+     {'id': 'threads',
+      'label': 'CPU threads',
+      'role': 'threads',
+      'type': 'int',
+      'default': 4,
+      'wire': 'threads',
+      'scope': 'per_model',
+      'importance': 'advanced',
+      'writer': 'kobold_json',
+      'restart': 'model_reload',
+      'verified': True,
+      'help': 'CPU threads',
+      'unit': '',
+      'range': [1, 256]},
+     {'id': 'blasbatchsize',
+      'label': 'Batch size',
+      'role': 'batch',
+      'type': 'int',
+      'default': 512,
+      'wire': 'blasbatchsize',
+      'scope': 'per_model',
+      'importance': 'advanced',
+      'writer': 'kobold_json',
+      'restart': 'model_reload',
+      'verified': True,
+      'help': 'Batch size',
+      'unit': '',
+      'range': [16, 4096]})
+
     ports = (5001,)
     start_command = "koboldcpp --admin --routermode"
     gguf_folder = True
@@ -66,6 +151,10 @@ class Engine(llm_engine.Engine):
             return True, ""
         reply = llm_engine._http(rt, "/api/admin/reload_config", "POST", {"filename": "unload_model"}, timeout=30)
         return (True, "") if isinstance(reply, dict) and reply.get("success") else (False, "KoboldCpp did not unload")
+
+    def unload_model(self, rt, model):
+        # Router configuration changes take effect through its admin reload API.
+        return self.unload_all(rt)
 
     def model_context(self, rt, name):
         import kobold_ctl

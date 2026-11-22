@@ -296,6 +296,7 @@ class Engine:
     # Performance settings the local LLM help may suggest (llm_tuning): {key: (allowed values as a
     # regex, what it does)}; {} = none (no Performance card). Builds: (key, label) of the programs it
     # can be installed as (ROCm, Vulkan, …), the one installed now from build_now().
+    config: tuple = ()          # task 077: verified provider configuration schema
     tuning: dict = {}
     _newer_from: "Engine | None" = None       # the app's engine whose newer facts it was given (_with_newer_facts)
     tuning_per_model = True     # False: its settings count for every model ("*" only: an env file)
@@ -422,6 +423,8 @@ def of(rt_or_key) -> Engine:
     built_in = next((p for p in providers.built_in_local() if p.key == key), None)
     own = getattr(built_in, "engine", None)
     if isinstance(engine, Engine):
+        if not engine.config and isinstance(own, Engine):
+            engine.config = own.config
         return _with_newer_facts(engine, own) if isinstance(own, Engine) and own is not engine else engine
     return own if isinstance(own, Engine) else DEFAULT
 

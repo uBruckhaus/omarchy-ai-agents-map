@@ -34,7 +34,7 @@ class KeysOnly:
         for name in ("close_help", "close_info", "close_addons", "close_reorganize", "close_settings",
                      "close_connect", "close_install", "close_models", "close_mcp_details", "close_status",
                      "close_health", "close_traffic", "close_smart_check", "close_add_mcp", "close_add_skills", "close_ask_ai",
-                     "close_setup", "close_subagents", "close_first_agent"):
+                     "close_setup", "close_subagents", "close_first_agent", "close_provider_config"):
             setattr(self, name, lambda name=name: self.closed.append(name))
 
     def page_name(self):
@@ -54,7 +54,7 @@ class BackKeysTest(unittest.TestCase):
                     self.assertEqual(len(view.closed), 1)
 
     def test_keys_stay_in_a_field_being_edited(self):
-        for page in ("models", "addmcp", "settings", "addons"):
+        for page in ("models", "addmcp", "settings", "addons", "providerconfig"):
             for key in (Gdk.KEY_Escape, Gdk.KEY_BackSpace):
                 with self.subTest(page=page, key=key):
                     view = KeysOnly(page, Field())

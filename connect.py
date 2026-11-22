@@ -24,8 +24,10 @@ import os
 import re
 import shlex
 import subprocess
-import tempfile
 import threading
+import stat
+import secrets
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -334,31 +336,74 @@ def plan(agent: str, runtime, model: str, use_now: bool, remove: bool = False, c
     return result
 
 
-def _write(path: Path, text: str):
+@contextmanager
+def _write_parent(path):
+    """Pin a trusted parent chain, creating private missing directories."""
+    path = Path(os.path.abspath(path))
+    resolved = ai_core._resolve_private_parent(path.parent)
+    parent = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        ai_core._trusted_private_directory(parent)
+        for part in resolved.parts[1:]:
+            try:
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=parent)
+            except FileNotFoundError:
+                try:
+                    os.mkdir(part, 0o700, dir_fd=parent)
+                except FileExistsError:
+                    pass
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=parent)
+            os.close(parent)
+            parent = child
+            ai_core._trusted_private_directory(parent)
+        yield parent
+    finally:
+        os.close(parent)
+
+
+def _write(path: Path, text: str, *, restore_mode=None):
     """Agent settings may carry API keys or MCP env/header secrets, so the file is
-    always written owner-only: group and other bits of an existing file are dropped
-    (a 0644 settings file becomes 0600), the owner's own bits are kept."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        mode = path.stat().st_mode & 0o700 or 0o600
-    except FileNotFoundError:
-        mode = 0o600
-    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}-", dir=str(path.parent))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            os.fchmod(handle.fileno(), mode)
-            handle.write(text)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp, path)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
+    written owner-only by default: group and other bits of an existing file are
+    dropped (0644 becomes 0600), the owner's own bits are kept. Only rollback or
+    a provider configuration's Undo explicitly restores the original mode."""
+    path = Path(path)
+    with _write_parent(path) as parent:
+        try:
+            leaf = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=parent)
+        except FileNotFoundError:
+            mode = 0o600
+        else:
+            try:
+                info = os.fstat(leaf)
+                if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
+                    raise PermissionError(f"Unsafe settings file: {path}")
+                mode = info.st_mode & 0o700 or 0o600
+            finally:
+                os.close(leaf)
+        if restore_mode is not None:
+            mode = restore_mode & 0o777
+        tmp = f'.{path.name}-{secrets.token_hex(16)}'
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                os.fchmod(handle.fileno(), mode)
+                handle.write(text)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp, path.name, src_dir_fd=parent, dst_dir_fd=parent)
+            os.fsync(parent)
+        finally:
+            try:
+                os.unlink(tmp, dir_fd=parent)
+            except FileNotFoundError:
+                pass
 
 
-def apply(result: Plan, backup_root: Path = BACKUP_ROOT) -> Path:
+def apply(result: Plan, backup_root: Path = BACKUP_ROOT, *, preserve_mode=False) -> Path:
     """Back up every file, then write the new texts. Returns the backup folder.
-    A file changed since the plan was made is not overwritten."""
+    A file changed since the plan was made is not overwritten. Failed text writes
+    roll back preceding text writes. preserve_mode opts provider configuration
+    into restoring original permissions on Undo; agent settings stay private."""
     for change in result.changes:
         if _read(change.path) != change.old:
             raise RuntimeError(f"{change.path} changed in the meantime")
@@ -378,15 +423,20 @@ def apply(result: Plan, backup_root: Path = BACKUP_ROOT) -> Path:
         if _read(change.path) != change.old:
             raise RuntimeError(f"{change.path} changed in the meantime")
     folder = backup_root / dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-    folder.mkdir(parents=True, mode=0o700)
+    with _write_parent(folder / 'manifest.json'):
+        pass
     manifest = []
+    original_modes = {}
     for index, change in enumerate(result.changes):
         copy = folder / f"{index}-{change.path.name}"
         if change.path.exists():
+            original_modes[change.path] = stat.S_IMODE(change.path.lstat().st_mode)
             copy.write_text(change.old, encoding="utf-8")
             os.chmod(copy, 0o600)
         manifest.append({"path": str(change.path), "copy": copy.name if change.path.exists() else None,
                          "written": change.new})
+        if preserve_mode and change.path in original_modes:
+            manifest[-1]['mode'] = original_modes[change.path]
     links = {"added": [[str(l), str(t)] for l, t in result.links_add],
              "removed": [[str(l), str(t)] for l, t in result.links_remove]}
     import hashlib
@@ -406,8 +456,33 @@ def apply(result: Plan, backup_root: Path = BACKUP_ROOT) -> Path:
                                                       "links": links, "created": files, "retired": retired}),
                                           encoding="utf-8")
     os.chmod(folder / "manifest.json", 0o600)
-    for change in result.changes:
-        _write(change.path, change.new)
+    attempted = []
+    try:
+        for change in result.changes:
+            attempted.append(change)
+            _write(change.path, change.new)
+    except Exception as error:
+        failures = []
+        for change in reversed(attempted):
+            try:
+                if _read(change.path) != change.new:
+                    continue
+                if change.path in original_modes:
+                    _write(change.path, change.old, restore_mode=original_modes[change.path])
+                else:
+                    with _write_parent(change.path) as parent:
+                        os.unlink(change.path.name, dir_fd=parent)
+                        os.fsync(parent)
+            except Exception as rollback_error:
+                failures.append(str(rollback_error))
+        for folder_path in sorted(created_dirs, key=len, reverse=True):
+            try:
+                Path(folder_path).rmdir()
+            except OSError:
+                pass  # Keep directories that are no longer empty.
+        if failures:
+            raise RuntimeError(f"{error}; rollback failed: {'; '.join(failures)}; backup: {folder}") from error
+        raise
     for link, target in result.links_remove:
         link.unlink()
     for link, target in result.links_add:
@@ -494,9 +569,14 @@ def undo(folder: Path) -> list[Path]:
         if _read(path) != item["written"]:
             continue            # changed by someone else since: leave it alone
         if item["copy"]:
-            _write(path, (folder / item["copy"]).read_text(encoding="utf-8"))
+            _write(path, (folder / item["copy"]).read_text(encoding="utf-8"), restore_mode=item.get('mode'))
         else:
-            path.unlink(missing_ok=True)
+            with _write_parent(path) as parent:
+                try:
+                    os.unlink(path.name, dir_fd=parent)
+                except FileNotFoundError:
+                    pass
+                os.fsync(parent)
         restored.append(path)
     # Folders apply() made for new files, deepest first, once they are empty again.
     for folder_path in sorted(created_dirs, key=len, reverse=True):

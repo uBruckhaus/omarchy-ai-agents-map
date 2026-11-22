@@ -18,6 +18,7 @@ import graph
 import harnesses
 import herdr_state
 import inventory
+import llm_engine
 import link_hints
 import netfetch
 import plugin_costs
@@ -570,6 +571,9 @@ class DetailsPages:
         config.add_css_class("am-boxed")
         self.fill_runtime(config, rt, names, summary=True)
         group.append(config)
+        if rt.installed and llm_engine.of(rt).config:
+            group.append(self.action_button(_("Configure for this PC"),
+                                            on_click=lambda: self.open_provider_config(rt)))
         self.fill_runtime_performance(body, rt)
         for card in dict.fromkeys(h[3] for h in hooks if h[3] not in ("statistics", "health")):
             found = [h for h in hooks if h[3] == card]

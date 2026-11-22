@@ -39,7 +39,7 @@ RESERVE = int(1.5 * GiB)       # compute buffers and what the desktop keeps
 STEP = 4096
 MIN_CONTEXT = 4096
 # Bytes per cache element (q4_0/q8_0 blocks of 32 carry a 2-byte scale).
-CACHE_BYTES = {"f16": 2.0, "bf16": 2.0, "f32": 4.0, "q8_0": 34 / 32, "q4_0": 18 / 32, "q4_1": 20 / 32,
+CACHE_BYTES = {"fp8": 1.0, "auto": 2.0, "f16": 2.0, "bf16": 2.0, "f32": 4.0, "q8_0": 34 / 32, "q4_0": 18 / 32, "q4_1": 20 / 32,
                "q5_0": 22 / 32, "q5_1": 24 / 32, "iq4_nl": 18 / 32}
 MODELS_INI = Path.home() / ".config/llama.cpp/models.ini"
 MAX_KV = 100_000
@@ -136,7 +136,7 @@ def read_gguf(path: Path) -> dict:
                 continue
             # Only numbers and per-layer number arrays are kept, and only a few of them: a header
             # full of matching keys with big string values must not fill the memory.
-            keep = key.endswith(wanted) and (kind in sizes or kind == 9)
+            keep = (key.endswith(wanted) or key == "general.file_type") and (kind in sizes or kind == 9)
             result = value(kind, keep)
             if keep:
                 if len(meta) >= MAX_KEPT:
@@ -148,7 +148,7 @@ def read_gguf(path: Path) -> dict:
 UBATCH = 1024               # a sliding-window cache also holds one batch beyond the window
 
 
-def kv_layout(meta: dict, cache: str = "f16") -> tuple[int, int]:
+def kv_layout(meta: dict, cache: str = "f16", *, cache_v: str | None = None, first_layer: int = 0) -> tuple[int, int]:
     """(bytes per token of context, fixed bytes of the sliding-window layers)."""
     arch = meta.get("general.architecture", "")
     get = lambda key: meta.get(f"{arch}.{key}")   # noqa: E731
@@ -174,13 +174,14 @@ def kv_layout(meta: dict, cache: str = "f16") -> tuple[int, int]:
         swa = [(i % pattern) < pattern - 1 for i in range(layers)]   # every pattern-th layer sees everything
     else:
         swa = [False] * layers
-    element = CACHE_BYTES.get(cache, 2.0)
+    element_k = CACHE_BYTES.get(cache, 2.0)
+    element_v = CACHE_BYTES.get(cache_v or cache, 2.0)
     per_token = fixed = 0.0
-    for heads_kv, sliding in zip(per_layer_kv, swa):
+    for heads_kv, sliding in list(zip(per_layer_kv, swa))[first_layer:]:
         if sliding and window:
-            fixed += heads_kv * (k_swa + v_swa) * element * (window + UBATCH)
+            fixed += heads_kv * (k_swa * element_k + v_swa * element_v) * (window + UBATCH)
         else:
-            per_token += heads_kv * (k_dim + v_dim) * element
+            per_token += heads_kv * (k_dim * element_k + v_dim * element_v)
     return math.ceil(per_token), math.ceil(fixed)
 
 
@@ -223,14 +224,23 @@ def short_context(n: int) -> str:
 def _ini_sections(text: str) -> dict:
     sections, current = {}, None
     for line in text.splitlines():
-        header = re.match(r"^\s*\[([^\]]+)\]\s*$", line)
+        header = re.match(r"^\s*\[([^\]]+)\]\s*(?:[;#].*)?$", line)
         if header:
             current = header.group(1)
             sections.setdefault(current, {})
             continue
         pair = re.match(r"^\s*([A-Za-z0-9_-]+)\s*=\s*(.*?)\s*$", line)
         if current is not None and pair:
-            sections[current][pair.group(1)] = pair.group(2)
+            # Only whitespace-prefixed comments outside quotes are comments;
+            # model paths may themselves contain '#' or ';'.
+            value, quote = pair.group(2), None
+            for index, char in enumerate(value):
+                if char in ('\"', "'"):
+                    quote = None if quote == char else char if quote is None else quote
+                elif char in '#;' and quote is None and (index == 0 or value[index - 1].isspace()):
+                    value = value[:index]
+                    break
+            sections[current][pair.group(1)] = value.strip().strip('\"\'')
     return sections
 
 

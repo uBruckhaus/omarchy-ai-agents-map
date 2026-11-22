@@ -8,6 +8,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import connect  # noqa: E402
 import inventory  # noqa: E402
+from tests.isolate import sandbox_ancestors_in
 
 HERMES = """model:
   default: stealth/model
@@ -24,6 +25,7 @@ whatsapp:
 
 class ConnectTest(unittest.TestCase):
     def setUp(self):
+        sandbox_ancestors_in(self)
         self.tmp = tempfile.TemporaryDirectory()
         self.home = Path(self.tmp.name)
         patcher = mock.patch.object(connect, "HOME", self.home)
@@ -35,7 +37,9 @@ class ConnectTest(unittest.TestCase):
 
     def write(self, rel, text):
         path = self.home / rel
-        path.parent.mkdir(parents=True, exist_ok=True)
+        for parent in reversed(path.parents):
+            if self.home in parent.parents:
+                parent.mkdir(mode=0o700, exist_ok=True)
         path.write_text(text)
         return path
 
@@ -220,14 +224,108 @@ class ActiveTest(ConnectTest):
 
 
 class UndoFoldersTest(unittest.TestCase):
+    def setUp(self):
+        sandbox_ancestors_in(self)
+
+    def test_failed_apply_removes_new_empty_directories(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            first, second = root / 'new/deep/config', root / 'second'
+            second.write_text('old')
+            plan = connect.Plan('x', 'llamacpp', '', [connect.Change(first, '', 'new'),
+                                                      connect.Change(second, 'old', 'changed')])
+            write = connect._write
+            def fail(path, text, **kwargs):
+                if path == second:
+                    raise OSError('disk full')
+                return write(path, text, **kwargs)
+            with mock.patch.object(connect, '_write', side_effect=fail):
+                with self.assertRaisesRegex(OSError, 'disk full'):
+                    connect.apply(plan, root / 'backup')
+            self.assertFalse((root / 'new').exists())
+            self.assertEqual(second.read_text(), 'old')
+
+    def test_undo_pins_new_file_parent_during_removal(self):
+        import os
+        from contextlib import contextmanager
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            parent, moved, victim = (root / name for name in ('parent', 'moved', 'victim'))
+            parent.mkdir(mode=0o700)
+            victim.mkdir(mode=0o700)
+            path = parent / 'config'
+            (victim / 'config').write_text('new')
+            backup = connect.apply(connect.Plan('x', 'llamacpp', '', [connect.Change(path, '', 'new')]), root / 'backup')
+            write_parent = connect._write_parent
+            @contextmanager
+            def swap(target):
+                with write_parent(target) as fd:
+                    if target == path:
+                        parent.rename(moved)
+                        parent.symlink_to(victim, target_is_directory=True)
+                    yield fd
+            fsync = os.fsync
+            with mock.patch.object(connect, '_write_parent', side_effect=swap), \
+                    mock.patch('os.fsync', wraps=fsync) as sync:
+                self.assertEqual(connect.undo(backup), [path])
+            self.assertTrue(parent.is_symlink())
+            self.assertFalse((moved / 'config').exists())
+            self.assertEqual((victim / 'config').read_text(), 'new')
+            sync.assert_called_once()
+
+    def test_write_refuses_symlink_leaf(self):
+        with tempfile.TemporaryDirectory() as root:
+            target = Path(root, 'target')
+            target.write_text('keep')
+            link = Path(root, 'link')
+            link.symlink_to(target)
+            with self.assertRaises(OSError):
+                connect._write(link, 'changed')
+            self.assertEqual(target.read_text(), 'keep')
+            self.assertTrue(link.is_symlink())
+
+    def test_write_pins_parent_and_fsyncs_directory(self):
+        import os
+        import stat
+        with tempfile.TemporaryDirectory() as root:
+            parent, moved, victim = (Path(root, name) for name in ('parent', 'moved', 'victim'))
+            parent.mkdir(mode=0o700)
+            victim.mkdir(mode=0o700)
+            path = parent / 'config'
+            path.write_text('old')
+            (victim / 'config').write_text('victim')
+            replace, fsync = os.replace, os.fsync
+            synced = []
+            def swap(src, dst, **kwargs):
+                self.assertIn('dst_dir_fd', kwargs)
+                parent.rename(moved)
+                parent.symlink_to(victim, target_is_directory=True)
+                return replace(src, dst, **kwargs)
+            def sync(fd):
+                synced.append(stat.S_ISDIR(os.fstat(fd).st_mode))
+                return fsync(fd)
+            with mock.patch('os.replace', side_effect=swap), mock.patch('os.fsync', side_effect=sync):
+                connect._write(path, 'new')
+            self.assertEqual((moved / 'config').read_text(), 'new')
+            self.assertEqual((victim / 'config').read_text(), 'victim')
+            self.assertIn(True, synced)
+
+    def test_hermes_empty_default_does_not_swallow_next_key(self):
+        text = 'providers:\n  llama-local:\n    default_model:\n    discover_models: false\n    models:\n      Qwen: {}\n'
+        hook = connect._llm('hermes')
+        changed = hook.transform([text], 'llama-local', 'Local', 'http://localhost/v1', ['Qwen'],
+                                 {'Qwen': 8192}, '', False, False)[0]
+        self.assertIn('    default_model: \n    discover_models: false', changed)
+        self.assertNotIn('default_model: discover_models:', changed)
+
     def test_undo_removes_folders_it_made(self):
         import tempfile
         from pathlib import Path
         with tempfile.TemporaryDirectory() as root:
             base = Path(root, "defaults")
-            base.mkdir()
+            base.mkdir(mode=0o700)
             keep = base / "pub/other.json"
-            keep.parent.mkdir()
+            keep.parent.mkdir(mode=0o700)
             keep.write_text("{}")
             new = base / "pub/repo/deep/m.json"
             backup = connect.apply(connect.Plan("x", "lmstudio", "", [connect.Change(new, "", "{}\n")]),

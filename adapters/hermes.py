@@ -64,6 +64,13 @@ def sessions(db_path: Path = DB) -> dict:
 def llm_text(text: str, provider: str, label: str, url: str, models: list, context: dict,
                 model: str, use_now: bool, remove: bool = False) -> str:
     import connect
+    if not model and not remove and not use_now:
+        for start, end, key in _entries(text):
+            if key == provider:
+                match = re.search(r"^[ \t]+default_model:[ \t]*(\S[^\r\n]*?)[ \t]*$", text[start:end], re.MULTILINE)
+                if match:
+                    model = match[1]
+                break
     entry = [f"  {provider}:", f"    name: {label}", f"    api: {url}", "    api_key: local",
              f"    default_model: {model}", "    discover_models: false", "    models:"]
     for name in models:
@@ -159,7 +166,7 @@ def models_plan(model, home):
 def _first_provider(text: str):
     """(name, default model) of the first provider still in the providers block, or None."""
     for start, end, key in _entries(text):
-        default = re.search(r"^    default_model:\s*(\S.*?)\s*$", text[start:end].partition("\n")[2], re.MULTILINE)
+        default = re.search(r"^    default_model:[ \t]*(\S[^\r\n]*?)[ \t]*$", text[start:end].partition("\n")[2], re.MULTILINE)
         if default:
             return key, default.group(1)
     return None
