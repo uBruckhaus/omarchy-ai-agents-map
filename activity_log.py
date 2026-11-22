@@ -218,7 +218,9 @@ _SECRETS = [re.compile(p, re.IGNORECASE | re.DOTALL) for p in (
 _WHOLE_SECRETS = [_SECRETS[0], _SECRETS[1], re.compile(
     # HTTP Authorization headers (also Proxy-/X-Authorization): everything after the header to the
     # end of its line goes, whatever the scheme, quoting or URL (no path rule needed after it).
-    r"""(?<![A-Za-z0-9_.])[A-Za-z0-9_-]*authorization["']?[ \t]*[:=][^\n]*""",
+    # The value may start on the next line (YAML, pretty JSON, folded headers) or be a multi-line quote.
+    r"""(?<![A-Za-z0-9_.])(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*)?authorization["']?\s*[:=]\s*"""
+    r"""(?:(?:[A-Za-z][A-Za-z0-9+._-]*[ \t]+)?(?:"[^"]*"|'[^']*')[^\n]*|[^\n]*)""",
     re.IGNORECASE), re.compile(
     r"""(?<![A-Za-z0-9_.-])(?:[A-Za-z_][A-Za-z0-9_.-]*)?(?:key|token|secret|password|authorization|auth|sig)["']?\s*[:=]\s*"""
     r"""(?:"[^"]*"|'[^']*'|[A-Za-z][A-Za-z0-9+.-]*://\S+)""", re.IGNORECASE)]

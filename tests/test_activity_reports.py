@@ -2169,5 +2169,18 @@ class RoundFifteenTest(unittest.TestCase):
                 self.assertNotIn(word, out, (text, out))
 
 
+class RoundSixteenTest(unittest.TestCase):
+    """Authorization values on the next line, multi-line quotes and dotted keys (agy r16)."""
+
+    def test_review_examples_never_leak(self):
+        import activity_log
+        for text in ("see Authorization:\nmySecretValue123", "see Authorization:\n  Token mySecretValue123",
+                     'see "authorization":\n  "mySecret Value"', 'see Authorization: "line1\nmySecretLine2"',
+                     "see req.headers.authorization: Token mySecret123", "see http.authorization: Token mySecret123"):
+            out = activity_log.sanitize_topic(text) or ""
+            self.assertNotIn("mySecret", out, (text, out))
+            self.assertNotIn("Value", out, (text, out))
+
+
 if __name__ == "__main__":
     unittest.main()
