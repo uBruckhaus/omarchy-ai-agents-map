@@ -216,8 +216,14 @@ _SECRETS = [re.compile(p, re.IGNORECASE | re.DOTALL) for p in (
 # Redacted before paths are cut: PEM blocks, JWTs and key=/token=/password= assignments whose value is
 # quoted or a URL (a plain unquoted path value is left to the path rule, then redacted).
 _WHOLE_SECRETS = [_SECRETS[0], _SECRETS[1], re.compile(
+    # HTTP Authorization headers: the scheme word and its credential go together (Token x, ApiKey x).
+    r"""(?<![A-Za-z0-9_.-])(?:proxy-)?authorization["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|\S+(?:[ \t]+[^\s,;]+)?)""",
+    re.IGNORECASE), re.compile(
     r"""(?<![A-Za-z0-9_.-])(?:[A-Za-z_][A-Za-z0-9_.-]*)?(?:key|token|secret|password|authorization|auth|sig)["']?\s*[:=]\s*"""
-    r"""(?:"[^"]*"|'[^']*'|[A-Za-z][A-Za-z0-9+.-]*://[^\s,;]+)""", re.IGNORECASE)]
+    r"""(?:"[^"]*"|'[^']*'|[A-Za-z][A-Za-z0-9+.-]*://\S+)""", re.IGNORECASE)]
+# A whitespace token holding a URL together with userinfo (@ or an encoded @, raw or double-encoded)
+# fails closed as a whole, wherever the scheme starts inside it.
+_CREDENTIAL_URL_TOKEN = re.compile(r"\S*[A-Za-z][A-Za-z0-9+.-]*://\S*", re.IGNORECASE)
 _CONTROL = re.compile("[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069\ud800-\udfff]")
 SURROGATES = re.compile("[\ud800-\udfff]")
 
@@ -262,7 +268,8 @@ def _clean_url(raw: str) -> tuple[str, str]:
             name = ""
         if url.scheme.lower() in ("http", "https"):
             host = _decode_url_part(url.netloc)
-            if host and not any(c.isspace() or c in "/\\%?#@'\"`" for c in host) and not _CONTROL.search(host):
+            host_ok = re.fullmatch(r"(?:[A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])(?::\d{1,5})?", host or "")
+            if host_ok and not _CONTROL.search(host):
                 origin = urlsplit(url.scheme + "://" + host)
                 origin.port  # a non-numeric "port" (user:password without @) fails closed below
                 if origin.hostname:
@@ -351,6 +358,11 @@ def sanitize_topic(value) -> str | None:
                                    ("/" if m.group(1).lower() == "2f" else "\\"), text)
     # Whole secrets first (PEM, JWT, Bearer, key=/token=/password= assignments with quoted or URL
     # values): cutting paths could otherwise split a quoted value and leave its rest readable.
+    text = _CREDENTIAL_URL_TOKEN.sub(
+        # "…/" keeps a separator, so a path continuing after the token (spaces in folders) is cut too.
+        lambda m: m.group() if "@" not in m.group() and not re.search(r"%(?:25)*40", m.group(), re.IGNORECASE)
+        else "…/" if re.search(r"[/\\]", m.string[m.end():]) else "…",
+        text)
     for pattern in _WHOLE_SECRETS:
         text = pattern.sub("…", text)
     text = _short_paths(text)

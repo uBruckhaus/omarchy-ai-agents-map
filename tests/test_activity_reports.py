@@ -2110,5 +2110,30 @@ class MalformedCredentialUrlTest(unittest.TestCase):
                          "read https://ex.com/guide.html")
 
 
+class RoundFourteenTest(unittest.TestCase):
+    """URL secrets taken whole, credential URL tokens fail closed, Authorization schemes (agy r14)."""
+
+    def test_review_examples_never_leak(self):
+        import activity_log
+        cases = ("see token=https://ex.com/a?x=1;client=AcmeCorp",
+                 "see token=https://ex.com/a?ids=1,2,ConfidentialClientInfo",
+                 "see token=https://ex.com/a#section,PrivateClientName",
+                 "see authorization=https://ex.com/a?x=1,PrivateClient",
+                 "see https://ex.com/secretdir/file.py;token=https://other.com/y?a=1,PrivateTail",
+                 'see https://mysecrettoken&key="x@ex.com/a"',
+                 "see https://mysecrettoken;token=https://foo.com@ex.com/a",
+                 "see https://mysecrettoken,authorization=https://foo.com@ex.com/a",
+                 "see Authorization: Token mySecretValue123", "see Authorization: ApiKey mySecretValue123",
+                 "see Authorization: Bot mySecretValue123", "see Authorization: OAuth mySecretValue123",
+                 "see 1.https://alice:mysecret@localhost", "see https://mycred: @ex.com/a",
+                 "see https://mysecrettoken%2540ex.com/a")
+        for text in cases:
+            out = activity_log.sanitize_topic(text) or ""
+            for word in ("AcmeCorp", "Confidential", "PrivateClient", "PrivateTail", "mysecret", "mySecretValue",
+                         "alice", "mycred", "secretdir"):
+                self.assertNotIn(word, out, (text, out))
+        self.assertEqual(activity_log.sanitize_topic("open https://ex.com:8080/a/b"), "open https://ex.com:8080/b")
+
+
 if __name__ == "__main__":
     unittest.main()
