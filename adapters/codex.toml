@@ -146,3 +146,9 @@ task = ["--sandbox", "read-only", "--ask-for-approval", "on-request", "--disable
         "--disable", "hooks"]           # task tabs: every change leaves the sandbox, so it asks first
 mcp_off = ["-c", "mcp_servers.{name}.enabled=false"]   # each MCP server of its [mcp] file, off for the run
 home_env = "CODEX_HOME"                # where its [mcp] file is when this variable moves its home
+
+[project]                              # AI Project Center (project_center.py): managed plan/run/setup commands, facts only
+plan = ["codex", "--ask-for-approval", "never", "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--color", "never", "--disable", "apps", "--disable", "plugins", "--disable", "hooks", "{prompt}"]
+run = ["codex", "--ask-for-approval", "never", "exec", "--sandbox", "workspace-write", "--skip-git-repo-check", "--color", "never", "--disable", "apps", "--disable", "plugins", "--disable", "hooks", "-c", "sandbox_workspace_write.network_access=false", "{prompt}"]
+permissions = "Planning and review are read-only. Execution may edit and run commands in the project sandbox, with command network access disabled."
+model_option = "--model"

@@ -55,6 +55,7 @@ that layer and on the change layer.** The pages above them call into these.
 | Commands in a terminal the user watches | `desktop_omarchy.run_in_terminal` / `run_steps_in_terminal` | every word shlex-quoted; `sudo` only for system-package installs, password typed in that terminal (`install_dialog`) |
 | systemd user units | `provider_watch` (`systemctl --user`), `install_ctl` (units it writes) | only units it installed or that start a local LLM; unit paths refuse `%`, quotes, `$`, backslashes, control characters |
 | Local LLM APIs on 127.0.0.1 | `netfetch.fetch(local=True)` after `loopback.require_own_listener` | only listeners owned by this user (`/proc/net/tcp` uid column) |
+| AI Project Center agents (plan, run, team setup) | `project_center.ProjectCenter` → `project_supervisor.run` | argv only from the adapter's `[project]` table (`adapter_data._check_project`: the agent's own command, `{prompt}` one word, no `--`), the prompt one word below 120 KiB or on stdin; agent-session variables removed (`agent_environment`); Settings › Rules asked before every assignment; a subreaper supervisor per assignment holds the project's run lock until its whole tree is gone (pidfd + start time before each signal); output kept to 64 KiB; the store (`ai-project-center/projects.json`, 0600, ≤ 16 MiB, at most 64 projects) is written atomically before any start, and a failed write stops all work |
 | Credentials | `agent_status.credentials_present` | checks only whether a credential file **exists**; credential files are never opened |
 | Paste into text fields | `text_guard.TextGuard` | `wl-paste`, at most 8 KiB (`ai_core.MAX_PASTE_BYTES`), no drops, no middle-click paste |
 | Agent facts | `adapter_data.check` on `adapters/*.toml` | schema of allowed keys and types, 256 KiB per file; shipped with the plugin, nothing loaded from elsewhere |
@@ -78,6 +79,7 @@ For a complete audit, these are all the `subprocess` / `exec` calls outside `tes
 | `desktop_omarchy.py` `open_terminal`, `run_in_terminal`, `run_steps_in_terminal`, focus helpers | the terminal launcher (argv; the command line inside it is shlex-quoted), `hyprctl dispatch`, `omarchy-agent-usage-update <agent>` |
 | `desktop_generic.py` | the same for other desktops (used only outside Omarchy) |
 | `provider_watch.py` | `systemctl --user …`, `lms server start/stop` |
+| `project_supervisor.py` `SupervisedProcess.start`, `supervise` | AI Project Center: the supervisor (`python3 -I project_supervisor.py supervise`, own session, reaped through `process_group.end_child`), and inside it the agent's project command (adapter `[project]` argv, no shell) |
 
 ## Changes: plan, preview, backup, Undo
 

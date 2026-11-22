@@ -96,3 +96,12 @@ background = []                        # its advise argv says it already
 
 [models]                               # its online models on the map: "provider/model" (its hooks)
 hook = true
+
+[project]                              # AI Project Center (project_center.py): managed plan/run/setup commands, facts only
+setup = ["pi", "--print", "--offline", "--no-session", "--no-tools", "--no-mcp", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-context-files", "--no-approve", "{prompt}"]
+plan = ["pi", "--print", "--offline", "--no-session", "--no-mcp", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-approve", "--tools", "read,grep,find,ls", "{prompt}"]
+run = ["pi", "--print", "--offline", "--no-session", "--no-mcp", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-approve", "--tools", "read,grep,find,ls", "{prompt}"]
+permissions = "Reads and searches files only. Pi has no filesystem sandbox or approval prompts; edits and shell commands are unavailable in this managed profile. Offline disables startup checks, not inference requests."
+access_modes = ["read-only"]
+model_option = "--model"
+provider_option = "--provider"

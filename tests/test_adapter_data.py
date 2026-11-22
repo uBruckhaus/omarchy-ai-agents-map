@@ -58,6 +58,8 @@ def snapshot(harness, home: Path) -> dict:
            if f.name not in CALLABLES}
     if not harness.plan_limits:
         out.pop("plan_limits")         # only an adapter that has it (the snapshots before it stay as they were)
+    if not harness.project:
+        out.pop("project")             # the same for the AI Project Center's [project] table
     out["access"] = plain(harness.access()) if harness.access else None
     if harness.security:
         report = agent_security.Report(harness.command, True)
