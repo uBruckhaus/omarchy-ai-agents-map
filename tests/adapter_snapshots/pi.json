@@ -130,6 +130,7 @@
  "subagents": [],
  "session_files": "pi-files",
  "asks_setting": "defaultTools",
+ "project": "{\"access_modes\": [\"read-only\"], \"model_option\": \"--model\", \"permissions\": \"Reads and searches files only. Pi has no filesystem sandbox or approval prompts; edits and shell commands are unavailable in this managed profile. Offline disables startup checks, not inference requests.\", \"plan\": [\"pi\", \"--print\", \"--offline\", \"--no-session\", \"--no-mcp\", \"--no-extensions\", \"--no-skills\", \"--no-prompt-templates\", \"--no-approve\", \"--tools\", \"read,grep,find,ls\", \"{prompt}\"], \"provider_option\": \"--provider\", \"run\": [\"pi\", \"--print\", \"--offline\", \"--no-session\", \"--no-mcp\", \"--no-extensions\", \"--no-skills\", \"--no-prompt-templates\", \"--no-approve\", \"--tools\", \"read,grep,find,ls\", \"{prompt}\"], \"setup\": [\"pi\", \"--print\", \"--offline\", \"--no-session\", \"--no-tools\", \"--no-mcp\", \"--no-extensions\", \"--no-skills\", \"--no-prompt-templates\", \"--no-context-files\", \"--no-approve\", \"{prompt}\"]}",
  "access": {
   "how": "Sign in inside Pi (/login: Claude, ChatGPT, Copilot …), an API key, or a local LLM from the map",
   "login": "pi  →  /login",

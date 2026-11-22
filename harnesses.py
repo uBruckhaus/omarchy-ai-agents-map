@@ -212,6 +212,8 @@ class Harness:
     subagents: tuple = ()             # (format, "~/…" where it keeps them): its subagents (subagents.py)
     session_files: str = ""           # its [sessions] reader ("pi-files", "claude-files"): session_follow.py follows those
     asks_setting: str = ""            # the security setting that says when it asks before acting
+    project: str = ""                 # its [project] table as JSON text (adapter_data.PROJECT): the AI
+                                      # Project Center's managed commands; "" = no managed profile
 
 
 # --- helpers for the adapters ----------------------------------------------------------------------

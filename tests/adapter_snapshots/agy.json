@@ -74,6 +74,7 @@
  "subagents": [],
  "session_files": "",
  "asks_setting": "toolPermission",
+ "project": "{\"model_option\": \"--model\", \"permissions\": \"Planning and review use plan mode. Execution may edit project files in the sandbox; tool requests needing approval are denied in this managed session.\", \"plan\": [\"agy\", \"--mode\", \"plan\", \"--sandbox\", \"--settings\", \"{\\\"toolPermission\\\":\\\"request-review\\\",\\\"allowNonWorkspaceAccess\\\":false}\", \"-p\", \"{prompt}\"], \"run\": [\"agy\", \"--mode\", \"accept-edits\", \"--sandbox\", \"--settings\", \"{\\\"toolPermission\\\":\\\"request-review\\\",\\\"allowNonWorkspaceAccess\\\":false}\", \"-p\", \"{prompt}\"]}",
  "access": {
   "how": "A Google account (free tier or Google AI plan), or a Gemini API key from aistudio.google.com",
   "login": "agy",

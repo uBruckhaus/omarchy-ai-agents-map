@@ -11,6 +11,7 @@ the places the TOML marks "hook".
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import re
 import tomllib
@@ -47,7 +48,8 @@ TOP = {"command": STR, "name": STR, "label": STR, "full_name": STR, "icon": STR,
        "access": TABLE, "security": TABLE, "login_status": TABLE, "installer": STR, "usage": STR,
        "local_llm": TABLE, "ask": TABLE, "configure": TABLES, "home": STR, "activity": STRS, "details": TABLE,
        "program_dir": STR, "start": STRS, "web_search": BOOL, "chat_app": BOOL, "herdr": STR, "research": TABLE, "rewrite": TABLE, "task": TABLE, "closed": TABLE, "advise": TABLE,
-       "models": TABLE, "tools": TABLE, "replies": TABLE, "subagents": TABLE, "plan_limits": TABLE}
+       "models": TABLE, "tools": TABLE, "replies": TABLE, "subagents": TABLE, "plan_limits": TABLE,
+       "project": TABLE}
 WAY = {"kind": STR, "spec": STR, "tool": STR, "argv": STRS, "sudo": BOOL, "url": STR, "note": STR,
        "update": STRS, "packages": "a list of [manager, name]"}
 UPDATE = {"self": STRS, "latest": STR}
@@ -79,6 +81,15 @@ OUTPUTS = ("text", "claude-json", "codex-jsonl")
 REPLIES = {"folder": STR, "depth": INT, "format": STR, "contexts": TABLE}   # contexts: model name prefix -> tokens
 REPLY_FORMATS = ("claude-jsonl", "codex-jsonl", "pi-jsonl")
 SUBAGENTS = {"format": STR, "path": STR}
+# Its managed AI Project Center commands (project_center.py, Maprisma task 082): planning/review (plan,
+# read-only), execution (run), the team-setup helper (setup, no tools); "{prompt}" once as a word of its
+# own, never "--" (options for model, provider and subagents follow the template), the access modes it
+# really has, the options that pick a model / provider / native subagents, and those subagents.
+PROJECT = {"setup": STRS, "plan": STRS, "run": STRS, "permissions": STR, "access_modes": STRS,
+           "model_option": STR, "provider_option": STR, "native_subagents": BOOL, "subagent_option": STR,
+           "subagent_definitions": TABLE}
+PROJECT_SUBAGENT = {"description": STR, "prompt": STR, "tools": STRS}
+PROJECT_ACCESS = ("read-only", "project-edit")
 # Its plan's limits where no Omarchy collector is: asked of the agent's own program (argv: plain words,
 # starting with its command) over a protocol the app speaks (LIMIT_RPCS); no prompt, no credential read.
 # home_env: a variable that moves the agent's home, and its access files and store file with it (each
@@ -170,6 +181,31 @@ def _check(table: dict, allowed: dict, where: str, required: tuple = ()) -> None
             raise AdapterError(f"{where}: “{key}” is missing")
 
 
+def _check_project(project: dict, command: str, name: str) -> None:
+    _check(project, PROJECT, f"{name}: project")
+    for key in ("setup", "plan", "run"):
+        argv = project.get(key)
+        if argv is None:
+            continue
+        if not argv or argv[0] != command or argv.count("{prompt}") != 1 or "--" in argv \
+                or any("{" in a and a != "{prompt}" and not a.startswith("{\"") for a in argv) \
+                or any("{prompt}" in a and a != "{prompt}" for a in argv):
+            raise AdapterError(f"{name}: project.{key} must start with “{command}” and hold “{{prompt}}” once as "
+                               "an argument of its own, without “--”")
+    for key in ("model_option", "provider_option", "subagent_option"):
+        if key in project and not project[key].startswith("--"):
+            raise AdapterError(f"{name}: project.{key} must be an option starting with “--”")
+    if any(mode not in PROJECT_ACCESS for mode in project.get("access_modes", [])):
+        raise AdapterError(f"{name}: project.access_modes may only hold {', '.join(PROJECT_ACCESS)}")
+    for sub, definition in project.get("subagent_definitions", {}).items():
+        if not re.fullmatch(r"[a-zA-Z0-9_-]{1,80}", sub) or not isinstance(definition, dict):
+            raise AdapterError(f"{name}: project.subagent_definitions.{sub} must be a table with a plain name")
+        _check(definition, PROJECT_SUBAGENT, f"{name}: project.subagent_definitions.{sub}",
+               ("description", "prompt"))
+    if project.get("subagent_definitions") and not (project.get("native_subagents") and project.get("subagent_option")):
+        raise AdapterError(f"{name}: project.subagent_definitions need native_subagents and subagent_option")
+
+
 def check(data: dict, name: str) -> None:
     """Refuse a file with an unknown key, a value of the wrong type or a missing one."""
     _check(data, TOP, name, REQUIRED["top"])
@@ -239,6 +275,8 @@ def check(data: dict, name: str) -> None:
         off = data["closed"].get("mcp_off", [])
         if off and sum(a.count("{name}") for a in off) != 1:
             raise AdapterError(f"{name}: closed.mcp_off must hold “{{name}}” once")
+    if "project" in data:
+        _check_project(data["project"], data["command"], name)
     if "details" in data:
         _check(data["details"], DETAILS, f"{name}: details")
         if data["details"].get("reader", "") not in ("", *DETAIL_READERS):
@@ -555,6 +593,7 @@ def harness(data: dict, name: str = "adapter", hooks=None) -> Harness:
                  tuple(sorted(data["replies"].get("contexts", {}).items()))) if "replies" in data else (),
         subagents=(data["subagents"]["format"], data["subagents"]["path"]) if "subagents" in data else (),
         plan_limits=_plan_limits(data["plan_limits"]) if "plan_limits" in data else (),
+        project=json.dumps(data["project"], sort_keys=True, ensure_ascii=False) if "project" in data else "",
         session_files=data.get("sessions", {}).get("reader", ""),
         usage=ref(*USAGE[data["usage"]]) if "usage" in data else None,
         local_llm=llm, skills=skills, mcp=mcp,

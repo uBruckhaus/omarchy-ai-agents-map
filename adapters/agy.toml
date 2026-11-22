@@ -120,3 +120,9 @@ title = "Never allowed"
 [[security.rules]]
 key = "trustedWorkspaces"
 title = "Trusted folders"
+
+[project]                              # AI Project Center (project_center.py): managed plan/run/setup commands, facts only
+plan = ["agy", "--mode", "plan", "--sandbox", "--settings", "{\"toolPermission\":\"request-review\",\"allowNonWorkspaceAccess\":false}", "-p", "{prompt}"]
+run = ["agy", "--mode", "accept-edits", "--sandbox", "--settings", "{\"toolPermission\":\"request-review\",\"allowNonWorkspaceAccess\":false}", "-p", "{prompt}"]
+permissions = "Planning and review use plan mode. Execution may edit project files in the sandbox; tool requests needing approval are denied in this managed session."
+model_option = "--model"
