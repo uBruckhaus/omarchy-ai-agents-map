@@ -263,19 +263,28 @@ def _decode_url_part(raw: str) -> str:
     return unicodedata.normalize("NFKC", raw)
 
 
-_USERINFO = re.compile(r"(?<![^\s:@/])[^\s:@/]{1,256}:[^\s@]{0,1024}@\S")  # bounded: linear time
+_USER_COLON = re.compile(r"[^:@/\s]:")
+_ENCODED_AT = re.compile(r"%(?:25)*40", re.IGNORECASE)
+_ENCODED_COLON = re.compile(r"%(?:25)*3a", re.IGNORECASE)
+
+
+def _userinfo(text: str) -> bool:
+    """user:password@host in linear time: a colon after a user name, then a later @ with a host."""
+    at = text.rfind("@", 0, len(text) - 1)
+    return at >= 2 and bool(_USER_COLON.search(text, 0, at))
 
 
 def _credential_token(token: str) -> bool:
     """A whitespace token that holds credentials: a URL with userinfo (@ raw or encoded) anywhere in
     it, or user:password@host with or without a scheme (also after decoding)."""
-    if "@" not in token and "%" not in token and "\uff20" not in token:
+    if "@" not in token and "%" not in token and "\uff20" not in token and "\ufe6b" not in token:
         return False
     decoded = _decode_url_part(token)
-    if _USERINFO.search(token) or _USERINFO.search(decoded):
+    flat = _ENCODED_COLON.sub(":", _ENCODED_AT.sub("@", token))   # any depth of %25 encoding
+    if _userinfo(token) or _userinfo(decoded) or _userinfo(flat) or _userinfo(_decode_url_part(flat)):
         return True
     has_url = "://" in token or "://" in decoded or "%3a" in token.lower()
-    return has_url and ("@" in token or "@" in decoded or bool(re.search(r"%(?:25)*40", token, re.IGNORECASE)))
+    return has_url and ("@" in token or "@" in decoded or "@" in flat)
 
 
 def _clean_url(raw: str) -> tuple[str, str]:
@@ -285,6 +294,10 @@ def _clean_url(raw: str) -> tuple[str, str]:
         return "", "…"
     # A second URL chained into this one, or an authority with a colon that is no numeric port
     # ("host:secret"), fails closed: the text after the scheme may be userinfo.
+    # A chained URL hidden behind an encoded ? or # (raw, before decoding) fails closed as well.
+    raw_head = re.split(r"[?#]", raw.split("://", 1)[1], maxsplit=1)[0] if "://" in raw else ""
+    if "://" in raw_head or "://" in _decode_url_part(raw_head):
+        return "", "…"
     rest = decoded.split("://", 1)[1] if "://" in decoded else ""
     authority = re.split(r"[/?#,;|&]", rest, maxsplit=1)[0]
     if "://" in re.split(r"[?#]", rest, maxsplit=1)[0] or (":" in authority and not re.fullmatch(r"(?:[^:\[\]]+|\[[0-9A-Fa-f:.]+\])(?::\d{0,5})?", authority)):
@@ -393,11 +406,15 @@ def sanitize_topic(value) -> str | None:
                                    ("\\" if m.group(1).lower() == "5c" else "/"), text)
     # Whole secrets first (PEM, JWT, Authorization, key=/token=/password= assignments with quoted or URL
     # values): cutting paths could otherwise split a quoted value and leave its rest readable.
-    text = _CREDENTIAL_URL_TOKEN.sub(
+    last_separator = max(text.rfind("/"), text.rfind("\\"))
+
+    def credential(m):
         # "…/" keeps a separator, so a path continuing after the token (spaces in folders) is cut too.
-        lambda m: "…/" if _credential_token(m.group()) and re.search(r"[/\\]", m.string[m.end():])
-        else "…" if _credential_token(m.group()) else m.group(),
-        text)
+        if not _credential_token(m.group()):
+            return m.group()
+        return "…/" if m.end() <= last_separator else "…"
+
+    text = _CREDENTIAL_URL_TOKEN.sub(credential, text)
     for pattern in _WHOLE_SECRETS:
         text = pattern.sub("…", text)
     text = _short_paths(text)

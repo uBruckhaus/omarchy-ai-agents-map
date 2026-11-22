@@ -2303,7 +2303,8 @@ class LinearTimeTest(unittest.TestCase):
         import time
         import activity_log
         for text in ("a" * 100_000, "-" * 250_000, "key" * 30_000, "x@" * 30_000, "https://x" + "a" * 100_000,
-                     "a-a-a-" * 40_000, "%40" * 80_000, "a:" * 100_000, "a" * 200_000 + ":"):
+                     "a-a-a-" * 40_000, "%40" * 80_000, "a:" * 100_000, "a" * 200_000 + ":",
+                     "a:b@c " * 40_000, "a:" * 120_000 + "%", "a:" * 120_000 + "@"):
             started = time.monotonic()
             activity_log.sanitize_topic(text)
             self.assertLess(time.monotonic() - started, 3.0, text[:12])
@@ -2338,6 +2339,23 @@ class RoundTwentyOneTest(unittest.TestCase):
             self.assertNotIn("alice", out, (text, out))
         self.assertEqual(activity_log.sanitize_topic("mail me at bob@example.com later"), "mail me at … later")
         self.assertEqual(activity_log.sanitize_topic("open https://ex.com:8080/a/b"), "open https://ex.com:8080/b")
+
+
+class RoundTwentyTwoTest(unittest.TestCase):
+    """Schemeless credentials of any length or encoding; chained URLs behind an encoded ? or #."""
+
+    def test_review_examples_never_leak(self):
+        import activity_log
+        for text in ("connect alice:my%20secret%40localhost", "connect alice:my%09secret%40localhost",
+                     "connect alice:my%0Asecret%40localhost", "connect alice%253Amy%20secret@localhost",
+                     "connect alice:my-secret-pass-" + "a-b-" * 260 + "@localhost",
+                     "see alice:mysecret%25252540localhost", "see ftp://ex.com%3Ffoo,https://alice:mysecret",
+                     "see wss://ex.com%23foo,https://alice:mysecret", "see ftp://ex.com%3Ffoo,https%3A//alice:mysecret"):
+            out = activity_log.sanitize_topic(text) or ""
+            self.assertNotIn("secret", out, (text, out))
+            self.assertNotIn("alice", out, (text, out))
+        self.assertEqual(activity_log.sanitize_topic("mail bob@example.com"), "mail …")
+        self.assertEqual(activity_log.sanitize_topic("clone user@host:path/x.py"), "clone x.py")
 
 
 if __name__ == "__main__":
