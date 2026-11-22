@@ -2298,7 +2298,8 @@ class MapView(Gtk.DrawingArea):
                 if layers.get(key, 0) != layer or key not in cards:
                     continue
                 if key in self.collapsed:
-                    hiding.append(((x - 1, y - 1, w + 2, h + 2, radius + 1), layer, None))
+                    # Its header and its plinth's walls (lifted while dragged), a pixel larger: no seam.
+                    hiding.append((self.card_outline(key, x - 1, y - 1, w + 2, h + 2), layer, None))
                     continue
                 hiding.append((map_3d.top_rounded(x, y, w, CARD_HEAD, radius), layer, None))
                 rows = [rect for rect, item in self.missing_rects.values() if item in self.missing.get(key, [])]
@@ -2399,24 +2400,36 @@ class MapView(Gtk.DrawingArea):
         top = max(layers.values(), default=0)
         for edge, mx, my, layer, holes in shown_markers:   # a card moved over a "!" later hides it too
             hidden = holes + [(shape, []) for shape in self.card_outlines(layer, top, layers)]
-            ring = [(mx, my)] + [(mx + 7 * math.cos(a * math.pi / 4), my + 7 * math.sin(a * math.pi / 4))
-                                 for a in range(8)]
-            if not all(map_3d.point_hidden(hidden, *xy) for xy in ring):      # some of it shows: clicks there
+            if not all(map_3d.point_hidden(hidden, *xy) for xy in self.MARKER_DISC_POINTS(mx, my)):
+                # some of its painted disc shows: clicks there
                 self.marker_points.append(((edge.source, edge.target), mx, my))
                 self.marker_holes[(edge.source, edge.target)] = hidden
+
+    MARKER_REACH = 8.4           # a "!" as painted: radius 7.5 and half its 1.8 px ring
+
+    @classmethod
+    def MARKER_DISC_POINTS(cls, mx, my) -> list:
+        """Points covering a painted "!" (every 1.2 px across its disc, and its rim)."""
+        reach, step = cls.MARKER_REACH, 1.2
+        count = int(reach / step)
+        points = [(mx + i * step, my + j * step) for i in range(-count, count + 1) for j in range(-count, count + 1)
+                  if math.hypot(i * step, j * step) <= reach]
+        return points + [(mx + reach * math.cos(a * math.pi / 16), my + reach * math.sin(a * math.pi / 16))
+                         for a in range(32)]
+
+    def card_outline(self, key, x, y, w, h):
+        """A card with its plinth's walls as one polygon: folded or open depth, lifted while dragged."""
+        moving = self.link.get("card") if self.link and self.link.get("drawing") else None
+        dx, dy = map_3d.CARD_DEPTH_FOLDED if key in self.collapsed else map_3d.CARD_DEPTH
+        if key == moving:
+            dx, dy = dx + 1.5, dy + 2.0
+        return map_3d.block_outline(x, y, w, h, (dx, dy))
 
     def card_outlines(self, own: int, upto: int, layers: dict, grow: float = 0) -> list:
         """The cards in layers above `own`, up to `upto`, each with its plinth's walls as one polygon
         (`grow` px larger: no antialiased seam)."""
-        moving = self.link.get("card") if self.link and self.link.get("drawing") else None
-        outlines = []
-        for key, (x, y, w, h), *_rest in self.group_labels:
-            if own < layers.get(key, 0) <= upto:
-                dx, dy = map_3d.CARD_DEPTH_FOLDED if key in self.collapsed else map_3d.CARD_DEPTH
-                if key == moving:
-                    dx, dy = dx + 1.5, dy + 2.0
-                outlines.append(map_3d.block_outline(x - grow, y - grow, w + 2 * grow, h + 2 * grow, (dx, dy)))
-        return outlines
+        return [self.card_outline(key, x - grow, y - grow, w + 2 * grow, h + 2 * grow)
+                for key, (x, y, w, h), *_rest in self.group_labels if own < layers.get(key, 0) <= upto]
 
     def marker_hidden_at(self, key, x, y) -> bool:
         """3D: whether the "!" of this line is hidden at (x, y) (a box, header or card lies over it there)."""

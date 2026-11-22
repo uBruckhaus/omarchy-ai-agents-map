@@ -633,6 +633,30 @@ class WholeMapTest(unittest.TestCase):
                       if map_3d.in_shape(outline, px, py)]
             self.assertTrue(all(_view.marker_hidden_at(key, px, py) for px, py in inside))
 
+    def outline_unchanged(self, view, wired, plain, node_id, depth):
+        x, y, w, h = self.card(view, node_id)
+        outline = map_3d.block_outline(x, y, w, h, depth)
+        data_w, data_p, stride = wired.get_data(), plain.get_data(), wired.get_stride()
+        changed = [(px, py) for px in range(int(x), int(x + w) + 6) for py in range(int(y), int(y + h) + 7)
+                   if map_3d.in_shape(outline, px + 0.5, py + 0.5)
+                   and data_w[py * stride + px * 4:py * stride + px * 4 + 4]
+                   != data_p[py * stride + px * 4:py * stride + px * 4 + 4]]
+        self.assertEqual(changed, [])
+        return outline
+
+    def test_a_folded_card_keeps_its_walls(self):
+        moved = [("skills:~/s", (800, 290)), ("cloud:anthropic", (1000, 277))]               # Codex r8
+        for edges in (self.EDGES, self.FAILED):
+            view, plain = headless(True, (), collapsed=("skills:~/s",), moved=moved)
+            _view, wired = headless(True, edges, collapsed=("skills:~/s",), moved=moved)
+            self.outline_unchanged(view, wired, plain, "skills:~/s", map_3d.CARD_DEPTH_FOLDED)
+
+    def test_a_marker_strip_that_shows_takes_clicks(self):
+        view, _image = headless(True, self.FAILED, moved=("skills:~/s", (850, 312)))           # Codex r8
+        key = ("agent:claude", "cloud:anthropic")
+        self.assertEqual([k for k, *_xy in view.marker_points], [key])
+        self.assertFalse(view.marker_hidden_at(key, 904, 311))
+
     def test_the_flat_map_is_drawn_as_before(self):
         _view, image = headless(False, self.EDGES)
         self.assertEqual(_view.sockets, [])
