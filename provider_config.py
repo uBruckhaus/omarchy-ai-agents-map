@@ -37,6 +37,19 @@ def configurable(key):
     return bool(schema(key))
 
 
+def config_number(value, fallback=0, *, integer=True):
+    """Numeric facts may be malformed; keep raw display values out of arithmetic."""
+    if type(value) not in (int, float):
+        return fallback
+    try:
+        number = float(value)
+        if not math.isfinite(number):
+            return fallback
+        return int(number) if integer else number
+    except (ValueError, OverflowError):
+        return fallback
+
+
 def config_model(facts, model):
     models = facts.get('models', [])
     if model and model != '*':
@@ -88,7 +101,16 @@ class ConfigMath:
         return self.field(role).get('id')
 
     def role(self, values, role, default=None):
-        return values.get(self.id(role), default)
+        field = self.field(role)
+        value = values.get(field.get('id'), default)
+        kind = field.get('type')
+        if kind in ('int', 'int_or_special', 'float'):
+            if any(type(value) is type(s) and value == s for s in field.get('special', [])):
+                return value
+            return config_number(value, field['default'] if default is None else default, integer=kind != 'float')
+        if kind == 'enum' and not any(type(value) is type(choice) and value == choice for choice in field['values']):
+            return field['default'] if default is None else default
+        return value
 
     @property
     def current(self):
@@ -231,8 +253,8 @@ class ConfigMath:
         context_id, parallel_id = self.id('context'), self.id('parallel')
         configured = self.facts.get('configured')
         if configured is not None and parallel_id and self.writer in ('ini_defaults', 'jan_pair'):
-            known_current = parallel_id in configured.get(self.model, []) and self.current.get(parallel_id, 0) > 0
-            known_inherited = parallel_id in configured.get('*', []) and self.facts.get('defaults', {}).get(parallel_id, 0) > 0
+            known_current = parallel_id in configured.get(self.model, []) and config_number(self.current.get(parallel_id)) > 0
+            known_inherited = parallel_id in configured.get('*', []) and config_number(self.facts.get('defaults', {}).get(parallel_id)) > 0
             known = (known_inherited if values[parallel_id] is None else type(values[parallel_id]) is int and values[parallel_id] > 0) if parallel_id in values else known_current
             if (context_id in values or parallel_id in values) and not known:
                 error(parallel_id, _('Choose a parallel request count when changing context.'))
@@ -562,10 +584,14 @@ def typed(s, value):
         return s['default']
     if isinstance(value, str):
         value = re.sub(r'\s+[;#].*$', '', value).strip().strip('\"\'')
+    if s['role'] == 'cache_level' and isinstance(value, str):
+        value = {'f16': 0, 'q8_0': 1, 'q4_0': 2}.get(value, value)
+    if type(value) is bool and s['type'] != 'bool':
+        return value  # Arithmetic rejects booleans; do not turn them into 0 or 1.
     if s['type'] in ('int', 'int_or_special') or s['type'] == 'enum' and all(type(v) is int for v in s['values']):
         try:
             return int(value)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             return value
     if s['type'] == 'float':
         if value in ('max', 'off'):
@@ -653,7 +679,7 @@ class ConfigFiles:
             sections = context_ctl._ini_sections(old)
             return {**sections.get('*', {}), **sections.get(model, {})}
         if writer == 'environment':
-            return {m[1]: m[2] for m in re.finditer(r'^\s*(?:export\s+)?([A-Z_][A-Z0-9_]*)=(.*)$', old, re.M)}
+            return {m[1]: m[2] for m in re.finditer(r'^[ \t]*(?:export[ \t]+)?([A-Z_][A-Z0-9_]*)=(.*)$', old, re.M)}
         if writer == 'lms_fields':
             data = connect._json(old)
             load = data.get('load', {})
@@ -673,7 +699,7 @@ class ConfigFiles:
             result = {}
             for s in fields:
                 wire = s['wire']
-                m = re.search(r'^' + re.escape(wire['yaml']) + r':\s*([^#\n]+)', old, re.M)
+                m = re.search(r'^' + re.escape(wire['yaml']) + r':[ \t]*([^#\r\n]+)', old, re.M)
                 value = ini.get(wire['ini'], m[1].strip() if m else None)
                 if value is not None:
                     result[s['id']] = value
@@ -712,6 +738,8 @@ class ConfigFiles:
             if s is None:
                 raise ValueError(_('Not verified on this PC'))
             if writer == 'ini_defaults':
+                if not new and value is not None:
+                    new = 'version = 1\n\n'
                 new = ini_value(new, model, s['wire'], value)
             elif writer == 'environment':
                 new = line_value(new, s['wire'], value)
@@ -778,8 +806,8 @@ class ConfigFiles:
             paths = self.paths(rt, name)
             sections = context_ctl._ini_sections(read_config(paths['preset'], anchor=True))
             yml = read_config(paths['main'], anchor=True)
-            m = re.search(r'''^model_path:\s*['"]?([^'"\n]+?)['"]?\s*$''', yml, re.M)
-            path = sections.get(name, {}).get('model') or (m[1] if m else '')
+            m = re.search(r'''^model_path:[ \t]*['"]?([^'"\r\n]+?)['"]?[ \t]*$''', yml, re.M)
+            path = sections.get(name, {}).get('model') or (m[1].strip() if m else '')
             if path:
                 root = paths['preset'].parent.parent
                 return Path(path) if os.path.isabs(path) else root / path
@@ -911,7 +939,14 @@ def collect(rt, *, hardware=None, files=None, build=None, measurements=None):
             meta = {}
             notes.append(_('Model memory is not fully known; this is an estimate'))
         models.append({'name': name, 'size': size, 'meta': meta, 'file': str(file) if file else '',
-                       'writable': model_writable, 'chat': True})
+                       'writable': model_writable, 'chat': True, 'loaded': False})
+    if rt.running and writer != 'launch_advice':
+        try:
+            loaded = engine.loaded_models(rt)
+            for model in models:
+                model['loaded'] = model['name'].lower() in loaded
+        except (OSError, ValueError, RuntimeError):
+            pass  # Settings remain available if the read-only endpoint fails.
     if writer == 'ini_defaults' and writable:
         try:
             sections = context_ctl._ini_sections(read_config(files.paths(rt, '*')['main']))
@@ -940,7 +975,10 @@ def select_model(facts, requested=None):
             raise ValueError(_('This provider has global settings'))
         return '*'
     names = facts['scope_models']
-    selected = requested if requested is not None else next(iter(names), '')
+    selected = requested
+    if selected is None:
+        selected = '*' if scope == 'default' else next(
+            (m['name'] for m in facts['models'] if m.get('loaded') and m['name'] in names), next(iter(names), ''))
     if selected not in names and (selected or names):
         raise ValueError(_('Choose an available model'))
     return selected
@@ -979,7 +1017,8 @@ def _agent_context_changes(rt, facts, model, values):
     total = math.writer in ('ini_defaults', 'jan_pair')
     if context_id not in values and not (total and parallel_id in values):
         return [], []
-    contexts, changed = {}, False
+    contexts = {}
+    changed = total and parallel_id in values and isinstance(facts.get('configured'), dict)
     for m in facts['models']:
         name = m['name']
         calc = ConfigMath(facts, name)
@@ -988,7 +1027,7 @@ def _agent_context_changes(rt, facts, model, values):
         override = facts.get('overrides', {}).get(name, [])
         next_values = calc.effective({k: v for k, v in values.items() if affected and (model != '*' or k not in override)})
         def tokens(v):
-            return int(v[context_id]) // max(1, int(v.get(parallel_id, 1))) if total else int(v[context_id])
+            return config_number(v[context_id]) // max(1, config_number(v.get(parallel_id), 1)) if total else config_number(v[context_id])
         changed |= tokens(before) != tokens(next_values)
         if tokens(next_values) > 0:
             contexts[name] = tokens(next_values)
@@ -1001,8 +1040,10 @@ def _agent_context_changes(rt, facts, model, values):
         paths = connect.paths_for(agent)
         old = [read_config(p) for p in paths]
         new = connect._transform(agent, old, rt, '', False, False, contexts)
-        changes += [connect.Change(p, o, n) for p, o, n in zip(paths, old, new) if o != n]
-        agents.append(agent)
+        extra = [connect.Change(p, o, n) for p, o, n in zip(paths, old, new) if o != n]
+        if extra:
+            changes += extra
+            agents.append(agent)
     return changes, agents
 
 
@@ -1059,12 +1100,14 @@ def apply(review, *, acknowledged=False, backup_root=None, rules=None, run=None)
     require_allowed(review.plan.runtime, rules)
     for agent in review.agents:
         require_allowed(review.plan.runtime, rules, agent=agent)
+    if review.plan.empty():
+        raise ValueError(_('No changes to write'))
     if review.check['warnings'] and not acknowledged:
         raise ValueError(_('Acknowledge the configuration warnings first'))
     for change in review.plan.changes:
         if read_config(change.path) != change.old:
             raise RuntimeError(_('Configuration changed since the preview; review again'))
-    backup = connect.apply(review.plan, backup_root or connect.BACKUP_ROOT)
+    backup = connect.apply(review.plan, backup_root or connect.BACKUP_ROOT, preserve_mode=True)
     return WriteResult(backup=backup, reload_error=_reload([c.path for c in review.plan.changes], run))
 
 
@@ -1160,6 +1203,29 @@ def proposal_answer(answer, facts, model):
             'reasons': {k: line(reasons.get(k), 400) for k in values}, 'sources': sources}
 
 
+def proposal_schema(facts):
+    """Strict output schema, using only this provider's verified keys."""
+    properties = {}
+    for field in facts['schema']:
+        if not field['verified']:
+            continue
+        kind = field['type']
+        if kind == 'enum':
+            value = {'type': 'integer' if all(type(v) is int for v in field['values']) else 'string',
+                     'enum': field['values']}
+        elif kind == 'int_or_special':
+            strings = [v for v in field.get('special', []) if isinstance(v, str)]
+            value = {'anyOf': [{'type': 'integer'}, {'type': 'string', 'enum': strings}]} if strings else {'type': 'integer'}
+        else:
+            value = {'type': {'int': 'integer', 'float': 'number', 'bool': 'boolean'}.get(kind, 'string')}
+        properties[field['id']] = value
+    def object_schema(fields):
+        return {'type': 'object', 'additionalProperties': False, 'required': list(fields), 'properties': fields}
+    return object_schema({'summary': {'type': 'string'}, 'values': object_schema(properties),
+                          'reasons': object_schema({key: {'type': 'string'} for key in properties}),
+                          'sources': {'type': 'array', 'items': {'type': 'string'}}})
+
+
 def ask(helper, facts, model, profile='balanced', focus='', *, web=False, answer_of=None, rules=None):
     """One proposal call, no lookup chain or retry. answer_of is injectable for tests."""
     import ai_helper
@@ -1172,10 +1238,7 @@ def ask(helper, facts, model, profile='balanced', focus='', *, web=False, answer
         if helper.local:
             answer_of = lambda text: ai_helper.advise(helper.candidate, 'provider-config', text)
         elif web:
-            answer_of = lambda text: ai_helper.look_up(helper.command, 'provider-config', text,
-                {'type': 'object', 'required': ['summary', 'values', 'reasons', 'sources'],
-                 'properties': {'summary': {'type': 'string'}, 'values': {'type': 'object'},
-                                'reasons': {'type': 'object'}, 'sources': {'type': 'array', 'items': {'type': 'string'}}}})
+            answer_of = lambda text: ai_helper.look_up(helper.command, 'provider-config', text, proposal_schema(facts))
         else:
             answer_of = lambda text: _ask_without_tools(helper.command, text)
     answer = answer_of(prompt)

@@ -18,7 +18,7 @@ import context_ctl
 import inventory
 import llm_engine
 import provider_config as config
-from tests.isolate import desktop_in
+from tests.isolate import desktop_in, sandbox_ancestors_in
 
 G = config.GIB
 RULES = [{'effect': 'allow', 'action': '*', 'category': '*', 'item': '*', 'agent': '*'}]
@@ -241,17 +241,7 @@ class FileFixture(unittest.TestCase):
         self.enterContext(mock.patch.object(connect, 'HOME', self.home))
         self.enterContext(mock.patch.object(inventory, 'JAN_ROOT', self.home / '.local/share/Jan'))
         self.enterContext(mock.patch.object(inventory, 'KOBOLD_CONFIGS', self.home / '.config/koboldcpp/models'))
-        # Managed workspace maps the immutable container / and /tmp to nobody.
-        # Model those two sandbox ancestors as root, preserving real leaf ownership checks.
-        original_lstat = os.lstat
-        def sandbox_lstat(path, *args, **kwargs):
-            info = original_lstat(path, *args, **kwargs)
-            if str(path) in ('/', '/tmp') and info.st_uid == 65534:
-                parts = list(info)
-                parts[4] = 0
-                return os.stat_result(parts)
-            return info
-        self.enterContext(mock.patch('os.lstat', side_effect=sandbox_lstat))
+        sandbox_ancestors_in(self)
         self.files = config.ConfigFiles(self.home)
         self.rt = inventory.Runtime('llamacpp', 'llama.cpp', True, False, service='llama-server', models=['m', 'other'])
         self.backups = self.home / 'backups'
@@ -259,8 +249,13 @@ class FileFixture(unittest.TestCase):
 
     def write(self, path, text):
         path = self.home / path
-        path.parent.mkdir(parents=True, exist_ok=True)
+        for parent in reversed(path.parents):
+            if parent != self.home and self.home not in parent.parents:
+                continue
+            parent.mkdir(mode=0o700, exist_ok=True)
+            parent.chmod(0o700)
         path.write_text(text)
+        path.chmod(0o600)
         return path
 
     def collect(self, key=None):
@@ -270,6 +265,27 @@ class FileFixture(unittest.TestCase):
 
     def preview(self, f, values, model='*'):
         return config.preview(self.rt, f, values, model, files=self.files, rules=RULES)
+
+class MalformedMathTest(unittest.TestCase):
+    def test_malformed_current_numbers_do_not_crash_fit_validate_or_recommend(self):
+        for key in config.PROVIDERS:
+            for bad in ('foo', True, float('nan'), float('inf')):
+                with self.subTest(provider=key, bad=bad):
+                    found = facts(key)
+                    for field in found['schema']:
+                        if field['type'] in ('int', 'int_or_special', 'float'):
+                            found['settings']['*'][field['id']] = config.typed(field, bad)
+                            found['settings']['m'][field['id']] = config.typed(field, bad)
+                    calc = config.ConfigMath(found, 'm')
+                    self.assertIsInstance(calc.fit({})['total'], (int, float))
+                    self.assertIsInstance(calc.validate({}), dict)
+                    self.assertIsInstance(calc.recommend(), dict)
+
+    def test_kobold_cache_string_aliases(self):
+        field = next(s for s in config.schema('koboldcpp') if s['role'] == 'cache_level')
+        for name, expected in (('f16', 0), ('q8_0', 1), ('q4_0', 2)):
+            self.assertEqual(config.typed(field, name), expected)
+
 
 class FilesTest(FileFixture):
     def test_llama_defaults_migration_preview_backup_undo_reload_after_write(self):
@@ -325,6 +341,7 @@ class FilesTest(FileFixture):
         result = config.apply(review, acknowledged=True, backup_root=self.backups, rules=RULES)
         path = self.files.paths(self.rt, '*')['main']
         self.assertTrue(path.exists())
+        self.assertIn('version = 1', path.read_text())
         config.undo(review, result.backup, rules=RULES)
         self.assertFalse(path.exists())
 
@@ -408,8 +425,8 @@ class FilesTest(FileFixture):
 
     def test_hostile_leaf_parent_and_credentials(self):
         target = self.write('target', 'secret')
-        path = self.home / '.config/llama.cpp/models.ini'
-        path.parent.mkdir(parents=True)
+        path = self.write('.config/llama.cpp/models.ini', '')
+        path.unlink()
         path.symlink_to(target)
         with self.assertRaises(ValueError):
             config.read_config(path)
@@ -517,6 +534,103 @@ class FilesTest(FileFixture):
         self.assertEqual(f['models'][0]['size'], 4 * G)
         self.assertFalse(f['writable'])
         self.assertIn('vllm serve <model>', config.snippet(f, config.ConfigMath(f).recommend()['values']))
+
+
+    def test_new_directories_private_under_permissive_umasks(self):
+        for mask in (0o002, 0o000):
+            with self.subTest(umask=mask):
+                review = self.preview(self.collect(), {'ctx-size': 8192, 'parallel': 1})
+                before = os.umask(mask)
+                try:
+                    result = config.apply(review, acknowledged=True, backup_root=self.backups, rules=RULES)
+                    path = self.files.paths(self.rt, '*')['main']
+                    self.assertEqual(path.parent.stat().st_mode & 0o777, 0o700)
+                    self.assertEqual(path.parent.parent.stat().st_mode & 0o777, 0o700)
+                    self.assertTrue(self.collect()['writable'])
+                    self.assertTrue(config.undo(review, result.backup, rules=RULES).restored)
+                    self.assertFalse(path.exists())
+                finally:
+                    os.umask(before)
+
+    def test_apply_mid_plan_failure_rolls_back_content_and_modes(self):
+        for new_first in (False, True):
+            with self.subTest(new_first=new_first):
+                first = self.home / 'first'
+                if not new_first:
+                    first = self.write('first', 'old')
+                    first.chmod(0o640)
+                else:
+                    first.unlink(missing_ok=True)
+                second = self.write('second', 'unchanged')
+                plan = connect.Plan('test', 'jan', '', [connect.Change(first, '' if new_first else 'old', 'new'),
+                                                       connect.Change(second, 'unchanged', 'next')])
+                original_write = connect._write
+                def fail(path, text, **kwargs):
+                    if path == second:
+                        raise OSError('disk full')
+                    return original_write(path, text, **kwargs)
+                with mock.patch.object(connect, '_write', side_effect=fail):
+                    with self.assertRaisesRegex(OSError, 'disk full'):
+                        connect.apply(plan, self.backups)
+                self.assertEqual(second.read_text(), 'unchanged')
+                if new_first:
+                    self.assertFalse(first.exists())
+                else:
+                    self.assertEqual(first.read_text(), 'old')
+                    self.assertEqual(first.stat().st_mode & 0o777, 0o640)
+
+    def test_provider_undo_restores_original_mode_existing_connect_stays_private(self):
+        for provider in (False, True):
+            path = self.write('mode', 'old')
+            path.chmod(0o640)
+            plan = connect.Plan('test', 'llamacpp', '', [connect.Change(path, 'old', 'new')])
+            if provider:
+                review = config.Preview(plan, {'warnings': []}, facts(), '*', {}, [])
+                backup = config.apply(review, backup_root=self.backups, rules=RULES).backup
+            else:
+                backup = connect.apply(plan, self.backups)
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            connect.undo(backup)
+            self.assertEqual(path.stat().st_mode & 0o777, 0o640 if provider else 0o600)
+
+    def test_jan_empty_yaml_keys_do_not_consume_next_line(self):
+        self.rt.key = 'jan'
+        self.write('.local/share/Jan/data/llamacpp/models/m/model.yml',
+                   'ctx_size: \nparallel: 2\nmodel_path: \nthreads: 4\n')
+        self.write('.local/share/Jan/data/llamacpp/router.preset.ini', '[m]\n')
+        values = self.files.read_values(self.rt, 'm')
+        self.assertNotIn('parallel:', values.get('ctx_size', ''))
+        self.assertEqual(values['parallel'], '2')
+        self.assertIsNone(self.files.model_file(self.rt, 'm'))
+
+    def test_collect_records_loaded_models_and_prefers_them(self):
+        for key in ('lmstudio', 'jan', 'koboldcpp'):
+            with self.subTest(provider=key):
+                self.rt.key, self.rt.running = key, True
+                engine = config.llm_engine.of(key)
+                with mock.patch.object(engine, 'loaded_models', return_value={'other': 'loaded'}) as loaded:
+                    found = self.collect()
+                loaded.assert_called_once_with(self.rt)
+                self.assertTrue(found['models'][1]['loaded'])
+                self.assertEqual(config.select_model(found), 'other')
+                self.assertEqual(config.select_model(found, 'm'), 'm')
+
+    def test_parallel_explicit_default_syncs_agents_but_unchanged_agent_does_not_block(self):
+        self.write('.config/llama.cpp/models.ini', '[*]\n')
+        hermes = self.write('.hermes/config.yaml', 'providers:\n  llama-local:\n    default_model: m\n    models:\n      m: {}\n')
+        found = self.collect()
+        changes, agents = config._agent_context_changes(self.rt, found, '*', {'parallel': 1})
+        self.assertIn('hermes', agents)
+        self.assertTrue(any(c.path == hermes and 'context_length: 8192' in c.new for c in changes))
+        with mock.patch.object(connect, '_transform', side_effect=lambda _a, texts, *_args: texts):
+            changes, agents = config._agent_context_changes(self.rt, found, '*', {'ctx-size': 16384, 'parallel': 1})
+        self.assertEqual((changes, agents), ([], []))
+
+    def test_noop_apply_does_not_make_backup(self):
+        review = config.Preview(connect.Plan('test', 'llamacpp', ''), {'warnings': []}, facts(), '*', {}, [])
+        with self.assertRaisesRegex(ValueError, 'No changes'):
+            config.apply(review, backup_root=self.backups, rules=RULES)
+        self.assertFalse(self.backups.exists())
 
 
 class HardwareTest(FileFixture):
@@ -703,7 +817,12 @@ class EditorTest(unittest.TestCase):
             label = Box(label=text)
             box.append(label)
             return label
-        fake_gtk = SimpleNamespace(Box=Box, Label=Box, Switch=Box, CheckButton=Box, DropDown=Selector,
+        checks = []
+        def checkbox(**kwargs):
+            item = Box(**kwargs)
+            checks.append(item)
+            return item
+        fake_gtk = SimpleNamespace(Box=Box, Label=Box, Switch=Box, CheckButton=checkbox, DropDown=Selector,
                                   Entry=Entry, Expander=Box, LevelBar=Box,
                                   Orientation=module.Gtk.Orientation, Align=module.Gtk.Align)
         for key in config.PROVIDERS:
@@ -711,18 +830,212 @@ class EditorTest(unittest.TestCase):
                     mock.patch.object(module, 'readonly_text', side_effect=lambda text: Text()), \
                     mock.patch.object(module, 'copy_button', return_value=Box()):
                 view = module.ProviderConfigPage()
-                view.provider_config_draft = module.Draft(facts(key))
+                view.provider_config_draft = module.Draft(facts(key), model='m' if key == 'llamacpp' else None)
+                checks.clear()
                 view.provider_config_title = Box()
                 view.provider_config_body = Box()
                 view.info_card = card
                 view.card_text = card_text
-                view.action_button = lambda *a, **k: Box()
+                labels = []
+                def button(label, **kwargs):
+                    labels.append(label)
+                    return Box()
+                view.action_button = button
                 view.action_row = lambda *a, **k: Box()
                 view.clear_box = lambda box: box.children.clear()
                 view.note_card = lambda *a: Box()
+                view.guard_text_fields_in = mock.Mock()
                 view.render_provider_config()
+                view.guard_text_fields_in.assert_called_once_with(view.provider_config_body)
                 self.assertGreater(len(view.provider_config_body.children), 5)
                 self.assertFalse(view.provider_config_apply_button.get_sensitive())
+                for field in view.provider_config_draft.facts['schema']:
+                    for special in field.get('special', []):
+                        self.assertIn(str(special), labels)
+                if key == 'llamacpp':
+                    self.assertTrue(checks)
+                    self.assertTrue(all(not check.get_sensitive() for check in checks))
+
+    def callback_view(self):
+        from page_parts import PageParts
+        from tests.test_settings_responsive import Widget
+        view = self.module.ProviderConfigPage()
+        view.provider_config_draft = self.module.Draft(facts())
+        view.provider_config_rt = inventory.Runtime('llamacpp', 'llama.cpp', True, True,
+                                                    service='llama-server', models=['m'])
+        view.provider_config_generation = 1
+        view.provider_config_busy = False
+        view.provider_config_timer = None
+        view.provider_config_body = Widget()
+        view.provider_config_progress = Widget()
+        view.provider_config_stop = Widget()
+        view.provider_config_review_box = Widget()
+        view.provider_config_from = 'main'
+        view.show_page = mock.Mock()
+        view.page_name = lambda: 'providerconfig'
+        view.render_provider_config = mock.Mock()
+        view.clear_box = lambda box: box.children.clear()
+        view.info_card = lambda title: SimpleNamespace(body=Widget())
+        view.card_text = mock.Mock()
+        view.guard_text_fields_in = mock.Mock()
+        view.show_error = mock.Mock()
+        view.toast = mock.create_autospec(PageParts.toast.__get__(view))
+        view.buttons = {}
+        def button(label, **kwargs):
+            item = Widget()
+            item.click = kwargs.get('on_click')
+            view.buttons[label] = item
+            return item
+        view.action_button = button
+        view.action_row = lambda *buttons: Widget()
+        return view
+
+    def inline_jobs(self):
+        def thread(*, target, **kwargs):
+            return SimpleNamespace(start=target)
+        self.enterContext(mock.patch.object(self.module.threading, 'Thread', side_effect=thread))
+        self.enterContext(mock.patch.object(self.module.GLib, 'idle_add', side_effect=lambda fn, *a: fn(*a)))
+
+    def test_apply_control_undo_and_measure_callbacks_use_real_toast_signature(self):
+        self.inline_jobs()
+        view = self.callback_view()
+        review = config.Preview(connect.Plan('test', 'llamacpp', '', [connect.Change(Path('/fixture'), 'old', 'new')]),
+                                {'warnings': []}, facts(), 'm', {}, [])
+        view.provider_config_draft.review = review
+        result = config.WriteResult(backup=Path('/fixture/backup'))
+        with mock.patch.object(config, 'apply', return_value=result), mock.patch.object(config, 'collect', return_value=facts()):
+            view.apply_provider_config()
+        self.assertEqual(view.provider_config_draft.backup, result.backup)
+        self.assertIs(view.provider_config_draft.applied_review, review)
+        self.assertIn('Restart now', view.buttons)
+        with mock.patch.object(config, 'control') as control:
+            view.buttons['Restart now'].click()
+        control.assert_called_once()
+        view.open_provider_config = mock.Mock()
+        with mock.patch.object(config, 'undo', return_value=config.WriteResult(restored=[Path('/fixture')], reload_error='reload failed')):
+            view.undo_provider_config()
+        view.open_provider_config.assert_called_once()
+        view.show_error.assert_called_once()
+        view.provider_config_draft.model = 'm'
+        view.provider_config_guard = mock.Mock()
+        with mock.patch('gpu_usage.snapshot', return_value=SimpleNamespace(runtimes={})), \
+                mock.patch.object(config, 'require_allowed'), mock.patch.object(config, 'collect', return_value=facts()), \
+                mock.patch.object(config, 'measure', return_value={}):
+            view.measure_provider_config()
+        self.assertEqual(view.toast.call_count, 4)
+        self.assertFalse(view.provider_config_busy)
+        self.assertTrue(view.provider_config_body.get_sensitive())
+
+    def test_busy_reopen_keeps_apply_draft_and_undo_result(self):
+        view = self.callback_view()
+        draft = view.provider_config_draft
+        review = SimpleNamespace(plan=connect.Plan('test', 'llamacpp', ''))
+        draft.review = review
+        pending = []
+        with mock.patch.object(self.module.threading, 'Thread', side_effect=lambda **kw: pending.append(kw['target']) or mock.Mock()), \
+                mock.patch.object(self.module.GLib, 'idle_add', side_effect=lambda fn, *a: fn(*a)), \
+                mock.patch.object(config, 'apply', return_value=config.WriteResult(backup=Path('/fixture/backup'))), \
+                mock.patch.object(config, 'collect', return_value=facts()):
+            view.apply_provider_config()
+            view.open_provider_config(inventory.Runtime('jan', 'Jan', True, False))
+            self.assertIs(view.provider_config_draft, draft)
+            self.assertEqual(view.provider_config_rt.key, 'llamacpp')
+            self.assertEqual(view.provider_config_generation, 1)
+            pending.pop()()
+        self.assertEqual(draft.backup, Path('/fixture/backup'))
+        self.assertIs(draft.applied_review, review)
+        self.assertTrue(view.provider_config_body.get_sensitive())
+        self.assertIn('Restart now', view.buttons)
+
+    def test_stale_job_restores_sensitivity(self):
+        view = self.callback_view()
+        pending = []
+        done = mock.Mock()
+        with mock.patch.object(self.module.threading, 'Thread', side_effect=lambda **kw: pending.append(kw['target']) or mock.Mock()), \
+                mock.patch.object(self.module.GLib, 'idle_add', side_effect=lambda fn, *a: fn(*a)):
+            view.provider_config_job(lambda: 'result', done)
+            view.provider_config_generation += 1
+            pending.pop()()
+        self.assertTrue(view.provider_config_body.get_sensitive())
+        self.assertFalse(view.provider_config_busy)
+        done.assert_not_called()
+
+    def test_stale_ask_does_not_render_or_change_old_draft(self):
+        view = self.callback_view()
+        helper = SimpleNamespace(local=False, command='fake')
+        view.run_ai_help = mock.Mock()
+        with mock.patch.object(config, 'require_allowed'):
+            view.ask_provider_config(helper, '', False)
+        with mock.patch.object(self.module.threading, 'Thread'):
+            view.open_provider_config(inventory.Runtime('jan', 'Jan', True, False))
+        self.assertEqual(view.provider_config_rt.key, 'llamacpp')
+        view.provider_config_generation += 1
+        done = view.run_ai_help.call_args.args[4]
+        done((facts(), {'summary': 'Advice', 'values': {'threads': 4}}))
+        view.render_provider_config.assert_not_called()
+        self.assertFalse(view.provider_config_draft.values)
+        self.assertTrue(view.provider_config_body.get_sensitive())
+
+    def test_empty_review_disables_confirm_and_guards_dynamic_text(self):
+        from tests.test_settings_responsive import Widget
+        view = self.callback_view()
+        review = SimpleNamespace(plan=connect.Plan('test', 'llamacpp', ''), check={'warnings': [{'text': 'Warning'}]})
+        view.provider_config_draft.prepare = mock.Mock(return_value=review)
+        view.provider_config_job = lambda work, done: done(work())
+        with mock.patch.object(self.module, 'readonly_text', return_value=Widget()), \
+                mock.patch.object(self.module.Gtk, 'CheckButton', side_effect=lambda **kw: Widget(**kw)):
+            view.review_provider_config()
+        self.assertFalse(view.buttons['Apply configuration'].get_sensitive())
+        view.guard_text_fields_in.assert_called_once_with(view.provider_config_review_box)
+        ack = next(w for w in view.provider_config_review_box.children if getattr(w, 'properties', {}).get('label') == 'I understand these warnings')
+        ack.get_active = lambda: True
+        ack.emit('toggled')
+        self.assertFalse(view.buttons['Apply configuration'].get_sensitive())
+        self.assertTrue(any('No changes to write' in call.args for call in view.card_text.call_args_list))
+
+    def test_debounce_canceled_when_draft_disappears(self):
+        view = self.callback_view()
+        view.provider_config_timer = 17
+        view.provider_config_draft = None
+        with mock.patch.object(self.module.GLib, 'source_remove') as remove:
+            self.assertFalse(view.provider_config_validate())
+        remove.assert_called_once_with(17)
+        self.assertIsNone(view.provider_config_timer)
+
+    def test_default_removes_unsaved_override_and_never_enables_unverified_field(self):
+        from tests.test_settings_responsive import Widget
+        view = self.callback_view()
+        draft = view.provider_config_draft
+        draft.model = 'm'
+        draft.edit('threads', 4)
+        view.provider_config_edit = draft.edit
+        editor = Widget(sensitive=False)
+        view.provider_config_default('threads', True, editor)
+        self.assertNotIn('threads', draft.values)
+        draft.facts['schema'][-1]['verified'] = False
+        field = draft.facts['schema'][-1]
+        view.provider_config_default(field['id'], False, editor)
+        self.assertFalse(editor.get_sensitive())
+
+    def test_control_guard_allows_idle_and_recent_but_refuses_now(self):
+        import llm_clients
+        view = self.callback_view()
+        view.running_now = lambda: {'hermes': 'model'}
+        view.runtime_users = lambda key: 'Hermes · 12 s ago'
+        view.working_agents = set()
+        view.llm_clients = mock.Mock()
+        view.llm_clients.recent.return_value = [('Hermes', llm_clients.ACTIVE + 10)]
+        view.provider_config_rt.agents = ['hermes']
+        with mock.patch.object(connect, 'is_connected', return_value=False), \
+                mock.patch('gpu_usage.snapshot', return_value=SimpleNamespace(generating=False)):
+            view.provider_config_guard(view.provider_config_rt)
+            view.working_agents = {'hermes'}
+            with self.assertRaises(RuntimeError):
+                view.provider_config_guard(view.provider_config_rt)
+            view.working_agents = set()
+            view.llm_clients.recent.return_value = [('Hermes', 0)]
+            with self.assertRaises(RuntimeError):
+                view.provider_config_guard(view.provider_config_rt)
 
 
 class ProposalTest(unittest.TestCase):
@@ -775,6 +1088,30 @@ class ProposalTest(unittest.TestCase):
             config.ask(helper, facts(), 'm', web=True, answer_of=call, rules=RULES)
         self.assertEqual(call.call_count, 2)
 
+    def test_web_passes_strict_schema_with_verified_typed_properties(self):
+        helper = SimpleNamespace(command='fake', local=False, web=True)
+        reply = {'summary': 'Advice', 'values': {'threads': 4}}
+        for key in config.PROVIDERS:
+            with self.subTest(provider=key):
+                found = facts(key)
+                reply['values'] = config.ConfigMath(found, 'm').recommend()['values']
+                with mock.patch('ai_helper.look_up', return_value=reply) as lookup:
+                    config.ask(helper, found, 'm', web=True, rules=RULES)
+                schema = lookup.call_args.args[3]
+                def check(node):
+                    if node.get('type') == 'object':
+                        self.assertIs(node.get('additionalProperties'), False)
+                        self.assertEqual(set(node['required']), set(node['properties']))
+                        for child in node['properties'].values():
+                            check(child)
+                check(schema)
+                keys = {f['id'] for f in found['schema'] if f['verified']}
+                self.assertEqual(set(schema['properties']['values']['properties']), keys)
+                for field in found['schema']:
+                    if field['verified']:
+                        node = schema['properties']['values']['properties'][field['id']]
+                        self.assertTrue('type' in node or 'anyOf' in node)
+
     def test_prefill_uses_same_validator_before_it_becomes_a_draft(self):
         from provider_config_page import Draft
         draft = Draft(facts())
@@ -812,6 +1149,19 @@ class MeasurementTest(FileFixture):
         f['measurements'] = records
         self.assertEqual(config.ConfigMath(f).recommend()['values']['ctx-size'], 32768)
         self.assertEqual(self.files.paths(self.rt, '*')['main'].read_text(), '[*]\nparallel=1\n')
+
+    def test_measurement_receives_uncommented_cache_types(self):
+        self.write('.config/llama.cpp/models.ini', '[*]\ncache-type-k = "q8_0" # keep\ncache-type-v = q4_0 ; keep\nparallel=1\n')
+        found = facts()
+        found['build_mark'] = 'same'
+        found['models'][0]['file'] = '/fixture/m.gguf'
+        def measured(model, file, ini, **kwargs):
+            have = context_ctl.llama_effective(ini, model)
+            self.assertEqual((have['cache-type-k'], have['cache-type-v']), ('q8_0', 'q4_0'))
+            return {'ctx': 16384, 'ubatch': 512, 'used': 6 * G}
+        records = config.measure(self.rt, found, 'm', run_measure=measured, save=mock.Mock(), rules=RULES)
+        self.assertEqual((records['m']['cache_k'], records['m']['cache_v']), ('q8_0', 'q4_0'))
+
 
     def test_cancel_and_failed_bench_never_save(self):
         import threading

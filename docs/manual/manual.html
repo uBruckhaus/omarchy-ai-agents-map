@@ -1357,7 +1357,7 @@
   These are estimates, including the model weights, KV cache and a reserve. Unknown model
   metadata and unverified partial GPU cache placement are called out.</p>
   <p>llama.cpp offers <b>All models (default)</b> and individual models; LM Studio, Jan and
-  KoboldCpp use individual models. Ollama’s settings affect every model. llama.cpp and Jan
+  KoboldCpp use individual models, with the loaded model selected first. Ollama’s settings affect every model. llama.cpp and Jan
   split their total context across parallel requests; Ollama’s context is per request.
   The memory estimate includes Ollama’s parallel requests and maximum loaded models.</p>
   <p>Compare the current and recommended settings, then edit <b>Your value</b> or choose
@@ -1366,14 +1366,15 @@
   Apply; warnings explain memory pressure, partial offload or cache quality and must be
   acknowledged in the review. <b>Reset</b> discards the draft. Cancel in the review keeps edits.</p>
   <p><b>Apply…</b> shows the exact file changes before <b>Apply configuration</b> writes them.
-  Existing files are backed up and writes are atomic and private. <b>Undo</b> restores them,
+  Existing files are backed up and writes are atomic and private. If a file write fails,
+  earlier writes in that configuration are rolled back. <b>Undo</b> restores the original contents and permissions,
   leaving a file alone if another program changed it again. Jan updates both its model YAML
   and router preset together. Only an app-owned llama.cpp unit has its hard-coded GPU and flash
   flags moved into the preset, preserving other models; a custom launcher stays under your control.
   A changed unit is reloaded after saving and after Undo. A reload failure keeps the backup and Undo.</p>
   <p>Settings count on the next start. If the provider is running and can be controlled,
   <b>Restart now</b> or <b>Reload the model</b> is a separate click, refused while agents or
-  other clients use it. KoboldCpp reloads its configuration without stopping the server.</p>
+  other clients are generating. KoboldCpp reloads its configuration without stopping the server.</p>
   <p>vLLM and system-installed Ollama show a copyable command or systemd snippet. Strata shows
   <code>strata launch</code>; no tuning keys are verified and its presets, which may contain API
   keys, are never opened by this editor. Advice is never executed by the app. llama.cpp’s

@@ -107,6 +107,11 @@ class ProviderConfigPage:
         return page
 
     def open_provider_config(self, rt, model=None, profile='balanced', prefill=None):
+        if self.provider_config_busy:
+            return  # Keep the job's draft, reviewed snapshot and eventual Undo handle.
+        self.provider_config_cancel_timer()
+        self.provider_config_body.set_sensitive(True)
+        self.provider_config_progress.set_visible(False)
         if self.page_name() != 'providerconfig':
             self.provider_config_from = self.page_name()
         self.provider_config_rt = rt
@@ -143,12 +148,11 @@ class ProviderConfigPage:
         if self.provider_config_busy:
             return
         self.provider_config_generation += 1
-        if self.provider_config_timer:
-            GLib.source_remove(self.provider_config_timer)
-            self.provider_config_timer = None
+        self.provider_config_cancel_timer()
         self.show_page(self.provider_config_from if self.provider_config_from != 'providerconfig' else 'main')
 
     def render_provider_config(self):
+        self.provider_config_cancel_timer()
         draft = self.provider_config_draft
         if draft is None:
             return
@@ -225,12 +229,16 @@ class ProviderConfigPage:
                     on_click=lambda s=field, e=editor: self.provider_config_step(s, e, -1)))
                 control.append(self.action_button('+', tip=_('Increase'),
                     on_click=lambda s=field, e=editor: self.provider_config_step(s, e, 1)))
+                for special in field.get('special', []):
+                    control.append(self.action_button(str(special),
+                        on_click=lambda value=special, e=editor: e.set_text(str(value))))
             control.set_sensitive(field['verified'] and not (current is None and key in draft.values))
             if not field['verified']:
                 control.set_tooltip_text(_('Not verified on this PC'))
             row.append(control)
             if field['scope'] == 'default' and draft.model != '*':
                 default = Gtk.CheckButton(label=_('Use the default'), active=key in draft.values and current is None)
+                default.set_sensitive(field['verified'] and (key in facts.get('overrides', {}).get(draft.model, []) or key in draft.values))
                 default.connect('toggled', lambda w, k=key, e=control: self.provider_config_default(k, w.get_active(), e))
                 row_box.append(default)
             row_box.prepend(row)
@@ -263,6 +271,7 @@ class ProviderConfigPage:
             body.append(self.action_button(_('Measure and tune'), on_click=self.measure_provider_config))
         self.provider_config_ask_form(body)
         self.provider_config_validate()
+        self.guard_text_fields_in(body)
 
     def provider_config_profile(self, profile):
         self.provider_config_draft.profile = profile
@@ -283,9 +292,17 @@ class ProviderConfigPage:
         self.render_provider_config()
 
     def provider_config_default(self, key, active, editor):
-        value = None if active else self.provider_config_draft.math.effective({})[key]
-        editor.set_sensitive(not active)
+        draft = self.provider_config_draft
+        field = next(s for s in draft.facts['schema'] if s['id'] == key)
+        if not field['verified']:
+            editor.set_sensitive(False)
+            return
+        overridden = key in draft.facts.get('overrides', {}).get(draft.model, [])
+        value = None if active else draft.math.effective({})[key]
         self.provider_config_edit(key, value)
+        if active and not overridden:
+            draft.values.pop(key, None)
+        self.render_provider_config()
 
     def provider_config_step(self, field, editor, direction):
         import math
@@ -321,8 +338,10 @@ class ProviderConfigPage:
         self.provider_config_timer = GLib.timeout_add(250, self.provider_config_validate)
 
     def provider_config_validate(self):
-        self.provider_config_timer = None
+        self.provider_config_cancel_timer()
         draft = self.provider_config_draft
+        if draft is None:
+            return False
         check = draft.check()
         f = check['fit']
         level = 'error' if check['errors'] else 'warning' if check['warnings'] else 'ok'
@@ -339,6 +358,12 @@ class ProviderConfigPage:
         self.provider_config_snippet_card.set_visible(not config.can_write(draft.facts, draft.model))
         return False
 
+    def provider_config_cancel_timer(self):
+        timer = getattr(self, 'provider_config_timer', None)
+        if timer is not None:
+            GLib.source_remove(timer)
+            self.provider_config_timer = None
+
     def review_provider_config(self):
         draft = self.provider_config_draft
         def prepare():
@@ -353,6 +378,10 @@ class ProviderConfigPage:
             for note in draft.facts.get('notes', []):
                 self.card_text(box, note)
             confirm = self.action_button(_('Apply configuration'), role='primary', on_click=self.apply_provider_config)
+            empty = review.plan.empty()
+            confirm.set_sensitive(not empty)
+            if empty:
+                self.card_text(box, _('No changes to write'))
             if review.check['warnings']:
                 ack = Gtk.CheckButton(label=_('I understand these warnings'))
                 for warning in review.check['warnings']:
@@ -360,11 +389,12 @@ class ProviderConfigPage:
                 confirm.set_sensitive(False)
                 def acknowledge(w):
                     draft.acknowledged = w.get_active()
-                    confirm.set_sensitive(w.get_active())
+                    confirm.set_sensitive(w.get_active() and not empty)
                 ack.connect('toggled', acknowledge)
                 box.append(ack)
             cancel = self.action_button(_('Cancel'), on_click=lambda: self.clear_box(box))
             box.append(self.action_row(cancel, confirm))
+            self.guard_text_fields_in(box)
         self.provider_config_job(prepare, show)
 
     def provider_config_job(self, work, done, cancel_event=None):
@@ -386,9 +416,9 @@ class ProviderConfigPage:
             self.provider_config_busy = False
             self.provider_config_cancel = None
             self.provider_config_progress.set_visible(False)
+            self.provider_config_body.set_sensitive(True)
             if generation != self.provider_config_generation:
                 return False
-            self.provider_config_body.set_sensitive(True)
             if isinstance(result, Exception):
                 self.show_error(_('Not changed: {0}').format(result))
             else:
@@ -415,7 +445,7 @@ class ProviderConfigPage:
             if result.reload_error:
                 self.show_error(_('Configuration saved with Undo; service reload failed: {0}').format(result.reload_error))
             else:
-                self.toast(message)
+                self.toast(message, 6)
                 self.provider_config_offer_control()
         def work():
             result = config.apply(draft.review, acknowledged=draft.acknowledged)
@@ -435,14 +465,16 @@ class ProviderConfigPage:
             label = _('Restart now') if operation == 'restart' else _('Reload the model')
             button = self.action_button(label, on_click=lambda: self.provider_config_job(
                 lambda: config.control(rt, operation, draft.model, guard=self.provider_config_guard),
-                lambda _r: self.toast(_('Provider configuration is active'))))
+                lambda _r: self.toast(_('Provider configuration is active'), 6)))
             self.provider_config_review_box.append(button)
 
     def provider_config_guard(self, rt):
         import gpu_usage
-        # Explicitly refuse active clients and connected running agents before interrupting a provider.
+        import llm_clients
         connected = set(rt.agents) | set(rt.active_agents) | {a for a in config.connect.SUPPORTED if config.connect.is_connected(a, rt.key)}
-        if connected & set(self.running_now()) or self.runtime_users(rt.key) or gpu_usage.snapshot([rt]).generating:
+        clients = getattr(self, 'llm_clients', None)
+        active_client = clients is not None and any(age <= llm_clients.ACTIVE for _name, age in clients.recent(rt.key))
+        if connected & getattr(self, 'working_agents', set()) or active_client or gpu_usage.snapshot([rt]).generating:
             raise RuntimeError(_('This provider is in use; wait until its agents finish'))
 
     def undo_provider_config(self):
@@ -453,7 +485,7 @@ class ProviderConfigPage:
             # Conditional Undo may leave files changed by another program; collect fresh facts.
             restored = len(result.restored or [])
             expected = len(draft.applied_review.plan.changes)
-            self.toast(_('Restored {0} of {1} configuration files').format(restored, expected))
+            self.toast(_('Restored {0} of {1} configuration files').format(restored, expected), 6)
             if result.reload_error:
                 self.show_error(_('Undo saved; service reload failed: {0}').format(result.reload_error))
             self.open_provider_config(self.provider_config_rt, draft.model, draft.profile)
@@ -506,6 +538,8 @@ class ProviderConfigPage:
             return
         self.provider_config_busy = True
         self.provider_config_body.set_sensitive(False)
+        generation = self.provider_config_generation
+        rt = self.provider_config_rt
         def work(step):
             if helper.local:
                 config.require_allowed(helper.candidate.runtime, action='start')
@@ -513,13 +547,15 @@ class ProviderConfigPage:
                 step('load')
                 self.ready_helper_model(helper.candidate)
             step('check')
-            fresh = config.collect(self.provider_config_rt)
+            fresh = config.collect(rt)
             config.select_model(fresh, draft.model)
             step('ask')
             return fresh, config.ask(helper, fresh, draft.model, draft.profile, focus, web=web)
         def done(result):
             self.provider_config_busy = False
             self.provider_config_body.set_sensitive(True)
+            if generation != self.provider_config_generation:
+                return
             if isinstance(result, Exception):
                 return  # run_ai_help shows the error; it never retries.
             fresh, answer = result
@@ -551,5 +587,5 @@ class ProviderConfigPage:
             draft.facts['measurements'] = records
             draft.use_recommended()
             self.render_provider_config()
-            self.toast(_('Measured settings are ready to review; no provider settings were written'))
+            self.toast(_('Measured settings are ready to review; no provider settings were written'), 6)
         self.provider_config_job(work, done, cancel_event=cancel)

@@ -231,7 +231,16 @@ def _ini_sections(text: str) -> dict:
             continue
         pair = re.match(r"^\s*([A-Za-z0-9_-]+)\s*=\s*(.*?)\s*$", line)
         if current is not None and pair:
-            sections[current][pair.group(1)] = pair.group(2)
+            # Only whitespace-prefixed comments outside quotes are comments;
+            # model paths may themselves contain '#' or ';'.
+            value, quote = pair.group(2), None
+            for index, char in enumerate(value):
+                if char in ('\"', "'"):
+                    quote = None if quote == char else char if quote is None else quote
+                elif char in '#;' and quote is None and (index == 0 or value[index - 1].isspace()):
+                    value = value[:index]
+                    break
+            sections[current][pair.group(1)] = value.strip().strip('\"\'')
     return sections
 
 
