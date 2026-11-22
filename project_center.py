@@ -128,6 +128,7 @@ _LAUNCH_FACTS = ("stdin", "access_modes", "permissions", "model_option", "provid
                  "native_subagents")
 _APPROVAL_MATTERS = {"ready", "paused", "interrupted", "failed"}
 _LAUNCH_OPERATIONS = {"plan", "review", "run", "continue", "setup", "setup_apply"}
+_DISPLAY_OPERATIONS = {"list", "summary", "get", "save", "set_importance", "message_drop"}
 # Maprisma's own process variables have no meaning here; ours (AI Agents Map's) are removed instead.
 _OWN_VARIABLES = {"AI_AGENTS_MAP_NO_PROVIDERS"}
 
@@ -272,6 +273,7 @@ class _Attempt:
         self.cancelled = False
         self.finished = False
         self.cleanup_failed = False
+        self.failed_process = None            # the process whose stop could not be confirmed
         self.process = None
         self.done = threading.Event()
         self.pending: set[str] = set()        # waiting messages in a prompt whose agent has not started
@@ -1086,16 +1088,40 @@ class ProjectCenter:
                         and failed[1] <= now < failed[1] + 10)
 
     def _discover(self, required: bool):
-        """A snapshot taken without the lock (discovery reads files and /proc), or None. required: a
-        launch needs it and its failure is the operation's; else a failure marks the display failed."""
-        if required:
-            return self._snapshot()
+        """A snapshot taken without the lock (discovery reads files and /proc), tagged with the
+        discovery generation it was started in, or None. required: a launch needs it and its failure
+        is the operation's; else a failure marks the display failed (for that generation only)."""
+        with self._lock:
+            generation, began = self.discovery_generation, self._clock()
         try:
-            return self._snapshot()
+            found = _Snapshot(self._snapshot(), generation)
         except Exception:
+            if required:
+                raise
             with self._lock:
-                self._display_failed = (self.discovery_generation, self._clock())
+                if generation == self.discovery_generation:
+                    self._display_failed = (generation, began)
             return None
+        return found
+
+    @contextlib.contextmanager
+    def _discovery_context(self, required: bool, display: bool = False):
+        """Scan outside the lock, then hold it while using the snapshot. Required scans are
+        refreshed if the map changed meanwhile, before any approval or launch checks use them."""
+        while True:
+            snapshot = self._discover(required) if required or (display and self._display_stale()) else None
+            with self._lock:
+                if required and snapshot.generation != self.discovery_generation:
+                    continue
+                with self._using(snapshot):
+                    yield snapshot
+                return
+
+    def _adopt(self, snapshot) -> None:
+        """Under the lock: a launch's fresh snapshot replaces the display snapshot at once (none is
+        left empty), unless the map's data changed while it was taken."""
+        if isinstance(snapshot, _Snapshot) and snapshot.generation == self.discovery_generation:
+            self._install_display(snapshot[1], snapshot[2], snapshot.generation)
 
     def _setup_proposal(self, output: str, item: dict, snapshot: tuple | None = None) -> dict:
         if _utf8(output) > MAX_PLAN:
@@ -1343,12 +1369,14 @@ class ProjectCenter:
                     member = members[item["next_member"]]
                 # One snapshot is checked against the approval and then launched; it also becomes the
                 # display snapshot (every project's derived approval), also when the assignment is refused.
-                snapshot = self._snapshot()
+                snapshot = self._discover(True)
                 _listed, profiles, runtimes = snapshot
                 with self._lock:
                     if active.cancelled:          # paused, halted or shut down during the scan
                         break
-                    self._install_display(profiles, runtimes)
+                    if snapshot.generation != self.discovery_generation:
+                        continue                 # obsolete facts cannot validate approval or build argv
+                    self._install_display(profiles, runtimes, snapshot.generation)
                     item = _copy(self._projects[project_id])
                     profile = profiles.get(member["agent"])
                     if profile is None:
@@ -1388,7 +1416,8 @@ class ProjectCenter:
                     # Atomic against pause, halt, shutdown and detach: either they see this process
                     # (and stop or detach it before or after its go-ahead) or it is never launched.
                     with self._lock:
-                        if not self._owns_store() or active.cancelled:
+                        if not self._owns_store() or active.cancelled \
+                                or snapshot.generation != self.discovery_generation:
                             return False
                         active.process = process
                         return True
@@ -1597,6 +1626,7 @@ class ProjectCenter:
             # Set together under the lock: a retried Pause (_stop_attempt) sees both or neither.
             active.finished = True
             active.cleanup_failed = failed
+            active.failed_process = process if failed else None
             if not failed:
                 active.process = None
             if active.cleanup_failed:
@@ -1655,7 +1685,9 @@ class ProjectCenter:
             raise ProjectError("project_message_empty")
         if _utf8(text) > MAX_MESSAGE_BYTES:
             raise ProjectError("project_message_too_long")
-        with self._lock:
+        # Send's answer shows derived state; Send now refreshes only after its stop.
+        early = self._discover(False) if mode == "queue" and self._display_stale() else None
+        with self._lock, self._using(early):
             self._check_open("message")
             item = self._project(params)
             pid = item["id"]
@@ -1696,8 +1728,7 @@ class ProjectCenter:
         try:
             # The attempt captured (and marked) under the lock above: it may end by itself meanwhile.
             self._stop_attempt(pid, active)
-            snapshot = self._discover(True)         # the continuation's facts, outside the lock
-            with self._lock, self._using(snapshot):
+            with self._discovery_context(required=True) as snapshot:
                 paused = self._projects.get(pid)
                 if paused is None:
                     raise ProjectError("project_unknown")
@@ -1711,7 +1742,7 @@ class ProjectCenter:
                     raise ProjectError("project_changed")   # another lifecycle request decides
                 if paused["status"] != "paused":
                     raise ProjectError("project_not_paused")
-                self._drop_display()
+                self._adopt(snapshot)
                 attempt = _Attempt(send_now=True)
                 self._launch({"id": pid, "revision": paused["revision"], "acknowledge_interrupted": True},
                              "continue", attempt=attempt)
@@ -1726,7 +1757,8 @@ class ProjectCenter:
             reason = error.code
         except Exception:                     # the continuation's discovery failed: the message waits
             reason = "project_message_not_continued"
-        with self._lock:
+        late = self._discover(False) if self._display is None and self._display_stale() else None
+        with self._lock, self._using(late):
             current = self._projects.get(pid)
             if current is None:
                 raise ProjectError("project_unknown")
@@ -1786,7 +1818,10 @@ class ProjectCenter:
             deadline = time.monotonic() + 6.0
             while not active.done.is_set():
                 with self._lock:
-                    if active.finished and active.cleanup_failed:
+                    # Only the failure of the very process this stop confirmed is taken over; any
+                    # other stays unconfirmed (a retry asks that one).
+                    if active.finished and active.cleanup_failed and process is not None \
+                            and active.failed_process is process:
                         self._recover(project_id, active)
                         break
                 if time.monotonic() >= deadline:
@@ -1841,7 +1876,10 @@ class ProjectCenter:
                 self._advance_lifecycle(pid)
             self._begin_pause(item, active)
         self._stop_attempt(pid, active)
-        with self._lock:
+        # The answer's view uses the last display snapshot; a scan only when there is none at all
+        # (and only after the stop, which it never delays).
+        snapshot = self._discover(False) if self._display is None and self._display_stale() else None
+        with self._lock, self._using(snapshot):
             current = self._projects.get(pid)
             if current is None:
                 raise ProjectError("project_unknown")       # deleted meanwhile (once stopped it was idle)
@@ -1855,8 +1893,9 @@ class ProjectCenter:
         self._approval_memo.clear()
         self._readiness_memo.clear()
 
-    def _install_display(self, profiles: dict, runtimes: dict) -> None:
-        self._display = (self.discovery_generation, self._clock(), profiles, runtimes)
+    def _install_display(self, profiles: dict, runtimes: dict, generation: int | None = None) -> None:
+        generation = self.discovery_generation if generation is None else generation
+        self._display = (generation, self._clock(), profiles, runtimes)
         self._display_failed = None
         self._display_version += 1
         self._approval_memo.clear()
@@ -1895,6 +1934,8 @@ class ProjectCenter:
             # Never a scan here (under the lock): the operation's snapshot, taken before it, becomes
             # the display snapshot; without one the last snapshot serves until the next operation.
             given = getattr(self._local, "snapshot", None)
+            if not isinstance(given, _Snapshot) or given.generation != self.discovery_generation:
+                given = None                  # none, or taken before the map's data changed
             if given is None:
                 failed = self._display_failed
                 if failed is not None and failed[0] == self.discovery_generation \
@@ -1922,7 +1963,8 @@ class ProjectCenter:
     # --- derived state, issues, board ----------------------------------------------------------------
 
     def state_of(self, item: dict) -> ProjectState:
-        with self._lock:
+        snapshot = self._discover(False) if self._display_stale() else None
+        with self._lock, self._using(snapshot):
             return self._derive(item)[0]
 
     def _derive(self, item: dict) -> tuple:
@@ -2134,15 +2176,17 @@ class ProjectCenter:
             return self._pause(params)        # checks open/closed under the lock itself
         if operation == "message":
             return self._message(params)
+        with self._lock:
+            self._check_open(operation)       # closed or faulted: said before any discovery
         # Discovery (agents, runtimes) outside the lock: a slow scan never holds up Pause or shutdown.
-        # A launch takes a fresh snapshot; other operations only when the display one is stale.
+        # A launch takes a fresh snapshot; operations that show derived state only when the display
+        # snapshot is stale; the others none.
         launch = operation in _LAUNCH_OPERATIONS or operation == "profiles"
-        snapshot = self._discover(True) if launch else self._discover(False) if self._display_stale() else None
-        with self._lock, self._using(snapshot):
+        with self._discovery_context(required=launch, display=operation in _DISPLAY_OPERATIONS) as snapshot:
             self._check_open(operation)
             # A launch reads profiles and runtimes fresh; the display snapshot is replaced with it.
             if operation in _LAUNCH_OPERATIONS:
-                self._drop_display()
+                self._adopt(snapshot)
             if operation == "profiles":
                 return {"profiles": list(self._profiles().values()), "runtimes": list(self._runtimes().values())}
             if operation == "summary":
@@ -2222,6 +2266,15 @@ class ProjectCenter:
                     os.close(self._directory_fd)
                     self._directory_fd = None
             self._stop_notifier()
+
+
+class _Snapshot(tuple):
+    """(listed agents, usable profiles, runtimes) with the discovery generation it was taken in."""
+
+    def __new__(cls, values, generation: int | None = None):
+        made = super().__new__(cls, tuple(values))
+        made.generation = generation
+        return made
 
 
 class _Desc:

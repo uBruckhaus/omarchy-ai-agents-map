@@ -470,6 +470,7 @@ class SupervisedProcess:
         self._stop_requested = False    # a stop was asked (before the go-ahead it withdraws the launch)
         self._launch_seen = False       # a frame that only comes after the agent's spawn arrived
         self._go_ahead_sent = False     # every byte of the launch object was written: it may have launched
+        self._never_verdict: bool | None = None   # _never_launched's decision, made once
         # Loss is decided by the end of its output, never by its exit alone: the final "stopped"
         # line may still be buffered when the exit arrives.
         self._reader = threading.Thread(target=self._read_events, daemon=True)
@@ -718,10 +719,18 @@ class SupervisedProcess:
         assignment is left to confirm. Once the go-ahead may have reached it, a missing "started" is
         no proof (it may have died after the spawn, and a descendant may have left its group): the
         cleanup stays unconfirmed and the project keeps its claim (a restart recovers it)."""
-        if self._launch_seen or self._go_ahead_sent:
-            return False
-        self._reap(1.0)
-        return True
+        # Decided once, under the send lock: a go-ahead write in progress finishes (and records
+        # itself) first, and none can start after a "never launched" verdict (control is closed).
+        with self._send_lock:
+            if self._never_verdict is None:
+                self._never_verdict = not (self._launch_seen or self._go_ahead_sent)
+                if self._never_verdict:
+                    self._input_open = False
+                    self._close_stdin()
+            verdict = self._never_verdict
+        if verdict:
+            self._reap(1.0)                   # outside the lock
+        return verdict
 
     def stop(self, wait: float = 4.0) -> None:
         self._stop_requested = True
