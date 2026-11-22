@@ -424,8 +424,8 @@ class Thing:
         return lambda *a, **k: None
 
 
-class PageTest(unittest.TestCase):
-    """The flow of the window: what is sent, with which context, and what is shown."""
+class PageBase(unittest.TestCase):
+    """The window with doubles for its widgets; worker threads run at once."""
 
     def setUp(self):
         import askai_page
@@ -445,8 +445,11 @@ class PageTest(unittest.TestCase):
         page.shown, page.sent = [], []
         page.show_ask_state = lambda state, **result: page.shown.append((state, result)) or setattr(
             page, "ask_state", state)
-        page.smart_facts = lambda column, request, answer: {"column": column, "request": request,
-                                                            **({"answer": answer} if answer else {})}
+        page.probed = []
+        page.smart_facts = lambda column, request, answer, probe=True: {
+            "column": column, "request": request, **({"answer": answer} if answer else {})}
+        page.smart_probes = lambda facts: page.probed.append(facts["request"])
+        page.close_ask_ai = lambda: page.shown.append(("closed", {}))
         self.page = page
         self.replies = []
 
@@ -463,6 +466,11 @@ class PageTest(unittest.TestCase):
 
     def type(self, text):
         self.page.ask_text.kept["buffer"].set_text(text)
+
+
+
+class PageTest(PageBase):
+    """The flow of the window: what is sent, with which context, and what is shown."""
 
     def test_blank_or_overlong_questions_are_not_sent(self):
         for text in ("   ", "x" * 2001):
@@ -515,7 +523,8 @@ class PageTest(unittest.TestCase):
             return {"status": "answer", "summary": "late"}
         with mock.patch.object(sc, "ask", ask):
             page.ask_now()
-        self.assertEqual([state for state, _r in page.shown], ["working", "idle"])
+        self.assertEqual(sorted({state for state, _r in page.shown}), ["idle", "working"])
+        self.assertEqual(page.shown[-1][0], "idle")
         self.assertIsNone(page.ask_running)
         self.assertEqual(page.ask_draft(), "Why is my local AI slow?")
 
@@ -554,6 +563,133 @@ class PageTest(unittest.TestCase):
         self.assertEqual(label({"action": {"kind": "provider_action", "step": "performance"}}), "Open Performance")
         self.assertEqual(label({"action": {"kind": "map_link"}}), "Review connection")
         self.assertEqual(label({"action": {"kind": "agent_action"}}), "Review")
+
+
+class ReviewRoundOneTest(PageBase):
+    """Codex and Antigravity, round 1."""
+
+    def test_a_fresh_question_carries_no_old_context_and_diagnostics_stay_local(self):
+        self.type("Which model fits this PC?")
+        self.replies += [{"status": "answer", "summary": "Qwen3 8B."}] * 3
+        self.page.ask_fresh()
+        self.page.ask_follow_up("Why that one?")
+        self.assertIn("context", self.page.sent[1][1])
+        self.type("Which agents need sign-in?")
+        self.page.ask_fresh()                               # the top box: a new question
+        self.assertNotIn("context", self.page.sent[2][1])
+
+    def test_a_question_back_is_answered_for_the_question_asked(self):
+        self.type("Let my agent search the web")
+        self.replies += [{"status": "clarify", "question": "Which agent?", "choices": []},
+                         {"status": "answer", "summary": "Done."}]
+        self.page.ask_fresh()
+        self.type("")                                       # the user cleared the field meanwhile
+        self.page.answer_clarification("Codex")
+        self.assertEqual(self.page.sent[1][1]["request"], "Let my agent search the web")
+        self.page.ask_reply = {"question": "q"}
+        self.page.ask_request = "x"
+        before = self.page.ask_context
+        self.page.answer_clarification("a" * 201)             # refused: the context stays as it was
+        self.assertEqual(self.page.ask_context, before)
+
+    def test_diagnostics_need_no_helper(self):
+        self.page.ask_helper_list = []
+        self.type("Which agents have updates?")
+        self.replies.append({"status": "answer", "summary": "None"})
+        self.page.ask_fresh()
+        self.assertEqual(len(self.page.sent), 1)
+        self.assertEqual(self.page.sent[0][0], "")             # the app's own stand-in, never run
+        self.type("Why is my AI slow?")
+        self.page.ask_fresh()
+        self.assertEqual(len(self.page.sent), 1)
+
+    def test_a_picked_suggestion_ends_the_ask_under_way(self):
+        import threading
+        running = threading.Event()
+        self.page.ask_running = running
+        self.page.pick_ask_prompt("Find a model that fits my PC")
+        self.assertTrue(running.is_set())
+        self.assertIsNone(self.page.ask_running)
+
+    def test_slow_facts_are_read_in_the_worker_after_cancel_is_set_up(self):
+        started = []
+        with mock.patch.object(self.module.threading, "Thread",
+                               lambda target, daemon: type("T", (), {"start": lambda _s: started.append(target)})()):
+            self.type("Which model fits this PC?")
+            self.page.ask_fresh()
+        self.assertEqual(self.page.probed, [])               # nothing slow on the GTK thread
+        self.page.ask_running.set()                          # Cancel before the worker gets going
+        started[0]()
+        self.assertEqual((self.page.probed, self.page.sent), ([], []))
+
+    def test_escape_in_the_fields_goes_back(self):
+        from gi.repository import Gdk
+        self.assertTrue(self.page.on_ask_key(None, Gdk.KEY_Escape, 0, 0))
+        self.assertTrue(self.page.on_ask_escape(Gdk.KEY_Escape))
+        self.assertFalse(self.page.on_ask_escape(Gdk.KEY_BackSpace))
+        self.assertEqual([s for s, _r in self.page.shown], ["closed", "closed"])
+
+    def test_a_refusal_is_not_hidden_by_the_helpers_summary(self):
+        deny = [{"effect": "deny", "action": "*", "category": "*", "item": "*", "agent": "*"}]
+        with mock.patch("ai_core.setting", lambda key, *a: deny if key == "action_rules" else None):
+            out = self.page.drop_refused({"status": "proposal", "summary": "Update Claude Code.", "candidates": [
+                {"id": "c1", "kind": "agent_action", "action": {"kind": "agent_action", "command": "claude",
+                                                                "step": "update"}}]})
+        self.assertEqual(out["status"], "redirect")
+        self.assertNotIn("summary", out)
+
+    def test_closing_cancels_dictation_instead_of_typing_it(self):
+        import askai_page
+        calls = []
+        running = type("D", (), {"cancel": lambda _s: calls.append("cancel"),
+                                 "stop": lambda _s: calls.append("stop") or "words"})()
+        page = self.page
+        page.ask_dictation = running
+        page.ask_mic = Thing(active=True)
+        page.ask_mic.set_active = lambda on: page.on_ask_mic(on)
+        with mock.patch.object(askai_page.threading, "Thread",
+                               lambda target, daemon: type("T", (), {"start": lambda _s: target()})()):
+            page.stop_ask_dictation()
+        self.assertEqual(calls, ["cancel"])
+        self.assertEqual(page.ask_draft(), "")
+
+
+class SettingsLockTest(unittest.TestCase):
+    def test_suggestions_are_merged_under_the_settings_lock(self):
+        import fcntl
+        import json
+        import os
+        import tempfile
+        import ai_core
+        import askai_page
+        folder = tempfile.mkdtemp()
+        path = Path(folder) / "settings.json"
+        path.write_text(json.dumps({"ask_prompts": {"agents": [2]}}))
+
+        class Page(askai_page.AskAiPage):
+            pass
+        page = Page()
+        page.ask_saved = askai_page.prompts_from_setting({"agents": [2]})
+        # Another window saved Models in between: it stays.
+        path.write_text(json.dumps({"ask_prompts": {"agents": [2], "models": ["Find a coder model"]}}))
+        held = []
+        real = ai_core.load_settings
+
+        def load(where=None):
+            fd = os.open(f"{path}.lock", os.O_RDWR)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                held.append(False)
+            except BlockingIOError:
+                held.append(True)
+            finally:
+                os.close(fd)
+            return real(where)
+        with mock.patch.object(ai_core, "load_settings", load):
+            page.write_ask_prompts("general", ["Mine"], path=path)
+        self.assertTrue(held and all(held))
+        self.assertEqual(json.loads(path.read_text())["ask_prompts"],
+                         {"agents": [2], "models": ["Find a coder model"], "general": ["Mine"]})
 
 
 class SuggestionsTest(unittest.TestCase):

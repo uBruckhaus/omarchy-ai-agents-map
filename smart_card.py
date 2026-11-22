@@ -701,6 +701,12 @@ NONE_FOUND = N_("None")
 UNKNOWN = N_("Unknown")
 
 
+def is_diagnostic(request) -> bool:
+    """One of the built-in diagnostic questions (answered by the app, no helper needed)."""
+    asked = " ".join(request.split()).lower() if isinstance(request, str) else ""
+    return asked in (DIAGNOSTIC_SIGN_IN.lower(), DIAGNOSTIC_AGENT_UPDATES.lower(), DIAGNOSTIC_MCP_UPDATES.lower())
+
+
 def diagnostic_answer(request: str, facts: dict) -> str | None:
     """The answer to one of the built-in diagnostic questions, or None for any other request.
     facts: agents [{name, installed, signed_in (True/False/None), login}], agent_updates [{name, current,

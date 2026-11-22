@@ -180,7 +180,7 @@ class AskAiPage:
         self.ask_dictation = None
         self.ask_button = Gtk.Button(label=_("Ask"), valign=Gtk.Align.END)
         self.ask_button.add_css_class("suggested-action")
-        self.ask_button.connect("clicked", lambda *_: self.ask_now())
+        self.ask_button.connect("clicked", lambda *_: self.ask_fresh())
         row.append(self.ask_button)
         page.append(row)
         self.ask_limit = Gtk.Label(label=_("Keep your question within 2,000 characters."), xalign=0,
@@ -326,8 +326,9 @@ class AskAiPage:
             self.ask_context = None
         self.update_ask_cost()
         self.update_ask_button()
-        if self.ask_state in ("answer", "redirect", "proposal"):
-            self.show_ask_state(self.ask_state, **self.ask_reply)
+        shown, result = getattr(self, "ask_shown", ("idle", {}))
+        if shown in ("answer", "redirect", "proposal", "error") and shown == self.ask_state:
+            self.show_ask_state(shown, **result)
 
     def update_ask_cost(self):
         helper = self.current_helper()
@@ -356,8 +357,8 @@ class AskAiPage:
         text = self.ask_draft().strip()
         self.ask_placeholder.set_visible(not self.ask_draft())
         self.ask_limit.set_visible(len(text) > smart_card.MAX_REQUEST)
-        self.ask_button.set_sensitive(self.ask_running is None and self.current_helper() is not None
-                                      and smart_card.request_problem(text) is None)
+        self.ask_button.set_sensitive(self.ask_running is None and smart_card.request_problem(text) is None
+                                      and (self.current_helper() is not None or smart_card.is_diagnostic(text)))
 
     def fill_ask(self, text: str):
         buffer = self.ask_text.get_buffer()
@@ -367,14 +368,32 @@ class AskAiPage:
 
     def on_ask_key(self, _controller, keyval, _code, state):
         from gi.repository import Gdk
+        if keyval == Gdk.KEY_Escape:
+            # The window leaves Esc to a field being edited: in Ask AI it still goes back to the map
+            # (cancelling an Ask under way); Backspace keeps editing.
+            self.close_ask_ai()
+            return True
         if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter) and not state & Gdk.ModifierType.CONTROL_MASK:
-            self.ask_now()
+            self.ask_fresh()
             return True
         if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
             buffer = self.ask_text.get_buffer()
             buffer.insert_at_cursor("\n")
             return True
         return False
+
+    def escape_closes(self, entry):
+        """Esc in one of Ask AI's entries goes back to the map, as in the question field."""
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", lambda _c, keyval, _code, _state: self.on_ask_escape(keyval))
+        entry.add_controller(keys)
+
+    def on_ask_escape(self, keyval) -> bool:
+        from gi.repository import Gdk
+        if keyval != Gdk.KEY_Escape:
+            return False
+        self.close_ask_ai()
+        return True
 
     # --- examples and My suggestions ------------------------------------------------------------------
 
@@ -392,9 +411,11 @@ class AskAiPage:
 
     def pick_ask_prompt(self, text: str):
         """A suggestion fills the field; a new question starts (only Ask sends it)."""
+        if self.ask_running is not None:
+            self.ask_running.set()              # its late answer must not land beside the new draft
+            self.ask_running = None
         self.reset_ask_exchange()
-        if self.ask_running is None:
-            self.show_ask_state("idle")
+        self.show_ask_state("idle")
         self.fill_ask(text)
 
     def fill_ask_suggestions(self):
@@ -450,6 +471,7 @@ class AskAiPage:
         if keyval == Gdk.KEY_Escape:
             self.ask_editing = None
             self.fill_ask_suggestions()
+            self.ask_text.grab_focus()
             return True
         return False
 
@@ -461,8 +483,7 @@ class AskAiPage:
         """Keep `items` as the group's suggestions (None: the built-ins again), merged with what is stored
         now; another window's change of the same group is not overwritten."""
         try:
-            stored = stored_prompts(ai_core.setting("ask_prompts"), self.ask_saved, group, items)
-            ai_core.update_settings(ask_prompts=stored)
+            stored = self.write_ask_prompts(group, items)
         except (OSError, ValueError):
             self.ask_saved = prompts_from_setting(ai_core.setting("ask_prompts"))
             self.ask_note(_("Could not save the suggestions."))
@@ -474,6 +495,21 @@ class AskAiPage:
         self.fill_ask_examples()
         self.fill_ask_suggestions()
         return ok
+
+    def write_ask_prompts(self, group: str, items, path=None) -> dict:
+        """Read, compare, merge and write in one transaction under the settings lock (ai_core's
+        update_settings lock), so a save of another window in between is never lost."""
+        import os
+        import settings_schema
+        path = path or ai_core.settings_file()
+        lock = ai_core._settings_lock(path)
+        try:
+            raw = settings_schema.value(ai_core.load_settings(path), "ask_prompts")
+            stored = stored_prompts(raw, self.ask_saved, group, items)
+            ai_core._update_locked(path, {"ask_prompts": stored})
+        finally:
+            os.close(lock)
+        return stored
 
     def save_ask_prompt(self):
         """Save as suggestion: the question becomes one of the user's own (group general)."""
@@ -539,17 +575,38 @@ class AskAiPage:
         self.ask_clarification = None
         self.ask_state = "idle"
 
-    def ask_now(self, answer: str | None = None):
-        """Ask the question in the field across the whole map, in the background; Cancel ends it."""
-        helper = self.current_helper()
-        request = self.ask_draft().strip()
-        if helper is None or self.ask_running is not None:
+    def ask_fresh(self):
+        """Ask (the button, Enter): the field's question as a new one. A follow-up's or a question
+        back's context never rides along with it (and the built-in questions stay answered locally)."""
+        if self.ask_running is not None:
             return
-        context = self.ask_context if self.ask_context and helper.command == self.ask_context_helper else None
-        if smart_card.request_problem(request, answer, context) is not None:
+        self.ask_context = None
+        self.ask_context_helper = None
+        self.ask_clarification = None
+        self.ask_now()
+
+    def ask_helper_for(self, request: str, answer, context):
+        """The helper for this Ask; a built-in diagnostic question needs none (the app answers it from
+        its own facts, Maprisma's _diagnosticAnswer runs before the helper check)."""
+        helper = self.current_helper()
+        if helper is None and answer is None and context is None and smart_card.is_diagnostic(request):
+            return smart_card.Helper("", _("AI Agents Map"), local=True)
+        return helper
+
+    def ask_now(self, answer: str | None = None, request: str | None = None):
+        """Ask the question (the field's, or `request`) across the whole map, in the background; Cancel
+        ends it. The facts that take time (GPU, disks, sign-in files) are read in the worker."""
+        if self.ask_running is not None:
+            return
+        request = (self.ask_draft() if request is None else request).strip()
+        chosen = self.current_helper()
+        context = self.ask_context if self.ask_context and chosen is not None \
+            and chosen.command == self.ask_context_helper else None
+        helper = self.ask_helper_for(request, answer, context)
+        if helper is None or smart_card.request_problem(request, answer, context) is not None:
             self.update_ask_button()
             return
-        facts = self.smart_facts(smart_card.AUTO, request, answer)
+        facts = self.smart_facts(smart_card.AUTO, request, answer, probe=False)
         if context:
             facts["context"] = context
         self.ask_request = request
@@ -570,8 +627,13 @@ class AskAiPage:
         def work():
             import ai_helper
             try:
-                with ai_helper.watched(cancel):
-                    result = smart_card.ask(helper, facts, progress=progress, cancel=cancel)
+                if cancel.is_set():
+                    result = {"status": "cancelled"}
+                else:
+                    progress(N_("Checking…"))
+                    self.smart_probes(facts)
+                    with ai_helper.watched(cancel):
+                        result = smart_card.ask(helper, facts, progress=progress, cancel=cancel)
             except Exception:
                 result = {"status": "error", "summary": smart_card.NOT_POSSIBLE}
             GLib.idle_add(done, result)
@@ -600,12 +662,15 @@ class AskAiPage:
         the question back becomes part of the exchange."""
         text = text.strip()
         helper = self.current_helper()
-        if not text or len(text) > smart_card.MAX_ANSWER or helper is None or self.ask_running is not None:
+        if not text or len(text) > smart_card.MAX_ANSWER or helper is None or self.ask_running is not None \
+                or not self.ask_request:
             return
-        self.ask_context = smart_card.clarify_context(
+        context = smart_card.clarify_context(
             self.ask_context if self.ask_context_helper == helper.command else None, self.ask_reply.get("question", ""))
-        self.ask_context_helper = helper.command
-        self.ask_now(answer=text)
+        if smart_card.request_problem(self.ask_request, text, context) is not None:
+            return
+        self.ask_context, self.ask_context_helper = context, helper.command
+        self.ask_now(answer=text, request=self.ask_request)     # the question asked, not an edited draft
 
     def ask_follow_up(self, text: str):
         """A follow-up about the answer: the previous exchange goes with it (bounded, in memory), to
@@ -619,7 +684,7 @@ class AskAiPage:
         self.ask_context_helper = helper.command
         self.ask_share = False
         self.fill_ask(text)
-        self.ask_now()
+        self.ask_now(request=text)
 
     def new_ask_question(self):
         """New question: an empty field, the previous exchange forgotten."""
@@ -636,9 +701,9 @@ class AskAiPage:
 
     def retry_ask(self):
         """Try again: the same question (and answer to a question back) once more, on this click."""
-        answer = self.ask_clarification
+        answer, request = self.ask_clarification, self.ask_request or None
         self.show_ask_state("idle")
-        self.ask_now(answer=answer)
+        self.ask_now(answer=answer, request=request)
 
     def drop_refused(self, result: dict) -> dict:
         """Proposals the user's rules refuse are left out (Maprisma's _dropRefused); none left: it is not
@@ -652,7 +717,7 @@ class AskAiPage:
                 if all(action_rules.allows(rules, *check) for check in action_rules.candidate_checks(c))]
         if kept or result.get("status") in ("redirect", "answer"):
             return {**result, "candidates": kept}
-        return {**result, "status": "redirect", "candidates": [],
+        return {**{k: v for k, v in result.items() if k != "summary"}, "status": "redirect", "candidates": [],
                 "instead": {"hint": "This is not allowed here.", "column": None, "request": None}}
 
     def on_ask_mic(self, on: bool):
@@ -705,8 +770,24 @@ class AskAiPage:
 
     def stop_ask_dictation(self):
         """Closing Ask AI while recording stops the microphone."""
-        if getattr(self, "ask_dictation", None) is not None and self.ask_mic.get_active():
+        running = getattr(self, "ask_dictation", None)
+        self.ask_dictation = None
+        if running is None:
+            return
+        # Cancelled, not transcribed: nothing is typed into the hidden field afterwards.
+        self.ask_mic_busy = True
+        try:
             self.ask_mic.set_active(False)
+        finally:
+            self.ask_mic_busy = False
+        threading.Thread(target=lambda: self._cancel_dictation(running), daemon=True).start()
+
+    @staticmethod
+    def _cancel_dictation(running):
+        try:
+            running.cancel()
+        except Exception:
+            pass
 
     def cancel_ask(self):
         """Cancel: the Ask ends before its next helper run; its answer is not shown; the draft stays."""
@@ -717,10 +798,11 @@ class AskAiPage:
 
     # --- the facts ------------------------------------------------------------------------------------
 
-    def smart_facts(self, column: str, request: str, answer: str | None) -> dict:
+    def smart_facts(self, column: str, request: str, answer: str | None, probe: bool = True) -> dict:
         """What the helper is told (Maprisma's smart_ask facts), from what the app knows. The automatic
         column gets the facts of all four, the MCP ones under mcp_facts, plus the observed sign-in and
-        update evidence and the facts of the built-in diagnostic questions."""
+        update evidence and the facts of the built-in diagnostic questions. probe=False leaves what
+        takes time (GPU, disks, sign-in files) to smart_probes, which the worker runs."""
         auto = column == smart_card.AUTO
         updates = self.open_updates()
         facts = {"column": column, "request": request,
@@ -752,7 +834,7 @@ class AskAiPage:
                     "halt": bool(getattr(self, "agent_outside", {}).get(h.command)),
                 }
                 if auto and installed:
-                    entry["signed_in"] = self.sign_in_observed(h.command)
+                    entry["signed_in"] = self.sign_in_observed(h.command) if probe else None
                     entry["update_available"] = (f"agent:{h.command}" in updates) if fresh else None
                 agents.append(entry)
             facts["agents"] = agents
@@ -796,21 +878,35 @@ class AskAiPage:
             else:
                 facts.update(mcp)
         if auto or column == "models":
-            import shutil
-            import install_ctl
-            import models_ctl
             runtimes = [r for r in self.inventory.runtimes if r.installed]
             facts["runtimes"] = [{"key": r.key, "name": r.name, "models": list(r.models)[:40]} for r in runtimes]
+            facts["limits"] = {}
+            facts["_model_dirs"] = [str(r.models_dir) for r in runtimes if r.models_dir]
+            if probe:
+                self.smart_probes(facts)
+            facts["model_users"] = self.smart_model_users()
+            facts["agent_names"] = {a.command: a.name for a in self.agent_list}
+        return facts
+
+    def smart_probes(self, facts: dict) -> None:
+        """The facts that take time, read off the GTK thread: this PC's GPU memory (lspci, seconds),
+        RAM and free disk space for models, and each installed agent's observed sign-in."""
+        import shutil
+        import install_ctl
+        import models_ctl
+        dirs = facts.pop("_model_dirs", None)
+        if dirs is not None:
             free = 0
             try:
-                free = max((shutil.disk_usage(r.models_dir).free for r in runtimes if r.models_dir), default=0)
+                free = max((shutil.disk_usage(d).free for d in dirs), default=0)
             except OSError:
                 pass
             facts["limits"] = {"vram": install_ctl.detect_gpu().vram, "ram": models_ctl.system_ram(),
                                "free_disk": free}
-            facts["model_users"] = self.smart_model_users()
-            facts["agent_names"] = {a.command: a.name for a in self.agent_list}
-        return facts
+        if facts.get("column") == smart_card.AUTO:
+            for entry in facts.get("agents") or []:
+                if entry.get("installed"):
+                    entry["signed_in"] = self.sign_in_observed(entry["command"])
 
     @staticmethod
     def sign_in_observed(command: str):
@@ -897,7 +993,10 @@ class AskAiPage:
         self.clear_box(box)
         self.ask_state = state
         self.update_ask_button()
-        self.ask_helper_box.set_sensitive(state != "working")
+        # No helper switch while it works or while its question back waits: the question would go to
+        # another helper without the user sharing it (Maprisma 078).
+        self.ask_helper_box.set_sensitive(state not in ("working", "clarify"))
+        self.ask_shown = (state, result)
 
         def text(label, css="", wrap=True, selectable=False):
             widget = Gtk.Label(label=label, xalign=0, wrap=wrap, selectable=selectable)
@@ -1010,6 +1109,7 @@ class AskAiPage:
         entry = Gtk.Entry(hexpand=True, max_length=limit,
                           placeholder_text=_("Your answer") if clarification else _("Ask a follow-up…"))
         self.guard_text_field(entry)
+        self.escape_closes(entry)
         send = Gtk.Button(icon_name="mail-send-symbolic", tooltip_text=_("Ask"), sensitive=False)
         send.add_css_class("am-small-btn")
 
