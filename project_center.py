@@ -65,7 +65,7 @@ project_runtime_model_unavailable, project_model_unsupported, project_subagents_
 project_plan_not_approved, project_review_changes_first, project_not_paused, project_not_running,
 project_prompt_too_large, project_empty_plan, project_plan_too_large, project_setup_*,
 project_message_* (invalid, empty, too_long, unknown, delivered, pending, not_continued),
-project_messages_full, project_launch_withdrawn, project_processes_still_running,
+project_messages_full, project_launch_withdrawn, project_discovery_unstable, project_processes_still_running,
 project_supervisor_unavailable, project_operation_unknown, rule_refused, invalid.
 
 Safety: intent is saved before any process starts; a failed or too-large write stops every active
@@ -110,6 +110,8 @@ MAX_PROMPT_BYTES = 120 * 1024
 MAX_RUNTIME_MODELS = 48
 IMPORTANCES = ("high", "medium", "low")
 STARTUP_BUDGET = 10.0
+MAX_DISCOVERY_RESCANS = 3
+MAX_LAUNCH_RETRIES = 3
 
 _ACTIVE_STATES = {"planning", "running", "reviewing", "pausing"}
 _STATES = {"draft", "planning", "awaiting_review", "ready", "running", "reviewing", "pausing", "paused",
@@ -1107,20 +1109,21 @@ class ProjectCenter:
     @contextlib.contextmanager
     def _discovery_context(self, required: bool, display: bool = False):
         """Scan outside the lock, then hold it while using the snapshot. Required scans are
-        refreshed if the map changed meanwhile, before any approval or launch checks use them."""
-        while True:
+        refreshed up to three times if the map changed meanwhile; then use the latest scan."""
+        for rescan in range(MAX_DISCOVERY_RESCANS + 1):
             snapshot = self._discover(required) if required or (display and self._display_stale()) else None
             with self._lock:
-                if required and snapshot.generation != self.discovery_generation:
+                if self._closed:
+                    raise ProjectError("project_center_closed")
+                if required and snapshot.generation != self.discovery_generation and rescan < MAX_DISCOVERY_RESCANS:
                     continue
                 with self._using(snapshot):
                     yield snapshot
                 return
 
     def _adopt(self, snapshot) -> None:
-        """Under the lock: a launch's fresh snapshot replaces the display snapshot at once (none is
-        left empty), unless the map's data changed while it was taken."""
-        if isinstance(snapshot, _Snapshot) and snapshot.generation == self.discovery_generation:
+        """Under the lock: adopt the latest available facts without downgrading the display."""
+        if isinstance(snapshot, _Snapshot) and (self._display is None or snapshot.generation >= self._display[0]):
             self._install_display(snapshot[1], snapshot[2], snapshot.generation)
 
     def _setup_proposal(self, output: str, item: dict, snapshot: tuple | None = None) -> dict:
@@ -1360,6 +1363,7 @@ class ProjectCenter:
         """One attempt's thread: the members in order, each under a supervisor; the lock is held for
         each state change and never while waiting for a process."""
         start_failure = None
+        rescans = launch_retries = 0
         try:
             while True:
                 with self._lock:
@@ -1374,9 +1378,15 @@ class ProjectCenter:
                 with self._lock:
                     if active.cancelled:          # paused, halted or shut down during the scan
                         break
-                    if snapshot.generation != self.discovery_generation:
+                    if snapshot.generation != self.discovery_generation and rescans < MAX_DISCOVERY_RESCANS:
+                        rescans += 1
                         continue                 # obsolete facts cannot validate approval or build argv
-                    self._install_display(profiles, runtimes, snapshot.generation)
+                    if phase == "running" and snapshot.generation != self.discovery_generation:
+                        raise ProjectError("project_discovery_unstable")
+                    # Planning/setup can use the latest available scan after the retry budget;
+                    # approved execution requires current facts to validate its permissions.
+                    validated_generation = self.discovery_generation
+                    self._adopt(snapshot)
                     item = _copy(self._projects[project_id])
                     profile = profiles.get(member["agent"])
                     if profile is None:
@@ -1400,24 +1410,39 @@ class ProjectCenter:
                         raise ProjectError("project_profile_invalid")
                     argv = [prompt if arg == "{prompt}" else arg for arg in profile[key]] \
                         + self._member_options(member, profile, runtimes)
-                    item["status"] = "planning" if phase == "setup" else "reviewing" \
-                        if member["role"] == "reviewer" else phase
-                    self._event(item, "assignment", f"{profile.get('name') or member['agent']}: {member['role']}")
-                    if phase != "setup":
-                        item["assignment_started"] = True
-                    self._put(item)
                     cwd = str(self.directory / "setup-workspace") if phase == "setup" else item["path"]
                 # Host policy at dispatch time, also for later teammates (a rule may have changed).
                 if self.authorize is not None:
                     self.authorize(member["agent"])
                 began = time.monotonic()
+                generation_changed = False
+                launch_error = None
 
                 def may_launch(process, active=active) -> bool:
                     # Atomic against pause, halt, shutdown and detach: either they see this process
                     # (and stop or detach it before or after its go-ahead) or it is never launched.
+                    nonlocal generation_changed, launch_error
                     with self._lock:
-                        if not self._owns_store() or active.cancelled \
-                                or snapshot.generation != self.discovery_generation:
+                        if not self._owns_store() or active.cancelled:
+                            return False
+                        if validated_generation != self.discovery_generation:
+                            generation_changed = True
+                            return False
+                        # Save only an authorized assignment, before its go-ahead. A withdrawn
+                        # snapshot leaves no assignment flag, status or event to roll back. Read
+                        # the current record so messages queued during supervisor startup survive.
+                        item = _copy(self._projects[project_id])
+                        item["status"] = "planning" if phase == "setup" else "reviewing" \
+                            if member["role"] == "reviewer" else phase
+                        self._event(item, "assignment", f"{profile.get('name') or member['agent']}: {member['role']}")
+                        if phase != "setup":
+                            item["assignment_started"] = True
+                        try:
+                            self._put(item)
+                        except Exception as error:
+                            # Return False so the runner reaps its supervisor before the error
+                            # escapes; no process has received permission to launch.
+                            launch_error = error
                             return False
                         active.process = process
                         return True
@@ -1430,9 +1455,19 @@ class ProjectCenter:
                     with self._lock:
                         if not getattr(active.process, "_go_ahead_sent", False):
                             active.process = None
+                        active.pending = set()
+                    if launch_error is not None:
+                        raise launch_error
                     # Withdrawn before launch by a pause, halt or shutdown: a stop without side effects.
-                    if isinstance(error, ProjectError) and error.code == "project_launch_withdrawn" and active.cancelled:
-                        break
+                    if isinstance(error, ProjectError) and error.code == "project_launch_withdrawn":
+                        if active.cancelled:
+                            break
+                        if generation_changed:
+                            if launch_retries >= MAX_LAUNCH_RETRIES:
+                                raise ProjectError("project_discovery_unstable") from None
+                            launch_retries += 1
+                            rescans = 0
+                            continue
                     raise
                 with self._lock:
                     active.process = process
@@ -1491,6 +1526,7 @@ class ProjectCenter:
                         item["assignment_started"] = False
                     self._event(item, "assignment_done", f"{member['role']} ended successfully.")
                     self._put(item)
+                    rescans = launch_retries = 0
             with self._lock:
                 item = _copy(self._projects[project_id])
                 if phase == "setup":
@@ -1886,12 +1922,6 @@ class ProjectCenter:
             return {"project": self._view(current)}
 
     # --- the display snapshot (summary and board) ----------------------------------------------------
-
-    def _drop_display(self) -> None:
-        self._display = None
-        self._display_failed = None
-        self._approval_memo.clear()
-        self._readiness_memo.clear()
 
     def _install_display(self, profiles: dict, runtimes: dict, generation: int | None = None) -> None:
         generation = self.discovery_generation if generation is None else generation

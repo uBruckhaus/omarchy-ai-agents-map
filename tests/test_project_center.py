@@ -946,6 +946,105 @@ class SupervisorTest(CenterCase):
 
 
 class SupervisorProtocolTest(unittest.TestCase):
+    def test_normal_completion_and_pause_exit_cleanly_with_control_still_open(self):
+        # Keep stdin open through stop(), as the real controller does. A buffered daemon
+        # readline used to abort CPython on both paths and spend ~1 s dumping core.
+        popen = ps.subprocess.Popen
+        for pause in (False, True):
+            with self.subTest(pause=pause), tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryFile() as stderr:
+                lock = os.path.join(tmp, "run.lock")
+                Path(lock).touch()
+
+                def capture(*args, **kwargs):
+                    kwargs["stderr"] = stderr
+                    return popen(*args, **kwargs)
+
+                with mock.patch.object(ps.subprocess, "Popen", side_effect=capture):
+                    process = ps.run([sys.executable, "-c", "import time; time.sleep(60)" if pause else "pass"],
+                                     tmp, dict(os.environ), None, lock, lambda p: True)
+                try:
+                    self.assertTrue(process.started(5))
+                    if not pause:
+                        self.assertEqual(process.wait(), 0)
+                    self.assertFalse(process._proc.stdin.closed)
+                    began = time.monotonic()
+                    process.stop()
+                    elapsed = time.monotonic() - began
+                    stderr.seek(0)
+                    error = stderr.read()
+                    self.assertNotIn(b"Fatal Python error", error)
+                    self.assertEqual(process._proc.returncode, 0, error.decode("utf-8", "replace"))
+                    self.assertEqual(error, b"")
+                    self.assertLess(elapsed, 0.75, "stop waited for supervisor finalization")
+                finally:
+                    process.detach()
+                    process._reap(0.0)
+
+    def test_invalid_utf8_long_lines_and_eof_after_launch_still_stop_the_agent(self):
+        for mode in ("invalid_utf8", "long_line", "eof"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
+                proc = ps.subprocess.Popen(ps.command(), stdin=-1, stdout=-1, stderr=-1, cwd=tmp)
+                managed = ps.SupervisedProcess(proc)
+                start = {"argv": [sys.executable, "-c", "import time; time.sleep(60)"], "cwd": tmp,
+                         "controller": {"pid": os.getpid(), "start": ps.start_time(os.getpid())}}
+                try:
+                    self.assertTrue(managed._send(start))
+                    self.assertTrue(managed._locked.wait(5))
+                    self.assertTrue(managed._start_ack)
+                    self.assertTrue(managed._send({"launch": True}))
+                    self.assertTrue(managed.started(5))
+                    if mode == "eof":
+                        managed.detach()
+                    elif mode == "invalid_utf8":
+                        os.write(proc.stdin.fileno(), b"\xff\n")
+                    else:
+                        managed._send({"extra": "x" * ps.MAX_CONTROL_LINE})
+                    # For malformed/long lines the controller is still here: no EOF is
+                    # needed to stop the tree. Confirmation requires the final stopped frame.
+                    self.assertIs(managed._confirmed.wait(5), True)
+                    managed.stop()
+                    self.assertEqual(proc.returncode, 0)
+                    self.assertEqual(proc.stderr.read(), b"")
+                finally:
+                    managed.detach()
+                    managed._reap(0.0)
+                    proc.stderr.close()
+
+    def test_raw_control_preserves_bounded_line_and_utf8_semantics(self):
+        import io
+        # Splits at the byte bound, replaces malformed UTF-8, preserves queued lines,
+        # and returns a final unterminated line before EOF, just like the old reader.
+        data = b'{"x":"\xff"}\n' + b"x" * 31 + b'\n{"launch":true}\nlast'
+        fd, writer = os.pipe()
+        os.write(writer, data)
+        os.close(writer)
+        with os.fdopen(fd, "rb", buffering=0) as stream, mock.patch.object(ps, "MAX_CONTROL_LINE", 16):
+            reader = ps._ControlReader(stream)
+            fallback = ps._ControlReader(io.BytesIO(data))
+            try:
+                expected = []
+                while (line := fallback.readline()) is not None:
+                    expected.append(line)
+                actual = []
+                while (line := reader.readline()) is not None:
+                    actual.append(line)
+                self.assertEqual(actual, expected)
+                self.assertEqual(actual[0], '{"x":"\ufffd"}\n')
+                self.assertTrue(all(len(line.encode("utf-8")) <= 16 for line in actual))
+            finally:
+                reader.close()
+                fallback.close()
+
+    def test_malformed_and_overlong_start_lines_are_refused(self):
+        for line in (b"\xff\n", b"x" * (ps.MAX_CONTROL_LINE + 1) + b"\n"):
+            with self.subTest(size=len(line)), tempfile.TemporaryDirectory() as tmp:
+                proc = ps.subprocess.Popen(ps.command(), stdin=-1, stdout=-1, stderr=-1, cwd=tmp)
+                out, error = proc.communicate(line, timeout=10)
+                self.assertEqual([json.loads(line) for line in out.splitlines()],
+                                 [{"error": "invalid_start"}, {"stopped": True}])
+                self.assertEqual(proc.returncode, 2)
+                self.assertEqual(error, b"")
+
     def test_a_start_from_another_controller_is_refused_without_launching(self):
         with tempfile.TemporaryDirectory() as tmp:
             lock = os.path.join(tmp, "run.lock")
@@ -1641,13 +1740,16 @@ class ReviewRoundSixTest(CenterCase):
         with self.center._lock:
             self.assertEqual(result["approved_digest"], self.center._approval(result))
 
-    def test_a_discovery_change_at_the_launch_gate_withdraws_the_launch(self):
+    def test_a_discovery_change_at_the_launch_gate_retries_with_fresh_approval(self):
         item = self.approve(self.save(plan="A plan."))
         reached, release = threading.Event(), threading.Event()
         self.addCleanup(release.set)
         self.before_launch = lambda: (reached.set(), release.wait(10))
         self.center.call("run", {"id": item["id"], "revision": item["revision"]})
         self.assertTrue(reached.wait(5))
+        current = self.get(item["id"])
+        self.assertFalse(current["assignment_started"])
+        self.assertNotIn("assignment", self.types(current))
         with self.center._lock:
             self.profiles[0]["run_argv"][1] = "read-only"
             self.center.discovery_generation += 1
@@ -1656,7 +1758,104 @@ class ReviewRoundSixTest(CenterCase):
         self.assertEqual(self.processes, [], "obsolete argv received launch authorization")
         self.idle()
         self.assertEqual(len(self.withdrawn), 1)
-        self.assertEqual(self.get(item["id"])["events"][-1]["text"], "project_launch_withdrawn")
+        current = self.get(item["id"])
+        self.assertEqual(current["events"][-1]["text"], "project_plan_not_approved")
+        self.assertFalse(current["assignment_started"])
+        self.assertNotIn("assignment", self.types(current))
+
+    def test_one_discovery_change_at_the_launch_gate_still_completes(self):
+        item = self.approve(self.save(plan="A plan."))
+
+        def refresh_once():
+            with self.center._lock:
+                current = self.center._projects[item["id"]]
+                self.assertFalse(current["assignment_started"])
+                self.assertNotIn("assignment", self.types(current))
+                if not self.withdrawn:
+                    self.center.discovery_generation += 1
+        self.before_launch = refresh_once
+        self.center.call("run", {"id": item["id"], "revision": item["revision"]})
+        wait_until(lambda: self.processes or not self.center._active)
+        self.assertEqual(len(self.withdrawn), 1)
+        self.assertEqual(len(self.commands), 2)
+        self.assertEqual(len(self.processes), 1)
+        current = self.get(item["id"])
+        self.assertTrue(current["assignment_started"])
+        self.assertEqual(self.types(current).count("assignment"), 1)
+        self.processes[0].finish("Done.")
+        self.idle()
+        self.assertEqual(self.get(item["id"])["status"], "completed")
+
+    def test_continuous_launch_gate_changes_exhaust_retries_without_an_assignment(self):
+        item = self.approve(self.save(plan="A plan."))
+
+        def refresh():
+            with self.center._lock:
+                self.center.discovery_generation += 1
+        self.before_launch = refresh
+        self.center.call("run", {"id": item["id"], "revision": item["revision"]})
+        self.idle()
+        self.assertEqual(self.processes, [])
+        self.assertEqual(len(self.withdrawn), 4)       # initial launch plus three retries
+        current = self.get(item["id"])
+        self.assertEqual(current["status"], "failed")
+        self.assertEqual(current["events"][-1]["text"], "project_discovery_unstable")
+        self.assertFalse(current["assignment_started"])
+        self.assertNotIn("assignment", self.types(current))
+        self.assertEqual(current["next_member"], 0)
+
+    def test_required_discovery_uses_the_latest_scan_after_three_rescans(self):
+        scans = []
+
+        def profiles():
+            scans.append(len(scans) + 1)
+            self.assertLessEqual(len(scans), 4, "discovery kept rescanning")
+            with self.center._lock:
+                self.center.discovery_generation += 1
+            return [dict(self.profiles[0], name=f"Scan {len(scans)}")]
+        self.center.agent_profiles = profiles
+        result = self.center.call("profiles", {})
+        self.assertEqual(scans, [1, 2, 3, 4])
+        self.assertEqual(result["profiles"][0]["name"], "Scan 4")
+
+    def test_assignment_discovery_uses_the_latest_scan_after_three_rescans(self):
+        item = self.save()
+        scans = []
+
+        def profiles():
+            if threading.current_thread().name != f"project-{item['id'][:8]}":
+                return self.profiles
+            scans.append(len(scans) + 1)
+            self.assertLessEqual(len(scans), 4, "assignment kept rescanning")
+            with self.center._lock:
+                self.center.discovery_generation += 1
+            return [dict(self.profiles[0], plan_argv=["/fixture/agent", f"scan-{len(scans)}", "{prompt}"])]
+        self.center.agent_profiles = profiles
+        self.center.call("plan", {"id": item["id"], "revision": item["revision"]})
+        wait_until(lambda: self.processes or not self.center._active)
+        self.assertEqual(scans, [1, 2, 3, 4])
+        self.assertEqual(len(self.processes), 1)
+        self.assertEqual(self.commands[0][1], "scan-4")
+        self.processes[0].finish("A freshly discovered plan.")
+        self.idle()
+        self.assertEqual(self.get(item["id"])["status"], "awaiting_review")
+
+    def test_assignment_write_failure_at_the_gate_withdraws_the_supervisor(self):
+        import ai_core
+        item = self.approve(self.save(plan="A plan."))
+        writer = self.center._writer or ai_core.atomic_write
+
+        def fail_assignment(path, body):
+            if any(e["type"] == "assignment" for p in json.loads(body)["projects"] for e in p["events"]):
+                raise OSError("disk gone")
+            return writer(path, body)
+        self.center._writer = fail_assignment
+        self.center.call("run", {"id": item["id"], "revision": item["revision"]})
+        self.idle()
+        self.assertEqual(self.processes, [])
+        self.assertEqual(len(self.withdrawn), 1)
+        self.assertEqual(self.center.summary()["error"], "project_store_unavailable")
+        self.assertFalse(self.get(item["id"])["assignment_started"])
 
     def test_an_obsolete_adoption_preserves_a_newer_display_for_a_waiting_list(self):
         item = self.approve(self.save(plan="A plan."))
@@ -1698,6 +1897,95 @@ class ReviewRoundSixTest(CenterCase):
         self.assertTrue(result["projects"][0]["approval_valid"])
         self.assertEqual(result["projects"][0]["activity"], "ready_to_run")
         self.assertEqual(result["summary"]["ready"], 1)
+
+
+class ReviewRoundEightTest(CenterCase):
+    def changing_assignment_discovery(self, item):
+        original = self.center._discover
+        scans, displayed = [], []
+
+        def discover(required):
+            snapshot = original(required)
+            if required and threading.current_thread().name == f"project-{item['id'][:8]}":
+                scans.append(snapshot.generation)
+                self.assertLessEqual(len(scans), pc.MAX_DISCOVERY_RESCANS + 1)
+                with self.center._lock:
+                    self.center.discovery_generation += 1
+                if len(scans) == pc.MAX_DISCOVERY_RESCANS + 1:
+                    # A concurrent list installs new permissions after the last scan took
+                    # its copy. The assignment must neither replace them nor approve old argv.
+                    self.profiles[0]["run_argv"][1] = "new-permissions"
+                    self.assertFalse(self.card(item["id"])["approval_valid"])
+                    displayed.append(self.center._display)
+            return snapshot
+        self.center._discover = discover
+        return scans, displayed
+
+    def test_an_exhausted_execution_scan_cannot_validate_stale_approval(self):
+        item = self.approve(self.save(plan="The approved plan."))
+        scans, displayed = self.changing_assignment_discovery(item)
+        self.center.call("run", {"id": item["id"], "revision": item["revision"]})
+        wait_until(lambda: self.commands or not self.center._active)
+        self.assertEqual(self.commands, [], "obsolete permissions reached the runner")
+        self.idle()
+        self.assertEqual(len(scans), pc.MAX_DISCOVERY_RESCANS + 1)
+        self.assertIs(self.center._display, displayed[0])
+        current = self.get(item["id"])
+        self.assertEqual(current["events"][-1]["text"], "project_discovery_unstable")
+        self.assertFalse(current["approval_valid"])
+        self.assertFalse(current["assignment_started"])
+        self.assertNotIn("assignment", self.types(current))
+
+    def test_an_exhausted_planning_scan_preserves_a_newer_display(self):
+        item = self.approve(self.save(plan="The old plan."))
+        scans, displayed = self.changing_assignment_discovery(item)
+        self.center.call("plan", {"id": item["id"], "revision": item["revision"]})
+        wait_until(lambda: self.processes or not self.center._active)
+        self.assertEqual(len(scans), pc.MAX_DISCOVERY_RESCANS + 1)
+        self.assertEqual(len(self.processes), 1)
+        self.assertIs(self.center._display, displayed[0])
+        self.assertEqual(self.center._display[2]["fixture"]["run_argv"][1], "new-permissions")
+        self.processes[0].finish("A new plan.")
+        self.idle()
+
+    def test_review_adopts_the_last_available_scan_when_the_display_is_empty(self):
+        item = self.save(plan="A plan.")
+        self.center._display = None
+        original = self.center._discover
+        scans = []
+
+        def discover(required):
+            snapshot = original(required)
+            scans.append(snapshot.generation)
+            with self.center._lock:
+                self.center.discovery_generation += 1
+            return snapshot
+        self.center._discover = discover
+        reviewed = self.approve(item)
+        self.assertEqual(len(scans), pc.MAX_DISCOVERY_RESCANS + 1)
+        self.assertEqual(reviewed["status"], "ready")
+        self.assertTrue(reviewed["approval_valid"])
+        self.assertIsNotNone(self.center._display)
+        self.assertEqual(self.center._display[0], scans[-1])
+
+    def test_closing_during_an_obsolete_scan_does_not_retry_discovery(self):
+        for name in ("detach", "shutdown"):
+            with self.subTest(close=name):
+                original = self.center._discover
+                scans = []
+
+                def discover(required):
+                    snapshot = original(required)
+                    scans.append(snapshot.generation)
+                    self.center.discovery_generation += 1
+                    getattr(self.center, name)()
+                    return snapshot
+                with mock.patch.object(self.center, "_discover", side_effect=discover):
+                    self.assertCode("project_center_closed", self.center.call, "profiles", {})
+                self.assertEqual(len(scans), 1)
+            # Reopen the store for the shutdown variant.
+            if name == "detach":
+                self.center = self.make()
 
 
 class SupervisorControlTest(unittest.TestCase):
@@ -1764,6 +2052,383 @@ class AdapterProjectTest(unittest.TestCase):
         self.assertEqual(found["claude"]["plan_argv"][0], "claude")
         self.assertEqual(found["claude"]["models"], ["claude-opus-5"])
         self.assertTrue(found["claude"]["native_subagents"])
+
+
+OLD_SUPERVISOR = """import json, sys
+sys.stdin.buffer.readline()
+print(json.dumps({"locked": True}), flush=True)
+line = sys.stdin.buffer.readline()
+if line:
+    with open("go_ahead_seen", "w") as handle:
+        handle.write(line.decode("utf-8", "replace"))
+print(json.dumps({"stopped": True}), flush=True)
+"""
+
+
+class CoreRegressionTest(CenterCase):
+    """Dedicated regression tests for Project Center core (task 096 behaviour)."""
+
+    def test_pause_during_send_now_wins(self):
+        item = self.started([{"agent": "fixture", "role": "lead"}, {"agent": "fixture", "role": "implementer"}])
+        gate = threading.Event()
+        self.addCleanup(gate.set)
+        self.processes[0].stop_gate = gate
+        sent, paused = {}, {}
+
+        def send_now():
+            sent.update(self.center.call("message", {
+                "id": item["id"], "run_id": item["run_id"], "text": "Switch approach.",
+                "mode": "now", "acknowledge_interrupted": True,
+            }))
+
+        sender = threading.Thread(target=send_now)
+        sender.start()
+        wait_until(lambda: self.processes[0].stop_calls >= 1)
+        pauser = threading.Thread(target=lambda: paused.update(self.center.call("pause", {"id": item["id"]})))
+        pauser.start()
+        wait_until(lambda: self.processes[0].stop_calls >= 2)
+        gate.set()
+        pauser.join(10)
+        sender.join(10)
+        self.assertFalse(pauser.is_alive())
+        self.assertFalse(sender.is_alive())
+        self.assertEqual(paused["project"]["status"], "paused")
+        self.assertEqual((sent["continued"], sent["reason"]), (False, "project_changed"))
+        self.assertEqual(sent["message"]["state"], "queued")
+        self.assertEqual(len(self.processes), 1)
+        current = self.get(item["id"])
+        self.assertEqual(current["status"], "paused")
+        self.assertEqual(current["messages_queued"], 1)
+        self.assertEqual(current["messages"][0]["state"], "queued")
+        self.assertIn("message_waiting", self.types(current))
+        self.idle()
+
+    def test_message_drop_during_send_now_has_no_message_waiting_and_none_message(self):
+        item = self.started([{"agent": "fixture", "role": "lead"}, {"agent": "fixture", "role": "implementer"}])
+        gate = threading.Event()
+        self.addCleanup(gate.set)
+        self.processes[0].stop_gate = gate
+        sent = {}
+
+        def send_now():
+            sent.update(self.center.call("message", {
+                "id": item["id"], "run_id": item["run_id"], "text": "Actually ignore this.",
+                "mode": "now", "acknowledge_interrupted": True,
+            }))
+
+        sender = threading.Thread(target=send_now)
+        sender.start()
+        wait_until(lambda: self.processes[0].stop_calls >= 1)
+        stored_messages = self.get(item["id"])["messages"]
+        self.assertEqual(len(stored_messages), 1)
+        self.center.call("message_drop", {"id": item["id"], "message_id": stored_messages[0]["id"]})
+        gate.set()
+        sender.join(10)
+        self.assertFalse(sender.is_alive())
+        self.assertEqual((sent["continued"], sent["reason"]), (False, "project_message_unknown"))
+        self.assertIsNone(sent["message"])
+        self.assertNotIn("message_waiting", self.types(sent["project"]))
+        self.assertIn("message_dropped", self.types(sent["project"]))
+        self.assertEqual(len(self.processes), 1)
+        current = self.get(item["id"])
+        self.assertEqual(current["status"], "paused")
+        self.assertEqual(current["messages"], [])
+        self.assertEqual(current["messages_queued"], 0)
+        self.assertNotIn("message_waiting", self.types(current))
+        self.idle()
+
+    def test_message_drop_refused_while_pending_then_delivered_on_start(self):
+        item = self.started([{"agent": "fixture", "role": "lead"}, {"agent": "fixture", "role": "implementer"}])
+        sent = self.center.call("message", {
+            "id": item["id"], "run_id": item["run_id"], "text": "Keep backwards compatibility.", "mode": "queue",
+        })
+        msg_id = sent["message"]["id"]
+        starting, release = threading.Event(), threading.Event()
+        self.addCleanup(release.set)
+
+        def wait_start():
+            starting.set()
+            return release.wait(5)
+
+        self.start_gate = wait_start
+        self.processes[0].finish("Lead done.")
+        self.assertTrue(starting.wait(5))
+        self.assertEqual(self.get(item["id"])["messages"][0]["state"], "queued")
+        self.assertCode("project_message_pending", self.center.call, "message_drop",
+                        {"id": item["id"], "message_id": msg_id})
+        release.set()
+        wait_until(lambda: self.get(item["id"])["messages"][0]["state"] == "delivered")
+        current = self.get(item["id"])
+        self.assertEqual(current["messages_queued"], 0)
+        self.assertEqual(current["messages"][0]["delivered_to"], {
+            "phase": "execution", "position": 1, "agent": "fixture", "role": "implementer",
+        })
+        self.assertIn("Keep backwards compatibility.", self.commands[1][-1])
+        self.assertCode("project_message_delivered", self.center.call, "message_drop",
+                        {"id": item["id"], "message_id": msg_id})
+        self.processes[1].finish("Implemented.")
+        self.idle()
+
+    def test_eviction_past_max_messages_drops_oldest_delivered_never_queued(self):
+        team = [
+            {"agent": "fixture", "role": "lead"},
+            {"agent": "fixture", "role": "implementer"},
+            {"agent": "fixture", "role": "implementer"},
+            {"agent": "fixture", "role": "implementer"},
+            {"agent": "fixture", "role": "reviewer"},
+        ]
+        item = self.started(team)
+        pid, run_id = item["id"], item["run_id"]
+
+        def queue_msg(text):
+            return self.center.call("message", {"id": pid, "run_id": run_id, "text": text, "mode": "queue"})
+
+        # Deliver 20 messages across three assignment handoffs (8 + 8 + 4).
+        for batch, proc_index in ((range(0, 8), 0), (range(8, 16), 1), (range(16, 20), 2)):
+            for idx in batch:
+                queue_msg(f"D{idx:02d}")
+            self.processes[proc_index].finish(f"Step {proc_index} done.")
+            wait_until(lambda idx=proc_index: len(self.processes) == idx + 2)
+            wait_until(lambda: self.get(pid)["messages_queued"] == 0)
+
+        current = self.get(pid)
+        self.assertEqual(len(current["messages"]), pc.MAX_MESSAGES)
+        self.assertEqual([m["text"] for m in current["messages"]], [f"D{i:02d}" for i in range(20)])
+        self.assertTrue(all(m["state"] == "delivered" for m in current["messages"]))
+
+        # Queue 8 more messages: oldest 8 delivered messages are evicted, all queued ones stay.
+        for idx in range(pc.MAX_QUEUED_MESSAGES):
+            queue_msg(f"Q{idx}")
+        current = self.get(pid)
+        self.assertEqual(len(current["messages"]), pc.MAX_MESSAGES)
+        self.assertEqual(current["messages_queued"], pc.MAX_QUEUED_MESSAGES)
+        self.assertEqual([m["text"] for m in current["messages"]],
+                         [f"D{i:02d}" for i in range(8, 20)] + [f"Q{i}" for i in range(pc.MAX_QUEUED_MESSAGES)])
+        self.assertEqual([m["state"] for m in current["messages"]],
+                         ["delivered"] * 12 + ["queued"] * pc.MAX_QUEUED_MESSAGES)
+
+        # A 9th queued message is refused rather than dropping any queued message.
+        self.assertCode("project_messages_full", queue_msg, "Q_overflow")
+        self.assertEqual([m["text"] for m in self.get(pid)["messages"] if m["state"] == "queued"],
+                         [f"Q{i}" for i in range(pc.MAX_QUEUED_MESSAGES)])
+
+        # Delivering Q0..Q7 then queuing two more evicts D08 and D09 next.
+        self.processes[3].finish("Step 3 done.")
+        wait_until(lambda: len(self.processes) == 5)
+        wait_until(lambda: self.get(pid)["messages_queued"] == 0)
+        queue_msg("N0")
+        queue_msg("N1")
+        current = self.get(pid)
+        self.assertEqual(len(current["messages"]), pc.MAX_MESSAGES)
+        self.assertEqual([m["text"] for m in current["messages"]],
+                         [f"D{i:02d}" for i in range(10, 20)] + [f"Q{i}" for i in range(8)] + ["N0", "N1"])
+        self.assertEqual([m["state"] for m in current["messages"]], ["delivered"] * 18 + ["queued"] * 2)
+
+        self.processes[4].finish("Review done.")
+        self.idle()
+        self.center.detach()
+        reopened = self.make()
+        self.assertEqual(len(reopened.call("get", {"id": pid})["project"]["messages"]), pc.MAX_MESSAGES)
+
+    def test_message_refused_with_store_full_does_not_halt_or_fault(self):
+        item = self.started([{"agent": "fixture", "role": "lead"}])
+        store = self.root / "ai-project-center" / "projects.json"
+        self.center.store_limit = store.stat().st_size + 2000
+        big = "m" * 3500
+        self.assertCode("project_store_full", self.center.call, "message", {
+            "id": item["id"], "run_id": item["run_id"], "text": big, "mode": "queue",
+        })
+        self.assertCode("project_store_full", self.center.call, "message", {
+            "id": item["id"], "run_id": item["run_id"], "text": big, "mode": "now",
+            "acknowledge_interrupted": True,
+        })
+        summary = self.center.summary()
+        self.assertNotIn("error", summary)
+        self.assertEqual(summary["running"], 1)
+        self.assertIsNone(self.center._storage_fault)
+        self.assertFalse(self.processes[0].stopped)
+        self.assertFalse(self.processes[0].ended.is_set())
+        running = self.get(item["id"])
+        self.assertEqual(running["status"], "running")
+        self.assertEqual(running["messages"], [])
+        small = self.center.call("message", {
+            "id": item["id"], "run_id": item["run_id"], "text": "Short note.", "mode": "queue",
+        })
+        self.assertEqual(small["message"]["state"], "queued")
+        self.processes[0].finish("Done.")
+        self.idle()
+        done = self.get(item["id"])
+        self.assertEqual(done["status"], "completed")
+        self.assertNotIn("error", self.center.summary())
+
+    def test_hard_linked_store_is_refused(self):
+        item = self.save(title="Linked")
+        self.center.detach()
+        store = self.root / "ai-project-center" / "projects.json"
+        alias = self.root / "projects-hardlink.json"
+        os.link(store, alias)
+        self.assertEqual(store.stat().st_nlink, 2)
+        self.assertCode("project_store_unavailable", self.make)
+        alias.unlink()
+        reopened = self.make()
+        self.assertEqual(reopened.call("get", {"id": item["id"]})["project"]["title"], "Linked")
+
+    def test_store_growing_past_limit_while_read_is_unavailable(self):
+        self.save(title="Growing")
+        self.center.detach()
+        store = self.root / "ai-project-center" / "projects.json"
+        store_stat = store.stat()
+        self.assertLess(store_stat.st_size, pc.MAX_STORE)
+        real_read = os.read
+        grew = {"done": False, "reads": 0}
+
+        def growing_read(fd, length):
+            try:
+                info = os.fstat(fd)
+            except OSError:
+                info = None
+            if info is not None and info.st_ino == store_stat.st_ino and info.st_dev == store_stat.st_dev:
+                grew["reads"] += 1
+                if not grew["done"]:
+                    grew["done"] = True
+                    with open(store, "r+b") as handle:
+                        handle.seek(pc.MAX_STORE)
+                        handle.write(b" ")
+            return real_read(fd, length)
+
+        with mock.patch.object(pc.os, "read", side_effect=growing_read):
+            self.assertCode("project_store_unavailable", self.make)
+        self.assertTrue(grew["done"])
+        self.assertGreater(grew["reads"], 1)
+        self.assertGreater(store.stat().st_size, pc.MAX_STORE)
+
+    def test_detach_while_running_stops_setsid_grandchild_through_supervisor(self):
+        script = self.root / "agent.py"
+        script.write_text(AGENT)
+        self.profiles[0].update(plan_argv=[sys.executable, str(script), "read", "{prompt}"],
+                                run_argv=[sys.executable, str(script), "tree", "{prompt}"])
+        self.center.detach()
+        self.center = self.make(runner=None, environment={**os.environ, "CLAUDECODE": "1"})
+        item = self.approve(self.save(plan="The plan."))
+        self.center.call("run", {"id": item["id"], "revision": item["revision"]})
+        marker = Path(self.workspace) / "grandchild.pid"
+        wait_until(marker.exists, timeout=20)
+        grandchild = int(marker.read_text())
+        birth = ps.start_time(grandchild)
+        self.assertIsNotNone(birth)
+
+        def grandchild_alive():
+            fields = ps._stat_fields(grandchild)
+            return fields is not None and fields[19] == birth and fields[0] not in ("Z", "X")
+
+        def kill_if_leftover():
+            if grandchild_alive():
+                try:
+                    os.kill(grandchild, 9)
+                except OSError:
+                    pass
+        self.addCleanup(kill_if_leftover)
+
+        self.assertTrue(self.center._run_held(item["id"]))
+        began = time.monotonic()
+        self.center.detach()
+        self.assertLess(time.monotonic() - began, 1.0)
+        self.assertCode("project_center_closed", self.center.call, "list", {})
+
+        reopened = self.make(runner=None)
+        recovered = reopened.call("get", {"id": item["id"]})["project"]
+        self.assertEqual(recovered["status"], "interrupted")
+
+        wait_until(lambda: not grandchild_alive(), timeout=20)
+        wait_until(lambda: not reopened._run_held(item["id"]), timeout=20)
+        wait_until(lambda: not self.center._active, timeout=20)
+        self.assertFalse(reopened.call("get", {"id": item["id"]})["project"]["processes_stopping"])
+        self.assertEqual([args for args in SupervisorTest._own_command_lines()
+                          if str(script) in args and "tree" in args], [])
+
+    def test_older_supervisor_without_start_ack_is_refused_before_launch(self):
+        script = self.root / "old_supervisor.py"
+        script.write_text(OLD_SUPERVISOR)
+        lock = self.root / "run.lock"
+        lock.write_text("")
+        authorize_calls = []
+        go_ahead_marker = self.root / "go_ahead_seen"
+
+        def authorize(process):
+            authorize_calls.append(process)
+            return True
+
+        with self.assertRaises(ProjectError) as caught:
+            ps.run([sys.executable, "-c", "pass"], str(self.root), dict(os.environ), None, str(lock),
+                   authorize, supervisor=[sys.executable, str(script)])
+        self.assertEqual(caught.exception.code, "project_agent_unavailable")
+        self.assertEqual(authorize_calls, [])
+        self.assertFalse(go_ahead_marker.exists())
+
+    def test_invalid_utf8_on_control_pipe_handled_without_crash(self):
+        import subprocess
+        lock = str(self.root / "run.lock")
+        open(lock, "w").close()
+        controller = {"pid": os.getpid(), "start": ps.start_time(os.getpid())}
+
+        # 1. Invalid UTF-8 on the start line.
+        proc = subprocess.Popen(ps.command(), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, cwd=str(self.root))
+        out, err = proc.communicate(b"\xff\xfe\n", timeout=15)
+        self.assertEqual(proc.returncode, 2)
+        self.assertEqual(err, b"")
+        self.assertEqual([json.loads(line) for line in out.splitlines()],
+                         [{"error": "invalid_start"}, {"stopped": True}])
+
+        # 2. Invalid UTF-8 on the go-ahead line launches nothing.
+        marker = str(self.root / "should_not_exist")
+        start = {"argv": [sys.executable, "-c", f"open({marker!r}, 'w')"], "cwd": str(self.root),
+                 "input": None, "lock": lock, "controller": controller}
+        proc = subprocess.Popen(ps.command(), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, cwd=str(self.root))
+        out, err = proc.communicate(json.dumps(start).encode("utf-8") + b"\n\xff\xfe\n", timeout=15)
+        self.assertEqual(proc.returncode, 2)
+        self.assertEqual(err, b"")
+        self.assertEqual([json.loads(line) for line in out.splitlines()],
+                         [{"locked": True, "start_ack": True}, {"error": "launch_withdrawn"}, {"stopped": True}])
+        self.assertFalse(os.path.exists(marker))
+
+        # 3. Invalid UTF-8 on the control pipe while an agent is running triggers a clean stop.
+        start_sleep = {"argv": [sys.executable, "-c", "import time; time.sleep(30)"], "cwd": str(self.root),
+                       "input": None, "lock": lock, "controller": controller}
+        proc = subprocess.Popen(ps.command(), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, cwd=str(self.root))
+        try:
+            proc.stdin.write(json.dumps(start_sleep).encode("utf-8") + b"\n")
+            proc.stdin.write(b'{"launch": true}\n')
+            proc.stdin.flush()
+            events = []
+            while True:
+                line = proc.stdout.readline()
+                self.assertTrue(line, "supervisor ended before starting agent")
+                event = json.loads(line)
+                events.append(event)
+                if event.get("started") is True:
+                    break
+            proc.stdin.write(b"\xff\xfe\n")
+            proc.stdin.flush()
+            proc.stdin.close()
+            for line in proc.stdout:
+                events.append(json.loads(line))
+            proc.wait(timeout=15)
+            err = proc.stderr.read()
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=5)
+            for pipe in (proc.stdin, proc.stdout, proc.stderr):
+                try:
+                    pipe.close()
+                except OSError:
+                    pass
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(err, b"")
+        self.assertEqual(events[-1], {"stopped": True})
 
 
 if __name__ == "__main__":

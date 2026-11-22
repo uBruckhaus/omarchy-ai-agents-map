@@ -70,7 +70,10 @@ def _stat_fields(pid: int) -> list[str] | None:
             raw = handle.read(4096).decode("ascii", "replace")
     except OSError:
         return None
-    fields = raw[raw.rfind(")") + 2:].split()
+    end = raw.rfind(")")
+    if end < 0:
+        return None
+    fields = raw[end + 2:].split()
     return fields if len(fields) > 19 else None
 
 
@@ -209,6 +212,57 @@ def _read_line(stream) -> str | None:
     return raw.decode("utf-8", "replace")
 
 
+class _ControlReader:
+    """Bounded readline on a raw descriptor, interruptible without a BufferedReader lock.
+
+    Injected streams without a descriptor keep the test-stream readline fallback. Like
+    readline(MAX_CONTROL_LINE), long lines are returned in bounded pieces, including at EOF.
+    """
+
+    def __init__(self, stream):
+        self.stream = stream
+        try:
+            self.fd = 0 if stream is None else stream.fileno()
+        except (AttributeError, OSError, ValueError):
+            self.fd = None
+        self.buffer = bytearray()
+        self.wake_r, self.wake_w = os.pipe() if self.fd is not None else (None, None)
+
+    def readline(self) -> str | None:
+        if self.fd is None:
+            return _read_line(self.stream)
+        while True:
+            end = self.buffer.find(b"\n")
+            if end >= 0 or len(self.buffer) == MAX_CONTROL_LINE:
+                size = end + 1 if end >= 0 else MAX_CONTROL_LINE
+                raw = bytes(self.buffer[:size])
+                del self.buffer[:size]
+                return raw.decode("utf-8", "replace")
+            try:
+                ready, _, _ = select.select([self.fd, self.wake_r], [], [])
+                if self.wake_r in ready:
+                    return None
+                chunk = os.read(self.fd, min(READ_CHUNK, MAX_CONTROL_LINE - len(self.buffer)))
+            except InterruptedError:
+                continue
+            except (OSError, ValueError):
+                return None
+            if not chunk:
+                raw = bytes(self.buffer)
+                self.buffer.clear()
+                return raw.decode("utf-8", "replace") if raw else None
+            self.buffer.extend(chunk)
+
+    def wake(self) -> None:
+        if self.wake_w is not None:
+            os.write(self.wake_w, b"x")
+
+    def close(self) -> None:
+        if self.wake_r is not None:
+            os.close(self.wake_r)
+            os.close(self.wake_w)
+
+
 def _valid_start(start) -> bool:
     if not isinstance(start, dict):
         return False
@@ -238,20 +292,29 @@ def _take_lock(path: str) -> int | None:
 def _subreaper() -> bool:
     try:
         libc = ctypes.CDLL(None, use_errno=True)
+        libc.prctl.restype = ctypes.c_int
+        libc.prctl.argtypes = [ctypes.c_int, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong]
         return libc.prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) == 0
     except (OSError, AttributeError):
         return False
 
 
 def supervise(control=None, out_fd: int = 1) -> int:
+    reader = _ControlReader(control)
+    try:
+        return _supervise(reader, out_fd)
+    finally:
+        reader.close()
+
+
+def _supervise(control: _ControlReader, out_fd: int) -> int:
     emit = _Emitter(out_fd)
-    control = control if control is not None else sys.stdin.buffer
     if not _subreaper():
         emit({"error": "subreaper_unavailable"})       # nothing was started: nothing can be left running
         emit({"stopped": True})
         return 2
     try:
-        line = _read_line(control)
+        line = control.readline()
         if line is None:
             return 0
         start = json.loads(line)
@@ -290,7 +353,7 @@ def supervise(control=None, out_fd: int = 1) -> int:
     # Launch only on the controller's explicit go-ahead; EOF or anything else ends without launching.
     emit({"locked": True, "start_ack": True})
     try:
-        line = _read_line(control)
+        line = control.readline()
         message = json.loads(line) if line is not None else None
         authorized = isinstance(message, dict) and message.get("launch") is True
     except ValueError:
@@ -316,7 +379,7 @@ def supervise(control=None, out_fd: int = 1) -> int:
 
     def feed():
         try:
-            leader.stdin.write(text.encode("utf-8"))
+            leader.stdin.write(text.encode("utf-8", "replace"))
         except OSError:
             pass
         finally:
@@ -345,8 +408,8 @@ def supervise(control=None, out_fd: int = 1) -> int:
     leader_done = threading.Event()
 
     def watch_control():
-        while _read_line(control) is not None:
-            stop_requested.set()
+        while control.readline() is not None:
+            stop_requested.set()       # any control line is a stop request
         stop_requested.set()            # EOF: the controller is gone; the tree must not outlive it
 
     def wait_leader():
@@ -357,48 +420,54 @@ def supervise(control=None, out_fd: int = 1) -> int:
         threading.Thread(target=feed, daemon=True).start()
     output = threading.Thread(target=pump, daemon=True)
     output.start()
-    threading.Thread(target=watch_control, daemon=True).start()
+    watcher = threading.Thread(target=watch_control, daemon=True)
+    watcher.start()
     threading.Thread(target=wait_leader, daemon=True).start()
-    while not leader_done.is_set() and not stop_requested.is_set():
-        leader_done.wait(0.05)
-    exit_code = leader.returncode if leader_done.is_set() else None
-    if exit_code is not None:
-        emit({"leader": exit_code})
-    # The owned tree ends with its assignment, even after a successful leader. Confirmation is the
-    # kernel's: once the leader is reaped, adopted zombies are reaped here and the tree is empty
-    # only when waitpid reports that no child at all remains.
-    tree = ProcessTree(os.getpid())
-    stuck, unseen = -1, 0
-    while True:
-        remaining = tree.stop()
-        if exit_code is None:
-            if leader_done.wait(1.0):
-                exit_code = leader.returncode
-            else:
-                remaining = remaining or 1
+    try:
+        while not leader_done.is_set() and not stop_requested.is_set():
+            leader_done.wait(0.05)
+        exit_code = leader.returncode if leader_done.is_set() else None
         if exit_code is not None:
-            children = tree.reap()
-            if children == 0 and remaining == 0:
-                break
-            if children > 0 and remaining == 0:
-                # A child the scan did not see yet: look again shortly. One it cannot see at all
-                # (hidepid) is reported as surviving, never spun on.
-                unseen += 1
-                if unseen < 20:
-                    time.sleep(0.1)
-                    continue
-                remaining = 1
-        if remaining != stuck:
-            emit({"stuck": remaining})
-        stuck = remaining
-        time.sleep(0.5)
-    output.join(2.0)                    # the final output may be incomplete; the exit code is reliable
-    # The tree is empty: release the run lock before reporting it, so the controller never sees a
-    # confirmed stop while the lock is still held.
-    release()
-    emit({"exit": exit_code})
-    emit({"stopped": True})
-    return 0
+            emit({"leader": exit_code})
+        # The owned tree ends with its assignment, even after a successful leader. Confirmation is the
+        # kernel's: once the leader is reaped, adopted zombies are reaped here and the tree is empty
+        # only when waitpid reports that no child at all remains.
+        tree = ProcessTree(os.getpid())
+        stuck, unseen = -1, 0
+        while True:
+            remaining = tree.stop()
+            if exit_code is None:
+                if leader_done.wait(1.0):
+                    exit_code = leader.returncode
+                else:
+                    remaining = remaining or 1
+            if exit_code is not None:
+                children = tree.reap()
+                if children == 0 and remaining == 0:
+                    break
+                if children > 0 and remaining == 0:
+                    # A child the scan did not see yet: look again shortly. One it cannot see at all
+                    # (hidepid) is reported as surviving, never spun on.
+                    unseen += 1
+                    if unseen < 20:
+                        time.sleep(0.1)
+                        continue
+                    remaining = 1
+            if remaining != stuck:
+                emit({"stuck": remaining})
+            stuck = remaining
+            time.sleep(0.5)
+        output.join(2.0)                    # the final output may be incomplete; the exit code is reliable
+        # The tree is empty: release the run lock before reporting it, so the controller never sees a
+        # confirmed stop while the lock is still held.
+        release()
+        emit({"exit": exit_code})
+        emit({"stopped": True})
+        return 0
+    finally:
+        control.wake()
+        # Non-fd injected streams cannot be interrupted; real control always joins fully.
+        watcher.join(1.0 if control.fd is None else None)
 
 
 # --- the controller's side ---------------------------------------------------------------------------
