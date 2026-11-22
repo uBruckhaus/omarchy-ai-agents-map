@@ -393,6 +393,7 @@ class ActivityLog:
         self.last_seen: dt.datetime | None = None      # the last observe(): a longer gap closes open spans
         self.unobserved = UNOBSERVED
         self.accepting = True                           # False while nothing watches (the window hidden)
+        self.hidden_at: dt.datetime | None = None       # when it hid, until the spans open then are ended
         self.mutex = threading.Lock()
 
     @property
@@ -418,32 +419,57 @@ class ActivityLog:
         with self.mutex:
             self._observe(set(active), working_dirs or {}, usage_for, now)
 
-    def pause(self):
-        """Nothing watches the agents from now on (the window hides): later observations, even one a
-        poll had already begun, are ignored until resume(). Cheap, for the window's thread."""
+    def pause(self, at: dt.datetime | None = None):
+        """Nothing watches the agents from `at` on (the window hides): observations are ignored until
+        resume(), and what was open then ends at `at` (end_open, or the first observation after
+        resume() when that comes first). Cheap, for the window's thread: no lock is waited for."""
         self.accepting = False
+        self.hidden_at = at or now_utc()
+        return self.hidden_at
 
     def resume(self):
+        """Observed again. The spans of before the pause are still ended at the pause's time: by
+        end_open(), or by the next observation (_finish_pause) if that comes first."""
         self.accepting = True
-        self.last_seen = None
+
+    def _finish_pause(self, usage_for=None) -> list:
+        """Under the lock: the spans that were open when the window hid, ended at that moment; a span
+        begun after it stays open. Done once per pause (whoever comes first)."""
+        at, self.hidden_at = self.hidden_at, None
+        if at is None:
+            return []
+        self.last_seen = None                 # the hidden time is no gap to close again
+        completed = []
+        for source, (start, cwd, usage) in list(self.active.items()):
+            if start < at:
+                del self.active[source]
+                completed.append(self._live_row(source, start, cwd, usage, usage_for, at))
+        return completed
 
     def end_open(self, at: dt.datetime, usage_for=None):
-        """End every open span at `at` (when the window hid), on a worker: the same lock as observe()
-        keeps the two in order; a span begun after `at` by a late poll is dropped, never written."""
+        """On a worker after the window hid: end what was open at `at` and write it. The same lock as
+        observe() keeps the two in order; an already-finished or newer pause leaves it alone."""
         with self.mutex:
-            completed = []
-            for source in list(self.active):
-                start, cwd, usage = self.active.pop(source)
-                if start < at:
-                    completed.append(self._live_row(source, start, cwd, usage, usage_for, at))
-            self.pending.extend(completed)
-            if self.pending and self.enabled:
+            if not self.enabled:              # switched off meanwhile: nothing of it is kept
+                self.active.clear()
+                self.pending.clear()
+                self.hidden_at = None
+                return
+            if self.hidden_at != at:
+                return
+            self.pending.extend(self._finish_pause(usage_for))
+            if self.pending:
                 self._observe(set(), {}, None, at, flush_only=True)
 
     def _observe(self, active: set, working_dirs: dict, usage_for, now: dt.datetime, flush_only: bool = False):
         if not self.accepting and not flush_only:
             return
         enabled = self.enabled
+        if not flush_only and self.hidden_at is not None:
+            if enabled:
+                self.pending.extend(self._finish_pause())     # the hide's spans, before anything new
+            else:
+                self.hidden_at = None
         keep = self.keep
         cutoff = local_date(now, 1 - keep).isoformat()
         if not enabled:
@@ -631,7 +657,9 @@ class ActivityLog:
                     not leading_partial and ((row["tokens_in"] or 0) > (old["tokens_in"] or 0)
                                              or (row["tokens_out"] or 0) > (old["tokens_out"] or 0)))
                 if not grows:
-                    return "unchanged", old
+                    # Nothing new, but the live rows it covers are marked again (a write of an earlier
+                    # import may have stopped after the start day, before the end day).
+                    return self._supersede_again(dir_fd, target, rows, old), old
                 ended = old["ended_at"] if parse_time(old["ended_at"]) > end else row["ended_at"]
                 row = {**row, "id": old["id"], "started_at": old["started_at"], "ended_at": ended,
                        "tokens_in": old["tokens_in"] if leading_partial else _larger(old["tokens_in"], row["tokens_in"]),
@@ -670,6 +698,25 @@ class ActivityLog:
             if lock is not None:
                 os.close(lock)
             os.close(dir_fd)
+
+    def _supersede_again(self, dir_fd: int, target: str, rows: list, history: dict) -> str:
+        """Under the day lock: the live rows a stored history row covers, on its start and its end day,
+        marked as covered where they are not yet; "unchanged" either way (no new history)."""
+        def mark(day_rows) -> bool:
+            changed = False
+            for live in day_rows:
+                if overlaps(live, history) and live["superseded_by"] != history["id"]:
+                    live["superseded_by"] = history["id"]
+                    changed = True
+            return changed
+        if mark(rows) and _fits(rows):
+            self._write(target, rows)
+        end_day = day_of(parse_time(history["ended_at"]))
+        if end_day != target:
+            other = self._read_day(dir_fd, end_day)
+            if mark(other) and _fits(other):
+                self._write(end_day, other)
+        return "unchanged"
 
     # -- reading ----------------------------------------------------------------------------------
 

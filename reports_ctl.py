@@ -148,13 +148,14 @@ def bound(con) -> None:
 
 
 def _text_within(value, most: int) -> bool:
-    return isinstance(value, str) and len(value) <= most
+    """Text of at most `most` characters that can be written as UTF-8 (no lone surrogate)."""
+    return isinstance(value, str) and len(value) <= most and not activity_log.SURROGATES.search(value)
 
 
 def listing_row(row) -> dict:
     """One library row as the list shows it; a row whose stored values are not of their kind (a BLOB
     title, a number for a day) is listed as damaged, and opening it says so (report_damaged)."""
-    report_id, title, saved_at, first, last, count = row
+    report_id, title, saved_at, first, last, count = row     # report_id checked by list(): an int id
     fine = _text_within(title, 200) and _text_within(saved_at, 40) and _count(count) \
         and all(isinstance(d, str) and activity_log.DAY.match(d) for d in (first, last))
     if fine:
@@ -178,7 +179,8 @@ def valid_report(report: dict) -> bool:
              "saved_at": 40}
     return all(_text_within(report.get(f), most) for f, most in sizes.items()) \
         and (report.get("note") is None or _text_within(report.get("note"), 2000)) \
-        and isinstance(filters, dict) and all(v is None or isinstance(v, str) for v in filters.values()) \
+        and isinstance(filters, dict) and len(filters) <= 8 \
+        and all(_text_within(k, 40) and (v is None or _text_within(v, 500)) for k, v in filters.items()) \
         and _count(report.get("entry_count")) and _count(report.get("total_entries")) \
         and isinstance(report.get("capped"), bool) and isinstance(report.get("topics"), list) \
         and len(report["topics"]) <= 64 and all(valid_topic(t) for t in report["topics"])
@@ -409,6 +411,8 @@ class ReportsLibrary:
                 "WHERE (? IS NULL OR id < ?) AND (title LIKE ? ESCAPE '\\' OR note LIKE ? ESCAPE '\\' "
                 "OR topic_names LIKE ? ESCAPE '\\' OR text LIKE ? ESCAPE '\\') ORDER BY id DESC LIMIT ?",
                 (cursor, cursor, needle, needle, needle, needle, PAGE + 1)).fetchall()
+            # A row without an integer id cannot be opened or paged past: a crafted view's, left out.
+            rows = [r for r in rows if type(r[0]) is int and 1 <= r[0] <= INT64]
             return {"reports": [listing_row(r) for r in rows[:PAGE]],
                     "next_cursor": rows[PAGE - 1][0] if len(rows) > PAGE else None,
                     "read_only": version > 1, "schema_version": version}

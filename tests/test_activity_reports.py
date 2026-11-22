@@ -1654,6 +1654,80 @@ class RoundSixTest(TempCase):
         self.assertLess(time.monotonic() - started, 5)
 
 
+class RoundSevenTest(TempCase):
+    def test_saved_text_with_lone_surrogates_is_damaged(self):
+        library = reports_ctl.ReportsLibrary(self.tmp / "reports")
+        library.save(DRAFT, "x")
+        con = sqlite3.connect(self.tmp / "reports/reports.db")
+        topics = json.dumps([{**DRAFT["topics"][0], "summary": "bad\ud800"}])
+        con.execute("UPDATE reports SET topics_json=?", (topics,))
+        con.commit()
+        con.close()
+        with self.assertRaises(reports_ctl.ReportError) as caught:
+            library.get(1)
+        self.assertEqual(caught.exception.code, "report_damaged")
+
+    def test_rows_without_an_integer_id_are_left_out(self):
+        library = reports_ctl.ReportsLibrary(self.tmp / "reports")
+        library.save(DRAFT, "ok")
+        con = sqlite3.connect(self.tmp / "reports/reports.db")
+        con.execute("ALTER TABLE reports RENAME TO real_reports")
+        con.execute("CREATE VIEW reports AS SELECT * FROM real_reports UNION ALL SELECT x'01', title, note, saved_at, "
+                    "from_day, through_day, filters_json, helper, generated_at, entry_count, total_entries, capped, "
+                    "topic_names, topics_json, text FROM real_reports")
+        con.commit()
+        con.close()
+        listed = library.list()
+        self.assertEqual([r["id"] for r in listed["reports"]], [1])
+        json.dumps(listed)
+
+    def test_reopening_before_the_finalizer_never_counts_hidden_time(self):
+        t0 = at("2026-11-20T10:00:00")
+        self.log.observe({"agent:claude"}, now=t0)
+        hidden = self.log.pause(t0 + dt.timedelta(seconds=10))
+        self.log.resume()                                         # shown again before end_open ran
+        self.log.observe({"agent:claude"}, now=t0 + dt.timedelta(hours=3))
+        self.log.end_open(hidden)                                 # late: finds nothing left to end
+        self.log.observe(set(), now=t0 + dt.timedelta(hours=3, seconds=4))
+        durations = sorted(r["duration_ms"] for r in self.rows("2026-11-20"))
+        self.assertEqual(durations, [4000, 10000])
+
+    def test_finalizer_respects_the_switch(self):
+        self.log.observe({"agent:claude"}, now=at("2026-11-20T10:00:00"))
+        hidden = self.log.pause(at("2026-11-20T10:05:00"))
+        self.settings["ai_activity_log"] = False
+        timeline = mock.Mock(return_value=[])
+        self.log.timeline = timeline
+        self.log.end_open(hidden, usage_for=mock.Mock(side_effect=AssertionError("read after opting out")))
+        self.assertEqual((self.log.active, self.log.pending), ({}, []))
+        timeline.assert_not_called()
+        self.settings["ai_activity_log"] = True
+        self.log.resume()
+        self.log.observe(set(), now=at("2026-11-20T10:06:00"))
+        self.assertEqual(self.rows("2026-11-20"), [])
+
+    def test_a_cut_superseding_write_is_repaired(self):
+        self.log.observe({"agent:claude"}, now=at("2026-11-21T00:05:00"))
+        self.log.observe(set(), now=at("2026-11-21T00:10:00"))
+        row = {"version": 1, "id": "", "origin": "history", "session": "s1", "source_kind": "agent", "source": "claude",
+               "started_at": "2026-11-20T23:50:00Z", "ended_at": "2026-11-21T00:20:00Z", "duration_ms": 0,
+               "files": [], "tokens_in": 5, "tokens_out": 1}
+        real = self.log._write
+        calls = []
+
+        def second_fails(day, rows):
+            calls.append(day)
+            if len(calls) == 2:
+                raise OSError("disk full")
+            return real(day, rows)
+        with mock.patch.object(self.log, "_write", side_effect=second_fails):
+            with self.assertRaises(OSError):
+                self.log.merge_history(row, now=at("2026-11-21T08:00:00"))
+        self.assertIsNone(self.rows("2026-11-21")[0]["superseded_by"])      # the end day was not written
+        self.assertEqual(self.log.merge_history(row, now=at("2026-11-21T08:00:00"))[0], "unchanged")
+        self.assertIsNotNone(self.rows("2026-11-21")[0]["superseded_by"])
+
+
 class SchemaTest(unittest.TestCase):
     def test_defaults(self):
         import settings_schema

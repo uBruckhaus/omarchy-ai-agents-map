@@ -4597,8 +4597,8 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             self.splash_counts()
         self.sync_provider_watch()
         if show:
+            self.reports_shown()             # observing again before the first poll; the Log refresh goes on
             self.start_gpu_poll()
-            self.reports_shown()             # the Reports page's Log refresh goes on
         # A new agent is looked up only when the user asks for it (map menu); nothing is sent by itself.
         self.ai_check_mcp_updates()
         self.refresh_mcp_list()

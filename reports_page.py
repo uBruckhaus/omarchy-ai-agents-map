@@ -303,8 +303,7 @@ class ReportsPage:
         store = getattr(self, "_activity_store", None)
         if store is None:
             return
-        store.pause()                       # at once: a poll still under way can no longer open a span
-        hidden_at = activity_log.now_utc()
+        hidden_at = store.pause()           # at once: a poll still under way can no longer open a span
         usage_for = self.activity_usage_reader(dict(getattr(self, "agent_pids", {}) or {}))
 
         def finish():                       # reading usage and writing the day file: not on the window's thread
@@ -312,7 +311,8 @@ class ReportsPage:
                 store.end_open(hidden_at, usage_for)
             except OSError:
                 pass
-        threading.Thread(target=finish, daemon=True).start()
+        # Not a daemon: when closing quits the app (other desktops), the spans are still written.
+        threading.Thread(target=finish, daemon=False).start()
 
     # --- small parts -------------------------------------------------------------------------------
 
