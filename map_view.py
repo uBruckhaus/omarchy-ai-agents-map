@@ -2349,16 +2349,25 @@ class MapView(Gtk.DrawingArea):
                 cr.set_line_cap(cairo.LINE_CAP_BUTT)
                 for cable, t0, t1 in mine:   # the "!" where its cable shows, clipped as it, under the boxes
                     spot = placed.get(id(cable.edge))
-                    if spot is not None and not (t0 <= spot[0] <= t1 and not map_3d.point_hidden(holes, *spot[1:])):
-                        spot = self.marker_elsewhere(cable.edge, t0, t1, holes,
+                    if spot is None:
+                        continue
+                    # As its cable: the layer's holes and a card lying over one of its ends.
+                    own = holes + [(shape, []) for shape in under_ends[id(cable)]]
+                    if not (t0 <= spot[0] <= t1 and not map_3d.point_hidden(own, *spot[1:])):
+                        spot = self.marker_elsewhere(cable.edge, t0, t1, own,
                                                      [xy for key, xy in taken.items() if key != id(cable.edge)])
                         if spot is not None:
                             taken[id(cable.edge)] = spot[1:]
                         else:
                             taken.pop(id(cable.edge), None)
                     if spot is not None:
+                        if under_ends[id(cable)]:
+                            cr.save()
+                            map_3d.clip_hidden(cr, [(shape, []) for shape in under_ends[id(cable)]])
                         self.paint_marker(cr, cable.edge, *spot[1:])
-                        shown_markers.append((cable.edge, *spot[1:], layer, holes))
+                        if under_ends[id(cable)]:
+                            cr.restore()
+                        shown_markers.append((cable.edge, *spot[1:], layer, own))
                 cr.restore()
                 cr.set_line_cap(cairo.LINE_CAP_BUTT)
             for nodes in cards.values():

@@ -616,6 +616,23 @@ class WholeMapTest(unittest.TestCase):
         walls = (x + w, y, 6, h + 7)                                     # the right wall and beyond
         self.same(wired, plain, walls, 0)
 
+    def test_a_marker_stays_off_a_card_over_its_cables_end(self):
+        moved = [("skills:~/s", (630, 288)), ("cloud:anthropic", (1000, 277))]               # Codex/agy r7
+        view, plain = headless(True, (), moved=moved)
+        _view, wired = headless(True, self.FAILED, moved=moved)
+        x, y, w, h = self.card(view, "skills:~/s")
+        outline = map_3d.block_outline(x, y, w, h, map_3d.CARD_DEPTH)
+        data_w, data_p, stride = wired.get_data(), plain.get_data(), wired.get_stride()
+        changed = [(px, py) for px in range(int(x), int(x + w) + 6) for py in range(int(y), int(y + h) + 7)
+                   if map_3d.in_shape(outline, px + 0.5, py + 0.5)
+                   and data_w[py * stride + px * 4:py * stride + px * 4 + 4]
+                   != data_p[py * stride + px * 4:py * stride + px * 4 + 4]]
+        self.assertEqual(changed, [])
+        for key, mx, my in _view.marker_points:              # and no clicks on the card
+            inside = [(px, py) for px in range(int(mx) - 8, int(mx) + 9) for py in range(int(my) - 8, int(my) + 9)
+                      if map_3d.in_shape(outline, px, py)]
+            self.assertTrue(all(_view.marker_hidden_at(key, px, py) for px, py in inside))
+
     def test_the_flat_map_is_drawn_as_before(self):
         _view, image = headless(False, self.EDGES)
         self.assertEqual(_view.sockets, [])
