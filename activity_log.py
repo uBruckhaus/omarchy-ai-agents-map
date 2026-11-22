@@ -207,7 +207,7 @@ _SECRETS = [re.compile(p, re.IGNORECASE | re.DOTALL) for p in (
     r"-----BEGIN [^-]{1,64}-----(?:.*?-----END [^-]{1,64}-----|.*$)",
     r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+",
     r"\b(?:Bearer|Basic)\s+[^\s,;]+",
-    r"""(?<![A-Za-z0-9_.-])(?:[A-Za-z_][A-Za-z0-9_.-]*)?(?:key|token|secret|password)["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)""",
+    r"""(?<![A-Za-z0-9_.-])(?:[A-Za-z_][A-Za-z0-9_.-]*)?(?:key|token|secret|password|auth|sig)["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)""",
     r"(?<![A-Za-z0-9+/_])(?:[A-Fa-f0-9]{32,}|[A-Za-z0-9+/]{30,}==|[A-Za-z0-9+/]{31,}=|[A-Za-z0-9+/]{32,})(?![A-Za-z0-9+/=_])",
     r"(?<![A-Za-z0-9.!#$%&*+/=?^_{}|~-])[A-Za-z0-9.!#$%&*+/=?^_{}|~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b",
 )]
@@ -232,15 +232,47 @@ def _redact(text: str) -> str:
     return text
 
 
-def _decode_url(match) -> str:
-    """Expose encoded separators before deciding what can be kept; bound nested decoding."""
-    raw = match.group(0)
+def _decode_url_part(raw: str) -> str:
+    """Decode only inside a URL; never substitute this text into the surrounding request."""
     for _ in range(3):
         decoded = unquote(raw)
         if decoded == raw:
             break
         raw = decoded
     return unicodedata.normalize("NFKC", raw)
+
+
+def _clean_url(raw: str) -> tuple[str, str]:
+    """An optional HTTP(S) origin and clean basename, with credentials failing closed."""
+    decoded = _decode_url_part(raw)
+    if "@" in decoded or re.search(r"%(?:25)*40", raw, re.IGNORECASE):
+        return "", "…"
+    try:
+        # Drop raw queries/fragments before decoding, including wrapped Markdown/quoted URLs.
+        url = urlsplit(raw.rstrip("'\"`)]},>"))
+        path = _decode_url_part(url.path).replace("\\", "/")
+        path = re.split(r"[?#]", path, maxsplit=1)[0]
+        name = path.rsplit("/", 1)[-1]
+        if any(c.isspace() or c in "/\\%" for c in name) or _CONTROL.search(name):
+            name = ""
+        if url.scheme.lower() in ("http", "https"):
+            host = _decode_url_part(url.netloc)
+            if host and not any(c.isspace() or c in "/\\%?#@'\"`" for c in host) and not _CONTROL.search(host):
+                origin = urlsplit(url.scheme + "://" + host)
+                if origin.hostname:
+                    return origin.scheme + "://" + origin.netloc, name
+            # Hostless HTTP URLs still have their directory components removed.
+            if url.netloc:
+                return "", "…"
+        return "", name or "…"
+    except ValueError:
+        return "", "…"
+
+
+_ENCODED_SEP = re.compile(r"%(?:25)*(2[Ff]|5[Cc])")
+# The URL alternative consumes the entire raw token before encoded separators can match in it.
+_URL_OR_ENCODED_SEP = re.compile(_URL.pattern + "|" + _ENCODED_SEP.pattern)
+_PATH_SEPARATOR = re.compile(r"[/\\]")
 
 
 def _short_paths(text: str) -> str:
@@ -250,39 +282,54 @@ def _short_paths(text: str) -> str:
     Only standalone slash commands and spaced division slashes are exempt.
     """
     first = None
-    first_end = 0
+    first_url = last_url = None
     last = end = 0
     for token in re.finditer(r"\S+", text):
         if _SLASH_COMMAND.fullmatch(token.group()):
             continue
-        for index in range(token.start(), token.end()):
-            if text[index] not in "/\\":
-                continue
-            if (text[index] == "/" and index > 0 and index + 1 < len(text)
-                    and text[index - 1].isspace() and text[index + 1].isspace()):
+        # URL matches remain raw, atomic spans. Decoding can neither introduce outer tokens nor
+        # erase the first separator boundary of a space-continued path (including userinfo URLs).
+        cursor = token.start()
+        spans = []
+        for url in _URL.finditer(text, token.start(), token.end()):
+            spans.extend((sep.start(), sep.end(), None)
+                         for sep in _PATH_SEPARATOR.finditer(text, cursor, url.start()))
+            spans.append((url.start(), url.end(), _clean_url(url.group())))
+            cursor = url.end()
+        spans.extend((sep.start(), sep.end(), None)
+                     for sep in _PATH_SEPARATOR.finditer(text, cursor, token.end()))
+        for start, stop, url in spans:
+            if (url is None and text[start:stop] == "/" and start > 0 and stop < len(text)
+                    and text[start - 1].isspace() and text[stop].isspace()):
                 continue
             if first is None:
                 first = token.start()
-                first_end = token.end()
-            last, end = index, token.end()
+                first_url = (start, url) if url is not None else None
+            last, end = stop, token.end()
+            last_url = (start, url) if url is not None else None
     if first is None:
         return text
-    if text[first:].lower().startswith(("http://", "https://")):
-        try:
-            # Include tokens up to the final separator: URL paths/fragments can contain spaces.
-            origin = urlsplit(text[first:first_end].replace("\\", "/"))
-            if origin.hostname and not origin.username and not origin.password:
-                # The final name only when the last separator is in the URL itself; a later path's
-                # directory (cut by # or ? in urlsplit) must never become the name.
-                name = origin.path.rsplit("/", 1)[-1] if end == first_end else ""
-                url = origin.scheme + "://" + origin.netloc + ("/" + name if name else "")
-                return text[:first] + url + text[end:]
-        except ValueError:
-            pass
-    return text[:first] + text[last + 1:]
-
-
-_ENCODED_SEP = re.compile(r"%(?:25)*(2[Ff]|5[Cc])")
+    if first_url and first_url[1][0]:
+        origin, name = first_url[1]
+        # A later path/URL must never supply a name for the first URL's host.
+        kept = origin + ("/" + name if first_url == last_url and name else "")
+    elif last_url:
+        origin, name = last_url[1]
+        kept = origin + ("/" + name if origin and name else name)
+    else:
+        # Keep any secret crossing the cut redacted, without erasing path boundaries first.
+        # Provider tokens, assignments, PEM blocks and base64 can all include separators.
+        cut = last
+        secrets = sorted((m.start(), m.end()) for pattern in (_PROVIDER, *_SECRETS)
+                         for m in pattern.finditer(text))
+        prefix_end = first
+        for start, stop in secrets:
+            if start < first and stop > last:
+                prefix_end = min(prefix_end, start)
+            if start <= cut < stop:
+                cut = stop
+        return text[:prefix_end] + ("…" if prefix_end < first or cut > last else "") + text[cut:]
+    return text[:first] + kept + text[end:]
 
 
 def sanitize_topic(value) -> str | None:
@@ -293,11 +340,11 @@ def sanitize_topic(value) -> str | None:
     if not isinstance(value, str):
         return None
     text = unicodedata.normalize("NFKC", value[:256 * 1024])
-    text = _URL.sub(_decode_url, text)
-    # Encoded separators outside URLs too (%2F, %5C, also double-encoded %252F): they are cut below.
-    text = _ENCODED_SEP.sub(lambda m: "/" if m.group(1) in "2f2F" else "\\", text)
+    # Keep encoded-separator handling outside URLs, including nested %252F / %255C.
+    text = _URL_OR_ENCODED_SEP.sub(lambda m: m.group() if m.group(1) is None else
+                                   ("/" if m.group(1).lower() == "2f" else "\\"), text)
+    text = _short_paths(text)
     text = _CONTROL.sub(" ", text)
-    text = _short_paths(_redact(text))
     text = " ".join(_redact(text).split())[:120]
     return text or None
 

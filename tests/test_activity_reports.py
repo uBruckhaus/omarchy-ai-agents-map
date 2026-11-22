@@ -1791,7 +1791,7 @@ class RoundNineTest(TempCase):
             ("see https://e.com/?f=%2Fhome%2Falice%2FMy%20Private%20Client%2Fsrc%2Fx.py",
              "see https://e.com"),
             ("see https://e.com/open/%2Fhome%2Falice%2FMy%20Private%20Client%2Fsrc%2Fx.py",
-             "see https://e.com"),
+             "see https://e.com/x.py"),
             ('fix "/home/alice/Bob\'s Secret/project/a.py"', 'fix a.py"'),
             ("fix /home/alice/Client (Confidential)/src/x.py", "fix x.py"),
             ("see https://e.com/?f=%2Fhome%2Falice%2FClient%20%28Secret%29%2Fsrc%2Fx.py",
@@ -1831,9 +1831,8 @@ class RoundNineTest(TempCase):
             encoded = quote(path, safe="")
             for raw, expected in ((f"https://e.com/?{encoded}=1", "https://e.com"),
                                   (f"https://e.com/?f={encoded}", "https://e.com"),
-                                  # A decoded path with spaces runs past the URL: only the host stays.
-                                  (f"https://e.com/open/{encoded}",
-                                   "https://e.com" if " " in path else "https://e.com/x.py")):
+                                  # Encoded directory whitespace stays inside the URL; its name is clean.
+                                  (f"https://e.com/open/{encoded}", "https://e.com/x.py")):
                 with self.subTest(url=raw):
                     self.assert_private_topic_prompt("see " + raw, "see " + expected)
 
@@ -1895,7 +1894,7 @@ class RoundNineTest(TempCase):
             ("see https://ex.com/home/alice/Secret/", "see https://ex.com"),
             ("see https://ex.com alice Private /home/alice/Secret/x.py", "see https://ex.com"),
             ("see https://ex.com/home/alice/Private Folder/x.py now", "see https://ex.com now"),
-            ("see https://ex.com/home/alice/Bob's%20Files%2FSecret%2Fx.py", "see https://ex.com"),
+            ("see https://ex.com/home/alice/Bob's%20Files%2FSecret%2Fx.py", "see https://ex.com/x.py"),
             ('see https://ex.com/home/alice/"Private%2FFolder%2Fx.py', "see https://ex.com/x.py"),
         ]
         for topic, expected in cases:
@@ -1943,6 +1942,131 @@ class EncodedSeparatorTest(unittest.TestCase):
             self.assertNotIn("github.com/app.py", out)
         self.assertEqual(activity_log.sanitize_topic("read https://ex.com/docs/guide.html"),
                          "read https://ex.com/guide.html")
+
+
+class RoundElevenTest(TempCase):
+    """Raw day-file topics must be safe both on read and in the generated helper prompt."""
+
+    def assert_topic_prompt(self, topic, expected):
+        row = {"version": 1, "origin": "history", "session": "s", "source_kind": "agent", "source": "claude",
+               "topic": topic, "started_at": "2026-11-20T10:00:00Z", "ended_at": "2026-11-20T10:10:00Z",
+               "duration_ms": 0}
+        self.log.directory.mkdir(parents=True, exist_ok=True)
+        (self.log.directory / "2026-11-20.jsonl").write_text(jl(row))
+        prompts = []
+        answer = json.dumps({"title": "t", "text": "x", "topics": []})
+        reports_ctl.generate_topic_report(self.log, {"helper": "h"}, lambda p: prompts.append(p) or answer,
+                                          now=at("2026-11-20T12:00:00"))
+        self.assertEqual(len(prompts), 1)
+        entries = json.loads(prompts[0].split("<untrusted-entries>\n", 1)[1].split("\n</untrusted-entries>", 1)[0])
+        self.assertEqual([entry["topic"] for entry in entries], [expected])
+        self.assertEqual(activity_log.sanitize_topic(topic), expected)
+        self.assertEqual(list(activity_log.clean_rows(jl(row)))[0]["topic"], expected)
+
+    def test_encoded_whitespace_review_examples(self):
+        cases = [
+            ("see https://user:top%20secret@localhost", "see …"),
+            ("see https://user:my%20secret%20pass@ex.com", "see …"),
+            ("see https://ex.com/doc?token=my%20super%20secret%20value", "see https://ex.com/doc"),
+            ("check https://jira.corp.internal/issues/?jql=project%20=%20SecretClient",
+             "check https://jira.corp.internal"),
+            ("see https://ex.com/a#private%20client%20name", "see https://ex.com/a"),
+            ("see https://ex.com/doc?q=foo%0Asecret%20data", "see https://ex.com/doc"),
+            ("see myapp://open?token=my%20secret%20token", "see …"),
+        ]
+        for topic, expected in cases:
+            with self.subTest(topic=topic):
+                self.assert_topic_prompt(topic, expected)
+
+    def test_wrapped_and_non_http_review_examples(self):
+        cases = [
+            ("see [docs](https://ex.com/a/b?client=AcmeCorp&sig=abc123#private)", "see https://ex.com/b"),
+            ("see (https://ex.com/doc?q=ConfidentialClientInfo#private-section)", "see https://ex.com/doc"),
+            ('see "https://ex.com/Private/Secret/x.py?client=AcmeCorp&note=Confidential"',
+             "see https://ex.com/x.py"),
+            ("see <https://ex.com/a?client=AcmeCorp&sig=abc123>", "see https://ex.com/a"),
+            ("fix ./a.py and https://ex.com/y?auth=supersecret&client=AcmeCorp", "fix https://ex.com/y"),
+            ("see file:///home/alice/a.py?auth=supersecret&client=AcmeCorp", "see a.py"),
+            ("see vscode://file/home/alice/a.py?client=AcmeCorp&sig=123", "see a.py"),
+        ]
+        for topic, expected in cases:
+            with self.subTest(topic=topic):
+                self.assert_topic_prompt(topic, expected)
+
+    def test_redaction_keeps_path_boundaries_review_examples(self):
+        cases = [
+            ("fix /home/alice/Documents/Projects/My Secret Private Client/src/x.py", "fix x.py"),
+            ('fix "/home/alice/Documents/Projects/My Private Client/src/x.py"', 'fix x.py"'),
+            ("fix key=/home/alice/My Private Client/src/x.py", "fix x.py"),
+            ("fix Bearer /home/alice/My Private Client/src/x.py", "fix …"),
+            ("fix file:///home/alice@corp/My Private Client/src/x.py", "fix x.py"),
+            ("see https://user@ex.com/My Private Client/src/x.py", "see x.py"),
+            ("open /home/alice@corp.com My Private Client/src/x.py", "open x.py"),
+        ]
+        for topic, expected in cases:
+            with self.subTest(topic=topic):
+                self.assert_topic_prompt(topic, expected)
+
+    def test_url_whitespace_never_creates_outer_tokens(self):
+        for space in ("%20", "%09", "%0A", "%C2%A0", "%2520"):
+            for scheme in ("https", "myapp", "file", "vscode"):
+                base = f"{scheme}://ex.com"
+                expected = "see https://ex.com/x.py" if scheme == "https" else "see x.py"
+                for suffix in (f"?token=my{space}super{space}secret", f"?client=private{space}client",
+                               f"#private{space}client", f"?q=foo{space}secret{space}data"):
+                    with self.subTest(scheme=scheme, space=space, suffix=suffix):
+                        self.assert_topic_prompt(f"see {base}/dir/x.py{suffix}", expected)
+                with self.subTest(scheme=scheme, space=space, component="directory"):
+                    self.assert_topic_prompt(f"see {base}/Private{space}Client/x.py", expected)
+                with self.subTest(scheme=scheme, space=space, component="name"):
+                    self.assert_topic_prompt(f"see {base}/Private/client{space}name",
+                                             "see https://ex.com" if scheme == "https" else "see …")
+                for userinfo in (f"user:top{space}secret@", f"user:top{space}secret%40",
+                                 f"user%3Atop{space}secret%2540"):
+                    with self.subTest(scheme=scheme, space=space, userinfo=userinfo):
+                        self.assert_topic_prompt(f"see {scheme}://{userinfo}ex.com/dir/x.py", "see …")
+
+    def test_url_prefixes_and_clean_names(self):
+        for prefix, suffix in (("url=", ""), ("'", "'"), ("`", "`"), ("(", ")"), ("[docs](", ")"),
+                               ("<", ">"), ('"', '"')):
+            with self.subTest(prefix=prefix):
+                self.assert_topic_prompt(f"read {prefix}https://ex.com/docs/x.py?auth=private%20client#secret{suffix}",
+                                         "read https://ex.com/x.py")
+        for separator in ("%2F", "%5C", "%252F", "%EF%BC%8F"):
+            with self.subTest(separator=separator):
+                self.assert_topic_prompt(f"read https://ex.com/Private{separator}Client{separator}x.py",
+                                         "read https://ex.com/x.py")
+        self.assert_topic_prompt("see ssh://host?auth=private%20client", "see …")
+        self.assert_topic_prompt("see https://ex.com?sig=private%20client", "see https://ex.com")
+        self.assert_topic_prompt("set auth=private sig=confidential", "set … …")
+
+    def test_strict_separators_and_encoded_paths_still_apply(self):
+        cases = [
+            ("see https://ex.com/a then open /home/u/AcmeCorp#Internal/x.py", "see https://ex.com"),
+            ("see https://ex.com/a then open /home/u/Acme?Internal/x.py", "see https://ex.com"),
+            ("see https://github.com/foo/bar and fix the bug in src/app.py", "see https://github.com"),
+            ("fix /home/alice/My Private Client/src/x.py now", "fix x.py now"),
+            ("open %2Fhome%2Falice%2FPrivate%2Fx.py", "open x.py"),
+            ("open %252Fhome%252Falice%252FPrivate%252Fx.py", "open x.py"),
+            ("open C:%5CUsers%5Calice%5CPrivate%5Cx.py", "open x.py"),
+            ("Compare A %2F B and C %252F D carefully", "Compare A / B and C / D carefully"),
+            ("please %2Freview fix ./Private/x.py %252Fsummarize", "please /review fix x.py /summarize"),
+        ]
+        for topic, expected in cases:
+            with self.subTest(topic=topic):
+                self.assert_topic_prompt(topic, expected)
+
+    def test_secrets_crossing_the_final_separator_remain_redacted(self):
+        cases = [
+            ("use sk-abcdefghijklmnop/qrstuvw now", "use … now"),
+            ("set token=abc/xyz now", "set … now"),
+            ("use ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ/abcdef now", "use … now"),
+            ("key=top/secret more", "… more"),
+            ("use -----BEGIN PRIVATE KEY-----abc/xyz-----END PRIVATE KEY----- now", "use … now"),
+        ]
+        for topic, expected in cases:
+            with self.subTest(topic=topic):
+                self.assert_topic_prompt(topic, expected)
 
 
 if __name__ == "__main__":
