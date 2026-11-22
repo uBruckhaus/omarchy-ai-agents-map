@@ -2088,5 +2088,27 @@ class SecretBeforePathTest(unittest.TestCase):
                 self.assertNotIn(word, out, (text, out))
 
 
+class MalformedCredentialUrlTest(unittest.TestCase):
+    """Malformed URLs with credentials fail closed; Authorization values are redacted (review r13)."""
+
+    def test_malformed_credential_urls_never_leak(self):
+        import activity_log
+        for text in ("see https://alice:mysecret<1>@ex.com/a", "see https://alice:mysecret>1@ex.com/a",
+                     "see https://alice:1234<secret>@ex.com/a", "see https://mysecrettoken<1>@ex.com/a",
+                     "see https://a:b<c>@h/x", "see https://user:mysecretpassword @ex.com/a",
+                     "see https://user:mysecretpassword/a/b", "see https://user:pw/a"):
+            out = activity_log.sanitize_topic(text) or ""
+            for word in ("mysecret", "1234", "secret", "mysecrettoken", "mysecretpassword", "pw", "a:b"):
+                self.assertNotIn(word, out, (text, out))
+
+    def test_authorization_values_are_redacted(self):
+        import activity_log
+        for text in ("Authorization=VAL1", 'Authorization="VAL1 VAL2 VAL3"'):
+            out = activity_log.sanitize_topic(text) or ""
+            self.assertNotIn("VAL", out, (text, out))
+        self.assertEqual(activity_log.sanitize_topic("read https://ex.com/docs/guide.html"),
+                         "read https://ex.com/guide.html")
+
+
 if __name__ == "__main__":
     unittest.main()

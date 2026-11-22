@@ -201,13 +201,13 @@ def history_session(value: str) -> str:
     return value if SESSION.match(value) else hashlib.sha256(value.encode("utf-8", "surrogatepass")).hexdigest()
 
 
-_URL = re.compile(r"(?<![A-Za-z0-9+.-])[A-Za-z][A-Za-z0-9+.-]*://[^\s<>]+")
+_URL = re.compile(r"(?<![A-Za-z0-9+.-])[A-Za-z][A-Za-z0-9+.-]*://\S+")
 _PROVIDER = re.compile(r"\b(?:sk-|gh[pousr]_|github_pat_|glpat-|AIza|AKIA|ASIA|xox[baprs]-|hf_|npm_|pypi-)[A-Za-z0-9_+=/.-]+")
 _SECRETS = [re.compile(p, re.IGNORECASE | re.DOTALL) for p in (
     r"-----BEGIN [^-]{1,64}-----(?:.*?-----END [^-]{1,64}-----|.*$)",
     r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+",
     r"\b(?:Bearer|Basic)\s+[^\s,;]+",
-    r"""(?<![A-Za-z0-9_.-])(?:[A-Za-z_][A-Za-z0-9_.-]*)?(?:key|token|secret|password|auth|sig)["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)""",
+    r"""(?<![A-Za-z0-9_.-])(?:[A-Za-z_][A-Za-z0-9_.-]*)?(?:key|token|secret|password|authorization|auth|sig)["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)""",
     r"(?<![A-Za-z0-9+/_])(?:[A-Fa-f0-9]{32,}|[A-Za-z0-9+/]{30,}==|[A-Za-z0-9+/]{31,}=|[A-Za-z0-9+/]{32,})(?![A-Za-z0-9+/=_])",
     r"(?<![A-Za-z0-9.!#$%&*+/=?^_{}|~-])[A-Za-z0-9.!#$%&*+/=?^_{}|~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b",
 )]
@@ -216,7 +216,7 @@ _SECRETS = [re.compile(p, re.IGNORECASE | re.DOTALL) for p in (
 # Redacted before paths are cut: PEM blocks, JWTs and key=/token=/password= assignments whose value is
 # quoted or a URL (a plain unquoted path value is left to the path rule, then redacted).
 _WHOLE_SECRETS = [_SECRETS[0], _SECRETS[1], re.compile(
-    r"""(?<![A-Za-z0-9_.-])(?:[A-Za-z_][A-Za-z0-9_.-]*)?(?:key|token|secret|password|auth|sig)["']?\s*[:=]\s*"""
+    r"""(?<![A-Za-z0-9_.-])(?:[A-Za-z_][A-Za-z0-9_.-]*)?(?:key|token|secret|password|authorization|auth|sig)["']?\s*[:=]\s*"""
     r"""(?:"[^"]*"|'[^']*'|[A-Za-z][A-Za-z0-9+.-]*://[^\s,;]+)""", re.IGNORECASE)]
 _CONTROL = re.compile("[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069\ud800-\udfff]")
 SURROGATES = re.compile("[\ud800-\udfff]")
@@ -264,6 +264,7 @@ def _clean_url(raw: str) -> tuple[str, str]:
             host = _decode_url_part(url.netloc)
             if host and not any(c.isspace() or c in "/\\%?#@'\"`" for c in host) and not _CONTROL.search(host):
                 origin = urlsplit(url.scheme + "://" + host)
+                origin.port  # a non-numeric "port" (user:password without @) fails closed below
                 if origin.hostname:
                     return origin.scheme + "://" + origin.netloc, name
             # Hostless HTTP URLs still have their directory components removed.
