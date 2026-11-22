@@ -14,7 +14,13 @@ Threads: every call may block (a pause waits for the confirmed stop, up to ~10 s
 and runtimes reads files and /proc), so the GTK main thread never calls it directly. Call it from a
 worker thread and hand the result back with GLib.idle_add. The center is thread-safe (one RLock);
 each running attempt has its own thread. `on_change(project_id)` (optional) is called after every
-saved change, from whatever thread made it: keep it cheap (GLib.idle_add of a refresh).
+saved change, on the center's own notifier thread and never while its lock is held, so it may call
+back into the center; keep it short (GLib.idle_add of a refresh).
+
+A custom `runner(argv, cwd, env, input_text, lock, may_launch)` (tests) returns a ProjectProcess
+(output(), started(timeout), wait(), stop()); it calls `may_launch(process)` right before the agent
+is launched: False means withdrawn (raise ProjectError("project_launch_withdrawn")), True means the
+center has taken `process` as the attempt's process (atomically against Pause, shutdown, detach).
 
 Errors: ProjectError.code is a stable machine code (Maprisma's ServiceError codes, listed below);
 malformed parameters raise InvalidRequest (a ProjectError with code "invalid" and a message).
@@ -287,6 +293,10 @@ class ProjectCenter:
         self._writer = writer
         self._environment = agent_environment(environment)
         self._lock = threading.RLock()
+        self._notify: list[str] = []
+        self._notify_lock = threading.Lock()
+        self._notify_ready = threading.Event()
+        self._notifier: threading.Thread | None = None
         self._shutdown_mutex = threading.Lock()
         self._projects: dict[str, dict] = {}
         self._active: dict[str, _Attempt] = {}
@@ -329,11 +339,32 @@ class ProjectCenter:
         self._lifecycle[project_id] = self._lifecycle.get(project_id, 0) + 1
 
     def _changed(self, project_id: str) -> None:
-        if self.on_change is not None:
-            try:
-                self.on_change(project_id)
-            except Exception:              # a listener's failure never stops project work
-                pass
+        """Queue on_change(project_id): it runs on the center's notifier thread, never while the
+        center's lock is held (a listener may call back into the center)."""
+        if self.on_change is None:
+            return
+        with self._notify_lock:
+            self._notify.append(project_id)
+            if self._notifier is None or not self._notifier.is_alive():
+                self._notifier = threading.Thread(target=self._deliver_changes, name="project-center-notify",
+                                                  daemon=True)
+                self._notifier.start()
+            self._notify_ready.set()
+
+    def _deliver_changes(self) -> None:
+        while True:
+            self._notify_ready.wait()
+            with self._notify_lock:
+                pending, self._notify = self._notify, []
+                self._notify_ready.clear()
+            for project_id in pending:
+                listener = self.on_change
+                if listener is None:
+                    continue
+                try:
+                    listener(project_id)
+                except Exception:          # a listener's failure never stops project work
+                    pass
 
     def _supervised(self, argv, cwd, env, input_text, lock, may_launch):
         return project_supervisor.run(argv, cwd, env, input_text, lock, may_launch, supervisor=self._supervisor)
@@ -416,12 +447,16 @@ class ProjectCenter:
             if not stat.S_ISREG(opened.st_mode) or opened.st_uid != os.getuid() or opened.st_nlink != 1 \
                     or opened.st_size > MAX_STORE:
                 raise ProjectError("project_store_unavailable")
-            raw = b""
-            while len(raw) <= MAX_STORE:
+            chunks, size = [], 0
+            while True:
                 chunk = os.read(fd, 1 << 20)
                 if not chunk:
                     break
-                raw += chunk
+                size += len(chunk)
+                if size > MAX_STORE:          # it grew after fstat: not a store to trust
+                    raise ProjectError("project_store_unavailable")
+                chunks.append(chunk)
+            raw = b"".join(chunks)
         except OSError:
             raise ProjectError("project_store_unavailable") from None
         finally:
@@ -634,6 +669,8 @@ class ProjectCenter:
             lock = os.open(f"{project_id}.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600,
                            dir_fd=fd)
             os.close(lock)
+        except OSError:
+            raise ProjectError("project_store_unavailable") from None
         finally:
             os.close(fd)
         return str(self._lock_path(project_id))
@@ -687,8 +724,12 @@ class ProjectCenter:
             raise ProjectError("project_still_pausing")
 
     def _profiles(self) -> dict:
+        return self._profiles_from(self.agent_profiles())
+
+    @staticmethod
+    def _profiles_from(listed) -> dict:
         found = {}
-        for profile in self.agent_profiles():
+        for profile in listed:
             if isinstance(profile, dict) and isinstance(profile.get("id"), str) \
                     and profile.get("installed") is not False and profile.get("project_supported") is not False:
                 found[profile["id"]] = _copy(profile)
@@ -703,7 +744,7 @@ class ProjectCenter:
 
     # --- launch facts --------------------------------------------------------------------------------
 
-    def _members(self, item: dict, phase: str) -> list:
+    def _members(self, item: dict, phase: str, profiles: dict | None = None) -> list:
         team = item["plan_team"] if phase == "planning" and isinstance(item.get("plan_team"), list) else item["team"]
         leads = [m for m in team if m["role"] == "lead"]
         if len(leads) != 1:
@@ -715,7 +756,7 @@ class ProjectCenter:
         ordered = leads + ([m for m in team if m["role"] == "implementer"]
                            if phase != "planning" or isinstance(item.get("plan_team"), list) else []) \
             + [m for m in team if m["role"] == "reviewer"]
-        profiles = self._profiles()
+        profiles = profiles if profiles is not None else self._profiles()
         for member in ordered:
             profile = profiles.get(member["agent"])
             key = _argv_key(member, phase)
@@ -882,7 +923,8 @@ class ProjectCenter:
         if any(key not in ("id", "before") for key in params):
             raise InvalidRequest("Invalid move fields")
         pid, before = params.get("id"), params.get("before")
-        if pid not in self._projects or (before is not None and before not in self._projects):
+        if not isinstance(pid, str) or pid not in self._projects \
+                or (before is not None and (not isinstance(before, str) or before not in self._projects)):
             raise ProjectError("project_unknown")
         order = list(self._projects)
         if before != pid:
@@ -982,7 +1024,12 @@ class ProjectCenter:
         self._start(item["id"], _Attempt(), [helper], "setup", lock)
         return {"project": self._view(item)}
 
-    def _setup_proposal(self, output: str, item: dict) -> dict:
+    def _snapshot(self) -> tuple:
+        """(the listed agents, the usable profiles, the runtimes): read once, outside the lock."""
+        listed = list(self.agent_profiles())
+        return listed, self._profiles_from(listed), self._runtimes()
+
+    def _setup_proposal(self, output: str, item: dict, snapshot: tuple | None = None) -> dict:
         if _utf8(output) > MAX_PLAN:
             raise ProjectError("project_setup_invalid")
         text = output.strip()
@@ -1012,15 +1059,14 @@ class ProjectCenter:
                     "excluded_agents": raw["excluded_agents"] if raw.get("excluded_agents") is not None else [],
                     "excluded_runtimes": raw["excluded_runtimes"] if raw.get("excluded_runtimes") is not None
                     else []}
-        self._validate_setup_proposal(proposal, item)
+        self._validate_setup_proposal(proposal, item, snapshot)
         return proposal
 
-    def _validate_setup_proposal(self, proposal: dict, item: dict) -> None:
+    def _validate_setup_proposal(self, proposal: dict, item: dict, snapshot: tuple | None = None) -> None:
+        listed, candidates, runtimes = snapshot if snapshot is not None else self._snapshot()
         team = self._team(proposal.get("team"))
-        candidates = self._profiles()
         selected = {m["agent"] for m in team}
         excluded = proposal.get("excluded_agents") if proposal.get("excluded_agents") is not None else []
-        listed = list(self.agent_profiles())
         known = {p.get("id"): p for p in listed if isinstance(p, dict)}
         if not isinstance(excluded, list) or len(excluded) > 16 or any(
                 not isinstance(i, str) or i not in known or i in selected for i in excluded):
@@ -1042,8 +1088,7 @@ class ProjectCenter:
                     raise ProjectError("project_agent_unavailable")
                 raise ProjectError("project_setup_agent_omitted")
         self._members({**item, "team": team, "plan_team": team},
-                      "planning" if proposal.get("target") == "plan" else "running")
-        runtimes = self._runtimes()
+                      "planning" if proposal.get("target") == "plan" else "running", candidates)
         used = {m["runtime"] for m in team if isinstance(m.get("runtime"), str)}
         excluded_runtimes = proposal.get("excluded_runtimes") if proposal.get("excluded_runtimes") is not None else []
         if not isinstance(excluded_runtimes, list) or len(excluded_runtimes) > 16 or any(
@@ -1082,18 +1127,18 @@ class ProjectCenter:
         self._advance_lifecycle(item["id"])
         return {"project": self._view(item)}
 
-    def _setup_prompt(self, item: dict) -> str:
-        candidates = self._profiles()
+    def _setup_prompt(self, item: dict, snapshot: tuple | None = None) -> str:
+        listed, candidates, runtime_facts_now = snapshot if snapshot is not None else self._snapshot()
         profiles = [{"id": p.get("id"), "name": p.get("name"), "permissions": p.get("permissions") or "",
                      "access_modes": p.get("access_modes") or ["read-only", "project-edit"],
                      "models": _model_ids(p.get("models"))[:16],
                      "runtime_provider_supported": isinstance(p.get("provider_option"), str)}
                     for p in list(candidates.values())[:64]]
-        runtimes = list(self._runtimes().values())[:32]
+        runtimes = list(runtime_facts_now.values())[:32]
         unavailable = [{"id": p["id"], "name": p.get("name"),
                         "reason": "no managed project profile" if p.get("project_supported") is False
                         else "not installed"}
-                       for p in list(self.agent_profiles())[:64]
+                       for p in listed[:64]
                        if isinstance(p, dict) and isinstance(p.get("id"), str) and p["id"] not in candidates]
         catalog = json.dumps({"agents": profiles, "unavailable_agents": unavailable, "runtimes": runtimes},
                              ensure_ascii=False)
@@ -1230,8 +1275,11 @@ class ProjectCenter:
                     member = members[item["next_member"]]
                 # One snapshot is checked against the approval and then launched; it also becomes the
                 # display snapshot (every project's derived approval), also when the assignment is refused.
-                profiles, runtimes = self._profiles(), self._runtimes()
+                snapshot = self._snapshot()
+                _listed, profiles, runtimes = snapshot
                 with self._lock:
+                    if active.cancelled:          # paused, halted or shut down during the scan
+                        break
                     self._install_display(profiles, runtimes)
                     item = _copy(self._projects[project_id])
                     profile = profiles.get(member["agent"])
@@ -1247,7 +1295,8 @@ class ProjectCenter:
                     # Waiting user messages go to this assignment (task 096); delivered only once started.
                     messages = [] if phase == "setup" else self._queued(item)
                     active.pending = {m["id"] for m in messages}
-                    prompt = self._setup_prompt(item) if phase == "setup" else self._prompt(item, member, phase, messages)
+                    prompt = self._setup_prompt(item, snapshot) if phase == "setup" \
+                        else self._prompt(item, member, phase, messages)
                     stdin = profile.get("stdin") is True
                     if not stdin and _utf8(prompt) > self.prompt_limit:
                         raise ProjectError("project_prompt_too_large")   # before any launch; messages stay queued
@@ -1266,15 +1315,25 @@ class ProjectCenter:
                 if self.authorize is not None:
                     self.authorize(member["agent"])
                 began = time.monotonic()
+
+                def may_launch(process, active=active) -> bool:
+                    # Atomic against pause, halt, shutdown and detach: either they see this process
+                    # (and stop or detach it before or after its go-ahead) or it is never launched.
+                    with self._lock:
+                        if not self._owns_store() or active.cancelled:
+                            return False
+                        active.process = process
+                        return True
                 try:
                     process = self._runner(argv, cwd, dict(self._environment), prompt if stdin else None, lock,
-                                           lambda: self._owns_store() and not active.cancelled)
+                                           may_launch)
                 except ProjectError as error:
                     # Withdrawn before launch by a pause, halt or shutdown: a stop without side effects.
                     if error.code == "project_launch_withdrawn" and active.cancelled:
                         break
                     raise
-                active.process = process
+                with self._lock:
+                    active.process = process
                 launched = process.started(max(0.0, STARTUP_BUDGET - (time.monotonic() - began)))
                 with self._lock:
                     if launched:
@@ -1316,7 +1375,7 @@ class ProjectCenter:
                         self._put(item)
                         return
                     if phase == "setup":
-                        item["setup_proposal"] = self._setup_proposal(output, item)
+                        item["setup_proposal"] = self._setup_proposal(output, item, snapshot)
                     elif phase == "planning" and member["role"] == "lead":
                         if not output.strip():
                             raise ProjectError("project_empty_plan")
@@ -1386,17 +1445,27 @@ class ProjectCenter:
             self._finish(project_id, active, phase, start_failure)
 
     def _follow(self, project_id: str, active: _Attempt, process, phase: str) -> tuple[int, str, bool]:
-        """The assignment's bounded output (saved about twice a second) and its exit code."""
-        output, truncated, last_saved = "", False, time.monotonic()
-        output_error = None
-        try:
-            for text in process.output():
-                combined = output + text
-                truncated = truncated or _utf8(combined) > MAX_OUTPUT
-                output = _bounded(combined, MAX_OUTPUT)
-                if time.monotonic() - last_saved >= 0.5:
+        """The assignment's bounded output (saved about twice a second) and its exit code. The output
+        is read on a thread of its own: the exit (or an unconfirmed cleanup, which raises) decides,
+        and output still open after it gets two seconds, as in Maprisma."""
+        state = {"output": "", "truncated": False, "error": None}
+        guard = threading.Lock()
+
+        def read():
+            last_saved = time.monotonic()
+            try:
+                for text in process.output():
+                    # NUL never reaches the store (a stored NUL would make it unreadable).
+                    text = text.replace("\0", "\ufffd")
+                    with guard:
+                        combined = state["output"] + text
+                        state["truncated"] = state["truncated"] or _utf8(combined) > MAX_OUTPUT
+                        state["output"] = _bounded(combined, MAX_OUTPUT)
+                        output, truncated = state["output"], state["truncated"]
+                    if time.monotonic() - last_saved < 0.5:
+                        continue
                     with self._lock:
-                        if self._storage_fault is not None:
+                        if self._storage_fault is not None or project_id not in self._projects:
                             continue
                         try:
                             progress = _copy(self._projects[project_id])
@@ -1406,31 +1475,42 @@ class ProjectCenter:
                             self._put(progress, increment=False)
                             last_saved = time.monotonic()
                         except ProjectError as error:
-                            output_error = error
+                            state["error"] = error
                             active.cancelled = True
                             threading.Thread(target=_quiet_stop, args=(process,), daemon=True).start()
-        except Exception as error:
-            output_error = error
-            threading.Thread(target=_quiet_stop, args=(process,), daemon=True).start()
+            except Exception as error:
+                state["error"] = error
+                threading.Thread(target=_quiet_stop, args=(process,), daemon=True).start()
+
+        reader = threading.Thread(target=read, name=f"project-output-{project_id[:8]}", daemon=True)
+        reader.start()
         code = process.wait()
+        reader.join(2.0)
         process.stop()
-        active.process = None
-        if output_error is not None:
-            raise output_error
-        return code, output, truncated
+        with self._lock:
+            active.process = None
+        with guard:
+            if state["error"] is not None:
+                raise state["error"]
+            truncated = state["truncated"] or getattr(process, "dropped", False) is True
+            return code, state["output"], truncated
 
     def _finish(self, project_id: str, active: _Attempt, phase: str, start_failure) -> None:
-        active.pending = set()
-        active.finished = True
-        active.cleanup_failed = False
-        process = active.process
+        with self._lock:
+            active.pending = set()
+            process = active.process
+        failed = False
         if process is not None:
             try:
                 process.stop()
-                active.process = None
             except Exception:
-                active.cleanup_failed = True
+                failed = True
         with self._lock:
+            # Set together under the lock: a retried Pause (_stop_attempt) sees both or neither.
+            active.finished = True
+            active.cleanup_failed = failed
+            if not failed:
+                active.process = None
             if active.cleanup_failed:
                 # Keep the attempt and its folder claim until cleanup is confirmed; neither Pause nor a
                 # successful exit may fabricate a checkpoint.
@@ -1486,6 +1566,7 @@ class ProjectCenter:
         if _utf8(text) > MAX_MESSAGE_BYTES:
             raise ProjectError("project_message_too_long")
         with self._lock:
+            self._check_open("message")
             item = self._project(params)
             pid = item["id"]
             active = self._active.get(pid)
@@ -1597,41 +1678,53 @@ class ProjectCenter:
     def _stop_attempt(self, project_id: str, active: _Attempt) -> None:
         """Stop one attempt and wait for its confirmed end. Every call asks again; a failure keeps the
         attempt, its folder claim and its run lock."""
-        active.cancelled = True
-        try:
+        with self._lock:
+            active.cancelled = True
             process = active.process
+        try:
             if process is not None:
                 process.stop()
-            with self._lock:
-                if active.finished and active.cleanup_failed:
-                    active.cleanup_failed = False
-                    active.process = None
-                    if self._active.get(project_id) is active:
-                        del self._active[project_id]
-                    item = _copy(self._projects[project_id])
-                    if item["phase"] == "setup":
-                        self._restore_after_setup(item)
-                        item.setdefault("setup_error", "paused")
-                        if item["setup_error"] is None:
-                            item["setup_error"] = "paused"
-                        self._event(item, "setup_paused", "Team setup was stopped. The project is unchanged.")
-                    else:
-                        item["status"] = "paused"
-                        item["needs_reconciliation"] = item["phase"] == "running" or item["needs_reconciliation"] is True
-                        item["checkpoint_kind"] = "handoff"
-                        self._event(item, "paused", "All owned agent processes have stopped. "
-                                    "The saved handoff may contain incomplete work.")
-                    self._record(item)
-                    active.done.set()
-            if not active.done.wait(6.0):
-                raise ProjectError("project_still_pausing")
+            # This stop is confirmed. The attempt's own thread may have recorded a failed cleanup
+            # (before or just after it): take that over; otherwise wait for its end.
+            deadline = time.monotonic() + 6.0
+            while not active.done.is_set():
+                with self._lock:
+                    if active.finished and active.cleanup_failed:
+                        self._recover(project_id, active)
+                        break
+                if time.monotonic() >= deadline:
+                    raise ProjectError("project_still_pausing")
+                active.done.wait(0.05)
         except ProjectError as error:
             if error.code == "project_processes_still_running":
                 raise ProjectError("project_still_pausing") from None
             raise
 
+    def _recover(self, project_id: str, active: _Attempt) -> None:
+        """A cleanup that failed before is confirmed now (under the lock): the checkpoint it held back."""
+        active.cleanup_failed = False
+        active.process = None
+        if self._active.get(project_id) is active:
+            del self._active[project_id]
+        item = _copy(self._projects[project_id])
+        if item["phase"] == "setup":
+            self._restore_after_setup(item)
+            if item.get("setup_error") is None:
+                item["setup_error"] = "paused"
+            self._event(item, "setup_paused", "Team setup was stopped. The project is unchanged.")
+        else:
+            item["status"] = "paused"
+            item["needs_reconciliation"] = item["phase"] == "running" or item["needs_reconciliation"] is True
+            item["checkpoint_kind"] = "handoff"
+            self._event(item, "paused", "All owned agent processes have stopped. "
+                        "The saved handoff may contain incomplete work.")
+        self._record(item)
+        active.done.set()
+
     def _pause(self, params: dict, lifecycle: bool = True) -> dict:
         with self._lock:
+            if lifecycle:                     # a user's Pause (Send now's own pause may finish a shutdown)
+                self._check_open("pause")
             item = self._project(params)
             pid = item["id"]
             active = self._active.get(pid)
@@ -1934,10 +2027,8 @@ class ProjectCenter:
         if not isinstance(params, dict):
             raise InvalidRequest("Invalid request")
         if operation == "pause":
-            self._check_open(operation)
-            return self._pause(params)
+            return self._pause(params)        # checks open/closed under the lock itself
         if operation == "message":
-            self._check_open(operation)
             return self._message(params)
         with self._lock:
             self._check_open(operation)
@@ -1997,6 +2088,8 @@ class ProjectCenter:
                 for pid in set(self._projects) | set(self._lifecycle):
                     self._advance_lifecycle(pid)
                 attempts = list(self._active.items())
+                for _pid, active in attempts:
+                    active.cancelled = True
             results: dict[str, bool] = {}
 
             def stop(pid, active):
@@ -2013,7 +2106,8 @@ class ProjectCenter:
                 thread.join(max(0.0, deadline - time.monotonic()))
             with self._lock:
                 if len(results) != len(attempts) or not all(results.values()):
-                    self._closed = False      # keep the store lock: no second controller may dispatch
+                    if self._directory_fd is not None:
+                        self._closed = False  # keep the store lock: no second controller may dispatch
                     raise ProjectError("project_still_pausing")
                 if self._directory_fd is not None:
                     os.close(self._directory_fd)
@@ -2124,26 +2218,30 @@ def default_agent_profiles() -> list:
 
 def runtime_facts(runtimes: list, agent_providers: list) -> list:
     """Maprisma's projectRuntimeFacts: each detected local runtime with the agents bound to it (the
-    map's own detected connection: provider name and the chat models it serves, at most 48), without
-    addresses or provider settings. An agent with two providers on one runtime is ambiguous: none.
+    map's own detected connection), without addresses or provider settings. A binding offers the
+    models the agent itself has configured for that provider ("<provider>/<model>" among its model
+    choices) that the runtime also serves (the same 48 the runtime offers). An agent with two
+    providers on one runtime is ambiguous: no binding.
 
-    agent_providers: [(agent id, [agent_details.Provider])] of installed agents with a provider option.
-    Adaptation: the plugin's agents keep no per-provider model list, so a binding offers the runtime's
-    served chat models."""
+    agent_providers: [(agent id, [agent_details.Provider], [its model choices])] of installed agents
+    with a provider option."""
     import connect
     import inventory
     bindings: dict[str, dict] = {}
-    for agent, providers in agent_providers:
+    for agent, providers, choices in agent_providers:
         for provider in providers:
             rt = inventory.local_runtime(provider, runtimes)
             if rt is None:
                 continue
+            served = set(connect.chat_models(list(rt.models))[:MAX_RUNTIME_MODELS])
+            prefix = f"{provider.name}/"
+            models = [choice[len(prefix):] for choice in choices
+                      if isinstance(choice, str) and choice.startswith(prefix) and choice[len(prefix):] in served]
             per = bindings.setdefault(rt.key, {})
             if agent in per:
                 per[agent] = None
             else:
-                per[agent] = {"provider": provider.name,
-                              "models": connect.chat_models(list(rt.models))[:MAX_RUNTIME_MODELS]}
+                per[agent] = {"provider": provider.name, "models": models}
     facts = []
     for rt in runtimes:
         aliases = list(dict.fromkeys([rt.key, rt.name] + ([rt.name.split(".")[0]] if "." in rt.name else [])))
@@ -2160,6 +2258,7 @@ def default_runtime_profiles() -> list:
     import agents as agents_mod
     import harnesses
     import inventory
+    import online_models
     import providers
     processes = inventory.own_processes()
     runtimes = [p.detect(processes) for p in providers.local() if p.detect is not None]
@@ -2170,7 +2269,8 @@ def default_runtime_profiles() -> list:
         if not agent.installed or not isinstance(facts.get("provider_option"), str):
             continue
         try:
-            bound.append((agent.command, list(agent_details.details_for(agent.command).providers)))
+            bound.append((agent.command, list(agent_details.details_for(agent.command).providers),
+                          list(online_models.choices(agent.command))))
         except Exception:
             continue
     return runtime_facts(runtimes, bound)

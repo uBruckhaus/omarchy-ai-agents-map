@@ -107,6 +107,8 @@ class CenterCase(unittest.TestCase):
         self.launch_fail = None
         self.start_gate = None
         self.refused_agents: set[str] = set()
+        self.before_launch = None
+        self.withdrawn: list[FakeProcess] = []
         self.center = self.make()
 
     def make(self, **kwargs):
@@ -120,6 +122,11 @@ class CenterCase(unittest.TestCase):
             process = FakeProcess()
             if self.start_gate is not None:
                 process.starts = self.start_gate
+            if self.before_launch is not None:
+                self.before_launch()
+            if not may_launch(process):          # as the supervisor: no go-ahead, no launch
+                self.withdrawn.append(process)
+                raise ProjectError("project_launch_withdrawn")
             self.processes.append(process)
             return process
 
@@ -965,8 +972,188 @@ class SupervisorProtocolTest(unittest.TestCase):
     def test_a_missing_program_is_unavailable(self):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(ProjectError) as caught:
-                ps.run(["no-such-agent-here"], tmp, {"PATH": tmp}, None, os.path.join(tmp, "l"), lambda: True)
+                ps.run(["no-such-agent-here"], tmp, {"PATH": tmp}, None, os.path.join(tmp, "l"), lambda p: True)
             self.assertEqual(caught.exception.code, "project_agent_unavailable")
+
+
+class StuckProcess(FakeProcess):
+    """The leader ended but a descendant survives: wait() reports the unconfirmed cleanup at once,
+    the output stays open, and stop is refused until `release` is set."""
+
+    def __init__(self):
+        super().__init__()
+        self.release = threading.Event()
+
+    def wait(self):
+        raise ProjectError("project_processes_still_running")
+
+    def stop(self, wait=4.0):
+        self.stop_calls += 1
+        if not self.release.is_set():
+            raise ProjectError("project_processes_still_running")
+        self.stopped = True
+        self.lines.put(None)
+
+
+class ReviewRoundOneTest(CenterCase):
+    """Findings of review round 1 (Codex, Antigravity)."""
+
+    def test_output_with_nul_keeps_the_store_loadable(self):
+        item = self.started([{"agent": "fixture", "role": "lead"}])
+        self.processes[0].finish("before\0after")
+        self.idle()
+        done = self.get(item["id"])
+        self.assertEqual(done["status"], "completed")
+        self.assertNotIn("\0", done["output"] + done["handoff"])
+        self.assertIn("before\ufffdafter", done["output"])
+        self.center.detach()
+        self.assertEqual(self.make().call("get", {"id": item["id"]})["project"]["status"], "completed")
+
+    def test_on_change_runs_outside_the_lock(self):
+        finished = []
+
+        def listener(project_id):
+            other = threading.Thread(target=self.center.summary)
+            other.start()
+            other.join(2.0)                      # under the center's lock this would block
+            finished.append(not other.is_alive())
+        self.center.on_change = listener
+        self.save()
+        wait_until(lambda: finished, timeout=5)
+        self.assertTrue(finished[0], "summary() was blocked while on_change ran")
+
+    def test_a_pause_while_the_supervisor_starts_withdraws_the_launch(self):
+        item = self.approve(self.save(plan="The plan."))
+        gate, reached = threading.Event(), threading.Event()
+
+        def hold():
+            reached.set()
+            gate.wait(5)
+        self.before_launch = hold
+        self.center.call("run", {"id": item["id"], "revision": item["revision"]})
+        reached.wait(5)
+        result = {}
+        pausing = threading.Thread(target=lambda: result.update(self.center.call("pause", {"id": item["id"]})))
+        pausing.start()
+        wait_until(lambda: self.center._active[item["id"]].cancelled)
+        gate.set()                                # the go-ahead is asked only now
+        pausing.join(10)
+        self.assertEqual(self.processes, [])      # never launched
+        self.assertEqual(len(self.withdrawn), 1)
+        self.assertEqual(result["project"]["status"], "paused")
+
+    def test_a_detach_while_the_supervisor_starts_withdraws_the_launch(self):
+        item = self.approve(self.save(plan="The plan."))
+        gate, reached = threading.Event(), threading.Event()
+        self.before_launch = lambda: (reached.set(), gate.wait(5))
+        self.center.call("run", {"id": item["id"], "revision": item["revision"]})
+        reached.wait(5)
+        self.center.detach()
+        gate.set()
+        wait_until(lambda: self.withdrawn)
+        self.assertEqual(self.processes, [])
+
+    def test_an_unconfirmed_cleanup_after_the_leader_ended_does_not_hang(self):
+        item = self.approve(self.save(plan="The plan."))
+        stuck = StuckProcess()
+
+        def runner(argv, cwd, env, input_text, lock, may_launch):
+            self.assertTrue(may_launch(stuck))
+            return stuck
+        self.center._runner = runner
+        self.center.call("run", {"id": item["id"], "revision": item["revision"]})
+        wait_until(lambda: self.get(item["id"])["status"] == "pausing", timeout=10)
+        self.assertEqual(self.card(item["id"])["bucket"], "running")
+        self.assertIn("cleanup_failed", self.types(self.get(item["id"])))
+        self.assertCode("project_still_pausing", self.center.call, "pause", {"id": item["id"]})
+        stuck.release.set()
+        self.assertEqual(self.center.call("pause", {"id": item["id"]})["project"]["status"], "paused")
+        self.idle()
+
+    def test_unhashable_move_parameters_are_unknown(self):
+        a = self.save(title="A")
+        self.assertCode("project_unknown", self.center.call, "move", {"id": []})
+        self.assertCode("project_unknown", self.center.call, "move", {"id": a["id"], "before": {}})
+
+    def test_messages_and_pause_after_shutdown_are_closed(self):
+        item = self.started([{"agent": "fixture", "role": "lead"}])
+        self.processes[0].finish("Done.")
+        self.idle()
+        self.center.shutdown()
+        self.assertCode("project_center_closed", self.center.call, "message",
+                        {"id": item["id"], "run_id": item["run_id"], "text": "Hi"})
+        self.assertCode("project_center_closed", self.center.call, "pause", {"id": item["id"]})
+
+    def test_runtime_bindings_offer_the_agents_configured_served_models(self):
+        import agent_details
+        import inventory
+        runtime = inventory.Runtime("llamacpp", "llama.cpp", installed=True, running=True,
+                                    address="127.0.0.1:8080", models=["served-a", "served-b", "embed-x"])
+        provider = agent_details.Provider("llama-local", local=True, runtime="llama.cpp", port=8080)
+        facts = pc.runtime_facts([runtime], [("pi", [provider], ["llama-local/served-a", "llama-local/absent",
+                                                                 "other/served-b", "claude-opus"])])
+        self.assertEqual(facts[0]["models"], ["served-a", "served-b"])
+        self.assertEqual(facts[0]["bindings"], {"pi": {"provider": "llama-local", "models": ["served-a"]}})
+        twice = pc.runtime_facts([runtime], [("pi", [provider, provider], [])])
+        self.assertEqual(twice[0]["bindings"], {})           # ambiguous: no binding
+
+
+class SupervisorBoundsTest(unittest.TestCase):
+    def test_output_is_bounded_while_nobody_reads(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lock = os.path.join(tmp, "run.lock")
+            open(lock, "w").close()
+            process = ps.run([sys.executable, "-c", "import sys\nfor _ in range(200): sys.stdout.write('x' * 16384)"],
+                             tmp, dict(os.environ), None, lock, lambda p: True)
+            self.assertEqual(process.wait(), 0)
+            self.assertLessEqual(process._chunk_bytes, ps.OUTPUT_BUFFER + ps.READ_CHUNK)
+            self.assertTrue(process.dropped)
+            text = "".join(process.output())
+            self.assertGreater(len(text), 64 * 1024)
+            process.stop()
+
+    def test_a_supervisor_that_never_reads_cannot_block_the_start(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            silent = [sys.executable, "-c", "import time; time.sleep(60)"]
+            outcome = {}
+
+            def start():
+                try:
+                    ps.run([sys.executable, "-c", "pass", "p" * 300_000], tmp, dict(os.environ), None,
+                           os.path.join(tmp, "l"), lambda p: True, supervisor=silent)
+                except ProjectError as error:
+                    outcome["code"] = error.code
+            began = time.monotonic()
+            thread = threading.Thread(target=start, daemon=True)
+            thread.start()
+            thread.join(15)
+            self.assertFalse(thread.is_alive(), "the start blocked on a full pipe")
+            self.assertEqual(outcome.get("code"), "project_agent_unavailable")
+            self.assertLess(time.monotonic() - began, 12)
+
+    def test_concurrent_stops_reap_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lock = os.path.join(tmp, "run.lock")
+            open(lock, "w").close()
+            process = ps.run([sys.executable, "-c", "import time; time.sleep(30)"], tmp, dict(os.environ), None,
+                             lock, lambda p: True)
+            self.assertTrue(process.started())
+            errors = []
+
+            def stop():
+                try:
+                    process.stop(wait=8)
+                except Exception as error:      # noqa: BLE001  (any failure fails the test)
+                    errors.append(error)
+            threads = [threading.Thread(target=stop) for _ in range(3)]
+            with mock.patch("process_group.end_child", wraps=__import__("process_group").end_child) as end:
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join(20)
+            self.assertEqual(errors, [])
+            self.assertEqual(end.call_count, 1)
+            self.assertIsNotNone(process._proc.returncode)
 
 
 class AdapterProjectTest(unittest.TestCase):
