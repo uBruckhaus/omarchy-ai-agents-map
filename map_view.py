@@ -227,6 +227,8 @@ class MapView(Gtk.DrawingArea):
         self.on_move = None      # callback(model id, folder, (x, y, w, h)): a model dropped on a folder
         self.on_failed_edge = None # callback((agent id, target id), (x, y, w, h)): a line with hints clicked
         self.marker_points = []    # ((source, target), x, y) of the "!" on failed lines, for clicks
+        self.marker_holes = {}     # 3D: (source, target) -> the shapes hiding parts of its "!" (draw_3d)
+        self.block_depths = {}     # 3D: box id or ("summary", column) -> its walls' depth as last drawn
         self.shift = False       # Shift held: hidden boxes come back to be added
         self.layers = set(graph_model.LAYERS)   # categories switched on
         self.mode_off = set()    # categories the header's setup choice (All · Online · Local LLMs) leaves out
@@ -1004,11 +1006,13 @@ class MapView(Gtk.DrawingArea):
             cr.set_source_rgba(*self.color("bg", 0.9 * alpha))
             cr.fill()
 
+    MARKER_PLACES = (0.5, 0.38, 0.62, 0.28, 0.72, 0.2, 0.8)   # where on its line a "!" may go
+
     def place_markers(self, edges) -> list:
         """[(edge, t, x, y)]: where the "!" of each failed line goes, apart from each other."""
         placed = []
         for edge in sorted(edges, key=lambda e: e.failed != "error"):     # errors first: they keep the middle
-            for t in (0.5, 0.38, 0.62, 0.28, 0.72, 0.2, 0.8):
+            for t in self.MARKER_PLACES:
                 mx, my = self.curve_point(edge, t)
                 if all(math.hypot(mx - px, my - py) >= 18 for _e, _t, px, py in placed):
                     break
@@ -1684,7 +1688,8 @@ class MapView(Gtk.DrawingArea):
         node_id = self.node_at(x, y)
         edge = self.edge_at(x, y) if node_id is None else None
         # A "!" clicked: its own line, even where other lines cross it.
-        marker = min(((math.hypot(mx - x, my - y), key) for key, mx, my in self.marker_points), default=None)
+        marker = min(((math.hypot(mx - x, my - y), key) for key, mx, my in self.marker_points
+                      if not self.marker_hidden_at(key, x, y)), default=None)
         if node_id is None and marker is not None and marker[0] <= 10:
             edge = marker[1]
         if edge is not None or self.selected_edge is not None:
@@ -2252,11 +2257,12 @@ class MapView(Gtk.DrawingArea):
     def draw_3d(self, cr, layout, pal, cables, markers, lit_nodes):
         """The 3D map's cards, cables and boxes, layer by layer (card_layers), as Maprisma paints them:
         the plinths, the cables over them, the boxes over the cables, then the sockets. A cable goes with
-        the higher layer of its two ends. Where something painted before lies over it, it is hidden:
-        the faces of lower boxes and the folded headers (as on the flat map, a line's end stays under
-        its header), each only where no card painted since lies over it; and the stretch of a cable
-        that starts under a card moved over its end is left out up to where it comes out from under
-        that card. A failed line's "!" shows (and takes clicks) only where its cable does."""
+        the higher layer of its two ends. Where something painted before lies over it, it is hidden, as
+        on the flat map: the column summaries, card headers (folded ones with the line's end), + and
+        "not installed" rows, lower boxes and their walls (not where a cable plugs in), each only where
+        no card painted since lies over it; and the stretch of a cable that starts under a card moved
+        over its end is left out up to where it comes out from under that card. A failed line's "!"
+        is clipped as its cable and takes clicks only where it shows."""
         layers = self.card_layers()
         card_of = {n.id: self.group_key(n) for n in self.graph.nodes if n.id in self.boxes}
         by_layer = {}                # layer -> {card key: [nodes]} in the cards' order
@@ -2266,28 +2272,38 @@ class MapView(Gtk.DrawingArea):
                 key = card_of[node.id]
                 by_layer.setdefault(layers.get(key, 0), {}).setdefault(key, []).append(node)
         radius = self.radius + 2
-        # (shape, its layer): what may lie over a later cable. A folded header a pixel larger (no
-        # antialiased seam); the boxes as they are added (draw order).
-        hiding = [((x - 1, y - 1, w + 2, h + 2, radius + 1), layers.get(key, 0))
-                  for key, (x, y, w, h), *_rest in self.group_labels if key in self.collapsed]
+        # (shape, its layer, its box or None): what lies over a cable painted later, unless a card
+        # painted since lies over it. The column summaries (and their walls) under everything; the
+        # folded headers (a pixel larger: no antialiased seam), open headers, + and "not installed"
+        # rows of each layer's cards; the boxes and their walls as they are painted.
+        hiding = []
+        for column, (x, y, w, h) in self.summaries.items():
+            depth = self.block_depths.get(("summary", column))
+            hiding.append((map_3d.block_outline(x, y, w, h, depth) if depth else (x, y, w, h, radius), -1, None))
 
         def layer_of(node_id):
             return layers.get(card_of.get(node_id), 0)
-
-        def hidden_at(point, layer) -> bool:
-            px, py = point
-            return any(own <= layer and x <= px <= x + w and y <= py <= y + h
-                       and not self.covering(point, own, layer, layers)
-                       for (x, y, w, h, _r), own in hiding)
         cable_layer = {id(c): max(layer_of(node_id) for node_id, _p in c.ends) for c in cables}
         placed = {id(edge): (t, mx, my) for edge, t, mx, my in self.place_markers(markers)}
         self.marker_points = []      # rebuilt every drawing: only the markers shown now take clicks
-        shown_markers = []           # (edge, x, y, layer)
+        self.marker_holes = {}       # (source, target) -> what hides parts of its "!" (clicks there miss it)
+        shown_markers = []           # (edge, x, y, layer, holes)
         for layer in sorted(set(by_layer) | set(cable_layer.values())):
             cards = by_layer.get(layer, {})
             for key in cards:
                 self.draw_cards(cr, layout, key)
                 self.draw_add_card(cr, layout, key)
+            for key, (x, y, w, h), *_rest in self.group_labels:
+                if layers.get(key, 0) != layer or key not in cards:
+                    continue
+                if key in self.collapsed:
+                    hiding.append(((x - 1, y - 1, w + 2, h + 2, radius + 1), layer, None))
+                    continue
+                hiding.append(((x, y, w, CARD_HEAD, radius), layer, None))
+                rows = [rect for rect, item in self.missing_rects.values() if item in self.missing.get(key, [])]
+                if key in self.add_rects:
+                    rows.append(self.add_rects[key][0])
+                hiding += [((*rect, self.radius), layer, None) for rect in rows]
             mine = []                # (cable, from t, to t) of this layer, the part to paint
             for cable in (c for c in cables if cable_layer[id(c)] == layer):
                 ends = [self.covering(point, layer_of(node_id), layer, layers) for node_id, point in cable.ends]
@@ -2295,9 +2311,19 @@ class MapView(Gtk.DrawingArea):
                 if t0 < t1:
                     mine.append((cable, t0, t1))
             if mine:
+                # Where a cable plugs into a lower box, its wall does not hide it (the socket is on it).
+                plugs = {}
+                for cable, t0, t1 in mine:
+                    for (node_id, (px, py)), t in zip(cable.ends, (t0, t1)):
+                        if t in (0.0, 1.0) and node_id in self.boxes:
+                            bx, _by, bw, _bh = self.boxes[node_id]
+                            side = 1 if px >= bx + bw / 2 else -1
+                            reach = cable.width / 2 + 1.5
+                            plugs.setdefault(node_id, []).append(
+                                (px if side > 0 else px - 10, py - reach, 10, 2 * reach))
                 bounds = map_3d.bounds_of([c.points for c, _t0, _t1 in mine], 12)
-                holes = [(shape, self.cards_between(own, layer, layers)) for shape, own in hiding
-                         if own <= layer and map_3d.overlaps(shape, bounds)]
+                holes = [(shape, self.cards_between(own, layer, layers) + plugs.get(node_id, []))
+                         for shape, own, node_id in hiding if own <= layer and map_3d.overlaps(shape, bounds)]
                 cr.save()
                 map_3d.clip_hidden(cr, holes)
                 for cable, t0, t1 in mine:
@@ -2309,19 +2335,28 @@ class MapView(Gtk.DrawingArea):
                     cr.set_line_cap(cairo.LINE_CAP_ROUND if cable.failed else cairo.LINE_CAP_BUTT)
                     map_3d.paint_cable(cr, trace, cable.rgba, cable.width, pal, shadow=cable.shadow,
                                        dash=cable.dash)
+                cr.set_line_cap(cairo.LINE_CAP_BUTT)
+                for cable, t0, t1 in mine:   # the "!" where its cable shows, clipped as it, under the boxes
+                    spot = placed.get(id(cable.edge))
+                    if spot is not None and not (t0 <= spot[0] <= t1 and not map_3d.point_hidden(holes, *spot[1:])):
+                        # Its place is hidden: the first other place on its line that shows.
+                        spot = next(((t, *self.curve_point(cable.edge, t)) for t in self.MARKER_PLACES
+                                     if t0 <= t <= t1 and not map_3d.point_hidden(
+                                         holes, *self.curve_point(cable.edge, t))), None)
+                    if spot is not None:
+                        self.paint_marker(cr, cable.edge, *spot[1:])
+                        shown_markers.append((cable.edge, *spot[1:], layer, holes))
                 cr.restore()
                 cr.set_line_cap(cairo.LINE_CAP_BUTT)
-            for cable, t0, t1 in mine:       # the "!" where its cable shows, under this layer's boxes
-                spot = placed.get(id(cable.edge))
-                if spot is not None and t0 <= spot[0] <= t1 and not hidden_at(spot[1:], layer):
-                    self.paint_marker(cr, cable.edge, *spot[1:])
-                    shown_markers.append((cable.edge, *spot[1:], layer))
             for nodes in cards.values():
                 for node in nodes:
                     if node.id in self.folded:
                         continue           # its card is collapsed: only the header shows
                     self.draw_node(cr, layout, node, lit_nodes)
-                    hiding.append((self.boxes[node.id] + (self.radius,), layer))
+                    x, y, w, h = self.boxes[node.id]
+                    depth = self.block_depths.get(node.id)
+                    hiding.append((map_3d.block_outline(x, y, w, h, depth) if depth else (x, y, w, h, self.radius),
+                                   layer, node.id))   # its face and walls (not where a cable plugs in)
             for cable, t0, t1 in mine:       # where each cable plugs into a box, unless a card lies over it
                 if not cable.sockets:
                     continue
@@ -2332,9 +2367,16 @@ class MapView(Gtk.DrawingArea):
                     self.sockets.append((*point, cable.rgba, layer_of(node_id)))
         cr.set_line_cap(cairo.LINE_CAP_BUTT)
         top = max(layers.values(), default=0)
-        for edge, mx, my, layer in shown_markers:  # a card moved over a "!" later takes its clicks
-            if not self.covering((mx, my), layer, top, layers):
+        for edge, mx, my, layer, holes in shown_markers:   # a card moved over a "!" later hides it too
+            later = [((*rect, radius), []) for rect in self.cards_between(layer, top, layers)]
+            if not map_3d.point_hidden(later, mx, my):
                 self.marker_points.append(((edge.source, edge.target), mx, my))
+                self.marker_holes[(edge.source, edge.target)] = holes + later
+
+    def marker_hidden_at(self, key, x, y) -> bool:
+        """3D: whether the "!" of this line is hidden at (x, y) (a box, header or card lies over it there)."""
+        holes = getattr(self, "marker_holes", {}).get(key)
+        return bool(holes) and map_3d.point_hidden(holes, x, y)
 
     def draw_box(self, cr, layout, node, x, y, w, h, faded, alpha, lit_nodes):
         """A box as Maprisma's (map_editor.dart): a card, filled in the accent colour while it runs,
@@ -2355,8 +2397,8 @@ class MapView(Gtk.DrawingArea):
             # A solid block, tiered by column, lifted while hovered, selected or running; pressed nearly
             # flat when faded, or dimmed of itself and not lit (Maprisma's map_editor).
             face = map_3d.mix(pal.bg, self.color(tint[0])[:3], tint[1])
-            map_3d.paint_block_back(cr, x, y, w, h, self.radius, face,
-                                    map_3d.block_depth(node.column, elevated, recessed), pal,
+            depth = self.block_depths[node.id] = map_3d.block_depth(node.column, elevated, recessed)
+            map_3d.paint_block_back(cr, x, y, w, h, self.radius, face, depth, pal,
                                     accent=pal.accent if framed or running else None,
                                     elevated=elevated, dimmed=recessed)
         self.rounded(cr, x, y, w, h, self.radius)
@@ -2703,8 +2745,8 @@ class MapView(Gtk.DrawingArea):
                 # Maprisma's column card as a block (Map3dBlock), as deep as its column's boxes; an empty
                 # column's lies nearly flat.
                 face = map_3d.mix(pal.bg, pal.fg, 0.0 if empty else 0.07)
-                map_3d.paint_block_back(cr, x, y, w, h, self.radius + 2, face, map_3d.block_depth(column, dimmed=empty),
-                                        pal, dimmed=empty)
+                depth = self.block_depths[("summary", column)] = map_3d.block_depth(column, dimmed=empty)
+                map_3d.paint_block_back(cr, x, y, w, h, self.radius + 2, face, depth, pal, dimmed=empty)
                 map_3d.rounded(cr, x, y, w, h, self.radius + 2)     # its face, edge to edge with its walls
                 cr.set_source_rgba(*face, 1.0)
                 cr.fill()

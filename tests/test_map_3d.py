@@ -114,6 +114,13 @@ class GeometryTest(unittest.TestCase):
         middle = map_3d.bezier_point(part, 0.5)
         self.assertAlmostEqual(middle[0], map_3d.bezier_point(points, 0.5)[0])
 
+    def test_a_cable_comes_out_right_at_the_card_edge(self):
+        points = (0, 0, 50, 0, 50, 0, 100, 0)
+        t0, _t1 = map_3d.uncovered_span(points, [(-10, -10, 47.3, 20)], [])
+        self.assertAlmostEqual(map_3d.bezier_point(points, t0)[0], 37.3, delta=0.05)
+        _t0, t1 = map_3d.uncovered_span(points, [], [(62.1, -10, 100, 20)])
+        self.assertAlmostEqual(map_3d.bezier_point(points, t1)[0], 62.1, delta=0.05)
+
     def test_the_stretch_under_a_card_is_left_out(self):
         points = (0, 0, 50, 0, 50, 0, 100, 0)          # a straight line
         t0, t1 = map_3d.uncovered_span(points, [(-10, -10, 40, 20)], [])
@@ -173,6 +180,7 @@ class Boxes:
         self.summary_counts, self.column_titles = None, {1: "Agents"}
         self.summary_texts = ("{0} on · {1} more available", "{0} found · Expand", "Nothing yet")
         self.flow_layer, self.redrawn = None, 0
+        self.block_depths = {}
 
     def queue_draw(self):
         self.redrawn += 1
@@ -505,6 +513,62 @@ class WholeMapTest(unittest.TestCase):
             view.graph.edges[0].failed = ""
             redraw(view)
             self.assertEqual(view.marker_points, [], three_d)
+
+    @staticmethod
+    def card(view, node_id):
+        return view.card_rects[view.group_key(next(n for n in view.graph.nodes if n.id == node_id))]
+
+    def same(self, a, b, rect, inset=1):
+        self.assertEqual(pixels(a, rect, inset), pixels(b, rect, inset))
+
+    def test_no_cable_or_marker_over_an_open_header(self):
+        for moved in ([("skills:~/s", (700, 310)), ("cloud:anthropic", (1000, 277))],      # Codex r4
+                      [("cloud:anthropic", (600, 120))]):                                   # agy r4
+            view, plain = headless(True, (), moved=moved)
+            _view, wired = headless(True, self.FAILED, moved=moved)
+            for node_id in ("skills:~/s", "agent:claude"):
+                x, y, w, _h = self.card(view, node_id)
+                self.same(wired, plain, (x, y, w, 26))
+                self.assertFalse([p for p in _view.marker_points if x <= p[1] <= x + w and y <= p[2] <= y + 26])
+
+    def test_no_cable_or_marker_over_a_summary(self):
+        moved = [("agent:claude", (50, 0)), ("cloud:anthropic", (900, 0))]
+        view, plain = headless(True, (), collapsed=("cloud:anthropic",), moved=moved)
+        _view, wired = headless(True, self.FAILED, collapsed=("cloud:anthropic",), moved=moved)
+        agents = view.card_rects[view.group_key(next(n for n in view.graph.nodes if n.id == "agent:claude"))]
+        for column, (x, y, w, h) in view.summaries.items():
+            if not (agents[0] < x + w and x < agents[0] + agents[2] and agents[1] < y + h):
+                self.same(wired, plain, (x, y, w, h), 10)  # a summary no moved card lies over (its corners round)
+        self.assertTrue(_view.marker_points)                # the "!" moved to where its line shows
+
+    def test_a_marker_close_to_a_box_stays_off_it(self):
+        moved = [("skills:~/s", (890, 260)), ("cloud:anthropic", (1000, 277))]               # Codex r4
+        view, plain = headless(True, (), moved=moved)
+        _view, wired = headless(True, self.FAILED, moved=moved)
+        x, y, w, h = view.boxes["skills:~/s"]
+        box = (x, y, self.card(view, "cloud:anthropic")[0] - x, h)     # the part the providers leave free
+        self.same(wired, plain, box, 0)
+        self.assertTrue(_view.marker_points)
+        for key, mx, my in _view.marker_points:              # a click on the box part is not the "!"
+            x, y, w, h = box
+            inside = [(px, py) for px in range(int(mx) - 8, int(mx) + 9) for py in range(int(my) - 8, int(my) + 9)
+                      if x + 1 <= px <= x + w - 1 and y + 1 <= py <= y + h - 1]
+            self.assertTrue(all(_view.marker_hidden_at(key, px, py) for px, py in inside))
+
+    def test_a_lower_box_keeps_its_walls(self):
+        moved = ("cloud:anthropic", (1000, 277))                                           # Codex r4
+        view, plain = headless(True, (), moved=moved)
+        _view, wired = headless(True, self.FAILED, moved=moved)
+        x, y, w, h = view.boxes["agent:claude"]
+        socket_y = y + h / 2
+        data_w, data_p = wired.get_data(), plain.get_data()
+        stride = wired.get_stride()
+        changed = [(px, py) for px in range(int(x + w) + 1, int(x + w) + 5) for py in range(int(y), int(y + h) + 6)
+                   if abs(py - socket_y) > 6
+                   and data_w[py * stride + px * 4:py * stride + px * 4 + 4]
+                   != data_p[py * stride + px * 4:py * stride + px * 4 + 4]]
+        self.assertEqual(changed, [])
+        self.assertTrue(_view.sockets)                       # still plugged in
 
     def test_the_flat_map_is_drawn_as_before(self):
         _view, image = headless(False, self.EDGES)

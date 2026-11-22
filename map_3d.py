@@ -109,11 +109,22 @@ def uncovered_span(points, start_covers, end_covers, steps: int = 64) -> tuple:
     def inside(t, covers):
         x, y = bezier_point(points, t)
         return any(cx <= x <= cx + cw and cy <= y <= cy + ch for cx, cy, cw, ch in covers)
-    t0, t1 = 0.0, 1.0
-    if start_covers:
-        t0 = next((i / steps for i in range(steps + 1) if not inside(i / steps, start_covers)), 1.0)
-    if end_covers:
-        t1 = next((1 - i / steps for i in range(steps + 1) if not inside(1 - i / steps, end_covers)), 0.0)
+    def crossing(covers, start, step):
+        """From `start` towards the other end: the first t outside the covers, refined by bisection
+        to well under a pixel (a coarse step would stop the cable short of the card's edge)."""
+        for i in range(steps + 1):
+            t = start + step * i / steps
+            if not inside(t, covers):
+                if i == 0:
+                    return t
+                lo, hi = start + step * (i - 1) / steps, t        # lo inside, hi outside
+                for _ in range(16):
+                    mid = (lo + hi) / 2
+                    lo, hi = (mid, hi) if inside(mid, covers) else (lo, mid)
+                return hi
+        return start + step
+    t0 = crossing(start_covers, 0.0, 1.0) if start_covers else 0.0
+    t1 = crossing(end_covers, 1.0, -1.0) if end_covers else 1.0
     return t0, t1
 
 
@@ -124,9 +135,51 @@ def bounds_of(curves, reach: float) -> tuple:
     return min(xs) - reach, min(ys) - reach, max(xs) + reach, max(ys) + reach
 
 
+def is_polygon(shape) -> bool:
+    """A hiding shape is (x, y, w, h, radius), or a polygon: ((x, y), …) (a block's wall)."""
+    return isinstance(shape[0], tuple)
+
+
+def shape_box(shape) -> tuple:
+    """(x, y, w, h) around a shape."""
+    if not is_polygon(shape):
+        return tuple(shape[:4])
+    xs, ys = [p[0] for p in shape], [p[1] for p in shape]
+    return min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)
+
+
 def overlaps(shape, bounds) -> bool:
-    x, y, w, h = shape[:4]
+    x, y, w, h = shape_box(shape)
     return x <= bounds[2] and x + w >= bounds[0] and y <= bounds[3] and y + h >= bounds[1]
+
+
+def in_shape(shape, px, py) -> bool:
+    if not is_polygon(shape):
+        x, y, w, h, r = shape
+        if not (x <= px <= x + w and y <= py <= y + h):
+            return False
+        r = max(0.0, min(r, w / 2, h / 2))
+        cx, cy = min(max(px, x + r), x + w - r), min(max(py, y + r), y + h - r)
+        return math.hypot(px - cx, py - cy) <= r + 1e-9
+    inside = False                           # even-odd ray cast
+    for (ax, ay), (bx, by) in zip(shape, shape[1:] + shape[:1]):
+        if (ay > py) != (by > py) and px < ax + (py - ay) * (bx - ax) / (by - ay):
+            inside = not inside
+    return inside
+
+
+def point_hidden(holes, px, py) -> bool:
+    """Whether (px, py) is cut away by clip_hidden(holes)."""
+    return any(in_shape(shape, px, py) and not any(cx <= px <= cx + cw and cy <= py <= cy + ch
+                                                   for cx, cy, cw, ch in covers)
+               for shape, covers in holes)
+
+
+def block_outline(x, y, w, h, depth) -> tuple:
+    """A block at (x, y) with its walls as one polygon (its face and the walls swept to the lower
+    right; the rounded corners left square): what of a cable it hides, in one clip."""
+    dx, dy = depth
+    return ((x, y), (x + w, y), (x + w + dx, y + dy), (x + w + dx, y + h + dy), (x + dx, y + h + dy), (x, y + h))
 
 
 def _rounded_reverse(cr, x, y, w, h, r):
@@ -156,10 +209,20 @@ def clip_hidden(cr, holes):
         return
     rule = cr.get_fill_rule()
     cr.set_fill_rule(cairo.FILL_RULE_WINDING)
-    for (x, y, w, h, r), covers in holes:
+    for shape, covers in holes:
         cr.new_path()
         cr.rectangle(-1e6, -1e6, 3e6, 3e6)
-        _rounded_reverse(cr, x, y, w, h, r)
+        if is_polygon(shape):
+            points = list(shape)
+            area = sum(ax * by - bx * ay for (ax, ay), (bx, by) in zip(points, points[1:] + points[:1]))
+            if area > 0:                     # the plane's way round: turn it the other way
+                points.reverse()
+            cr.move_to(*points[0])
+            for point in points[1:]:
+                cr.line_to(*point)
+            cr.close_path()
+        else:
+            _rounded_reverse(cr, *shape)
         for cx, cy, cw, ch in covers:
             cr.rectangle(cx, cy, cw, ch)
         cr.clip()
