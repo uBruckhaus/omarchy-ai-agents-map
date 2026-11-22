@@ -570,27 +570,44 @@ class ProviderConfigPage:
         body.append(card)
 
     def provider_config_dictate(self, button, entry, engine):
-        """Start dictating into the focus field, or stop and put the words in (at most 500 characters)."""
+        """Start dictating into the focus field, or stop and put the words in (at most 500 characters).
+        Both run on a worker (the engines' commands may take seconds); leaving the page, or hiding the
+        window, stops a recording and drops a transcription still on its way (the generation)."""
         import dictation
         if getattr(self, 'provider_config_mic_busy', False):
             return
+        generation = self.provider_config_mic_generation = getattr(self, 'provider_config_mic_generation', 0) + 1
+        self.provider_config_mic = button
         if button.get_active():
-            self.provider_config_dictation = dictation.Dictation(engine)
+            running = self.provider_config_dictation = dictation.Dictation(engine)
             entry.grab_focus()                       # where the desktop types the words
-            error = self.provider_config_dictation.start()
-            if error:
-                self.provider_config_dictation = None
-                self.provider_config_mic_busy = True
-                button.set_active(False)
-                self.provider_config_mic_busy = False
-                self.toast(_('Could not start dictation: {0}').format(error), 8)
+            button.set_sensitive(False)
+
+            def start():
+                try:
+                    error = running.start()
+                except Exception as failure:
+                    error = str(failure) or 'could not start'
+                GLib.idle_add(started, error)
+
+            def started(error):
+                button.set_sensitive(True)
+                if generation != getattr(self, 'provider_config_mic_generation', 0):
+                    if not error:
+                        threading.Thread(target=self._cancel_provider_dictation, args=(running,), daemon=True).start()
+                    return False                     # left meanwhile: the recording does not go on
+                if error:
+                    self.provider_config_dictation = None
+                    self.provider_config_mic_reset()
+                    self.toast(_('Could not start dictation: {0}').format(error), 8)
+                return False
+            threading.Thread(target=start, daemon=True).start()
             return
         running, self.provider_config_dictation = getattr(self, 'provider_config_dictation', None), None
         if running is None:
             return
         before = entry.get_text()
         button.set_sensitive(False)
-        generation = self.provider_config_generation
 
         def work():
             try:
@@ -601,18 +618,38 @@ class ProviderConfigPage:
 
         def done(text):
             button.set_sensitive(True)
-            if generation != self.provider_config_generation or entry.get_root() is None:
-                return False
+            if generation != getattr(self, 'provider_config_mic_generation', 0) or self.page_name() != 'providerconfig':
+                return False                         # left meanwhile: the words are dropped
             if text and entry.get_text() == before:
                 entry.set_text(((before + ' ') if before and not before.endswith(' ') else before) + text)
                 entry.set_text(entry.get_text()[:500])
             return False
         threading.Thread(target=work, daemon=True).start()
 
+    def provider_config_mic_reset(self):
+        button = getattr(self, 'provider_config_mic', None)
+        if button is not None and button.get_active():
+            self.provider_config_mic_busy = True
+            try:
+                button.set_active(False)
+            finally:
+                self.provider_config_mic_busy = False
+
+    @staticmethod
+    def _cancel_provider_dictation(running):
+        try:
+            running.cancel()
+        except Exception:
+            pass
+
     def stop_provider_config_dictation(self):
+        """Leaving the page (any route) or hiding the window: the microphone stops, a transcription
+        still on its way is dropped, the mic button is off again."""
+        self.provider_config_mic_generation = getattr(self, 'provider_config_mic_generation', 0) + 1
         running, self.provider_config_dictation = getattr(self, 'provider_config_dictation', None), None
+        self.provider_config_mic_reset()
         if running is not None:
-            threading.Thread(target=running.cancel, daemon=True).start()
+            threading.Thread(target=self._cancel_provider_dictation, args=(running,), daemon=True).start()
 
     def ask_provider_config(self, helper, focus, web):
         draft = self.provider_config_draft

@@ -105,6 +105,11 @@ class MainTabs:
     _summary_reading = False
     _summary_timer = 0
     _reveal_timer = 0
+    _reveal_wait = 0                   # the short wait before a reveal (the map laid out once more)
+    _reveal_seq = 0                    # the reveal asked for last; an older one's answer is dropped
+    _last_page = None                  # the page shown before (follow_tab): leaving it cleans it up
+    map_stale = False                  # the map was not drawn again while Projects was shown
+    discovery_facts = None             # what the map's last read found (projects_map_changed)
     tab_buttons: dict = {}
 
     # --- the tabs in the header ----------------------------------------------------------------------
@@ -195,7 +200,7 @@ class MainTabs:
         summary within 3 s decides (a project → Projects). A later choice is never overridden."""
         if self.tab_decided:
             return
-        setup_needed = not any(a.installed for a in getattr(self, "agent_list", []))
+        setup_needed = self.start_setup_needed()
         saved = ai_core.setting("main_tab")
         if setup_needed or tab_of(saved) is not None:
             self.tab_decided = True
@@ -212,6 +217,14 @@ class MainTabs:
         self.refresh_project_summary(then=answered)
         GLib.timeout_add(int(START_WAIT * 1000) + 50, lambda: (answered(None) if not self.tab_decided else None,
                                                                False)[1])
+
+    def start_setup_needed(self) -> bool:
+        """Maprisma's setup_needed: the welcome page is due (add-ons there, setup not finished), not
+        whether an agent happens to be installed right now."""
+        if getattr(self, "setup_pending", False):
+            return True
+        adapters = self.adapter_addons() if callable(getattr(self, "adapter_addons", None)) else []
+        return bool(adapters) and ai_core.setting("setup_done") is not True
 
     def apply_start_tab(self, tab: str):
         if tab == "projects" and self.page_name() in ("main", "setup"):
@@ -237,6 +250,9 @@ class MainTabs:
             self.forget_map_mark()
         self.main_tab = tab
         self.update_main_tabs()
+        if tab == "map" and self.map_stale and callable(getattr(self, "refresh_map", None)):
+            self.map_stale = False
+            self.refresh_map()                 # deferred while Projects was shown
 
     def follow_tab(self):
         """A page shown by any route: a page of the map (details, a terminal, Ask AI…) is on the AI Map
@@ -244,11 +260,23 @@ class MainTabs:
         if getattr(self, "stack", None) is None:
             return
         page = self.page_name()
+        last, self._last_page = self._last_page, page
+        if last != page:
+            self.left_page(last)
         if page in NEUTRAL_PAGES:
             return
         self.set_main_tab("projects" if page == "projects" else "map")
         if getattr(self, "legend_button", None) is not None:
             self.legend_button.set_visible(self.main_tab == "map")
+
+    def left_page(self, page):
+        """Whatever route left a page (a tab, Help, Settings, Reports, Back, hiding): what it was doing
+        in the background stops — a dictation in Ask AI or on a provider's Configuration page, and
+        its transcription on the way is dropped."""
+        if page == "askai" and callable(getattr(self, "stop_ask_dictation", None)):
+            self.stop_ask_dictation()
+        elif page == "providerconfig" and callable(getattr(self, "stop_provider_config_dictation", None)):
+            self.stop_provider_config_dictation()
 
     def home_page(self) -> str:
         return "projects" if self.main_tab == "projects" else "main"
@@ -258,7 +286,7 @@ class MainTabs:
         first, the choice is remembered. Projects again while a project is open: back to its board."""
         if tab_of(tab) is None or getattr(self, "booting", False) or getattr(self, "stack", None) is None:
             return
-        if self.departing:
+        if self.departing or (callable(getattr(self, "dialog_open", None)) and self.dialog_open()):
             return
         page = self.page_name()
         self.tab_decided = True
@@ -270,10 +298,13 @@ class MainTabs:
                     return
                 self.departing = True
 
-                def back(_ok=True):
+                def back(ok=True):
                     self.departing = False
+                    if ok:
+                        self.save_tab(tab)
                     self.update_main_tabs()
                 ctrl.back_to_board(back)
+                return
             self.save_tab(tab)
             return
 
@@ -286,9 +317,7 @@ class MainTabs:
             if self.page_name() == "connect":
                 self.close_connect(navigate=False)
             elif self.page_name() == "askai":
-                self.close_ask_ai()                 # its microphone and an Ask under way stop with it
-            elif self.page_name() == "providerconfig" and hasattr(self, "stop_provider_config_dictation"):
-                self.stop_provider_config_dictation()
+                self.close_ask_ai()                 # an Ask under way stops with it (left_page: the mic)
             if tab == "map":
                 self.set_main_tab("map")
                 self.setup_welcome = False
@@ -318,7 +347,10 @@ class MainTabs:
                 done(False)
                 return
             if self.page_name() == "reports" and getattr(self, "reports_running", None) is not None:
-                self.confirm_leave_reports(lambda: done(True))
+                def cancelled():
+                    self.stop_reports_timer()
+                    done(True)
+                self.confirm_leave_reports(cancelled, stay=lambda: done(False))
                 return
             if self.page_name() == "reports":
                 self.stop_reports_timer()
@@ -338,10 +370,7 @@ class MainTabs:
         def left(ok):
             if ok:
                 action()
-        if self.page_name() == "projects":
-            self.leave_pages(left)
-        else:
-            action()
+        self.leave_pages(left)             # the open project, and a report being generated, ask first
 
     def to_map_first(self, then):
         """Ask AI and the problems list work on the map: from Projects through the guard to the AI Map."""
@@ -351,6 +380,8 @@ class MainTabs:
             if self.main_tab != "map":
                 self.set_main_tab("map")
                 self.save_tab("map")
+                self.return_page = None
+                self.show_view("main", save=False)   # the page it opens returns to the map, not Projects
                 self.focus_tab("map")
             then()
         self.leave_pages(left)
@@ -410,17 +441,34 @@ class MainTabs:
         self.refresh_project_summary()
         return True
 
+    def discovery_fingerprint(self):
+        """What the project center discovers that the map shows: the agents (installed, version), the
+        local LLMs (installed, running, their models). Redraws for other reasons leave it alone."""
+        found_agents = tuple(sorted((a.command, bool(a.installed), str(getattr(a, "version", "") or ""))
+                                    for a in getattr(self, "agent_list", [])))
+        inventory = getattr(self, "inventory", None)
+        runtimes = tuple(sorted((r.key, bool(r.installed), bool(getattr(r, "running", False)),
+                                 tuple(sorted(str(m) for m in getattr(r, "models", []) or [])))
+                                for r in getattr(inventory, "runtimes", []) or []))
+        return found_agents, runtimes
+
     def projects_map_changed(self):
-        """The map's data was read again: the next project list looks at agents and runtimes again."""
-        lock = getattr(self, "_project_center_lock", None)
-        if lock is None:
+        """The map's data was read again: only when what it found changed does the next project list
+        look at agents and runtimes again (no rescan for a redraw, a theme or a running change)."""
+        facts = self.discovery_fingerprint()
+        if facts == self.discovery_facts:
             return
+        first = self.discovery_facts is None
+        self.discovery_facts = facts
+        lock = getattr(self, "_project_center_lock", None)
+        if lock is None or first:
+            return                             # the center's first scan sees these facts anyway
 
         def work():
             with lock:
                 center = getattr(self, "_project_center", None)
-                if center is not None:
-                    center.discovery_generation += 1
+            if center is not None and hasattr(center, "bump_discovery"):
+                center.bump_discovery()        # under the center's own lock
         threading.Thread(target=work, name="project-discovery", daemon=True).start()
 
     # --- links from the Projects tab to the map, and back -------------------------------------------------
@@ -442,22 +490,46 @@ class MainTabs:
         def left(ok):
             if not ok:
                 return
+            self.forget_map_mark()
+            self._reveal_seq += 1
+            seq = self._reveal_seq
+            self.map_stale = False             # drawn below from the fresh facts
             self.set_main_tab("map")
             self.save_tab("map")
             self.return_page = None
             self.show_view("main", save=False)
-            try:
-                self.refresh_map()
-            except Exception:
-                pass
-            self.side_map.set_focused(None)
             self.focus_tab("map")
-            # After the map has been laid out once more (its boxes are placed while it is drawn).
-            GLib.timeout_add(120, lambda: (self.finish_reveal(node_id), False)[1])
+
+            def work():
+                # Fresh facts, read off the GTK thread: an agent removed meanwhile is not revealed.
+                try:
+                    facts = self.read_map_facts()
+                except Exception:
+                    facts = None
+                GLib.idle_add(read, facts)
+
+            def read(facts):
+                if seq != self._reveal_seq or self.main_tab != "map" or not self.window_shown():
+                    return False
+                try:
+                    self.refresh_map(facts=facts) if facts is not None else self.refresh_map()
+                except Exception:
+                    pass
+                # After the map has been laid out once more (its boxes are placed while it is drawn).
+                self._reveal_wait = GLib.timeout_add(120, lambda: (self.finish_reveal(node_id, seq), False)[1])
+                return False
+            threading.Thread(target=work, name="map-reveal", daemon=True).start()
         self.leave_pages(left)
 
-    def finish_reveal(self, node_id: str):
-        if self.main_tab != "map" or self.page_name() != "main":
+    def window_shown(self) -> bool:
+        window = getattr(self, "window", None)
+        return window is None or not hasattr(window, "is_visible") or window.is_visible()
+
+    def finish_reveal(self, node_id: str, seq=None):
+        self._reveal_wait = 0
+        if seq is not None and seq != self._reveal_seq:
+            return
+        if self.main_tab != "map" or self.page_name() != "main" or not self.window_shown():
             return
         view = self.side_map
         rect = view.box_rect(node_id)
@@ -486,6 +558,10 @@ class MainTabs:
         self._reveal_timer = GLib.timeout_add_seconds(REVEAL_SECONDS, unmark)
 
     def forget_map_mark(self):
+        self._reveal_seq += 1                  # a reveal still on its way is dropped
+        if self._reveal_wait:
+            GLib.source_remove(self._reveal_wait)
+            self._reveal_wait = 0
         if self._reveal_timer:
             GLib.source_remove(self._reveal_timer)
             self._reveal_timer = 0

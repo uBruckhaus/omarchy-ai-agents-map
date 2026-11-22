@@ -723,7 +723,11 @@ class ProjectsPage:
                 self._project_center = project_center.ProjectCenter(
                     on_change=lambda _pid: GLib.idle_add(self._projects_poke))
             center = self._project_center
-            if operation == "list" and params.get("refresh") is True:
+        if operation == "list" and params.get("refresh") is True:
+            bump = getattr(center, "bump_discovery", None)
+            if bump is not None:
+                bump()                         # F5: under the center's own lock
+            else:
                 center.discovery_generation += 1
         if operation == "list":
             params = {}
@@ -814,6 +818,9 @@ class ProjectsPage:
     def _projects_key(self, _controller, keyval, _keycode, state):
         if self.page_name() != "projects":
             return False
+        visible = getattr(self.window, "get_visible_dialog", None)
+        if callable(visible) and visible() is not None:
+            return False                       # a dialog over the window keeps its keys
         ctrl = self.projects_ctrl
         if ctrl.confirming or ctrl.leaving or state & MODIFIERS:
             return False                       # keys do nothing under its questions

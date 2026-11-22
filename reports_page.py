@@ -232,8 +232,12 @@ class ReportsPage:
         self.stop_reports_timer()
         self.show_view(getattr(self, "reports_return", self.view), save=False)
 
-    def confirm_leave_reports(self, then):
+    def confirm_leave_reports(self, then, stay=None):
+        """then() once the report is cancelled; stay() when the page stays (also a second ask while
+        the question is open)."""
         if self.reports_confirming:
+            if stay is not None:
+                stay()
             return
         self.reports_confirming = True
         dialog = Adw.AlertDialog(heading=_("Cancel the report?"),
@@ -248,6 +252,8 @@ class ReportsPage:
             if response == "cancel":
                 self.cancel_report()
                 then()
+            elif stay is not None:
+                stay()
         dialog.connect("response", answered)
         dialog.present(self.window)
 

@@ -299,7 +299,9 @@ class MapView(Gtk.DrawingArea):
     def box_rect(self, node_id: str):
         """The box's rectangle on the map in pixels (as last laid out), None when it is not on it."""
         rect = self.boxes.get(node_id)
-        return self.to_pixels(rect) if rect is not None else None
+        if rect is None or node_id in self.folded:
+            return None                        # not drawn: its card is folded
+        return self.to_pixels(rect)
 
     def set_focused(self, node_id):
         """Show on map / Fix on map: the box framed in the accent colour, a ring pulsing around it."""

@@ -116,8 +116,15 @@ class Host(MainTabs):
     def update_header(self):
         pass
 
-    def refresh_map(self):
-        self.calls.append(("refresh_map",))
+    def refresh_map(self, facts=None):
+        self.calls.append(("refresh_map",) if facts is None else ("refresh_map", "fresh"))
+        if facts is not None:
+            self.agent_list = facts[0]
+
+    def read_map_facts(self):
+        return self.fresh_facts
+
+    fresh_facts = ([SimpleNamespace(command="claude", name="Claude Code", installed=True)], None, {})
 
     def close_connect(self, navigate=True):
         self.calls.append(("close_connect",))
@@ -145,6 +152,10 @@ def patched_settings(testcase, saved):
     testcase.enterContext(mock.patch.object(main_tabs.GLib, "timeout_add", lambda _ms, fn, *a: fn(*a)))
     testcase.enterContext(mock.patch.object(main_tabs.GLib, "timeout_add_seconds", lambda _s, _fn, *a: 1))
     testcase.enterContext(mock.patch.object(main_tabs.GLib, "source_remove", lambda _id: None))
+    testcase.enterContext(mock.patch.object(main_tabs.GLib, "idle_add", lambda fn, *a: fn(*a)))
+    testcase.enterContext(mock.patch.object(main_tabs.threading, "Thread",
+                                            side_effect=lambda target, args=(), **_k:
+                                            SimpleNamespace(start=lambda: target(*args))))
 
 
 class StartTabTest(unittest.TestCase):
@@ -190,11 +201,27 @@ class StartTabTest(unittest.TestCase):
         host.decide_start_tab()
         self.assertEqual(host.main_tab, "projects")
         host = Host()
-        host.agent_list = []                    # nothing set up: the map, the summary is not asked
+        host.setup_pending = True               # the welcome page is due: the map, the summary is not asked
+        saved["main_tab"] = "projects"
         host.refresh_project_summary = mock.Mock()
         host.decide_start_tab()
         self.assertEqual(host.main_tab, "map")
         host.refresh_project_summary.assert_not_called()
+
+    def test_setup_done_without_agents_keeps_the_saved_tab(self):
+        """Codex r1 #5: setup finished, the last agent uninstalled: still the tab used last."""
+        saved = {"main_tab": "projects", "setup_done": True}
+        patched_settings(self, saved)
+        host = Host()
+        host.agent_list = []
+        host.adapter_addons = lambda: ["an add-on"]
+        host.decide_start_tab()
+        self.assertEqual(host.main_tab, "projects")
+        saved["setup_done"] = False                 # add-ons there, setup not finished: the map
+        host = Host()
+        host.adapter_addons = lambda: ["an add-on"]
+        host.decide_start_tab()
+        self.assertEqual(host.main_tab, "map")
 
 
 class TabSwitchTest(unittest.TestCase):
@@ -282,7 +309,7 @@ class MapLinksTest(unittest.TestCase):
         host.main_tab = "projects"
         host.show_on_map_link("claude")
         self.assertEqual((host.page, host.main_tab), ("main", "map"))
-        self.assertIn(("refresh_map",), host.calls)
+        self.assertIn(("refresh_map", "fresh"), host.calls)        # facts read on a worker
         self.assertEqual(host.side_map.focused, "agent:claude")
         host.forget_map_mark()
         self.assertIsNone(host.side_map.focused)
@@ -293,6 +320,9 @@ class MapLinksTest(unittest.TestCase):
         host.map_fix_link("runtime:vllm")
         self.assertEqual(host.toasts, ["This is not on the map."])
         host.map_fix_link("agent:pi")
+        self.assertEqual(host.toasts[-1], "This agent is not on the map.")
+        host.side_map.boxes.pop("agent:claude")      # removed meanwhile: the fresh facts decide
+        host.show_on_map_link("claude")
         self.assertEqual(host.toasts[-1], "This agent is not on the map.")
         host.map_fix_link("runtime:ollama")
         self.assertEqual(host.side_map.focused, "runtime:ollama")
@@ -317,15 +347,73 @@ class MapLinksTest(unittest.TestCase):
         host.show_project_summary()
         self.assertEqual(host.side_map.used, {"claude": 2})
 
-    def test_discovery_generation_rises_with_the_map(self):
+    def test_discovery_generation_rises_only_when_the_facts_change(self):
+        """agy r1 #3: a redraw is no rescan; a change of agents or runtimes is, under the center's lock."""
         import threading
+        import project_center
         host = Host()
+        host.inventory = SimpleNamespace(runtimes=[SimpleNamespace(key="ollama", installed=True, running=False,
+                                                                   models=["qwen"])])
         host._project_center_lock = threading.Lock()
-        host._project_center = SimpleNamespace(discovery_generation=4)
-        with mock.patch.object(main_tabs.threading, "Thread",
-                               side_effect=lambda target, **_k: SimpleNamespace(start=target)):
-            host.projects_map_changed()
-        self.assertEqual(host._project_center.discovery_generation, 5)
+        center = host._project_center = SimpleNamespace(discovery_generation=4, _lock=threading.RLock())
+        center.bump_discovery = lambda: project_center.ProjectCenter.bump_discovery(center)
+        host.projects_map_changed()                       # the first read: the center scans anyway
+        host.projects_map_changed()                       # a redraw: nothing changed
+        self.assertEqual(center.discovery_generation, 4)
+        host.inventory.runtimes[0].running = True         # a local LLM started
+        host.projects_map_changed()
+        self.assertEqual(center.discovery_generation, 5)
+        host.agent_list.append(SimpleNamespace(command="pi", name="Pi", installed=True, version="1"))
+        host.projects_map_changed()
+        host.projects_map_changed()
+        self.assertEqual(center.discovery_generation, 6)
+
+    def test_problems_from_projects_return_to_the_map(self):
+        """agy r1 #4: to_map_first leaves the Projects page before the page it opens remembers where."""
+        host = Host(page="projects")
+        host.main_tab = "projects"
+        seen = []
+        host.to_map_first(lambda: seen.append(host.page))
+        self.assertEqual(seen, ["main"])
+
+    def test_departures_stop_dictation(self):
+        """Codex r1 #3: any route away from Ask AI or a provider's page stops its microphone."""
+        host = Host(page="askai")
+        host.stop_ask_dictation = mock.Mock()
+        host.stop_provider_config_dictation = mock.Mock()
+        host.follow_tab()
+        host.page = "settings"                         # Settings over Ask AI
+        host.follow_tab()
+        host.stop_ask_dictation.assert_called_once_with()
+        host.page = "providerconfig"
+        host.follow_tab()
+        host.page = "help"
+        host.follow_tab()
+        host.stop_provider_config_dictation.assert_called_once_with()
+
+    def test_header_actions_respect_a_report_being_generated(self):
+        """Codex r1 #4: Help or Settings from Reports asks Cancel the report? first; Back keeps it."""
+        host = Host(page="reports")
+        host.reports_running = object()
+        answers = []
+        host.confirm_leave_reports = lambda then, stay=None: answers.append(stay) or stay()
+        opened = []
+        host.after_leaving(lambda: opened.append("help"))
+        self.assertEqual(opened, [])
+        host.confirm_leave_reports = lambda then, stay=None: then()
+        host.after_leaving(lambda: opened.append("help"))
+        self.assertEqual(opened, ["help"])
+
+    def test_a_late_reveal_is_dropped(self):
+        """agy r1 #8: a reveal still on its way when the map is left (or the window hides) does nothing."""
+        host = Host()
+        waits = []
+        with mock.patch.object(main_tabs.GLib, "timeout_add", lambda _ms, fn, *a: waits.append(fn) or 7):
+            host.map_fix_link("runtime:ollama")
+            host.forget_map_mark()
+            for wait in waits:
+                wait()
+        self.assertIsNone(host.side_map.focused)
 
     def test_wiring_in_the_window(self):
         source = Path(ai_popup.__file__).read_text()
@@ -341,8 +429,44 @@ class KeysTest(unittest.TestCase):
         app = SimpleNamespace(page_name=lambda: page, selection=list(selection), select_tab=mock.Mock(),
                               close=mock.Mock(), set_selection=mock.Mock(), editing=lambda: False,
                               back_actions=lambda: {}, map_view=SimpleNamespace(set_shift=lambda _h: None),
-                              window=SimpleNamespace(set_focus=mock.Mock()), after_leaving=mock.Mock())
+                              window=SimpleNamespace(set_focus=mock.Mock(), get_visible_dialog=lambda: None),
+                              after_leaving=mock.Mock(), in_search_field=lambda: False)
+        app.dialog_open = lambda: ai_popup.AgentsMap.dialog_open(app)
         return app
+
+    def test_keys_wait_under_a_dialog(self):
+        """Both reviews r1: Esc and Ctrl+1/2 belong to an open dialog (or an agent's task box)."""
+        app = self.app()
+        app.window.get_visible_dialog = lambda: object()
+        self.assertFalse(ai_popup.AgentsMap.on_key(app, None, Gdk.KEY_1, 0, CTRL))
+        self.assertFalse(ai_popup.AgentsMap.on_key(app, None, Gdk.KEY_Escape, 0, 0))
+        app.select_tab.assert_not_called()
+        app.close.assert_not_called()
+        app = self.app()
+        app.ai_box = SimpleNamespace(gone=False)
+        self.assertFalse(ai_popup.AgentsMap.on_key(app, None, Gdk.KEY_Escape, 0, 0))
+        app.close.assert_not_called()
+        ctrl = Ctrl()
+        host = SimpleNamespace(page_name=lambda: "projects", projects_ctrl=ctrl, editing=lambda: False,
+                               projects_escape=mock.Mock(), window=SimpleNamespace(get_visible_dialog=lambda: object()))
+        self.assertFalse(ProjectsPage._projects_key(host, None, Gdk.KEY_Escape, 0, 0))
+        host.projects_escape.assert_not_called()
+
+    def test_esc_leaves_a_field_on_a_page_first(self):
+        """agy r1 #6 / Codex r1 #9: Esc in a Settings field leaves the field; the next Esc goes back."""
+        back = mock.Mock()
+        app = self.app(page="settings")
+        app.back_actions = lambda: {"settings": back}
+        app.editing = lambda: True
+        self.assertTrue(ai_popup.AgentsMap.on_key(app, None, Gdk.KEY_Escape, 0, 0))
+        app.window.set_focus.assert_called_once_with(None)
+        back.assert_not_called()
+        self.assertFalse(ai_popup.AgentsMap.on_key(app, None, Gdk.KEY_BackSpace, 0, 0))   # the field's
+        app.in_search_field = lambda: True           # Find in Settings clears itself
+        self.assertFalse(ai_popup.AgentsMap.on_key(app, None, Gdk.KEY_Escape, 0, 0))
+        app.editing = lambda: False
+        self.assertTrue(ai_popup.AgentsMap.on_key(app, None, Gdk.KEY_Escape, 0, 0))
+        back.assert_called_once_with()
 
     def test_ctrl_1_and_2_choose_the_tabs(self):
         app = self.app()
@@ -374,7 +498,8 @@ class KeysTest(unittest.TestCase):
         ctrl = Ctrl()
         escape = mock.Mock()
         host = SimpleNamespace(page_name=lambda: "projects", projects_ctrl=ctrl, editing=lambda: False,
-                               projects_escape=escape, close_projects=mock.Mock(), toast=mock.Mock())
+                               projects_escape=escape, close_projects=mock.Mock(), toast=mock.Mock(),
+                               window=SimpleNamespace(get_visible_dialog=lambda: None))
         self.assertTrue(ProjectsPage._projects_key(host, None, Gdk.KEY_Escape, 0, 0))
         escape.assert_called_once_with()
         self.assertTrue(ProjectsPage._projects_key(host, None, Gdk.KEY_BackSpace, 0, 0))
@@ -385,17 +510,50 @@ class KeysTest(unittest.TestCase):
         self.assertEqual(ctrl.back, 1)
         escape.assert_called_once_with()
 
-    def test_closing_the_window_from_projects_asks_first(self):
-        ctrl = Ctrl()
-        ctrl.leave_answer = False
-        app = SimpleNamespace(booting=False, page_name=lambda: "projects", sessions={}, hide_window=mock.Mock())
-        app.leave_pages = lambda done: ctrl.before_leave(done)
+    def closing_app(self, choice, running=()):
+        """The window over the real ProjectsController with an open, edited project."""
+        import projects_controller
+        asked = []
+
+        def ask(kind, _question, answer):
+            asked.append(kind)
+            answer(choice)
+        ctrl = projects_controller.ProjectsController(lambda *_a: {}, lambda work, done: done(work(), None), ask)
+        ctrl.project = {"id": "p1", "title": "Old"}
+        ctrl._adopt(ctrl.project)
+        ctrl.set_text("title", "Edited")
+        panes = [SimpleNamespace(running=True, agent=SimpleNamespace(name="Pi"), stop=mock.Mock()) for _ in running]
+        app = SimpleNamespace(booting=False, page_name=lambda: "projects", sessions=dict(enumerate(panes)),
+                              hide_window=mock.Mock(), projects_ctrl=ctrl, toast=mock.Mock(), departing=False,
+                              ask_close=mock.Mock())
         app.close = lambda: ai_popup.AgentsMap.close(app)
+        return app, ctrl, asked
+
+    def test_closing_the_window_from_projects_asks_first(self):
+        app, ctrl, asked = self.closing_app("cancel")
         ai_popup.AgentsMap.close(app)
         app.hide_window.assert_not_called()
-        ctrl.leave_answer = True
+        self.assertEqual((asked, ctrl.texts["title"]), (["leave"], "Edited"))
+        app, ctrl, _asked = self.closing_app("discard")
         ai_popup.AgentsMap.close(app)
         app.hide_window.assert_called_once_with()
+        self.assertEqual(ctrl.texts["title"], "Old")
+
+    def test_discard_waits_for_the_running_agents_question(self):
+        """Both reviews r1 (P1/HIGH): Discard, then Cancel on "still running here": nothing is lost."""
+        app, ctrl, _asked = self.closing_app("discard", running=[1])
+        ai_popup.AgentsMap.close(app)
+        app.ask_close.assert_called_once()
+        self.assertEqual(ctrl.texts["title"], "Edited")         # not discarded yet
+        app.close_commit = None                                  # ask_close's Cancel
+        app.hide_window.assert_not_called()
+        self.assertEqual(ctrl.texts["title"], "Edited")
+        app, ctrl, _asked = self.closing_app("discard", running=[1])
+        ai_popup.AgentsMap.close(app)
+        app.close_asked = True                                   # ask_close's Keep running
+        ai_popup.AgentsMap.close(app)
+        app.hide_window.assert_called_once_with()
+        self.assertEqual(ctrl.texts["title"], "Old")
 
 
 class ReturnPageTest(unittest.TestCase):
@@ -433,6 +591,72 @@ class ActivityAndConfigTest(unittest.TestCase):
         pane.running = False
         terminal_pane.TerminalPane.show_activity(pane)
         pane.on_activity.assert_called_once()
+
+    def test_provider_config_answers(self):
+        """agy r1 #7: "*" (all models) is accepted, and an automatic answer without an area is the
+        providers' step."""
+        facts = {"providers": [{"key": "llamacpp", "name": "llama.cpp", "configurable": True, "models": []}]}
+        found = smart_card.providers_answer({"action": "provider_config", "provider": "llamacpp", "model": "*"},
+                                            facts)
+        self.assertEqual(found["candidates"][0]["model"], "*")
+        found = smart_card.auto_answer({"action": "provider_config", "provider": "llamacpp"}, facts)
+        self.assertEqual(found["candidates"][0]["kind"], "provider_config")
+
+    def test_refused_configuration_reads_nothing(self):
+        import askai_page
+        import provider_config
+        app = SimpleNamespace(inventory=SimpleNamespace(runtimes=[SimpleNamespace(key="llamacpp", installed=True)]))
+        result = {"candidates": [{"kind": "provider_config", "key": "llamacpp", "profile": "fast", "model": None,
+                                  "action": {"kind": "provider_config", "key": "llamacpp", "model": None}}]}
+        with mock.patch.object(provider_config, "collect") as collect, \
+                mock.patch("action_rules.allows", return_value=False):
+            askai_page.AskAiPage.ask_provider_values(app, None, result, "q", lambda _t: None,
+                                                     SimpleNamespace(is_set=lambda: False))
+        collect.assert_not_called()
+
+    def test_provider_dictation_stops_on_leaving(self):
+        """Codex r1 #3/#8: the start runs on a worker; leaving drops a transcription on its way and
+        turns the mic off."""
+        import provider_config_page
+        page = provider_config_page.ProviderConfigPage
+        runs = []
+        recorder = SimpleNamespace(start=lambda: None, stop=lambda: "late words", cancel=mock.Mock())
+        entry = SimpleNamespace(text="", get_text=lambda: entry.text, grab_focus=lambda: None,
+                                set_text=lambda t: setattr(entry, "text", t))
+        button = SimpleNamespace(active=True, sensitive=True)
+        button.get_active = lambda: button.active
+        button.set_active = lambda v: setattr(button, "active", v)
+        button.set_sensitive = lambda v: setattr(button, "sensitive", v)
+        app = SimpleNamespace(page_name=lambda: "providerconfig", toast=mock.Mock())
+        for name in ("provider_config_dictate", "provider_config_mic_reset", "stop_provider_config_dictation"):
+            setattr(app, name, getattr(page, name).__get__(app))
+        app._cancel_provider_dictation = page._cancel_provider_dictation
+        with mock.patch("dictation.Dictation", return_value=recorder), \
+                mock.patch.object(provider_config_page.threading, "Thread",
+                                  side_effect=lambda target, args=(), **_k: SimpleNamespace(
+                                      start=lambda: runs.append((target, args)))), \
+                mock.patch.object(provider_config_page.GLib, "idle_add", lambda fn, *a: fn(*a)):
+            app.provider_config_dictate(button, entry, "superwhisper")
+            target, args = runs.pop()
+            target(*args)                                  # the worker's start
+            button.active = False
+            app.provider_config_dictate(button, entry, "superwhisper")   # Stop: the transcription runs
+            stop, args = runs.pop()
+            app.stop_provider_config_dictation()           # the page is left meanwhile
+            stop(*args)
+        self.assertEqual(entry.text, "")                   # the late words are dropped
+        button.active = True
+        app.provider_config_mic = button
+        app.stop_provider_config_dictation()
+        self.assertFalse(button.active)                    # the mic is off again
+
+    def test_folded_box_is_not_on_the_map(self):
+        import map_view
+        view = SimpleNamespace(boxes={"agent:a": (0, 0, 10, 10)}, folded={"agent:a"}, zoom=1.0)
+        view.to_pixels = lambda rect: map_view.MapView.to_pixels(view, rect)
+        self.assertIsNone(map_view.MapView.box_rect(view, "agent:a"))
+        view.folded = set()
+        self.assertEqual(map_view.MapView.box_rect(view, "agent:a"), (0, 0, 10, 10))
 
     def test_ask_ai_routes_to_configure_for_this_pc(self):
         facts = {"providers": [{"key": "llamacpp", "name": "llama.cpp", "configurable": True,

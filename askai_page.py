@@ -663,6 +663,9 @@ class AskAiPage:
             rt = next((r for r in self.inventory.runtimes if r.key == candidate["key"] and r.installed), None)
             if rt is None:
                 continue
+            import action_rules
+            if not action_rules.allows(ai_core.setting("action_rules"), "update", "providers", rt.key):
+                continue                        # refused: not even its hardware and files are read
             try:
                 progress(N_("Checking…"))
                 facts = provider_config.collect(rt)

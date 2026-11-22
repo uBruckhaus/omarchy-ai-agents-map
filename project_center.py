@@ -2163,6 +2163,12 @@ class ProjectCenter:
         board = [self._board_item(item, derived[pid]) for pid, item in self._projects.items()]
         return {"projects": _copy(board), "summary": self._summary({pid: d[0] for pid, d in derived.items()})}
 
+    def bump_discovery(self) -> None:
+        """The host saw agents or runtimes change: the next display read scans again. Under the
+        center's lock, so a snapshot being installed is never tagged with the newer generation."""
+        with self._lock:
+            self.discovery_generation += 1
+
     def summary(self) -> dict:
         snapshot = self._discover(False) if self._display_stale() else None
         with self._lock, self._using(snapshot):

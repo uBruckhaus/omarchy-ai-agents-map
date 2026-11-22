@@ -300,8 +300,10 @@ def provider_config_answer(answer: dict, facts: dict) -> dict:
                   if p.get("key") == answer.get("provider") and p.get("configurable") is True), None)
     profile = answer.get("profile") or "balanced"
     model = answer.get("model") or None
+    # "*": all models (a provider whose settings are per default or global); the page checks the scope.
     if found is None or profile not in CONFIG_PROFILES or (
-            model is not None and (not isinstance(model, str) or model not in (found.get("models") or []))):
+            model is not None and (not isinstance(model, str)
+                                   or (model != "*" and model not in (found.get("models") or [])))):
         raise SmartError(N_("This provider configuration is unavailable"))
     focus = line(answer.get("focus"), 500)
     return proposal([{"id": "c1", "kind": "provider_config", "title": line(found.get("name")),
@@ -722,6 +724,8 @@ def auto_answer(decision: dict, facts: dict, more=None) -> dict:
         found = addons_answer(decision, facts)
     else:
         area = decision.get("area")
+        if action == "provider_config" and not area:
+            area = "providers"                 # Maprisma: provider_config is always the providers' step
         if area not in HANDLERS:
             raise SmartError(NOT_POSSIBLE)
         if area == "mcp":

@@ -1359,8 +1359,15 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         runtimes = list(self.inventory.runtimes)
         commands = self.installed_commands()
         keep = (ai_core.setting("subagents_minutes"), ai_core.setting("subagents_kept"))   # Settings › Subagents
+        # On the Projects tab only what does not belong to the map: which agents run and work (the
+        # terminals, closing) and the opt-in activity log; GPU, usage box, subagents and the rest wait.
+        light = getattr(self, "main_tab", "map") == "projects"
+        logging = ai_core.setting("ai_activity_log") is True
 
         def work():
+            if light:
+                light_work()
+                return
             try:
                 usage = gpu_usage.snapshot(runtimes)
             except Exception:
@@ -1413,6 +1420,36 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
                 records, renewed = None, {}
             GLib.idle_add(done, usage, running, working, outside, stamp, mcp_busy, readings, helpers, using,
                           records, renewed)
+
+        def light_work():
+            usage = None
+            if logging:
+                try:
+                    usage = gpu_usage.snapshot(runtimes)
+                except Exception:
+                    usage = None
+            pids = {}
+            running = self.running_now(pids)
+            self.agent_pids = pids
+            try:
+                working = self.working_now(pids, usage, runtimes)
+            except Exception:
+                working = set(running)
+            try:
+                self.observe_activity(working, pids, usage, runtimes)   # the AI activity log (opt-in)
+            except Exception:
+                pass
+            GLib.idle_add(light_done, running, working)
+
+        def light_done(running, working):
+            self.gpu_reading = False
+            if working != self.working_agents:
+                self.working_agents = set(working)
+                self.update_terminal_tabs()
+            if running != self.running:
+                self.running = running
+                self.map_stale = True          # drawn again when the AI Map shows
+            return False
 
         def done(usage, running, working, outside, stamp, mcp_busy, readings, helpers, using, records=None,
                  renewed=None):
@@ -2924,8 +2961,26 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
 
         threading.Thread(target=work, daemon=True).start()
 
-    def refresh_map(self):
-        details = {a.command: agent_details.details_for(a.command) for a in self.agent_list if a.installed}
+    @staticmethod
+    def read_map_facts():
+        """On a worker: what the map shows, read afresh (agents, local LLMs, each agent's details) for
+        refresh_map(facts=…) on the GTK thread (Show on map / Fix on map)."""
+        found = agents.list_agents()
+        return found, inventory.collect(found), {a.command: agent_details.details_for(a.command)
+                                                 for a in found if a.installed}
+
+    def refresh_map(self, facts=None):
+        if facts is None and getattr(self, "main_tab", "map") == "projects":
+            # On the Projects tab the map is not drawn again (its scans wait until it shows); what
+            # the projects need from it (agents and local LLMs changed) is passed on.
+            self.map_stale = True
+            self.projects_map_changed()
+            return
+        if facts is not None:
+            self.agent_list, self.inventory, details = facts
+            self.configured_now = None
+        else:
+            details = {a.command: agent_details.details_for(a.command) for a in self.agent_list if a.installed}
         # Online agents' limits (a session, a week…): a battery on the map's box and on Setup's card.
         self.agent_batteries = {}
         for command, info in details.items():
@@ -4549,14 +4604,31 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             return focus.get_editable()
         return isinstance(focus, Gtk.Editable) and focus.get_editable()
 
+    def in_search_field(self) -> bool:
+        """A search field has the keyboard: its own Esc clears it (Find in Settings)."""
+        focus = self.window.get_focus()
+        return focus is not None and (isinstance(focus, Gtk.SearchEntry)
+                                      or focus.get_ancestor(Gtk.SearchEntry) is not None)
+
     def on_key_released(self, _controller, keyval, _keycode, _state):
         if keyval in (Gdk.KEY_Shift_L, Gdk.KEY_Shift_R):
             self.map_view.set_shift(False)
+
+    def dialog_open(self) -> bool:
+        """An Adw dialog or an agent's task box over the window owns the keyboard: the shell's keys do
+        nothing under it (Maprisma: while a window is open, the app's keys wait)."""
+        visible = getattr(self.window, "get_visible_dialog", None)
+        if callable(visible) and visible() is not None:
+            return True
+        box = getattr(self, "ai_box", None)      # an agent's task box over the window (run_ai_help)
+        return box is not None and not getattr(box, "gone", True)
 
     def on_key(self, _controller, keyval, _keycode, state):
         if keyval in (Gdk.KEY_Shift_L, Gdk.KEY_Shift_R):
             self.map_view.set_shift(True)
             return False
+        if self.dialog_open():
+            return False                  # Esc and Ctrl+1/2 belong to the dialog (Cancel, …)
         page = self.page_name()
         ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
         if page == "terminal":
@@ -4584,6 +4656,9 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             back = self.back_actions().get(page)
             if back is not None:
                 if self.editing():
+                    if keyval == Gdk.KEY_Escape and page != "askai" and not self.in_search_field():
+                        self.window.set_focus(None)   # Esc first leaves the field; the next goes back
+                        return True
                     return False
                 back()
                 return True
@@ -4675,9 +4750,9 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
 
     def open_content(self, show: bool = True):
         self.collect()
+        self.decide_start_tab()          # once, before the map's work: a start on Projects defers it (task 086)
         self.refresh_overview()
         self.refresh_map()
-        self.decide_start_tab()          # once: the tab used last, or Projects when a project exists (task 086)
         if show:
             self.window.present()
             if self.page_name() == "firstagent" and callable(getattr(self, "first_resume", None)):
@@ -4766,22 +4841,32 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             # Still starting (nothing runs here yet): other desktops quit, Omarchy hides.
             self.window.hide() if desktop.stays_in_background() else self.quit()
             return
-        if self.page_name() == "projects" and not getattr(self, "close_left", False):
-            # The open project's unsaved changes ask first (Save / Discard / Cancel).
-            def left(ok):
-                if ok:
-                    self.close_left = True
-                    try:
-                        self.close()
-                    finally:
-                        self.close_left = False
-            self.leave_pages(left)
-            return
+        if self.page_name() == "projects" and getattr(self, "close_commit", None) is None:
+            # The open project's unsaved changes ask first (Save / Discard / Cancel). A Discard is only
+            # carried out once every question of closing has been answered (prepare_leave's commit).
+            ctrl = getattr(self, "projects_ctrl", None)
+            if ctrl is not None and not ctrl.disposed:
+                if ctrl.confirming or ctrl.leaving or getattr(self, "departing", False):
+                    return                         # its own question is open
+                if ctrl.busy:
+                    self.toast(_("Wait for the current step"), 4)
+                    return
+
+                def held(commit):
+                    if commit is None:
+                        return                     # Cancel or a failed save: the page stays as it was
+                    self.close_commit = commit
+                    self.close()
+                ctrl.prepare_leave(held)
+                return
         running = [pane for pane in self.sessions.values() if pane.running]
         if running and not getattr(self, "close_asked", False):
             self.ask_close(running)
             return
         self.close_asked = False
+        commit, self.close_commit = getattr(self, "close_commit", None), None
+        if commit is not None:
+            commit()                               # the project's Discard, now that the window closes
         self.hide_window()
 
     def ask_close(self, running):
@@ -4804,6 +4889,8 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             if response in ("stop", "keep"):
                 self.close_asked = True
                 self.close()
+            else:
+                self.close_commit = None           # not closed: the open project keeps its changes
         dialog.connect("response", answered)
         dialog.present(self.window)
 
@@ -4821,6 +4908,9 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         if hasattr(self, "reports_hidden"):
             self.reports_hidden()        # the Reports page's timers stop with the window
         self.map_view.set_shift(False)   # Shift may have been let go elsewhere
+        if hasattr(self, "forget_map_mark"):
+            self.forget_map_mark()       # no reveal or pulse goes on while hidden
+            self.left_page(self.page_name())   # a dictation stops, its transcription is dropped
         page = self.page_name()
         if page == "settings":
             if getattr(self, "return_page", None) == "firstagent":

@@ -222,10 +222,13 @@ class TerminalPane(Gtk.Box):
         self.read_progress()
 
     def read_progress(self) -> bool:
-        if not self.running or self.pid is None:
+        if not self.running or self.pid is None or self.get_root() is None:
             self.progress_id = 0
             self.show_progress(None)
             return False
+        if getattr(self, "progress_reading", False) or not self.get_mapped():
+            return True                        # one read at a time; none while the terminal is not shown
+        self.progress_reading = True
         import threading
         pid, command = self.pid, self.agent.command
 
@@ -236,7 +239,8 @@ class TerminalPane(Gtk.Box):
             except Exception:
                 found = []
             report = next((item.get("progress") for item in found if item.get("pid") == pid), None)
-            GLib.idle_add(lambda: (self.show_progress(report) if self.pid == pid else None, False)[1])
+            GLib.idle_add(lambda: (setattr(self, "progress_reading", False),
+                                   self.show_progress(report) if self.pid == pid else None, False)[2])
         threading.Thread(target=work, daemon=True).start()
         return True
 
