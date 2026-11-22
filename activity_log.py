@@ -271,9 +271,10 @@ def _short_paths(text: str) -> str:
         try:
             # Include tokens up to the final separator: URL paths/fragments can contain spaces.
             origin = urlsplit(text[first:first_end].replace("\\", "/"))
-            parts = urlsplit(text[first:end].replace("\\", "/"))
             if origin.hostname and not origin.username and not origin.password:
-                name = parts.path.rsplit("/", 1)[-1]
+                # The final name only when the last separator is in the URL itself; a later path's
+                # directory (cut by # or ? in urlsplit) must never become the name.
+                name = origin.path.rsplit("/", 1)[-1] if end == first_end else ""
                 url = origin.scheme + "://" + origin.netloc + ("/" + name if name else "")
                 return text[:first] + url + text[end:]
         except ValueError:

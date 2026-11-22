@@ -1103,7 +1103,7 @@ class RoundTwoTest(TempCase):
                                           now=at("2026-11-20T12:00:00"))
         self.assertNotIn("/home/u", prompts[0])
         self.assertNotIn("%2Fhome", prompts[0])
-        self.assertIn('"topic": "see https://example.com/preview"', prompts[0])
+        self.assertIn('"topic": "see https://example.com"', prompts[0])
         self.assertNotIn("file=", prompts[0])
         self.assertNotIn("page=2", prompts[0])
 
@@ -1791,7 +1791,7 @@ class RoundNineTest(TempCase):
             ("see https://e.com/?f=%2Fhome%2Falice%2FMy%20Private%20Client%2Fsrc%2Fx.py",
              "see https://e.com"),
             ("see https://e.com/open/%2Fhome%2Falice%2FMy%20Private%20Client%2Fsrc%2Fx.py",
-             "see https://e.com/x.py"),
+             "see https://e.com"),
             ('fix "/home/alice/Bob\'s Secret/project/a.py"', 'fix a.py"'),
             ("fix /home/alice/Client (Confidential)/src/x.py", "fix x.py"),
             ("see https://e.com/?f=%2Fhome%2Falice%2FClient%20%28Secret%29%2Fsrc%2Fx.py",
@@ -1831,7 +1831,9 @@ class RoundNineTest(TempCase):
             encoded = quote(path, safe="")
             for raw, expected in ((f"https://e.com/?{encoded}=1", "https://e.com"),
                                   (f"https://e.com/?f={encoded}", "https://e.com"),
-                                  (f"https://e.com/open/{encoded}", "https://e.com/x.py")):
+                                  # A decoded path with spaces runs past the URL: only the host stays.
+                                  (f"https://e.com/open/{encoded}",
+                                   "https://e.com" if " " in path else "https://e.com/x.py")):
                 with self.subTest(url=raw):
                     self.assert_private_topic_prompt("see " + raw, "see " + expected)
 
@@ -1891,9 +1893,9 @@ class RoundNineTest(TempCase):
             ("see https://ex.com/home/alice/Secret/x.py?f=/Private/Client/y.py#Confidential/Files",
              "see https://ex.com/x.py"),
             ("see https://ex.com/home/alice/Secret/", "see https://ex.com"),
-            ("see https://ex.com alice Private /home/alice/Secret/x.py", "see https://ex.com/x.py"),
-            ("see https://ex.com/home/alice/Private Folder/x.py now", "see https://ex.com/x.py now"),
-            ("see https://ex.com/home/alice/Bob's%20Files%2FSecret%2Fx.py", "see https://ex.com/x.py"),
+            ("see https://ex.com alice Private /home/alice/Secret/x.py", "see https://ex.com"),
+            ("see https://ex.com/home/alice/Private Folder/x.py now", "see https://ex.com now"),
+            ("see https://ex.com/home/alice/Bob's%20Files%2FSecret%2Fx.py", "see https://ex.com"),
             ('see https://ex.com/home/alice/"Private%2FFolder%2Fx.py', "see https://ex.com/x.py"),
         ]
         for topic, expected in cases:
@@ -1929,6 +1931,18 @@ class EncodedSeparatorTest(unittest.TestCase):
             for word in ("home", "alice", "Secret", "Users", "Uwe"):
                 self.assertNotIn(word, out or "", (text, out))
             self.assertIn("x.py", out)
+
+    def test_a_later_path_after_a_url_never_names_the_url(self):
+        import activity_log
+        for text in ("see https://ex.com/a then open /home/u/AcmeCorp#Internal/x.py",
+                     "see https://ex.com/a then open /home/u/Acme?Internal/x.py",
+                     "see https://github.com/foo/bar and fix the bug in src/app.py"):
+            out = activity_log.sanitize_topic(text)
+            for word in ("Acme", "Internal", "foo", "bar"):
+                self.assertNotIn(word, out, (text, out))
+            self.assertNotIn("github.com/app.py", out)
+        self.assertEqual(activity_log.sanitize_topic("read https://ex.com/docs/guide.html"),
+                         "read https://ex.com/guide.html")
 
 
 if __name__ == "__main__":
