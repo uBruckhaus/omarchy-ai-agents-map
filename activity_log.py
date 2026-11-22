@@ -268,7 +268,7 @@ _ENCODED_AT = re.compile(r"%(?:25)*40", re.IGNORECASE)
 _ENCODED_COLON = re.compile(r"%(?:25)*3a", re.IGNORECASE)
 
 
-_DIGEST = re.compile(r"sha(?:1|256|512):[0-9a-fA-F]+[,;.)\]'\"]*")
+_DIGEST = re.compile(r"sha(?:1|256|512):[0-9a-fA-F]{32,}[,;.)\]'\"]*")  # a real digest is long
 _SCOPE_AT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)+@(?:[A-Za-z_][A-Za-z0-9_-]*)?")
 
 

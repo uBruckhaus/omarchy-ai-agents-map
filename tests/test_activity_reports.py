@@ -2385,7 +2385,7 @@ class RoundTwentyFourTest(unittest.TestCase):
 
     def test_digests_times_and_scopes_are_kept(self):
         import activity_log
-        for text in ("run docker image foo:latest@sha256:abc123 and test", "meeting at 10:30@office then fix login",
+        for text in ("run docker image foo:latest@sha256:" + "ab12" * 16 + " and test", "meeting at 10:30@office then fix login",
                      "ratio 3:1@scale in the chart", "fix c++ std::vector@ issue", "refactor Foo::bar@deprecated"):
             self.assertIsNotNone(activity_log.sanitize_topic(text), text)
 
@@ -2412,9 +2412,16 @@ class RoundTwentyFiveTest(unittest.TestCase):
             self.assertNotIn("secret", out, (text, out))
             self.assertNotIn("987654321", out, (text, out))
             self.assertNotIn("12:34", out, (text, out))
-        for text in ("run docker image foo:latest@sha256:abc123 and test", "meeting at 10:30@office",
+        for text in ("run docker image foo:latest@sha256:" + "ab12" * 16 + " and test", "meeting at 10:30@office",
                      "fix c++ std::vector@ issue"):
             self.assertIsNotNone(activity_log.sanitize_topic(text), text)
+
+
+class ShortDigestTest(unittest.TestCase):
+    def test_short_fake_digest_is_a_credential(self):
+        import activity_log
+        for text in ("see root:hunter2@sha256:abc", "see u:pw@sha256:deadbeef"):
+            self.assertIsNone(activity_log.sanitize_topic(text), text)
 
 
 if __name__ == "__main__":
