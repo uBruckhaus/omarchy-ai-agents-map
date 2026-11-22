@@ -1641,13 +1641,16 @@ class ReviewRoundSixTest(CenterCase):
         with self.center._lock:
             self.assertEqual(result["approved_digest"], self.center._approval(result))
 
-    def test_a_discovery_change_at_the_launch_gate_withdraws_the_launch(self):
+    def test_a_discovery_change_at_the_launch_gate_retries_with_fresh_approval(self):
         item = self.approve(self.save(plan="A plan."))
         reached, release = threading.Event(), threading.Event()
         self.addCleanup(release.set)
         self.before_launch = lambda: (reached.set(), release.wait(10))
         self.center.call("run", {"id": item["id"], "revision": item["revision"]})
         self.assertTrue(reached.wait(5))
+        current = self.get(item["id"])
+        self.assertFalse(current["assignment_started"])
+        self.assertNotIn("assignment", self.types(current))
         with self.center._lock:
             self.profiles[0]["run_argv"][1] = "read-only"
             self.center.discovery_generation += 1
@@ -1656,7 +1659,104 @@ class ReviewRoundSixTest(CenterCase):
         self.assertEqual(self.processes, [], "obsolete argv received launch authorization")
         self.idle()
         self.assertEqual(len(self.withdrawn), 1)
-        self.assertEqual(self.get(item["id"])["events"][-1]["text"], "project_launch_withdrawn")
+        current = self.get(item["id"])
+        self.assertEqual(current["events"][-1]["text"], "project_plan_not_approved")
+        self.assertFalse(current["assignment_started"])
+        self.assertNotIn("assignment", self.types(current))
+
+    def test_one_discovery_change_at_the_launch_gate_still_completes(self):
+        item = self.approve(self.save(plan="A plan."))
+
+        def refresh_once():
+            with self.center._lock:
+                current = self.center._projects[item["id"]]
+                self.assertFalse(current["assignment_started"])
+                self.assertNotIn("assignment", self.types(current))
+                if not self.withdrawn:
+                    self.center.discovery_generation += 1
+        self.before_launch = refresh_once
+        self.center.call("run", {"id": item["id"], "revision": item["revision"]})
+        wait_until(lambda: self.processes or not self.center._active)
+        self.assertEqual(len(self.withdrawn), 1)
+        self.assertEqual(len(self.commands), 2)
+        self.assertEqual(len(self.processes), 1)
+        current = self.get(item["id"])
+        self.assertTrue(current["assignment_started"])
+        self.assertEqual(self.types(current).count("assignment"), 1)
+        self.processes[0].finish("Done.")
+        self.idle()
+        self.assertEqual(self.get(item["id"])["status"], "completed")
+
+    def test_continuous_launch_gate_changes_exhaust_retries_without_an_assignment(self):
+        item = self.approve(self.save(plan="A plan."))
+
+        def refresh():
+            with self.center._lock:
+                self.center.discovery_generation += 1
+        self.before_launch = refresh
+        self.center.call("run", {"id": item["id"], "revision": item["revision"]})
+        self.idle()
+        self.assertEqual(self.processes, [])
+        self.assertEqual(len(self.withdrawn), 4)       # initial launch plus three retries
+        current = self.get(item["id"])
+        self.assertEqual(current["status"], "failed")
+        self.assertEqual(current["events"][-1]["text"], "project_discovery_unstable")
+        self.assertFalse(current["assignment_started"])
+        self.assertNotIn("assignment", self.types(current))
+        self.assertEqual(current["next_member"], 0)
+
+    def test_required_discovery_uses_the_latest_scan_after_three_rescans(self):
+        scans = []
+
+        def profiles():
+            scans.append(len(scans) + 1)
+            self.assertLessEqual(len(scans), 4, "discovery kept rescanning")
+            with self.center._lock:
+                self.center.discovery_generation += 1
+            return [dict(self.profiles[0], name=f"Scan {len(scans)}")]
+        self.center.agent_profiles = profiles
+        result = self.center.call("profiles", {})
+        self.assertEqual(scans, [1, 2, 3, 4])
+        self.assertEqual(result["profiles"][0]["name"], "Scan 4")
+
+    def test_assignment_discovery_uses_the_latest_scan_after_three_rescans(self):
+        item = self.save()
+        scans = []
+
+        def profiles():
+            if threading.current_thread().name != f"project-{item['id'][:8]}":
+                return self.profiles
+            scans.append(len(scans) + 1)
+            self.assertLessEqual(len(scans), 4, "assignment kept rescanning")
+            with self.center._lock:
+                self.center.discovery_generation += 1
+            return [dict(self.profiles[0], plan_argv=["/fixture/agent", f"scan-{len(scans)}", "{prompt}"])]
+        self.center.agent_profiles = profiles
+        self.center.call("plan", {"id": item["id"], "revision": item["revision"]})
+        wait_until(lambda: self.processes or not self.center._active)
+        self.assertEqual(scans, [1, 2, 3, 4])
+        self.assertEqual(len(self.processes), 1)
+        self.assertEqual(self.commands[0][1], "scan-4")
+        self.processes[0].finish("A freshly discovered plan.")
+        self.idle()
+        self.assertEqual(self.get(item["id"])["status"], "awaiting_review")
+
+    def test_assignment_write_failure_at_the_gate_withdraws_the_supervisor(self):
+        import ai_core
+        item = self.approve(self.save(plan="A plan."))
+        writer = self.center._writer or ai_core.atomic_write
+
+        def fail_assignment(path, body):
+            if any(e["type"] == "assignment" for p in json.loads(body)["projects"] for e in p["events"]):
+                raise OSError("disk gone")
+            return writer(path, body)
+        self.center._writer = fail_assignment
+        self.center.call("run", {"id": item["id"], "revision": item["revision"]})
+        self.idle()
+        self.assertEqual(self.processes, [])
+        self.assertEqual(len(self.withdrawn), 1)
+        self.assertEqual(self.center.summary()["error"], "project_store_unavailable")
+        self.assertFalse(self.get(item["id"])["assignment_started"])
 
     def test_an_obsolete_adoption_preserves_a_newer_display_for_a_waiting_list(self):
         item = self.approve(self.save(plan="A plan."))
