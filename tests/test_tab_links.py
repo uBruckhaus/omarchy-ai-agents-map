@@ -1014,7 +1014,7 @@ class HeaderNarrowTest(unittest.TestCase):
             try:
                 time.sleep(0.5)
                 done = subprocess.run([sys.executable, str(root / "tests" / "header_smoke.py")], env=env,
-                                      capture_output=True, text=True, timeout=240, cwd=str(root))
+                                      capture_output=True, text=True, timeout=420, cwd=str(root))
             finally:
                 daemon.terminate()
                 daemon.wait(5)

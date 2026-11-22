@@ -24,7 +24,7 @@ from main_tabs import MainTabs  # noqa: E402
 WINDOW_BUTTONS = 110            # what the desktop's minimize / maximize / close take beside the header
 COPIED = ("build_header", "build_header_more", "header_clipper", "update_header_layout", "setup_header_order",
           "apply_header_order", "header_items", "header_position", "header_item_at", "header_child_shown",
-          "header_need", "header_child_width", "queue_header_layout", "run_header_layout", "update_header", "apply_theme_css",
+          "header_need", "header_child_width", "header_title_width", "queue_header_layout", "run_header_layout", "update_header", "apply_theme_css",
           "apply_style_scheme", "adw_colors_css", "header_wanted", "header_child_changed", "set_header_wanted")
 FULL = {"connected": True, "running": 3, "pausing": 1, "needs_you": 12, "attention_projects": 7,
         "error": "project_store_corrupt"}
@@ -237,7 +237,7 @@ def check(width: int):
 
 
 Adw.init()
-levels = {width: check(width) for width in (1400, 900, 800, 760, 600, 500, 420)}
+levels = {width: check(width) for width in (1400, 900, 850, 840, 830, 825, 800, 760, 600, 530, 525, 500, 420)}
 assert levels[1400] == 0, levels
 assert levels[420] >= levels[600] >= levels[800] >= levels[1400], levels
 resize(600)

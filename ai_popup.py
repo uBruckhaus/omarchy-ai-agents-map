@@ -687,14 +687,29 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         while child is not None:
             if self.header_child_shown(child, level):
                 if child is getattr(self, "title_label", None):
-                    metrics = child.get_pango_context().get_metrics(None, None)
-                    width = metrics.get_approximate_char_width() / Pango.SCALE * (12 if level == 0 else 1)
+                    width = self.header_title_width(12 if level == 0 else 1)
                 else:
                     width = self.header_child_width(child)
                 total += width
                 count += 1
             child = child.get_next_sibling()
         return int(total + header.get_spacing() * max(0, count - 1) + 0.5)
+
+    def header_title_width(self, chars: int) -> int:
+        """The title's real least width with `chars` characters before its ellipsis (GTK counts digit and
+        ellipsis widths too, so an estimate from the average character width is too small)."""
+        label = self.title_label
+        busy, old = getattr(self, "header_layout_busy", False), label.get_width_chars()
+        shown = label.get_visible()
+        self.header_layout_busy = True
+        try:
+            label.set_width_chars(chars)
+            label.set_visible(True)
+            return label.measure(Gtk.Orientation.HORIZONTAL, -1)[0]
+        finally:
+            label.set_width_chars(old)
+            label.set_visible(shown)
+            self.header_layout_busy = busy
 
     def header_child_width(self, child) -> int:
         """A header child's least width as it would be shown: GTK measures a hidden widget as 0, so one
