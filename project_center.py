@@ -166,18 +166,30 @@ def _int(value) -> bool:
 
 
 def _utf8(value: str) -> int:
-    return len(value.encode("utf-8", "surrogatepass"))
+    """Its UTF-8 length; replaced unpaired surrogates count as three bytes (texts with them are
+    refused by _well_formed before they are stored)."""
+    return len(value.encode("utf-8", "replace"))
+
+
+def _well_formed(value: str) -> bool:
+    """No unpaired surrogate: it has no UTF-8 form, and a store holding one could not be read back."""
+    try:
+        value.encode("utf-8")
+        return True
+    except UnicodeEncodeError:
+        return False
 
 
 def _text(value, bound: int, required: bool = False) -> str:
-    if not isinstance(value, str) or _utf8(value) > bound or "\0" in value or (required and not value.strip()):
+    if not isinstance(value, str) or not _well_formed(value) or _utf8(value) > bound or "\0" in value \
+            or (required and not value.strip()):
         raise InvalidRequest("Invalid project text")
     return value
 
 
 def _bounded(value: str, limit: int) -> str:
     """The last `limit` bytes of value, cut at a character boundary."""
-    encoded = value.encode("utf-8", "surrogatepass")
+    encoded = value.encode("utf-8", "replace")
     if len(encoded) <= limit:
         return value
     start = len(encoded) - limit
@@ -297,6 +309,7 @@ class ProjectCenter:
         self._notify_lock = threading.Lock()
         self._notify_ready = threading.Event()
         self._notifier: threading.Thread | None = None
+        self._notify_stop = False
         self._shutdown_mutex = threading.Lock()
         self._projects: dict[str, dict] = {}
         self._active: dict[str, _Attempt] = {}
@@ -344,6 +357,8 @@ class ProjectCenter:
         if self.on_change is None:
             return
         with self._notify_lock:
+            if self._notify_stop:            # released: no new notifier
+                return
             self._notify.append(project_id)
             if self._notifier is None or not self._notifier.is_alive():
                 self._notifier = threading.Thread(target=self._deliver_changes, name="project-center-notify",
@@ -365,6 +380,15 @@ class ProjectCenter:
                     listener(project_id)
                 except Exception:          # a listener's failure never stops project work
                     pass
+            with self._notify_lock:
+                if self._notify_stop and not self._notify:
+                    return
+
+    def _stop_notifier(self) -> None:
+        """The center is released: its notifier delivers what is queued, then ends."""
+        with self._notify_lock:
+            self._notify_stop = True
+            self._notify_ready.set()
 
     def _supervised(self, argv, cwd, env, input_text, lock, may_launch):
         return project_supervisor.run(argv, cwd, env, input_text, lock, may_launch, supervisor=self._supervisor)
@@ -612,7 +636,7 @@ class ProjectCenter:
             raise ProjectError("project_store_full")
         body = json.dumps({"version": 1, "projects": [{**item, "board_rank": rank}
                                                       for rank, item in enumerate(projects.values())]},
-                          ensure_ascii=False).encode("utf-8", "surrogatepass")
+                          ensure_ascii=False).encode("utf-8", "replace")   # always valid UTF-8
         if len(body) > self.store_limit:
             # Running work cannot be saved any more: stop it and keep the fault until a smaller store
             # (after a deletion) is written. Without running work only this request is refused.
@@ -744,7 +768,7 @@ class ProjectCenter:
 
     # --- launch facts --------------------------------------------------------------------------------
 
-    def _members(self, item: dict, phase: str, profiles: dict | None = None) -> list:
+    def _members(self, item: dict, phase: str, profiles: dict | None = None, runtimes: dict | None = None) -> list:
         team = item["plan_team"] if phase == "planning" and isinstance(item.get("plan_team"), list) else item["team"]
         leads = [m for m in team if m["role"] == "lead"]
         if len(leads) != 1:
@@ -764,7 +788,7 @@ class ProjectCenter:
                 raise ProjectError("project_agent_unavailable")
             if not _valid_template(profile, key):
                 raise ProjectError("project_profile_invalid")
-            self._member_options(member, profile)
+            self._member_options(member, profile, runtimes)
         return ordered
 
     def _member_options(self, member: dict, profile: dict, runtimes: dict | None = None) -> list:
@@ -1088,7 +1112,7 @@ class ProjectCenter:
                     raise ProjectError("project_agent_unavailable")
                 raise ProjectError("project_setup_agent_omitted")
         self._members({**item, "team": team, "plan_team": team},
-                      "planning" if proposal.get("target") == "plan" else "running", candidates)
+                      "planning" if proposal.get("target") == "plan" else "running", candidates, runtimes)
         used = {m["runtime"] for m in team if isinstance(m.get("runtime"), str)}
         excluded_runtimes = proposal.get("excluded_runtimes") if proposal.get("excluded_runtimes") is not None else []
         if not isinstance(excluded_runtimes, list) or len(excluded_runtimes) > 16 or any(
@@ -1327,9 +1351,13 @@ class ProjectCenter:
                 try:
                     process = self._runner(argv, cwd, dict(self._environment), prompt if stdin else None, lock,
                                            may_launch)
-                except ProjectError as error:
+                except Exception as error:
+                    # A runner that raises has withdrawn (and reaped) its supervisor before any launch:
+                    # it is no longer this attempt's process, so cleanup has nothing to confirm.
+                    with self._lock:
+                        active.process = None
                     # Withdrawn before launch by a pause, halt or shutdown: a stop without side effects.
-                    if error.code == "project_launch_withdrawn" and active.cancelled:
+                    if isinstance(error, ProjectError) and error.code == "project_launch_withdrawn" and active.cancelled:
                         break
                     raise
                 with self._lock:
@@ -1450,11 +1478,20 @@ class ProjectCenter:
         and output still open after it gets two seconds, as in Maprisma."""
         state = {"output": "", "truncated": False, "error": None}
         guard = threading.Lock()
+        retired = threading.Event()          # set when this assignment is over: the reader writes no more
+
+        def fail(error):
+            with guard:
+                if state["error"] is None:
+                    state["error"] = error
+            threading.Thread(target=_quiet_stop, args=(process,), daemon=True).start()
 
         def read():
             last_saved = time.monotonic()
             try:
                 for text in process.output():
+                    if retired.is_set():
+                        return
                     # NUL never reaches the store (a stored NUL would make it unreadable).
                     text = text.replace("\0", "\ufffd")
                     with guard:
@@ -1465,6 +1502,10 @@ class ProjectCenter:
                     if time.monotonic() - last_saved < 0.5:
                         continue
                     with self._lock:
+                        # Checked under the lock: once retired (or the attempt is not current any
+                        # more) nothing of this assignment reaches the store.
+                        if retired.is_set() or self._active.get(project_id) is not active:
+                            return
                         if self._storage_fault is not None or project_id not in self._projects:
                             continue
                         try:
@@ -1475,17 +1516,19 @@ class ProjectCenter:
                             self._put(progress, increment=False)
                             last_saved = time.monotonic()
                         except ProjectError as error:
-                            state["error"] = error
                             active.cancelled = True
-                            threading.Thread(target=_quiet_stop, args=(process,), daemon=True).start()
+                            fail(error)
             except Exception as error:
-                state["error"] = error
-                threading.Thread(target=_quiet_stop, args=(process,), daemon=True).start()
+                fail(error)
 
         reader = threading.Thread(target=read, name=f"project-output-{project_id[:8]}", daemon=True)
         reader.start()
-        code = process.wait()
-        reader.join(2.0)
+        try:
+            code = process.wait()
+            reader.join(2.0)
+        finally:
+            with self._lock:
+                retired.set()
         process.stop()
         with self._lock:
             active.process = None
@@ -1554,12 +1597,14 @@ class ProjectCenter:
         self._record(item)
 
     def _message(self, params: dict) -> dict:
+        with self._lock:
+            self._check_open("message")       # a closed or faulted center says so first (as Maprisma)
         mode = params.get("mode") if params.get("mode") is not None else "queue"
         text = params.get("text")
         allowed = {"id", "run_id", "text", "mode"} | ({"acknowledge_interrupted"} if mode == "now" else set())
         if mode not in ("queue", "now") or not isinstance(text, str) or any(key not in allowed for key in params):
             raise ProjectError("project_message_invalid")
-        if "\0" in text:
+        if "\0" in text or not _well_formed(text):
             raise ProjectError("project_message_invalid")
         if not text.strip():
             raise ProjectError("project_message_empty")
@@ -1596,7 +1641,7 @@ class ProjectCenter:
                         if mode == "now" else "Message queued for the next assignment.")
             self._put(item, optional=True)              # a store that would be too large refuses only this
             if mode == "queue":
-                return {"project": self._view(self._projects[pid]), "message": message, "continued": False,
+                return {"project": self._view(self._projects[pid]), "message": _copy(message), "continued": False,
                         "reason": None}
             token = self._lifecycle.get(pid, 0)
         reason, still_queued = None, True
@@ -1642,7 +1687,7 @@ class ProjectCenter:
                     self._put(left, optional=True)
                 except ProjectError:
                     pass
-            return {"project": self._view(self._projects[pid]), "message": latest, "continued": reason is None,
+            return {"project": self._view(self._projects[pid]), "message": _copy(latest), "continued": reason is None,
                     "reason": reason}
 
     @staticmethod
@@ -2076,6 +2121,7 @@ class ProjectCenter:
             if self._directory_fd is not None:
                 os.close(self._directory_fd)
                 self._directory_fd = None
+        self._stop_notifier()
 
     def shutdown(self) -> None:
         """Stop every attempt in parallel within one deadline (about ten seconds). Unconfirmed cleanup
@@ -2112,6 +2158,7 @@ class ProjectCenter:
                 if self._directory_fd is not None:
                     os.close(self._directory_fd)
                     self._directory_fd = None
+            self._stop_notifier()
 
 
 class _Desc:
