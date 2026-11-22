@@ -922,8 +922,8 @@ class RoundOneTest(TempCase):
         self.assertNotIn("/home/u", prompts[0])
         self.assertNotIn("private/", prompts[0])
         self.assertNotIn("secret/", prompts[0])
-        for name in ("a.py", "[b.py]", "c.md"):
-            self.assertIn(name, prompts[0])
+        # An unquoted path conservatively consumes through the last slash on this line.
+        self.assertIn('"topic": "fix d"', prompts[0])
         self.assertEqual(activity_log.sanitize_topic("see https://example.com/docs/x?q=1"),
                          "see https://example.com/docs/x?q=1")
         self.assertEqual(activity_log.sanitize_topic("ratio 2/3 and a/b"), "ratio 2/3 and a/b")
@@ -1761,6 +1761,76 @@ class RoundEightTest(TempCase):
         self.log.resume()
         self.log.observe(set(), now=t0 + dt.timedelta(minutes=5))
         self.assertEqual([r["duration_ms"] for r in self.rows("2026-11-20")], [10000])
+
+
+class RoundNineTest(TempCase):
+    def assert_private_topic_prompt(self, topic, expected):
+        from urllib.parse import unquote
+        self.log.directory.mkdir(parents=True, exist_ok=True)
+        row = {"version": 1, "origin": "history", "session": "s", "source_kind": "agent", "source": "claude",
+               "topic": topic, "started_at": "2026-11-20T10:00:00Z", "ended_at": "2026-11-20T10:10:00Z",
+               "duration_ms": 0}
+        (self.log.directory / "2026-11-20.jsonl").write_text(jl(row))
+        prompts = []
+        answer = json.dumps({"title": "t", "text": "x", "topics": []})
+        reports_ctl.generate_topic_report(self.log, {"helper": "h"}, lambda p: prompts.append(p) or answer,
+                                          now=at("2026-11-20T12:00:00"))
+        self.assertEqual(len(prompts), 1)
+        for leak in ("alice", "Private", "Client", "Secret", "Confidential", "Bob's", "project/", "src/"):
+            self.assertNotIn(leak, unquote(prompts[0]))
+        entries = json.loads(prompts[0].split("<untrusted-entries>\n", 1)[1].split("\n</untrusted-entries>", 1)[0])
+        self.assertEqual(entries[0]["topic"], expected)
+
+    def test_review_examples_never_reach_the_helper(self):
+        cases = [
+            ('fix "/home/alice/Client\'s Private Project/src/login.py"', 'fix "login.py"'),
+            ("fix /home/alice/My Private Client/project/src/login.py now", "fix login.py now"),
+            ("see https://e.com/?f=%2Fhome%2Falice%2FMy%20Private%20Client%2Fsrc%2Fx.py",
+             "see https://e.com/?f=x.py"),
+            ("see https://e.com/open/%2Fhome%2Falice%2FMy%20Private%20Client%2Fsrc%2Fx.py",
+             "see https://e.com/open/x.py"),
+            ('fix "/home/alice/Bob\'s Secret/project/a.py"', 'fix "a.py"'),
+            ("fix /home/alice/Client (Confidential)/src/x.py", "fix x.py"),
+            ("see https://e.com/?f=%2Fhome%2Falice%2FClient%20%28Secret%29%2Fsrc%2Fx.py",
+             "see https://e.com/?f=x.py"),
+            ("diff /home/alice/a.py /home/alice/b.py", "diff b.py"),
+            ("check /home/alice/a.py and/or /home/alice/b.py", "check b.py"),
+            ("fix /home/alice/a.py 2/3", "fix 3"),
+        ]
+        for topic, expected in cases:
+            with self.subTest(topic=topic):
+                self.assert_private_topic_prompt(topic, expected)
+
+    def test_all_path_starts_and_quote_delimiters(self):
+        for root in ("/home/alice/", "~/alice/", "file:///home/alice/", "x:/home/alice/"):
+            for delimiter in ('"', "'", "`", ""):
+                with self.subTest(root=root, delimiter=delimiter):
+                    path = root + "Private  Client (Confidential)/project/src/x.py"
+                    self.assert_private_topic_prompt(f"fix {delimiter}{path}{delimiter} now",
+                                                     f"fix {delimiter}x.py{delimiter} now")
+        for topic, expected in [
+            ('fix "/home/alice/Bob\'s Secret/project/a.py" now 2/3', 'fix "a.py" now 2/3'),
+            ('''fix '/home/alice/Client "Secret"/src/x.py' now''', "fix 'x.py' now"),
+            ('''fix `/home/alice/Bob's "Secret"/src/x.py` now''', 'fix `x.py` now'),
+            ('fix "edit /home/alice/Bob\'s Secret/src/x.py" now', 'fix "edit x.py" now'),
+            ('fix "/home/alice/Bob\'s Secret/src/x.py', 'fix "x.py'),
+            ("fix /home/alice/Private/src/x.py\nkeep 2/3 and a/b", "fix x.py keep 2/3 and a/b"),
+            ("ratio 2/3 and a/b", "ratio 2/3 and a/b"),
+        ]:
+            with self.subTest(topic=topic):
+                self.assert_private_topic_prompt(topic, expected)
+
+    def test_decoded_url_keys_values_and_segments(self):
+        from urllib.parse import quote
+        for path in ("/home/alice/My Private Client/src/x.py", "/home/alice/Client (Secret)/src/x.py",
+                     "/home/alice/Bob's Secret/project/x.py", "~/alice/Confidential/src/x.py",
+                     "file:///home/alice/Private/src/x.py", "x:/home/alice/Private/src/x.py"):
+            encoded = quote(path, safe="")
+            for raw, expected in ((f"https://e.com/?{encoded}=1", "https://e.com/?x.py=1"),
+                                  (f"https://e.com/?f={encoded}", "https://e.com/?f=x.py"),
+                                  (f"https://e.com/open/{encoded}", "https://e.com/open/x.py")):
+                with self.subTest(url=raw):
+                    self.assert_private_topic_prompt("see " + raw, "see " + expected)
 
 
 class SchemaTest(unittest.TestCase):

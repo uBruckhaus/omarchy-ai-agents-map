@@ -220,15 +220,14 @@ def plain(text: str) -> str:
     not UTF-8) become the replacement character."""
     return SURROGATES.sub("\ufffd", text)
 _QUERY_SECRET = re.compile(r"(?:token|key|secret|auth|sig|password)$", re.IGNORECASE)
-# A path starts after anything that is not part of a name ([/home/u/x.py], (~/a), "=/x", ":/x") and
-# ends at a space, a quote or a bracket.
-_SEGMENT = r"""(?:[^\s<>"'()\[\]{},;|`\\]|\\.)+"""      # a backslash-escaped space ("a\ b") belongs to it
-# A path, and the words after it that go on with a "/" ("/home/a/Private Client/src/x.py" written without
-# quotes): all of it is one path, of which only the last name is kept.
-_PATH = re.compile(r"""(^|[^A-Za-z0-9_.~%+-])((?:~/|/)""" + _SEGMENT + r"""(?:\s+""" + _SEGMENT + r"""/""" +
-                   r"""(?:""" + _SEGMENT + r""")?)*)""")
-# A quoted path: everything up to the closing quote, spaces included.
-_QUOTED_PATH = re.compile(r"""(["'`])((?:~/|/)[^"'`\n]*)\1""")
+# Deliberately conservative: after a path start, discard through the LAST slash in the line
+# (or enclosing quote). Folder names may contain spaces, apostrophes and punctuation. A later
+# relative path or slash-word can be swallowed too; keeping directories private takes precedence.
+_PATH = re.compile(r"(?<![A-Za-z0-9_.~%+/-])(?:file://|[A-Za-z]:/|~/|/)[^\n]*", re.IGNORECASE)
+# Only the opening delimiter closes a quote. An apostrophe within a word is not an opener.
+# Include unfinished quotes up to the line end, so they receive the same privacy treatment.
+_QUOTED_PATH = re.compile(r'''"[^"\n]*(?:"|$)|(?<!\w)'[^'\n]*(?:'|$)|`[^`\n]*(?:`|$)''', re.MULTILINE)
+_PATH_OR_QUOTE = re.compile(_QUOTED_PATH.pattern + "|" + _PATH.pattern, re.MULTILINE | re.IGNORECASE)
 
 
 def _redact(text: str) -> str:
@@ -242,13 +241,23 @@ def _redact(text: str) -> str:
 def _short_paths(text: str, depth: int = 0) -> str:
     """Paths in text cut to their names, and URLs inside it cleaned the same way (one level deep)."""
     if depth < 2:
-        text = _URL.sub(lambda m: _clean_url(m.group(0), depth + 1), text)
-    text = _QUOTED_PATH.sub(lambda m: m.group(1) + _last_name(m.group(2)) + m.group(1), text)
-    return _PATH.sub(lambda m: m.group(1) + _last_name(m.group(2)), text)
+        text = _URL.sub(lambda m: m.group(0) if m.group(0).lower().startswith("file://")
+                        else _clean_url(m.group(0), depth + 1), text)
+
+    def shorten(match):
+        span = match.group(0)
+        if span[0] in "\"'`":
+            closing = span[0] if len(span) > 1 and span[-1] == span[0] else ""
+            body = span[1:-1] if closing else span[1:]
+            return span[0] + _PATH.sub(lambda m: _last_name(m.group(0)), body) + closing
+        return _last_name(span)
+
+    return _PATH_OR_QUOTE.sub(shorten, text)
 
 
 def _last_name(path: str) -> str:
-    return os.path.basename(path.rstrip("/").replace("\\ ", " ")) or "…"
+    # Preserve text after the final component ("a.py now", "a.py)", ...).
+    return path.rsplit("/", 1)[-1].replace("\\ ", " ") or "…"
 
 
 def _clean_url(raw: str, depth: int = 0) -> str:
@@ -302,10 +311,13 @@ def sanitize_topic(value) -> str | None:
     e-mail addresses redacted to …, paths shortened to their names, then cut to 120 characters."""
     if not isinstance(value, str):
         return None
-    text = " ".join(_CONTROL.sub(" ", value[:256 * 1024]).split())
+    # Keep line boundaries until paths are shortened; an unquoted path ends at the line end.
+    text = _CONTROL.sub(lambda m: "\n" if m.group(0) in "\r\n" else " ", value[:256 * 1024])
     urls: list[str] = []
 
     def keep(match):
+        if match.group(0).lower().startswith("file://"):
+            return match.group(0)             # spaces and other quote types may belong to this path
         urls.append(_clean_url(match.group(0)))
         return f"⟦url{len(urls) - 1}⟧"
     text = _URL.sub(keep, text)
