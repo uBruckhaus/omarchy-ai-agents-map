@@ -189,6 +189,21 @@ def _installer():
 
 class Engine(llm_engine.Engine):
     """No user service: its own CLI starts the last launch preset and stops it."""
+    config = ({'id': 'context',
+      'label': 'Context size',
+      'role': 'context',
+      'type': 'int',
+      'default': 8192,
+      'wire': 'context',
+      'scope': 'global',
+      'importance': 'main',
+      'writer': 'launch_advice',
+      'restart': 'none',
+      'verified': False,
+      'help': 'Context size',
+      'unit': 'tokens',
+      'range': [128, 10000000]},)
+
     ports = (DEFAULT_PORT,)
     start_command = "~/.local/bin/strata launch"
     models_page = False                 # models come from Strata's own screens

@@ -18,9 +18,10 @@ import connect
 import llm_engine
 from i18n import _
 from ui_helpers import short_number
+from provider_config_page import ProviderConfigPage
 
 
-class LlmHelpPage:
+class LlmHelpPage(ProviderConfigPage):
     llm_tuning_answers: dict = {}          # runtime key -> (summary, [Suggestion]) of the last Ask
 
     # --- the card --------------------------------------------------------------------------------

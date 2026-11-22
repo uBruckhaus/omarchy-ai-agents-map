@@ -555,6 +555,8 @@
   session numbers and matched by model name — then Health, Risk management, What the words mean and
   Configuration.</p>
 
+  <p><a href="#provider-configuration">Configure for this PC</a> offers a complete editable configuration with a reviewed preview and Undo.</p>
+
   <h2 id="performance">Performance</h2>
   <p>A local LLM whose settings the app knows (llama.cpp, Ollama installed by the app) has a
   <b>Performance</b> card on its details page:</p>
@@ -1339,6 +1341,55 @@
       <tr><td>I want to undo a change from earlier.</td><td>Backups are kept in <code>~/.local/state/ai-agents-map/backups/</code>.</td></tr>
     </tbody>
   </table>
+</section>
+
+<!-- ============================== Local provider configuration ============================== -->
+<section class="chapter" id="provider-configuration">
+  <h1>Configure a local provider</h1>
+  <p>Choose <b>Setup</b> in a local provider’s map-box menu, or <b>Configure for this PC</b>
+  on its Providers or details page. The <b>Configuration</b> page covers llama.cpp, Ollama,
+  LM Studio, Jan, KoboldCpp, vLLM and Strata. Opening it only reads hardware and settings;
+  it does not start a provider, install software or ask an AI.</p>
+  <p>The hardware strip shows video memory, RAM, physical and logical CPU cores, the provider’s
+  build and the ROCm, Vulkan or CUDA software found on this PC. Choose <b>Balanced</b>,
+  <b>Long context</b>, <b>Fast</b> or <b>Several agents</b>. Recommendations show a reason
+  for each value. CPU work uses physical cores; GPU recommendations leave memory for the desktop.
+  These are estimates, including the model weights, KV cache and a reserve. Unknown model
+  metadata and unverified partial GPU cache placement are called out.</p>
+  <p>llama.cpp offers <b>All models (default)</b> and individual models; LM Studio, Jan and
+  KoboldCpp use individual models. Ollama’s settings affect every model. llama.cpp and Jan
+  split their total context across parallel requests; Ollama’s context is per request.
+  The memory estimate includes Ollama’s parallel requests and maximum loaded models.</p>
+  <p>Compare the current and recommended settings, then edit <b>Your value</b> or choose
+  <b>Use recommended</b>. <b>Advanced</b> holds batch sizes and CPU threads. For a llama.cpp model,
+  <b>Use the default</b> removes an override. Validation updates while you type. Errors disable
+  Apply; warnings explain memory pressure, partial offload or cache quality and must be
+  acknowledged in the review. <b>Reset</b> discards the draft. Cancel in the review keeps edits.</p>
+  <p><b>Apply…</b> shows the exact file changes before <b>Apply configuration</b> writes them.
+  Existing files are backed up and writes are atomic and private. <b>Undo</b> restores them,
+  leaving a file alone if another program changed it again. Jan updates both its model YAML
+  and router preset together. Only an app-owned llama.cpp unit has its hard-coded GPU and flash
+  flags moved into the preset, preserving other models; a custom launcher stays under your control.
+  A changed unit is reloaded after saving and after Undo. A reload failure keeps the backup and Undo.</p>
+  <p>Settings count on the next start. If the provider is running and can be controlled,
+  <b>Restart now</b> or <b>Reload the model</b> is a separate click, refused while agents or
+  other clients use it. KoboldCpp reloads its configuration without stopping the server.</p>
+  <p>vLLM and system-installed Ollama show a copyable command or systemd snippet. Strata shows
+  <code>strata launch</code>; no tuning keys are verified and its presets, which may contain API
+  keys, are never opened by this editor. Advice is never executed by the app. llama.cpp’s
+  <b>Measure and tune</b> remains available. Select a model in Configuration to measure it,
+  unload the provider’s models first, and use <b>Stop</b> to cancel. Measuring fills the draft
+  without writing provider settings; Apply still requires review.</p>
+
+  <h2 id="provider-configuration-ai">Ask AI and web guidance</h2>
+  <p>Choose a helper and optionally describe what matters most, then click <b>Ask AI</b>.
+  The page collects fresh facts and makes one proposal call. <b>Search the web for guidance</b>
+  is available for helpers with web research; local helpers use the supplied facts offline.
+  The helper sees bounded hardware, model metadata and verified settings, without file paths
+  or Strata presets. The same validator checks its proposal; invalid answers are never retried.
+  <b>From Ask AI</b> marks the filled draft; editing a value makes it manual. Review, warnings,
+  backup and Undo work exactly as for hand edits. Online helpers use plan tokens; the local
+  helper may start its provider and load its model only after this explicit Ask click.</p>
 </section>
 
 <!-- ============================== Appendix ============================== -->

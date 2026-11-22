@@ -453,6 +453,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         right.add_named(self.build_connect_page(), "connect")
         right.add_named(self.build_install_page(), "install")
         right.add_named(self.build_models_page(), "models")
+        right.add_named(self.build_provider_config_page(), "providerconfig")
         right.add_named(self.build_mcp_page(), "mcp")
         right.add_named(self.build_add_mcp_page(), "addmcp")
         right.add_named(self.build_add_skills_page(), "addskills")
@@ -2109,6 +2110,9 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         if not summary:
             buttons = Gtk.Box(spacing=8)
             buttons.append(self.details_button(lambda *_: self.open_runtime_status(rt.key)))
+            if rt.installed and llm_engine.of(rt).config:
+                buttons.append(self.action_button(_("Configure for this PC"),
+                                                  on_click=lambda: self.open_provider_config(rt)))
             box.append(buttons)
 
     def details_button(self, on_click) -> Gtk.Widget:
@@ -3804,6 +3808,9 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
                                         else self.open_install(rt, m)))
         if not actions and rt.installed and inst is not None:
             items.append(self.menu_note(_("Installed by hand: AI Agents Map does not update or remove it.")))
+        if rt.installed and llm_engine.of(rt).config:
+            items.append(self.menu_item(_("Setup"), popover, lambda: self.open_provider_config(rt),
+                                        _("Configure this local provider for this PC")))
         adapter = providers.get(rt.key)
         if not actions and adapter is not None and adapter.install and \
                 install_recipes.choose(adapter.install, "uninstall" if rt.installed else "install",
@@ -4452,6 +4459,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
                 "models": self.close_models, "mcp": self.close_mcp_details, "status": self.close_status,
                 "health": self.close_health, "traffic": self.close_traffic, "smartcheck": self.close_smart_check,
                 "firstagent": self.close_first_agent,
+                "providerconfig": self.close_provider_config,
                 "subagents": self.close_subagents,
                 "addmcp": self.close_add_mcp, "addskills": self.close_add_skills,
                 "askai": self.close_ask_ai}

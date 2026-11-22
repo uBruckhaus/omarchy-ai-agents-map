@@ -64,6 +64,13 @@ def sessions(db_path: Path = DB) -> dict:
 def llm_text(text: str, provider: str, label: str, url: str, models: list, context: dict,
                 model: str, use_now: bool, remove: bool = False) -> str:
     import connect
+    if not model and not remove and not use_now:
+        for start, end, key in _entries(text):
+            if key == provider:
+                match = re.search(r"^\s+default_model:\s*(.+?)\s*$", text[start:end], re.MULTILINE)
+                if match:
+                    model = match[1]
+                break
     entry = [f"  {provider}:", f"    name: {label}", f"    api: {url}", "    api_key: local",
              f"    default_model: {model}", "    discover_models: false", "    models:"]
     for name in models:
