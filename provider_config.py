@@ -700,7 +700,7 @@ class ConfigFiles:
             for s in fields:
                 wire = s['wire']
                 m = re.search(r'^' + re.escape(wire['yaml']) + r':[ \t]*([^#\r\n]+)', old, re.M)
-                value = ini.get(wire['ini'], m[1].strip() if m else None)
+                value = ini.get(wire['ini'], (m[1].strip() or None) if m else None)
                 if value is not None:
                     result[s['id']] = value
             return result
@@ -719,6 +719,8 @@ class ConfigFiles:
         path = paths['main']
         old = read_config(path, anchor=writer in ('environment', 'jan_pair', 'kobold_json'))
         new = old
+        if writer == 'ini_defaults' and not old:
+            new = 'version = 1\n\n'
         unit = read_config(paths['unit']) if 'unit' in paths else ''
         if writer == 'environment' and not owned_unit(unit):
             raise ValueError(_('System Ollama is configured outside AI Agents Map'))
@@ -738,8 +740,6 @@ class ConfigFiles:
             if s is None:
                 raise ValueError(_('Not verified on this PC'))
             if writer == 'ini_defaults':
-                if not new and value is not None:
-                    new = 'version = 1\n\n'
                 new = ini_value(new, model, s['wire'], value)
             elif writer == 'environment':
                 new = line_value(new, s['wire'], value)
@@ -846,7 +846,8 @@ def _hf_model(rt, name):
             if number('head_dim'):
                 meta.update({'hf.attention.key_length': number('head_dim'), 'hf.attention.value_length': number('head_dim')})
             index = connect._json(read_config(root / 'model.safetensors.index.json'))
-            size = index.get('metadata', {}).get('total_size', 0)
+            meta_info = index.get('metadata')
+            size = meta_info.get('total_size', 0) if isinstance(meta_info, dict) else 0
             if type(size) is not int or size <= 0:
                 size = sum(p.stat().st_size for p in Budget(visits=1024, seconds=1).entries(root, 512)
                            if p.suffix == '.safetensors' and p.is_file())

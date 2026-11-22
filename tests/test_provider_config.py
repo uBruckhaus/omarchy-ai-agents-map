@@ -288,6 +288,17 @@ class MalformedMathTest(unittest.TestCase):
 
 
 class FilesTest(FileFixture):
+    def test_new_llama_ini_has_version_before_owned_unit_flag_migration(self):
+        self.write('.config/systemd/user/llama-server.service', UNIT)
+        changes = self.files.changes(self.rt, 'm', {'ctx-size': 8192})
+        ini = next(c for c in changes if c.path.name == 'models.ini')
+        self.assertEqual(ini.old, '')
+        self.assertTrue(ini.new.startswith('version = 1\n\n'), ini.new)
+        sections = context_ctl._ini_sections(ini.new)
+        self.assertEqual(sections['*']['gpu-layers'], 'all')
+        self.assertEqual(sections['*']['flash-attn'], 'on')
+        self.assertEqual(sections['m']['ctx-size'], '8192')
+
     def test_llama_defaults_migration_preview_backup_undo_reload_after_write(self):
         ini = self.write('.config/llama.cpp/models.ini', '# retained\n[*]\nparallel=1\ngpu-layers=0\n[m]\ngpu-layers=3\n[other]\n# other model\ngpu-layers=4\n')
         original = ini.read_text()
@@ -552,6 +563,18 @@ class FilesTest(FileFixture):
                 finally:
                     os.umask(before)
 
+    def test_vllm_malformed_index_metadata_falls_back_to_weight_files(self):
+        self.rt.models_dir = str(self.home / 'hf')
+        self.rt.models = ['m']
+        self.write('hf/config.json', json.dumps({'num_hidden_layers': 32, 'hidden_size': 4096}))
+        self.write('hf/model.safetensors', 'fixture weights')
+        for metadata in (None, [], 'invalid', 7):
+            with self.subTest(metadata=metadata):
+                self.write('hf/model.safetensors.index.json', json.dumps({'metadata': metadata}))
+                found = self.collect('vllm')
+                self.assertEqual(found['models'][0]['size'], len('fixture weights'))
+                self.assertEqual(found['models'][0]['meta']['hf.block_count'], 32)
+
     def test_apply_mid_plan_failure_rolls_back_content_and_modes(self):
         for new_first in (False, True):
             with self.subTest(new_first=new_first):
@@ -599,7 +622,7 @@ class FilesTest(FileFixture):
                    'ctx_size: \nparallel: 2\nmodel_path: \nthreads: 4\n')
         self.write('.local/share/Jan/data/llamacpp/router.preset.ini', '[m]\n')
         values = self.files.read_values(self.rt, 'm')
-        self.assertNotIn('parallel:', values.get('ctx_size', ''))
+        self.assertNotIn('ctx_size', values)
         self.assertEqual(values['parallel'], '2')
         self.assertIsNone(self.files.model_file(self.rt, 'm'))
 
@@ -794,7 +817,7 @@ class EditorTest(unittest.TestCase):
         view.provider_config_fit.set_level.assert_called_with('error')
 
 
-    def test_builds_complete_forms_headlessly_for_all_scopes(self):
+    def build_forms(self, interaction=None):
         from tests.test_settings_responsive import Widget, Entry, Selector
         module = self.module
         class Box(Widget):
@@ -808,6 +831,11 @@ class EditorTest(unittest.TestCase):
                 return self
             def set_text(self, text):
                 self.properties['text'] = text
+        class ChangedEntry(Entry):
+            def set_text(self, text):
+                if text != self.get_text():
+                    super().set_text(text)
+                    self.emit('changed')
         def card(title):
             result = Box()
             result.body = Box()
@@ -823,7 +851,7 @@ class EditorTest(unittest.TestCase):
             checks.append(item)
             return item
         fake_gtk = SimpleNamespace(Box=Box, Label=Box, Switch=Box, CheckButton=checkbox, DropDown=Selector,
-                                  Entry=Entry, Expander=Box, LevelBar=Box,
+                                  Entry=ChangedEntry, Expander=Box, LevelBar=Box,
                                   Orientation=module.Gtk.Orientation, Align=module.Gtk.Align)
         for key in config.PROVIDERS:
             with self.subTest(provider=key), mock.patch.object(module, 'Gtk', fake_gtk), \
@@ -837,8 +865,10 @@ class EditorTest(unittest.TestCase):
                 view.info_card = card
                 view.card_text = card_text
                 labels = []
+                actions = {}
                 def button(label, **kwargs):
                     labels.append(label)
+                    actions[label] = kwargs.get('on_click')
                     return Box()
                 view.action_button = button
                 view.action_row = lambda *a, **k: Box()
@@ -855,6 +885,27 @@ class EditorTest(unittest.TestCase):
                 if key == 'llamacpp':
                     self.assertTrue(checks)
                     self.assertTrue(all(not check.get_sensitive() for check in checks))
+                    if interaction == 'default':
+                        editor = checks[0].parent.children[0].children[1].children[0]
+                        view.provider_config_timer = None
+                        with mock.patch.object(module.GLib, 'timeout_add', return_value=1):
+                            editor.set_text('16384')
+                        self.assertTrue(checks[0].get_sensitive())
+                        self.assertIn('ctx-size', view.provider_config_draft.values)
+                    elif interaction == 'special':
+                        view.provider_config_timer = None
+                        with mock.patch.object(module.GLib, 'timeout_add', return_value=1):
+                            actions['all']()
+                        self.assertEqual(view.provider_config_draft.values['gpu-layers'], 'all')
+
+    def test_builds_complete_forms_headlessly_for_all_scopes(self):
+        self.build_forms()
+
+    def test_typing_enables_use_default_without_rerender(self):
+        self.build_forms(interaction='default')
+
+    def test_special_chip_records_edit_when_text_already_matches(self):
+        self.build_forms(interaction='special')
 
     def callback_view(self):
         from page_parts import PageParts
@@ -937,7 +988,9 @@ class EditorTest(unittest.TestCase):
                 mock.patch.object(config, 'apply', return_value=config.WriteResult(backup=Path('/fixture/backup'))), \
                 mock.patch.object(config, 'collect', return_value=facts()):
             view.apply_provider_config()
+            view.show_page.reset_mock()
             view.open_provider_config(inventory.Runtime('jan', 'Jan', True, False))
+            view.show_page.assert_called_once_with('providerconfig')
             self.assertIs(view.provider_config_draft, draft)
             self.assertEqual(view.provider_config_rt.key, 'llamacpp')
             self.assertEqual(view.provider_config_generation, 1)
@@ -946,6 +999,45 @@ class EditorTest(unittest.TestCase):
         self.assertIs(draft.applied_review, review)
         self.assertTrue(view.provider_config_body.get_sensitive())
         self.assertIn('Restart now', view.buttons)
+
+    def test_busy_measure_can_leave_and_reopen_with_stop_reachable(self):
+        import threading
+        view = self.callback_view()
+        draft = view.provider_config_draft
+        cancel = threading.Event()
+        done = mock.Mock()
+        pending = []
+        with mock.patch.object(self.module.threading, 'Thread', side_effect=lambda **kw: pending.append(kw['target']) or mock.Mock()), \
+                mock.patch.object(self.module.GLib, 'idle_add', side_effect=lambda fn, *a: fn(*a)):
+            view.provider_config_job(lambda: 'measured', done, cancel_event=cancel)
+            view.close_provider_config()
+            view.show_page.assert_called_with('main')
+            view.page_name = lambda: 'main'
+            view.open_provider_config(view.provider_config_rt)
+            view.show_page.assert_called_with('providerconfig')
+            self.assertIs(view.provider_config_draft, draft)
+            self.assertIs(view.provider_config_cancel, cancel)
+            self.assertTrue(view.provider_config_progress.get_visible())
+            self.assertTrue(view.provider_config_stop.get_visible())
+            self.assertEqual(view.provider_config_generation, 1)
+            pending.pop()()
+        done.assert_called_once_with('measured')
+
+    def test_ask_background_can_leave_and_complete_existing_draft(self):
+        view = self.callback_view()
+        draft = view.provider_config_draft
+        view.run_ai_help = mock.Mock()
+        helper = SimpleNamespace(local=False, command='fake')
+        with mock.patch.object(config, 'require_allowed'):
+            view.ask_provider_config(helper, '', False)
+        view.close_provider_config()
+        view.show_page.assert_called_once_with('main')
+        self.assertEqual(view.provider_config_generation, 1)
+        done = view.run_ai_help.call_args.args[4]
+        done((facts(), {'summary': 'Advice', 'values': {'threads': 4}}))
+        self.assertIs(view.provider_config_draft, draft)
+        self.assertEqual(draft.values['threads'], 4)
+        self.assertFalse(view.provider_config_busy)
 
     def test_stale_job_restores_sensitivity(self):
         view = self.callback_view()

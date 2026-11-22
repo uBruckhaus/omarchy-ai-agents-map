@@ -475,6 +475,11 @@ def apply(result: Plan, backup_root: Path = BACKUP_ROOT, *, preserve_mode=False)
                         os.fsync(parent)
             except Exception as rollback_error:
                 failures.append(str(rollback_error))
+        for folder_path in sorted(created_dirs, key=len, reverse=True):
+            try:
+                Path(folder_path).rmdir()
+            except OSError:
+                pass  # Keep directories that are no longer empty.
         if failures:
             raise RuntimeError(f"{error}; rollback failed: {'; '.join(failures)}; backup: {folder}") from error
         raise
@@ -566,7 +571,12 @@ def undo(folder: Path) -> list[Path]:
         if item["copy"]:
             _write(path, (folder / item["copy"]).read_text(encoding="utf-8"), restore_mode=item.get('mode'))
         else:
-            path.unlink(missing_ok=True)
+            with _write_parent(path) as parent:
+                try:
+                    os.unlink(path.name, dir_fd=parent)
+                except FileNotFoundError:
+                    pass
+                os.fsync(parent)
         restored.append(path)
     # Folders apply() made for new files, deepest first, once they are empty again.
     for folder_path in sorted(created_dirs, key=len, reverse=True):

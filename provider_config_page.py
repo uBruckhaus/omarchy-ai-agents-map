@@ -108,6 +108,7 @@ class ProviderConfigPage:
 
     def open_provider_config(self, rt, model=None, profile='balanced', prefill=None):
         if self.provider_config_busy:
+            self.show_page('providerconfig')
             return  # Keep the job's draft, reviewed snapshot and eventual Undo handle.
         self.provider_config_cancel_timer()
         self.provider_config_body.set_sensitive(True)
@@ -145,9 +146,8 @@ class ProviderConfigPage:
         threading.Thread(target=work, daemon=True).start()
 
     def close_provider_config(self):
-        if self.provider_config_busy:
-            return
-        self.provider_config_generation += 1
+        if not self.provider_config_busy:
+            self.provider_config_generation += 1
         self.provider_config_cancel_timer()
         self.show_page(self.provider_config_from if self.provider_config_from != 'providerconfig' else 'main')
 
@@ -158,6 +158,7 @@ class ProviderConfigPage:
             return
         body, facts = self.provider_config_body, draft.facts
         self.provider_config_labels = {}
+        self.provider_config_defaults = {}
         self.provider_config_ai_badge = None
         self.clear_box(body)
         self.provider_config_title.set_label(_('{0} · Configuration').format(facts['runtime']))
@@ -231,7 +232,7 @@ class ProviderConfigPage:
                     on_click=lambda s=field, e=editor: self.provider_config_step(s, e, 1)))
                 for special in field.get('special', []):
                     control.append(self.action_button(str(special),
-                        on_click=lambda value=special, e=editor: e.set_text(str(value))))
+                        on_click=lambda value=special, e=editor, k=key: self.provider_config_special(k, value, e)))
             control.set_sensitive(field['verified'] and not (current is None and key in draft.values))
             if not field['verified']:
                 control.set_tooltip_text(_('Not verified on this PC'))
@@ -240,6 +241,7 @@ class ProviderConfigPage:
                 default = Gtk.CheckButton(label=_('Use the default'), active=key in draft.values and current is None)
                 default.set_sensitive(field['verified'] and (key in facts.get('overrides', {}).get(draft.model, []) or key in draft.values))
                 default.connect('toggled', lambda w, k=key, e=control: self.provider_config_default(k, w.get_active(), e))
+                self.provider_config_defaults[key] = default
                 row_box.append(default)
             row_box.prepend(row)
             (advanced if field['importance'] == 'advanced' else table.body).append(row_box)
@@ -323,8 +325,16 @@ class ProviderConfigPage:
             value = text  # Includes special 'all'; invalid text remains visible with an error.
         self.provider_config_edit(field['id'], value)
 
+    def provider_config_special(self, key, value, editor):
+        editor.set_text(str(value))
+        self.provider_config_edit(key, value)
+
     def provider_config_edit(self, key, value):
         self.provider_config_draft.edit(key, value)
+        default = getattr(self, 'provider_config_defaults', {}).get(key)
+        if default is not None:
+            field = next(s for s in self.provider_config_draft.facts['schema'] if s['id'] == key)
+            default.set_sensitive(field['verified'])
         if getattr(self, 'provider_config_ai_badge', None) is not None:
             self.provider_config_ai_badge.set_label(_('AI advice (draft edited manually)'))
         label = getattr(self, 'provider_config_labels', {}).get(key)

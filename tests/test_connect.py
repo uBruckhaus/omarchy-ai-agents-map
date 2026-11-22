@@ -37,7 +37,9 @@ class ConnectTest(unittest.TestCase):
 
     def write(self, rel, text):
         path = self.home / rel
-        path.parent.mkdir(parents=True, exist_ok=True)
+        for parent in reversed(path.parents):
+            if self.home in parent.parents:
+                parent.mkdir(mode=0o700, exist_ok=True)
         path.write_text(text)
         return path
 
@@ -225,6 +227,52 @@ class UndoFoldersTest(unittest.TestCase):
     def setUp(self):
         sandbox_ancestors_in(self)
 
+    def test_failed_apply_removes_new_empty_directories(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            first, second = root / 'new/deep/config', root / 'second'
+            second.write_text('old')
+            plan = connect.Plan('x', 'llamacpp', '', [connect.Change(first, '', 'new'),
+                                                      connect.Change(second, 'old', 'changed')])
+            write = connect._write
+            def fail(path, text, **kwargs):
+                if path == second:
+                    raise OSError('disk full')
+                return write(path, text, **kwargs)
+            with mock.patch.object(connect, '_write', side_effect=fail):
+                with self.assertRaisesRegex(OSError, 'disk full'):
+                    connect.apply(plan, root / 'backup')
+            self.assertFalse((root / 'new').exists())
+            self.assertEqual(second.read_text(), 'old')
+
+    def test_undo_pins_new_file_parent_during_removal(self):
+        import os
+        from contextlib import contextmanager
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            parent, moved, victim = (root / name for name in ('parent', 'moved', 'victim'))
+            parent.mkdir(mode=0o700)
+            victim.mkdir(mode=0o700)
+            path = parent / 'config'
+            (victim / 'config').write_text('new')
+            backup = connect.apply(connect.Plan('x', 'llamacpp', '', [connect.Change(path, '', 'new')]), root / 'backup')
+            write_parent = connect._write_parent
+            @contextmanager
+            def swap(target):
+                with write_parent(target) as fd:
+                    if target == path:
+                        parent.rename(moved)
+                        parent.symlink_to(victim, target_is_directory=True)
+                    yield fd
+            fsync = os.fsync
+            with mock.patch.object(connect, '_write_parent', side_effect=swap), \
+                    mock.patch('os.fsync', wraps=fsync) as sync:
+                self.assertEqual(connect.undo(backup), [path])
+            self.assertTrue(parent.is_symlink())
+            self.assertFalse((moved / 'config').exists())
+            self.assertEqual((victim / 'config').read_text(), 'new')
+            sync.assert_called_once()
+
     def test_write_refuses_symlink_leaf(self):
         with tempfile.TemporaryDirectory() as root:
             target = Path(root, 'target')
@@ -275,9 +323,9 @@ class UndoFoldersTest(unittest.TestCase):
         from pathlib import Path
         with tempfile.TemporaryDirectory() as root:
             base = Path(root, "defaults")
-            base.mkdir()
+            base.mkdir(mode=0o700)
             keep = base / "pub/other.json"
-            keep.parent.mkdir()
+            keep.parent.mkdir(mode=0o700)
             keep.write_text("{}")
             new = base / "pub/repo/deep/m.json"
             backup = connect.apply(connect.Plan("x", "lmstudio", "", [connect.Change(new, "", "{}\n")]),
