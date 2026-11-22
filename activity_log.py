@@ -201,7 +201,7 @@ def history_session(value: str) -> str:
     return value if SESSION.match(value) else hashlib.sha256(value.encode("utf-8", "surrogatepass")).hexdigest()
 
 
-_URL = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://\S+")  # also glued to a prefix ("1.https://…")
+_URL = re.compile(r"[A-Za-z][A-Za-z0-9+.-]{0,31}://\S+")  # also glued to a prefix ("1.https://…")
 _PROVIDER = re.compile(r"\b(?:sk-|gh[pousr]_|github_pat_|glpat-|AIza|AKIA|ASIA|xox[baprs]-|hf_|npm_|pypi-)[A-Za-z0-9_+=/.-]+")
 # Escapes consume the following character (including newlines), never a closing quote of their own.
 _QUOTED_SECRET = r"""(?:"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*')"""
@@ -209,10 +209,10 @@ _SECRETS = [re.compile(p, re.IGNORECASE | re.DOTALL) for p in (
     r"-----BEGIN [^-]{1,64}-----(?:.*?-----END [^-]{1,64}-----|.*$)",
     r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+",
     r"\b(?:Bearer|Basic)\s+[^\s,;]+",
-    r"""(?<![A-Za-z0-9_.])(?:[A-Za-z0-9_.-][A-Za-z0-9_.-]*)?(?:key|token|secret|password|authorization|auth|sig)["']?\s*[:=]\s*"""
+    r"""(?<![A-Za-z0-9_.])(?:[A-Za-z0-9_.-][A-Za-z0-9_.-]{0,63})?(?:key|token|secret|password|authorization|auth|sig)["']?\s*[:=]\s*"""
     rf"(?:{_QUOTED_SECRET}|[^\s,;]+)",
     r"(?<![A-Za-z0-9+/_])(?:[A-Fa-f0-9]{32,}|[A-Za-z0-9+/]{30,}==|[A-Za-z0-9+/]{31,}=|[A-Za-z0-9+/]{32,})(?![A-Za-z0-9+/=_])",
-    r"(?<![A-Za-z0-9.!#$%&*+/=?^_{}|~-])[A-Za-z0-9.!#$%&*+/=?^_{}|~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b",
+    r"(?<![A-Za-z0-9.!#$%&*+/=?^_{}|~-])[A-Za-z0-9.!#$%&*+/=?^_{}|~-]{1,64}@[A-Za-z0-9.-]{1,253}\.[A-Za-z]{2,}\b",
 )]
 # Control and bidi characters, and lone UTF-16 surrogates ("\ud83d" from a cut emoji in an agent's
 # JSON: they cannot be written as UTF-8, shown by GTK or sent anywhere).
@@ -223,17 +223,17 @@ _WHOLE_SECRETS = [_SECRETS[0], _SECRETS[1], re.compile(
     # end of its line goes, whatever the scheme, quoting or URL (no path rule needed after it).
     # The value may start on the next line (YAML, pretty JSON, folded headers) or be a multi-line quote.
     # Known schemes may precede an unindented credential; unknown schemes require header folding.
-    r"""(?<![A-Za-z0-9_.])(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*)?authorization["']?\s*[:=]\s*"""
+    r"""(?<![A-Za-z0-9_.])(?:[A-Za-z0-9_-][A-Za-z0-9_.-]{0,63})?authorization["']?\s*[:=]\s*"""
     r"(?:(?:(?:Bearer|Basic|Token|ApiKey|OAuth|Bot|Digest)\s+|"
     rf"[A-Za-z][A-Za-z0-9+._-]*(?:[ \t]+|[ \t]*\n[ \t]+))?{_QUOTED_SECRET}[^\n]*"
     r"|(?:(?:Bearer|Basic|Token|ApiKey|OAuth|Bot|Digest)\s+|"
     r"[A-Za-z][A-Za-z0-9+._-]*[ \t]*\n[ \t]+)[^\n]*|[^\n]*)",
     re.IGNORECASE), re.compile(
-    r"""(?<![A-Za-z0-9_.])(?:[A-Za-z0-9_.-][A-Za-z0-9_.-]*)?(?:key|token|secret|password|authorization|auth|sig)["']?\s*[:=]\s*"""
+    r"""(?<![A-Za-z0-9_.])(?:[A-Za-z0-9_.-][A-Za-z0-9_.-]{0,63})?(?:key|token|secret|password|authorization|auth|sig)["']?\s*[:=]\s*"""
     rf"(?:{_QUOTED_SECRET}|[A-Za-z][A-Za-z0-9+.-]*://\S+)", re.IGNORECASE)]
 # A whitespace token holding a URL together with userinfo (@ or an encoded @, raw or double-encoded)
 # fails closed as a whole, wherever the scheme starts inside it.
-_CREDENTIAL_URL_TOKEN = re.compile(r"\S*[A-Za-z][A-Za-z0-9+.-]*://\S*", re.IGNORECASE)
+_CREDENTIAL_URL_TOKEN = re.compile(r"\S+")  # every whitespace token; the callback skips those without "://"
 _CONTROL = re.compile("[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069\ud800-\udfff]")
 SURROGATES = re.compile("[\ud800-\udfff]")
 
@@ -374,7 +374,8 @@ def sanitize_topic(value) -> str | None:
     # values): cutting paths could otherwise split a quoted value and leave its rest readable.
     text = _CREDENTIAL_URL_TOKEN.sub(
         # "…/" keeps a separator, so a path continuing after the token (spaces in folders) is cut too.
-        lambda m: m.group() if "@" not in m.group() and "@" not in _decode_url_part(m.group())
+        lambda m: m.group() if "://" not in m.group() and "%3a" not in m.group().lower()
+        or "@" not in m.group() and "@" not in _decode_url_part(m.group())
         and not re.search(r"%(?:25)*40", m.group(), re.IGNORECASE)
         else "…/" if re.search(r"[/\\]", m.string[m.end():]) else "…",
         text)

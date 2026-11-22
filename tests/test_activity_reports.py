@@ -2296,5 +2296,17 @@ class RoundEighteenTest(unittest.TestCase):
                 self.assertEqual(log.active, {})
 
 
+class LinearTimeTest(unittest.TestCase):
+    """Long tokens without spaces are cleaned in linear time (agy r19: no catastrophic backtracking)."""
+
+    def test_long_tokens_stay_fast(self):
+        import time
+        import activity_log
+        for text in ("a" * 100_000, "-" * 50_000, "key" * 30_000, "x@" * 30_000, "https://x" + "a" * 100_000):
+            started = time.monotonic()
+            activity_log.sanitize_topic(text)
+            self.assertLess(time.monotonic() - started, 3.0, text[:12])
+
+
 if __name__ == "__main__":
     unittest.main()
