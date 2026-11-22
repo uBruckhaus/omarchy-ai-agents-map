@@ -99,7 +99,7 @@ class TopicTest(unittest.TestCase):
         self.assertNotIn("SECRET123", clean)
         self.assertEqual(activity_log.sanitize_topic("fix /home/uwe/project/src/main.py now"), "fix main.py now")
         self.assertEqual(activity_log.sanitize_topic("look at ~/notes/todo.md"), "look at todo.md")
-        self.assertEqual(activity_log.sanitize_topic("a‮b\x00c\n d"), "a b c d")
+        self.assertEqual(activity_log.sanitize_topic("a\u202eb\x00c\n d"), "a b c d")
         self.assertEqual(len(activity_log.sanitize_topic("word " * 100)), 120)
         long = "a" * 110 + " sk-abcdefghijklmnopqrstuvwxyz"     # a secret across character 120
         self.assertNotIn("sk-", activity_log.sanitize_topic(long))
@@ -841,7 +841,8 @@ class PageLogicTest(TempCase):
         runtime = mock.Mock(key="llamacpp")
         with mock.patch.object(live, "_cwd", return_value="/w/app"):
             page.observe_activity({"claude", "codex"}, {"claude": [10], "codex": [11, 12]}, usage, [runtime])
-        active, dirs = page._activity_store.observe.call_args[0]
+        active, dirs, usage_for = page._activity_store.observe.call_args[0]
+        self.assertTrue(callable(usage_for))
         self.assertEqual(active, {"agent:claude", "agent:codex", "runtime:llamacpp"})
         self.assertEqual(dirs, {"agent:claude": "/w/app"})      # two instances: no folder to name
         page._activity_store = mock.Mock(enabled=False)
@@ -895,6 +896,189 @@ class McpTest(unittest.TestCase):
                                                  b"x" * (activity_mcp.MAX_LINE + 10) + b"\n"), out)
             answers = [json.loads(line) for line in out.getvalue().splitlines()]
             self.assertEqual([a.get("id") for a in answers], [7, None, None])
+
+
+class RoundOneTest(TempCase):
+    """Review round 1: paths in topics, SQLite edges, bounded reads, the page's workers."""
+
+    def test_private_paths_never_reach_the_helper(self):
+        self.log.directory.mkdir(parents=True)
+        row = {"version": 1, "origin": "history", "session": "s", "source_kind": "agent", "source": "claude",
+               "topic": "fix file:///home/u/private/a.py and [/home/u/private/b.py] (~/secret/c.md) x:/home/u/private/d",
+               "started_at": "2026-11-20T10:00:00Z", "ended_at": "2026-11-20T10:10:00Z", "duration_ms": 0}
+        (self.log.directory / "2026-11-20.jsonl").write_text(jl(row))
+        prompts = []
+        answer = json.dumps({"title": "t", "text": "x", "topics": []})
+        reports_ctl.generate_topic_report(self.log, {"helper": "h"}, lambda p: prompts.append(p) or answer,
+                                          now=at("2026-11-20T12:00:00"))
+        self.assertNotIn("/home/u", prompts[0])
+        self.assertNotIn("private/", prompts[0])
+        self.assertNotIn("secret/", prompts[0])
+        for name in ("a.py", "[b.py]", "c.md"):
+            self.assertIn(name, prompts[0])
+        self.assertEqual(activity_log.sanitize_topic("see https://example.com/docs/x?q=1"),
+                         "see https://example.com/docs/x?q=1")
+        self.assertEqual(activity_log.sanitize_topic("ratio 2/3 and a/b"), "ratio 2/3 and a/b")
+
+    def test_damaged_report_json(self):
+        library = reports_ctl.ReportsLibrary(self.tmp / "reports")
+        saved = library.save(DRAFT, "x")
+        con = sqlite3.connect(self.tmp / "reports/reports.db")
+        con.execute("UPDATE reports SET filters_json='{bad', topics_json='[1]'")
+        con.commit()
+        con.close()
+        with self.assertRaises(reports_ctl.ReportError) as caught:
+            library.get(saved["id"])
+        self.assertEqual(caught.exception.code, "report_damaged")
+        self.assertIn("damaged", reports_ctl.message("report_damaged"))
+
+    def test_oversized_wal_is_unavailable_not_damaged(self):
+        import readonly_sqlite
+        library = reports_ctl.ReportsLibrary(self.tmp / "reports")
+        library.save(DRAFT, "x")
+        folder = self.tmp / "reports"
+        (folder / "reports.db-wal").write_bytes(b"\0" * 4096)
+        with mock.patch.object(readonly_sqlite, "MAX_BYTES", 1024):
+            for call in (library.list, library.move_aside):
+                with self.assertRaises(reports_ctl.ReportError) as caught:
+                    call()
+                self.assertEqual(caught.exception.code, "reports_db_unavailable")
+        self.assertTrue((folder / "reports.db").exists())          # never moved aside
+
+    def test_probe_distrusts_the_schema(self):
+        library = reports_ctl.ReportsLibrary(self.tmp / "reports")
+        library.save(DRAFT, "x")
+        fd = activity_log.private_dir(self.tmp / "reports")
+        try:
+            for wal in (False, True):
+                if wal:
+                    (self.tmp / "reports/reports.db-wal").write_bytes(b"")
+                con = library._probe(fd, wal)
+                try:
+                    self.assertEqual(con.execute("PRAGMA trusted_schema").fetchone()[0], 0)
+                finally:
+                    con.close()
+        finally:
+            os.close(fd)
+
+    def test_export_name_takes_only_days(self):
+        self.assertEqual(reports_ctl.export_name({"from_day": "2026-11-01", "through_day": "../../x"}, "txt"),
+                         "ai-agents-map-report-2026-11-01.txt")
+
+    def test_untrusted_ancestor_refused(self):
+        shared = self.tmp / "shared"
+        shared.mkdir()
+        os.chmod(shared, 0o777)                        # writable by everyone, no sticky bit
+        with self.assertRaises(PermissionError):
+            activity_log.private_dir(shared / "a" / "ai-log")
+
+    def test_history_root_and_adapter_checks(self):
+        import adapter_data
+        import harnesses
+        h = mock.Mock(command="evil", sessions=object(), session_files="", full_name="Evil", activity_reader="pi-files",
+                      activity_dir="~/../../etc", extra_dir_option="")
+        with mock.patch.object(harnesses, "all_harnesses", return_value=[h]), \
+                mock.patch.object(harnesses, "get", return_value=h):
+            found = history_import.history_sources({"evil"}, home=self.tmp)
+        self.assertEqual(found[0]["supported"], False)
+        self.assertEqual(found[0]["root"], "")
+        base = (adapter_data.ADAPTERS / "pi.toml").read_text()
+        for bad in ('activity_dir = "~/../x"', 'activity_reader = "sqlite-anything"', 'extra_dir_option = "; rm"'):
+            path = self.tmp / "pi.toml"
+            path.write_text(base.replace("[sessions]\n", f"[sessions]\n{bad}\n", 1).replace(
+                'activity_dir = "~/.pi/agent/sessions"\n', "", 1 if "activity_dir" in bad else 0))
+            with self.subTest(bad=bad), self.assertRaises(adapter_data.AdapterError):
+                adapter_data.load(path)
+
+    def test_enumeration_is_budgeted(self):
+        root = self.tmp / "claude"
+        project = root / "p"
+        project.mkdir(parents=True)
+        for i in range(30):
+            (project / f"s{i}.jsonl").write_text("{}\n")
+        importer = history_import.HistoryImporter(self.log, [], now=at("2026-11-20T18:00:00"))
+        importer._overall = importer._source = importer.clock()
+        with mock.patch.object(history_import, "MAX_VISITED", 10):
+            found, partial = importer._candidates(str(root), "claude-files", at("2000-01-01T00:00:00"))
+        self.assertTrue(partial)
+        self.assertLess(len(found), 10)
+
+    def test_proc_reads_are_bounded_and_own(self):
+        self.assertTrue(live.argv_of(os.getpid()))
+        self.assertTrue(live.comm(os.getpid()))
+        if os.getuid() != 0:
+            self.assertEqual(live.argv_of(1), [])         # another account's process
+            self.assertEqual(live.comm(1), "")
+        with mock.patch("builtins.open", mock.mock_open(read_data=b"x" * 10)) as opened, \
+                mock.patch.object(live.os, "stat", return_value=mock.Mock(st_uid=os.getuid())):
+            live.argv_of(5)
+        opened.return_value.read.assert_called_once_with(64 * 1024)
+
+    def test_usage_totals_and_live_rows(self):
+        claude = jl({"type": "assistant", "message": {"id": "m1", "model": "opus", "usage": {"input_tokens": 5, "output_tokens": 1}}},
+                    {"type": "assistant", "message": {"id": "m1", "model": "opus", "usage": {"input_tokens": 9, "output_tokens": 2}}},
+                    {"type": "assistant", "message": {"id": "m2", "model": "opus", "usage": {"input_tokens": 1, "output_tokens": 1}}})
+        self.assertEqual(live.usage_totals(claude, False), {"model": "opus", "input": 10, "output": 3})
+        codex = jl({"type": "turn_context", "payload": {"model": "gpt-5"}},
+                   {"type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage": {"input_tokens": 40, "output_tokens": 4}}}})
+        self.assertEqual(live.usage_totals(codex, True), {"model": "gpt-5", "input": 40, "output": 4})
+        # through observe_activity: the page's callback reaches the log's live row
+        import reports_page
+        page = reports_page.ReportsPage()
+        page._activity_store = self.log
+        page._history_job = mock.Mock(auto_tried=True)
+        readings = iter([{"session": "1:2:/s", "model": "opus", "input": 100, "output": 10},
+                         {"session": "1:2:/s", "model": "opus", "input": 160, "output": 30}])
+        with mock.patch.object(live, "session_usage", side_effect=lambda *a, **k: next(readings)), \
+                mock.patch.object(live, "_cwd", return_value=""), \
+                mock.patch.object(activity_log, "now_utc", side_effect=[at("2026-11-20T10:00:00"), at("2026-11-20T10:05:00")]):
+            page.observe_activity({"claude"}, {"claude": [123]})
+            page.observe_activity(set(), {"claude": [123]})
+        row = self.rows("2026-11-20")[0]
+        self.assertEqual((row["tokens_in"], row["tokens_out"], row["model"]), (60, 20, "opus"))
+        with mock.patch.object(live, "live_session_file", return_value=None):
+            self.assertIsNone(live.session_usage("claude", [os.getpid()]))
+        self.assertIsNone(live.session_usage("claude", []))
+
+    def test_page_workers_drop_stale_answers(self):
+        import reports_page
+        page = reports_page.ReportsPage()
+        page.reports_requests = {}
+        got = []
+        pending = []
+        with mock.patch.object(reports_page.GLib, "idle_add", side_effect=lambda f, *a: pending.append((f, a))), \
+                mock.patch.object(reports_page.threading, "Thread",
+                                  side_effect=lambda target, daemon: mock.Mock(start=target)):
+            page.reports_worker("library", lambda: "old", got.append)
+            page.reports_worker("library", lambda: "new", got.append)
+            page.reports_worker("log", lambda: 1 / 0, got.append)
+        for function, args in pending:
+            function(*args)
+        self.assertEqual(got[0], "new")
+        self.assertIsInstance(got[1], ZeroDivisionError)
+        self.assertEqual(len(got), 2)
+
+    def test_online_switch_reloads_helpers(self):
+        import reports_page
+        page = reports_page.ReportsPage()
+        page.reports_tab = "topics"
+        page.save_setting = mock.Mock()
+        page.load_report_helpers = mock.Mock()
+        page.fill_reports_topics = mock.Mock()
+        with mock.patch.object(reports_page.ai_core, "setting", return_value=False), \
+                mock.patch.object(reports_page.GLib, "idle_add", side_effect=lambda f, *a: f(*a)):
+            page.change_report_setting("ai_activity_log_online", True)
+        page.load_report_helpers.assert_called_once()
+        page.fill_reports_topics.assert_called_once()
+
+    def test_activity_view_stale_answer(self):
+        import agent_activity_dialog
+        view = agent_activity_dialog.ActivityView("claude", lambda i: {"status": "unavailable", "report": None})
+        asked = view.begin()[0]
+        self.assertIsNone(view.begin())                  # one read at a time
+        view.choose("9:9")
+        self.assertIsNone(view.accept(asked, {"status": "x"}))   # another instance chosen meanwhile
+        self.assertFalse(view.loading)
 
 
 class SchemaTest(unittest.TestCase):

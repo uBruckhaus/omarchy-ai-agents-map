@@ -25,6 +25,7 @@ import json
 import os
 import re
 import stat
+import threading
 import time
 from pathlib import Path
 
@@ -41,7 +42,7 @@ EXCLUDED = {".git", "build", ".dart_tool", "__pycache__", "node_modules", "auth.
             ".credentials.json"}
 WALK_ENTRIES, WALK_SECONDS, WALK_DEPTH = 4000, 0.25, 8
 STUCK_MS = 600_000
-CONTROL = re.compile("[\x00-\x1f\x7f-\x9f‪-‮⁦-⁩]")
+CONTROL = re.compile("[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]")
 
 # The session forms the app can read for What is it doing? and Collect history. Which one an agent
 # writes, and where, is its adapter's [sessions] activity_reader (else its reader) and activity_dir.
@@ -93,18 +94,23 @@ def alive(pid: int, proc: str = "/proc") -> bool:
     return bool(fields) and fields[0] not in (b"Z", b"X")
 
 
-def comm(pid: int, proc: str = "/proc") -> str:
+def _proc_read(pid: int, name: str, limit: int, proc: str = "/proc") -> bytes:
+    """At most `limit` bytes of /proc/<pid>/<name> of this account's own process (b"" otherwise)."""
     try:
-        return Path(f"{proc}/{pid}/comm").read_bytes()[:64].decode("utf-8", "replace").strip()
+        if os.stat(f"{proc}/{pid}").st_uid != os.getuid():
+            return b""
+        with open(f"{proc}/{pid}/{name}", "rb", buffering=0) as handle:
+            return handle.read(limit)
     except OSError:
-        return ""
+        return b""
+
+
+def comm(pid: int, proc: str = "/proc") -> str:
+    return _proc_read(pid, "comm", 64, proc).decode("utf-8", "replace").strip()
 
 
 def argv_of(pid: int, proc: str = "/proc") -> list[str]:
-    try:
-        raw = Path(f"{proc}/{pid}/cmdline").read_bytes()[:64 * 1024]
-    except OSError:
-        return []
+    raw = _proc_read(pid, "cmdline", 64 * 1024, proc)
     return [a.decode("utf-8", "replace") for a in raw.split(b"\0") if a][:256]
 
 
@@ -346,7 +352,7 @@ def trajectory_text(data: bytes, path) -> str:
         text = data.decode("utf-8")
     except UnicodeDecodeError:
         raise ValueError("Invalid text") from None
-    return re.sub("[\x00-\x08\x0b-\x1f\x7f-\x9f‪-‮⁦-⁩]", "", text).strip()[:2000]
+    return re.sub("[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]", "", text).strip()[:2000]
 
 
 def trajectory_activity(path: str, session_id: str, connect=None) -> dict:
@@ -407,23 +413,23 @@ def _session_folder(reader: str, root: str, cwd: str) -> str:
     return root
 
 
-def live_session_activity(command: str, instance: str, facts: dict, agent_pids, proc: str = "/proc",
-                          now: dt.datetime | None = None) -> dict:
-    """The session file of one live instance, read (unavailable() when it cannot be told which)."""
+def live_session_file(command: str, instance: str, facts: dict, agent_pids, proc: str = "/proc",
+                      now: dt.datetime | None = None) -> str | None:
+    """The session file one live instance writes (None when it cannot be told which)."""
     match = INSTANCE.match(instance or "")
     reader, directory = facts.get("reader"), facts.get("dir", "")
     if match is None or reader not in ("trajectory-sqlite", "pi-files", "claude-files", "codex-jsonl") \
             or not directory.startswith("~/"):
-        return unavailable()
+        return None
     pid, start = int(match.group(1)), match.group(2)
     home = activity_log.identity_home()
     root = os.path.normpath(str(home / directory[2:]))
     if not root.startswith(str(home) + "/") or not alive(pid, proc) or start_ticks(pid, proc) != start \
             or pid not in agent_pids:
-        return unavailable()
+        return None
     cwd = _cwd(pid, proc)
     if reader != "trajectory-sqlite" and not cwd.startswith("/"):
-        return unavailable()
+        return None
     folder = _session_folder(reader, root, cwd)
     rollout = reader == "codex-jsonl"
 
@@ -482,8 +488,19 @@ def live_session_activity(command: str, instance: str, facts: dict, agent_pids, 
                     if began is not None and began.timestamp() >= since - 2:
                         candidates.add(path)
     if len(candidates) != 1 or start_ticks(pid, proc) != start:
+        return None
+    return candidates.pop()
+
+
+def live_session_activity(command: str, instance: str, facts: dict, agent_pids, proc: str = "/proc",
+                          now: dt.datetime | None = None) -> dict:
+    """The session file of one live instance, read (unavailable() when it cannot be told which)."""
+    match = INSTANCE.match(instance or "")
+    path = live_session_file(command, instance, facts, agent_pids, proc, now)
+    if path is None or match is None:
         return unavailable()
-    path = candidates.pop()
+    start, reader = match.group(2), facts["reader"]
+    pid, rollout = int(match.group(1)), facts["reader"] == "codex-jsonl"
     session = os.path.splitext(os.path.basename(path))[0]
     if reader == "trajectory-sqlite":
         activity = trajectory_activity(path, session)
@@ -492,6 +509,90 @@ def live_session_activity(command: str, instance: str, facts: dict, agent_pids, 
         activity = unavailable() if tail is None else jsonl_session_activity(tail.decode("utf-8", "replace"),
                                                                             session, rollout=rollout)
     return activity if start_ticks(pid, proc) == start else unavailable()
+
+
+# --- token usage of a live instance (the activity log's live rows) ---------------------------------
+
+USAGE_MAX = 8 << 20          # a larger session file gives no usage (unknown), never a partial sum
+
+
+def session_usage(command: str, pids, proc: str = "/proc", cache: dict | None = None) -> dict | None:
+    """{session, model, input, output}: the token totals of the one running instance's own session file
+    (instance-checked as for What is it doing?), or None. Read whole up to 8 MiB, numbers and model names
+    only; a file unchanged since the last look (cache) is not read again."""
+    pids = [p for p in list(pids)[:2] if alive(p, proc)]
+    if len(pids) != 1:
+        return None
+    ident = instance_id(pids[0], proc)
+    facts = session_facts(command)
+    if not ident or facts.get("reader") not in ("claude-files", "codex-jsonl", "pi-files"):
+        return None
+    path = live_session_file(command, ident, facts, pids, proc)
+    if path is None:
+        return None
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return None
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_size > USAGE_MAX:
+        return None
+    key = (path, info.st_size, info.st_mtime_ns)
+    if cache is not None and cache.get("key") == key:
+        totals = cache["totals"]
+    else:
+        data = read_part(path, USAGE_MAX + 1, tail=False)
+        if data is None or len(data) > USAGE_MAX:
+            return None
+        totals = usage_totals(data.decode("utf-8", "replace"), facts["reader"] == "codex-jsonl")
+        if cache is not None:
+            cache.update(key=key, totals=totals)
+    if totals is None or instance_id(pids[0], proc) != ident:
+        return None
+    return {"session": f"{ident}:{path}", **totals}
+
+
+def usage_totals(text: str, rollout: bool) -> dict | None:
+    """Input and output tokens of a session (Codex: its last running total; else each message once)."""
+    models, seen, last = set(), {}, None
+    for line in text.splitlines():
+        if len(line) > MAX_LINE or '"usage"' not in line and "token_count" not in line and '"model"' not in line:
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(row, dict):
+            continue
+        payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+        message = row.get("message") if isinstance(row.get("message"), dict) else {}
+        if rollout:
+            if row.get("type") == "turn_context" and isinstance(payload.get("model"), str):
+                models.add(payload["model"])
+            info = payload.get("info") if payload.get("type") == "token_count" else None
+            total = info.get("total_token_usage") if isinstance(info, dict) else None
+            if isinstance(total, dict) and type(total.get("input_tokens")) is int and type(total.get("output_tokens")) is int:
+                last = (total["input_tokens"], total["output_tokens"])
+            continue
+        usage = message.get("usage")
+        if not isinstance(usage, dict):
+            continue
+        tin, tout = usage.get("input_tokens", usage.get("input")), usage.get("output_tokens", usage.get("output"))
+        if type(tin) is not int or type(tout) is not int or tin < 0 or tout < 0:
+            continue
+        if isinstance(message.get("model"), str):
+            models.add(message["model"])
+        key = str(message.get("id") or row.get("uuid") or row.get("id") or len(seen))
+        before = seen.get(key, (0, 0))
+        seen[key] = (max(tin, before[0]), max(tout, before[1]))
+    if rollout:
+        if last is None:
+            return None
+        tin, tout = last
+    else:
+        if not seen:
+            return None
+        tin, tout = sum(v[0] for v in seen.values()), sum(v[1] for v in seen.values())
+    return {"model": next(iter(models)) if len(models) == 1 else None, "input": tin, "output": tout}
 
 
 # --- progress the agent reports itself ---------------------------------------------------------
@@ -649,8 +750,13 @@ class ActivityIdle:
     def __init__(self, clock=time.monotonic):
         self.clock = clock
         self.samples: dict[str, tuple] = {}
+        self.lock = threading.Lock()          # refreshes of several windows may overlap on workers
 
     def observe(self, instance: str, evidence: str, ticks: list, active: bool, elapsed_ms: int | None = None):
+        with self.lock:
+            return self._observe(instance, evidence, ticks, active, elapsed_ms)
+
+    def _observe(self, instance: str, evidence: str, ticks: list, active: bool, elapsed_ms: int | None = None):
         now = int(self.clock() * 1000) if elapsed_ms is None else elapsed_ms
         previous = self.samples.pop(instance, None)
         for key in [k for k, s in self.samples.items() if now - s[0] > STUCK_MS]:

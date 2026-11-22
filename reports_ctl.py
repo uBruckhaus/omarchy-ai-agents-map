@@ -79,6 +79,7 @@ MESSAGES = {
     "reports_db_unavailable": "The report library is unavailable.",
     "reports_db_read_only": "This library was created by a newer version of the app.",
     "report_not_found": "The report could not be found.",
+    "report_damaged": "This saved report is damaged and cannot be shown.",
 }
 
 
@@ -170,31 +171,37 @@ class ReportsLibrary:
         finally:
             os.close(fd)
 
-    def _path(self) -> str:
-        return str(self.directory / FILES[0])
+    @staticmethod
+    def _path(dir_fd: int) -> str:
+        """The database through the locked folder's descriptor: a folder swapped meanwhile is never used."""
+        return f"/proc/self/fd/{dir_fd}/{FILES[0]}"
 
     def _probe(self, dir_fd: int, wal: bool) -> sqlite3.Connection:
         """A read-only look at the schema that creates no -wal or -shm: immutable without a WAL, an
         in-memory committed image with one."""
         if not wal:
-            con = sqlite3.connect(f"file:{quote(self._path())}?immutable=1&mode=ro", uri=True,
+            con = sqlite3.connect(f"file:{quote(self._path(dir_fd))}?immutable=1&mode=ro", uri=True,
                                   check_same_thread=False)
             try:
+                con.execute("PRAGMA trusted_schema=OFF")
                 con.execute("PRAGMA user_version").fetchone()
             except BaseException:
                 con.close()
                 raise
             return con
         import readonly_sqlite
+        base = activity_log.read_own(dir_fd, FILES[0], readonly_sqlite.MAX_BYTES)
+        log = activity_log.read_own(dir_fd, FILES[1], readonly_sqlite.MAX_BYTES)
+        if base is None or log is None:          # too large or unreadable: not a sign of damage
+            raise ReportError("reports_db_unavailable")
         try:
-            base = activity_log.read_own(dir_fd, FILES[0], readonly_sqlite.MAX_BYTES) or b""
-            log = activity_log.read_own(dir_fd, FILES[1], readonly_sqlite.MAX_BYTES) or b""
             image = readonly_sqlite.committed_image(base, log)
         except ValueError:
             raise ReportError("reports_db_corrupt") from None
         con = sqlite3.connect(":memory:", check_same_thread=False)
         try:
             con.deserialize(image)
+            con.execute("PRAGMA trusted_schema=OFF")
         except BaseException:
             con.close()
             raise
@@ -218,7 +225,7 @@ class ReportsLibrary:
                         return action(probe, version)
                 finally:
                     probe.close()
-            con = sqlite3.connect(self._path(), timeout=5.0, isolation_level=None, check_same_thread=False)
+            con = sqlite3.connect(self._path(dir_fd), timeout=5.0, isolation_level=None, check_same_thread=False)
             try:
                 version = con.execute("PRAGMA user_version").fetchone()[0]
                 con.execute("PRAGMA trusted_schema=OFF")
@@ -290,8 +297,16 @@ class ReportsLibrary:
         if row is None:
             raise ReportError("report_not_found")
         out = {"id": report_id}
-        for field, value in zip(FIELDS, row):
-            out[field] = json.loads(value) if field in ("filters", "topics") else value == 1 if field == "capped" else value
+        try:
+            for field, value in zip(FIELDS, row):
+                out[field] = json.loads(value) if field in ("filters", "topics") else value == 1 if field == "capped" else value
+        except (TypeError, ValueError):
+            raise ReportError("report_damaged") from None
+        topics = out.get("topics")
+        if not isinstance(out.get("filters"), dict) or not isinstance(topics, list) or any(
+                not isinstance(t, dict) or not isinstance(t.get("name"), str) or not isinstance(t.get("summary"), str)
+                for t in topics) or not all(isinstance(out.get(f), str) for f in ("title", "from_day", "through_day", "text")):
+            raise ReportError("report_damaged")
         return out
 
     def get(self, report_id: int) -> dict:
@@ -632,7 +647,10 @@ def format_topic_report(report: dict, form: str) -> str:
 
 
 def export_name(report: dict, ext: str) -> str:
-    return f"ai-agents-map-report-{report['from_day']}-{report['through_day']}.{ext}"
+    """A file name from the report's days, only when they are days (a stored value never becomes a path)."""
+    days = [d for d in (report.get("from_day"), report.get("through_day"))
+            if isinstance(d, str) and activity_log.DAY.match(d)]
+    return "ai-agents-map-report" + "".join(f"-{d}" for d in days) + f".{ext}"
 
 
 # --- How reporting works -------------------------------------------------------------------------

@@ -33,17 +33,26 @@ class ActivityView:
         self.loading = False
         self.closed = False
 
-    def load(self) -> dict | None:
+    def begin(self) -> tuple | None:
+        """On the window's thread: (the instance asked for,) unless a read is under way or it closed."""
         if self.loading or self.closed:
             return None
         self.loading = True
-        asked = self.instance
+        return (self.instance,)
+
+    def read(self, asked) -> dict | None:
+        """On a worker: the report (nothing of the view is changed here)."""
         try:
-            data = self.fetch(asked)
+            return self.fetch(asked)
         except Exception:
+            return None
+
+    def accept(self, asked, data) -> dict | None:
+        """Back on the window's thread: keep the answer unless it is stale (another instance chosen
+        meanwhile, or closed); a first failure shows as no details."""
+        self.loading = False
+        if data is None:
             data = {} if self.data is None else None
-        finally:
-            self.loading = False
         if data is None or self.closed or asked != self.instance:
             return None
         self.data = data
@@ -51,6 +60,13 @@ class ActivityView:
         if isinstance(report, dict):
             self.instance = report["instance"]["id"]
         return data
+
+    def load(self) -> dict | None:
+        """begin, read and accept in one go (tests, and callers without a main loop)."""
+        started = self.begin()
+        if started is None:
+            return None
+        return self.accept(started[0], self.read(started[0]))
 
     def text(self) -> str:
         report = (self.data or {}).get("report")
@@ -75,7 +91,12 @@ class AgentActivityDialog:
         return fetch
 
     def open_agent_activity(self, command: str, instance: str | None = None):
-        """What is it doing? for one agent (its menu on the map, its details, a terminal's activity button)."""
+        """What is it doing? for one agent (its menu on the map, its details, a terminal's activity button).
+        One such window at a time: asked again, the open one comes to the front."""
+        current = getattr(self, "agent_activity_window", None)
+        if current is not None:
+            current.present()
+            return getattr(self, "agent_activity_view", None)
         agent = next((a for a in getattr(self, "agent_list", []) if a.command == command), None)
         name = agent.name if agent is not None else command
         view = ActivityView(command, self.agent_activity_fetch(command))
@@ -111,6 +132,7 @@ class AgentActivityDialog:
         box.append(buttons)
         window.set_child(box)
         shown = {"text": None}
+        timer = {"id": 0}
 
         def show(data):
             if view.closed or data is None:
@@ -123,7 +145,7 @@ class AgentActivityDialog:
                     position = adjustment.get_value()
                     text.get_buffer().set_text(value)
                     shown["text"] = value
-                    GLib.idle_add(lambda: adjustment.set_value(position) or False)
+                    GLib.idle_add(lambda: (not view.closed and adjustment.set_value(position)) and False)
                 content.set_visible_child_name("report")
             elif data.get("status") == "choose_instance":
                 while (row := choices.get_first_child()) is not None:
@@ -141,15 +163,23 @@ class AgentActivityDialog:
 
         def refresh():
             if view.closed:
+                timer["id"] = 0
                 return False
-            threading.Thread(target=lambda: GLib.idle_add(show, view.load()), daemon=True).start()
+            started = view.begin()
+            if started is not None:
+                asked = started[0]
+                threading.Thread(target=lambda: GLib.idle_add(
+                    lambda data: show(view.accept(asked, data)), view.read(asked)), daemon=True).start()
             return True
 
-        timer = GLib.timeout_add_seconds(REFRESH_SECONDS, refresh)
+        timer["id"] = GLib.timeout_add_seconds(REFRESH_SECONDS, refresh)
 
         def closing(_w):
             view.closed = True
-            GLib.source_remove(timer)
+            if timer["id"]:
+                GLib.source_remove(timer["id"])
+                timer["id"] = 0
+            self.agent_activity_window = self.agent_activity_view = None
             return False
         window.connect("close-request", closing)
         keys = Gtk.EventControllerKey()
@@ -157,6 +187,7 @@ class AgentActivityDialog:
                      if key == Gdk.KEY_Escape else False)
         window.add_controller(keys)
         copy.set_sensitive(False)
+        self.agent_activity_window, self.agent_activity_view = window, view
         refresh()
         window.present()
         return view

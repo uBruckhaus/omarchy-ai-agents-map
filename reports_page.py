@@ -120,10 +120,27 @@ class ReportsPage:
                    and usage.runtimes[rt.key].running]
         if usage is not None and getattr(usage, "generating", False) and len(running) == 1:
             active.add(f"runtime:{running[0].key}")
-        store.observe(active, dirs)
+        store.observe(active, dirs, self.activity_usage_reader(pids))
         job = self.history_job()
         if not job.auto_tried and ai_core.setting("ai_activity_import") is True:
             GLib.idle_add(self.start_history, True)
+
+    def activity_usage_reader(self, pids: dict):
+        """usage_for(source) for the log: the token totals of an agent's one running instance, read from
+        that instance's own session file (agent_activity_report.session_usage); asked only when a span
+        starts or ends, and a file unchanged since is not read again."""
+        caches = self.__dict__.setdefault("_activity_usage_caches", {})
+
+        def usage_for(source: str):
+            kind, _, command = source.partition(":")
+            if kind != "agent":
+                return None
+            try:
+                return agent_activity_report.session_usage(command, pids.get(command) or [],
+                                                           cache=caches.setdefault(command, {}))
+            except Exception:
+                return None
+        return usage_for
 
     # --- the page --------------------------------------------------------------------------------
 
@@ -149,6 +166,12 @@ class ReportsPage:
         self.reports_pulse = None
         self.reports_local_topics = {}        # entry id -> topic the local LLM gave (Topic summaries by local LLM)
         self.reports_classifying = False
+        self.reports_confirming = False
+        self.reports_saving = False
+        self.reports_library_loading = False
+        self.reports_library_results = None
+        self.reports_library_errors = None
+        self.reports_requests = {"log": 0, "library": 0}     # the newest read per tab: older answers are dropped
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         title = Gtk.Label(label=_("Reports").upper())
         help_button = Gtk.Button(icon_name="help-browser-symbolic", valign=Gtk.Align.CENTER)
@@ -201,6 +224,9 @@ class ReportsPage:
         self.show_view(getattr(self, "reports_return", self.view), save=False)
 
     def confirm_leave_reports(self, then):
+        if self.reports_confirming:
+            return
+        self.reports_confirming = True
         dialog = Adw.AlertDialog(heading=_("Cancel the report?"),
                                  body=_("A topic report is being generated. Leaving the page cancels it."))
         dialog.add_response("stay", _("Back"))
@@ -209,6 +235,7 @@ class ReportsPage:
         dialog.set_default_response("stay")
 
         def answered(_dialog, response):
+            self.reports_confirming = False
             if response == "cancel":
                 self.cancel_report()
                 then()
@@ -230,16 +257,25 @@ class ReportsPage:
         self.fill_reports_footer()
 
     def reports_tick(self):
-        if self.page_name() != "reports" or self.reports_tab != "log":
+        window = getattr(self, "window", None)
+        if self.page_name() != "reports" or self.reports_tab != "log" or window is None or not window.get_visible():
             self.reports_timer = None
             return False
         self.refresh_reports_log(keep_scroll=True)
         return True
 
     def stop_reports_timer(self):
-        if getattr(self, "reports_timer", None):
-            GLib.source_remove(self.reports_timer)
-            self.reports_timer = None
+        """The Log tab's 30 s refresh and the progress bar's pulse (tab change, leaving, hiding the window)."""
+        for name in ("reports_timer", "reports_pulse"):
+            source = getattr(self, name, None)
+            if source:
+                GLib.source_remove(source)
+                setattr(self, name, None)
+
+    def reports_hidden(self):
+        """The window is hidden: nothing of this page keeps running in the background but a report
+        being generated (it ends by itself; the next open shows it)."""
+        self.stop_reports_timer()
 
     # --- small parts -------------------------------------------------------------------------------
 
@@ -268,8 +304,15 @@ class ReportsPage:
         if ai_core.setting(key) == value:
             return
         self.save_setting(**{key: value})
-        GLib.idle_add(lambda: (self.refresh_reports_log() if self.reports_tab == "log" else
-                               self.fill_reports_topics()) and False)
+
+        def again():
+            if self.reports_tab == "log":
+                self.refresh_reports_log()
+            elif self.reports_tab == "topics":
+                self.load_report_helpers()      # online helpers on or off: the list and the choice follow
+                self.fill_reports_topics()
+            return False
+        GLib.idle_add(again)
 
     @staticmethod
     def error_label(box, text: str):
@@ -489,6 +532,28 @@ class ReportsPage:
             self.card_text(box, reports_ctl.import_line(source), "am-agent-detail")
 
     def refresh_reports_log(self, keep_scroll: bool = False):
+        """Read the log on a worker (up to the retention's day files), then show it."""
+        store = self.activity_store()
+        if self.reports_boxes["log"].get_first_child() is None:
+            self.render_reports_log(None, keep_scroll, loading=store.enabled)
+        if not store.enabled:
+            self.reports_requests["log"] = self.reports_requests.get("log", 0) + 1     # drop a read under way
+            self.render_reports_log(None, keep_scroll)
+            return
+        params = {"cursor": self.reports_cursor}
+        chosen = self.reports_range["log"]
+        if chosen:
+            params.update(from_day=chosen[0], through_day=chosen[1])
+
+        def done(result):
+            report = result if isinstance(result, dict) else None
+            if report is not None:
+                self.reports_log_report = report
+                self.local_topics(report)
+            self.render_reports_log(report, keep_scroll)
+        self.reports_worker("log", lambda: store.report(params), done)
+
+    def render_reports_log(self, report: dict | None, keep_scroll: bool = False, loading: bool = False):
         box = self.reports_boxes["log"]
         scroller = box.get_parent().get_parent() if box.get_parent() is not None else None
         adjustment = scroller.get_vadjustment() if isinstance(scroller, Gtk.ScrolledWindow) else None
@@ -496,21 +561,11 @@ class ReportsPage:
         self.clear_box(box)
         self.reports_settings_card(box)
         self.history_status(box)
-        store = self.activity_store()
-        if not store.enabled:
+        if not self.activity_store().enabled:
             self.card_text(box, _("Turn on the activity log to collect entries."))
+        elif loading:
+            box.append(Gtk.Spinner(spinning=True, halign=Gtk.Align.START))
         else:
-            params = {"cursor": self.reports_cursor}
-            chosen = self.reports_range["log"]
-            if chosen:
-                params.update(from_day=chosen[0], through_day=chosen[1])
-            try:
-                report = store.report(params)
-                self.reports_log_report = report
-            except (ValueError, OSError):
-                report = None
-            if report is not None:
-                self.local_topics(report)
             self.log_pane(box, report)
         if adjustment is not None and keep_scroll:
             GLib.idle_add(lambda: adjustment.set_value(position) or False)
@@ -531,14 +586,19 @@ class ReportsPage:
             return
         self.reports_classifying = True
 
+        def apply(rows):
+            for row in rows:                  # the window's thread only: the page reads `known` there
+                known[row["id"]] = row["topic"]
+            self.reports_classifying = False
+            self.history_changed()
+            return False
+
         def work():
             try:
-                done = reports_ctl.classify_topics({"entries": fresh}, candidate)
-                for row in done["entries"]:
-                    known[row["id"]] = row["topic"]
-            finally:
-                self.reports_classifying = False
-            GLib.idle_add(self.history_changed)
+                rows = reports_ctl.classify_topics({"entries": fresh}, candidate)["entries"]
+            except Exception:
+                rows = fresh
+            GLib.idle_add(apply, rows)
         threading.Thread(target=work, daemon=True).start()
 
     def log_pane(self, box, report: dict | None):
@@ -732,43 +792,129 @@ class ReportsPage:
         try:
             title = reports_ctl.report_field(self.reports_title, 200, required=True)
             draft = self.reports_drafts.take(self.reports_draft_id)
-            reports_ctl.ReportsLibrary().save(draft, title)
-            self.reports_drafts.saved(self.reports_draft_id)
-            self.reports_draft_id = None
-            self.show_notice(_("Report saved"))
         except ValueError:
             return
         except reports_ctl.ReportError as error:
             self.reports_topic_error = error.code
-        self.fill_reports_topics()
+            self.fill_reports_topics()
+            return
+        handle = self.reports_draft_id
+        self.reports_saving = True
+        self.fill_reports_footer()
+
+        def done(result):
+            self.reports_saving = False
+            if isinstance(result, reports_ctl.ReportError):
+                self.reports_topic_error = result.code
+            elif isinstance(result, Exception):
+                self.reports_topic_error = "reports_db_unavailable"
+            else:
+                self.reports_drafts.saved(handle)
+                if self.reports_draft_id == handle:
+                    self.reports_draft_id = None
+                self.show_notice(_("Report saved"))
+            if self.reports_tab == "topics":
+                self.fill_reports_topics()
+        self.reports_worker("save", lambda: reports_ctl.ReportsLibrary().save(draft, title), done)
+
+    # --- running library and log reads off the window's thread ---------------------------------------
+
+    def reports_worker(self, kind: str, work, done):
+        """work() on a worker thread, done(result or the exception) back on the window's thread; only the
+        newest request of each kind is delivered (a slower, older search never overwrites a newer one)."""
+        self.reports_requests[kind] = number = self.reports_requests.get(kind, 0) + 1
+
+        def deliver(result):
+            if self.reports_requests.get(kind) == number:
+                done(result)
+            return False
+
+        def run():
+            try:
+                result = work()
+            except Exception as error:      # ReportError, OSError, ValueError: shown by done()
+                result = error
+            GLib.idle_add(deliver, result)
+        threading.Thread(target=run, daemon=True).start()
 
     # --- Library -----------------------------------------------------------------------------------
 
-    def load_reports_library(self, cursor: int | None = None):
-        try:
-            self.reports_library_page = reports_ctl.ReportsLibrary().list(self.reports_query, cursor)
-            self.reports_library_error = None
-        except reports_ctl.ReportError as error:
-            self.reports_library_page, self.reports_library_error = None, error.code
-        self.fill_reports_library()
+    def library_failed(self, result) -> bool:
+        if isinstance(result, reports_ctl.ReportError):
+            self.reports_library_error = result.code
+            return True
+        if isinstance(result, Exception):
+            self.reports_library_error = "reports_db_unavailable"
+            return True
+        return False
+
+    def load_reports_library(self, cursor: int | None = None, results_only: bool = False):
+        query = self.reports_query
+        self.reports_library_loading = True
+        if not results_only:
+            self.fill_reports_library()
+
+        def done(result):
+            self.reports_library_loading = False
+            if self.library_failed(result):
+                self.reports_library_page = None
+            else:
+                self.reports_library_page, self.reports_library_error = result, None
+            if results_only and self.reports_opened is None and self.reports_library_results is not None:
+                self.fill_library_results()
+            else:
+                self.fill_reports_library()
+        self.reports_worker("library", lambda: reports_ctl.ReportsLibrary().list(query, cursor), done)
+
+    def library_search(self) -> Gtk.SearchEntry:
+        """The search field lives as long as the page: typing never loses focus or the caret."""
+        search = getattr(self, "reports_library_search", None)
+        if search is None:
+            search = self.reports_library_search = Gtk.SearchEntry(placeholder_text=_("Search reports"))
+            search.connect("search-changed", lambda e: (setattr(self, "reports_query", e.get_text()),
+                                                         self.load_reports_library(results_only=True)))
+        return search
 
     def fill_reports_library(self):
         box = self.reports_boxes["library"]
+        search = self.library_search()
         self.clear_box(box)
-        page = self.reports_library_page or {}
-        if page.get("read_only"):
-            self.error_label(box, reports_ctl.message("reports_db_read_only"))
-        if self.reports_library_error:
-            self.error_label(box, reports_ctl.message(self.reports_library_error))
+        self.reports_library_errors = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP_TIGHT)
+        box.append(self.reports_library_errors)
         opened = self.reports_opened
+        self.reports_library_results = None
         if opened is None:
-            search = Gtk.SearchEntry(placeholder_text=_("Search reports"), text=self.reports_query)
-            search.connect("search-changed", lambda e: (setattr(self, "reports_query", e.get_text()),
-                                                         self.load_reports_library()))
             box.append(search)
-            rows = page.get("reports")
+            self.reports_library_results = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
+            box.append(self.reports_library_results)
+        else:
+            back = Gtk.Button()
+            back.set_child(Adw.ButtonContent(icon_name="go-previous-symbolic", label=_("Library")))
+            back.add_css_class("flat")
+            back.set_halign(Gtk.Align.START)
+            back.connect("clicked", lambda _b: (setattr(self, "reports_opened", None), self.load_reports_library()))
+            box.append(back)
+            self.report_output(box, opened)
+        self.fill_library_results()
+
+    def fill_library_results(self):
+        """The errors and the list under the search field, replaced without touching the field."""
+        errors = getattr(self, "reports_library_errors", None)
+        if errors is not None:
+            self.clear_box(errors)
+            page = self.reports_library_page or {}
+            if page.get("read_only"):
+                self.error_label(errors, reports_ctl.message("reports_db_read_only"))
+            if self.reports_library_error:
+                self.error_label(errors, reports_ctl.message(self.reports_library_error))
+        results = getattr(self, "reports_library_results", None)
+        if results is not None:
+            self.clear_box(results)
+            if getattr(self, "reports_library_loading", False):
+                results.append(Gtk.Spinner(spinning=True, halign=Gtk.Align.START))
+            rows = (self.reports_library_page or {}).get("reports")
             if rows is not None and not rows:
-                self.card_text(box, _("No saved reports."))
+                self.card_text(results, _("No saved reports."))
             elif rows:
                 listing = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
                 listing.add_css_class("boxed-list")
@@ -779,23 +925,15 @@ class ReportsPage:
                     item.add_prefix(Gtk.Image.new_from_icon_name("x-office-document-symbolic"))
                     item.connect("activated", lambda _r, i=row["id"]: self.open_saved_report(i))
                     listing.append(item)
-                box.append(listing)
-        else:
-            back = Gtk.Button()
-            back.set_child(Adw.ButtonContent(icon_name="go-previous-symbolic", label=_("Library")))
-            back.add_css_class("flat")
-            back.set_halign(Gtk.Align.START)
-            back.connect("clicked", lambda _b: (setattr(self, "reports_opened", None), self.load_reports_library()))
-            box.append(back)
-            self.report_output(box, opened)
+                results.append(listing)
         self.fill_reports_footer()
 
     def open_saved_report(self, report_id: int):
-        try:
-            self.reports_opened = reports_ctl.ReportsLibrary().get(report_id)
-        except reports_ctl.ReportError as error:
-            self.reports_library_error = error.code
-        self.fill_reports_library()
+        def done(result):
+            if not self.library_failed(result):
+                self.reports_opened, self.reports_library_error = result, None
+            self.fill_reports_library()
+        self.reports_worker("library", lambda: reports_ctl.ReportsLibrary().get(report_id), done)
 
     def delete_saved_report(self, report_id: int):
         dialog = Adw.AlertDialog(heading=_("Delete this report?"),
@@ -804,15 +942,14 @@ class ReportsPage:
         dialog.add_response("delete", _("Delete"))
         dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
 
-        def answered(_d, response):
-            if response != "delete":
-                return
-            try:
-                reports_ctl.ReportsLibrary().delete(report_id)
+        def done(result):
+            if not self.library_failed(result):
                 self.reports_opened = None
-            except reports_ctl.ReportError as error:
-                self.reports_library_error = error.code
             self.load_reports_library()
+
+        def answered(_d, response):
+            if response == "delete":
+                self.reports_worker("library", lambda: reports_ctl.ReportsLibrary().delete(report_id), done)
         dialog.connect("response", answered)
         dialog.present(self.window)
 
@@ -829,6 +966,11 @@ class ReportsPage:
         dialog.add_response("save", _("Save"))
         dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
 
+        def done(result):
+            if not self.library_failed(result):
+                self.reports_opened, self.reports_library_error = result, None
+            self.fill_reports_library()
+
         def answered(_d, response):
             if response != "save":
                 return
@@ -837,22 +979,20 @@ class ReportsPage:
                 new_title = reports_ctl.report_field(title.get_text(), 200, required=True)
                 new_note = reports_ctl.report_field(buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), False),
                                                     2000, multiline=True)
-                self.reports_opened = reports_ctl.ReportsLibrary().update(report["id"], title=new_title, note=new_note)
             except ValueError:
                 return
-            except reports_ctl.ReportError as error:
-                self.reports_library_error = error.code
-            self.fill_reports_library()
+            self.reports_worker("library", lambda: reports_ctl.ReportsLibrary().update(
+                report["id"], title=new_title, note=new_note), done)
         dialog.connect("response", answered)
         dialog.present(self.window)
 
     def move_library_aside(self):
-        try:
-            moved = reports_ctl.ReportsLibrary().move_aside()
-            self.show_notice(_("The damaged library was moved to {0}.").format(moved))
-        except reports_ctl.ReportError as error:
-            self.reports_library_error = error.code
-        self.load_reports_library()
+        def done(result):
+            if not self.library_failed(result):
+                self.reports_library_error = None
+                self.show_notice(_("The damaged library was moved to {0}.").format(result))
+            self.load_reports_library()
+        self.reports_worker("library", lambda: reports_ctl.ReportsLibrary().move_aside(), done)
 
     # --- the footer --------------------------------------------------------------------------------
 
@@ -870,7 +1010,7 @@ class ReportsPage:
                 buttons.append(self.action_button(_("Cancel report"), on_click=self.cancel_report))
             if self.reports_draft_id is not None:
                 save = self.action_button(_("Save to library"), on_click=self.save_report)
-                save.set_sensitive(not running and bool(self.reports_title.strip()))
+                save.set_sensitive(not running and not self.reports_saving and bool(self.reports_title.strip()))
                 buttons.append(save)
             generate = self.action_button(_("Generate"), role="secondary" if self.reports_draft_id else "primary",
                                           on_click=self.generate_report)

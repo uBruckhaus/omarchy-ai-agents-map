@@ -4713,6 +4713,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             except OSError:
                 pass
         self.stop_gpu_poll()
+        self.reports_hidden()            # the Reports page's timers stop with the window
         self.map_view.set_shift(False)   # Shift may have been let go elsewhere
         page = self.page_name()
         if page == "settings":

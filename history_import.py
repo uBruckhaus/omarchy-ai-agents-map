@@ -63,7 +63,9 @@ def history_sources(installed=(), home: Path | None = None) -> list[dict]:
         has_sessions = harness.sessions is not None or bool(harness.session_files) or bool(facts)
         if not has_sessions:
             continue
-        root = home / facts["dir"][2:] if facts else None
+        root = Path(os.path.normpath(str(home / facts["dir"][2:]))) if facts else None
+        if root is not None and not str(root).startswith(str(home).rstrip("/") + "/"):
+            root, facts = None, {}           # a folder outside the home folder is never read
         if harness.command not in set(installed) and not (root is not None and root.exists()):
             continue
         found.append({"source": f"agent:{harness.command}", "name": harness.full_name or harness.name,
@@ -260,16 +262,20 @@ class HistoryImporter:
     # -- which files ------------------------------------------------------------------------------
 
     def _candidates(self, root: str, form: str, cutoff: dt.datetime) -> tuple[list, bool]:
+        """The session files changed since the cutoff, newest first. Folders are read entry by entry
+        (scan_budget.Budget, with this import's own deadline), never listed or sorted whole first."""
+        import scan_budget
         found: list[tuple[float, str]] = []
-        partial, visited = False, 0
+        partial = False
         uid, limit = os.getuid(), cutoff.timestamp()
+        left = max(0.0, min(TOTAL_SECONDS - (self.clock() - self._overall), SOURCE_SECONDS - (self.clock() - self._source)))
+        budget = scan_budget.Budget(visits=MAX_VISITED, seconds=left)
 
         def walk(path: str, depth: int):
-            nonlocal partial, visited
-            if self._expired() or visited >= MAX_VISITED:
+            nonlocal partial
+            if self._expired() or not budget.take():
                 partial = True
                 return
-            visited += 1
             try:
                 info = os.lstat(path)
             except OSError:
@@ -280,12 +286,18 @@ class HistoryImporter:
                 if depth > (1 if form == "claude-files" else 12):
                     return
                 try:
-                    names = sorted(os.listdir(path))[:4000]
+                    listing = os.scandir(path)
                 except OSError:
                     return
-                for name in names:
-                    if name != "subagents":
-                        walk(os.path.join(path, name), depth + 1)
+                with listing:
+                    for count, entry in enumerate(listing):
+                        if count >= 4000:
+                            partial = True
+                            break
+                        if entry.name != "subagents":
+                            walk(entry.path, depth + 1)
+                        if partial and budget.stopped:
+                            break
             elif stat.S_ISREG(info.st_mode):
                 modified = info.st_mtime
                 if form == "trajectory-sqlite":
@@ -344,8 +356,8 @@ class HistoryImporter:
             if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
                 raise OSError("unsafe history file")
             big = info.st_size > WHOLE
-            head = os.pread(fd, HEAD if big else WHOLE, 0) if big else _read_all(fd, WHOLE)
-            tail = os.pread(fd, TAIL, info.st_size - TAIL) if big else None
+            head = _pread_all(fd, HEAD, 0) if big else _read_all(fd, WHOLE)
+            tail = _pread_all(fd, TAIL, max(0, info.st_size - TAIL)) if big else None
         finally:
             os.close(fd)
         parsed = _Parsed(os.path.splitext(os.path.basename(path))[0], partial=big)
@@ -520,6 +532,17 @@ def _read_all(fd: int, limit: int) -> bytes:
             break
         chunks.append(chunk)
         left -= len(chunk)
+    return b"".join(chunks)
+
+
+def _pread_all(fd: int, size: int, offset: int) -> bytes:
+    chunks, done = [], 0
+    while done < size:
+        chunk = os.pread(fd, min(size - done, 1 << 20), offset + done)
+        if not chunk:
+            break
+        chunks.append(chunk)
+        done += len(chunk)
     return b"".join(chunks)
 
 

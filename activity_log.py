@@ -78,7 +78,9 @@ def _setting(key: str):
 
 def private_dir(path: Path) -> int:
     """Create (0700) or check the folder: a real folder of this account, not a link; its descriptor."""
-    path = Path(path)
+    import ai_core
+    path = Path(os.path.abspath(path))
+    ai_core._resolve_private_parent(path.parent)       # every ancestor this account's or root's, not writable by others
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     try:
         os.mkdir(path, 0o700)
@@ -125,7 +127,14 @@ def read_own(dir_fd: int, name: str, limit: int) -> bytes | None:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_size > limit:
             return None
-        data = os.read(fd, limit + 1)
+        chunks, left = [], limit + 1
+        while left > 0:
+            chunk = os.read(fd, min(left, 1 << 20))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            left -= len(chunk)
+        data = b"".join(chunks)
         return None if len(data) > limit else data
     except OSError:
         return None
@@ -199,9 +208,11 @@ _SECRETS = [re.compile(p, re.IGNORECASE | re.DOTALL) for p in (
     r"(?<![A-Za-z0-9+/_])(?:[A-Fa-f0-9]{32,}|[A-Za-z0-9+/]{30,}==|[A-Za-z0-9+/]{31,}=|[A-Za-z0-9+/]{32,})(?![A-Za-z0-9+/=_])",
     r"(?<![A-Za-z0-9.!#$%&*+/=?^_{}|~-])[A-Za-z0-9.!#$%&*+/=?^_{}|~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b",
 )]
-_CONTROL = re.compile("[\x00-\x1f\x7f-\x9f‪-‮⁦-⁩]")
+_CONTROL = re.compile("[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]")
 _QUERY_SECRET = re.compile(r"(?:token|key|secret|auth|sig|password)$", re.IGNORECASE)
-_PATH = re.compile(r"""(^|[\s("'=])((?:~/|/)[^\s<>"']+)""")
+# A path starts after anything that is not part of a name ([/home/u/x.py], (~/a), "=/x", ":/x") and
+# ends at a space, a quote or a bracket.
+_PATH = re.compile(r"""(^|[^A-Za-z0-9_.~%+-])((?:~/|/)[^\s<>"'()\[\]{},;|`]+)""")
 
 
 def _redact(text: str) -> str:
@@ -220,6 +231,10 @@ def _clean_url(raw: str) -> str:
         host = parts.hostname or ""
     except ValueError:
         return "…"
+    if parts.scheme.lower() != "http" and parts.scheme.lower() != "https":
+        # file://, ssh://, vscode:// and the like name places on this PC: only the last name is kept.
+        name = os.path.basename(unquote(parts.path).rstrip("/"))
+        return _redact(name) if name else "…"
     if parts.username or parts.password or "@" in parts.netloc or _redact(host) != host:
         return "…"
     query = []
