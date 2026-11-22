@@ -271,10 +271,17 @@ _ENCODED_COLON = re.compile(r"%(?:25)*3a", re.IGNORECASE)
 def _userinfo(text: str) -> bool:
     """user:password@host in linear time, also :password@host (empty user) and a cut-off user:password@."""
     at = text.rfind("@")
-    if at < 2:
-        return False
+    if at < 2 or text[at + 1:at + 8].lower() in ("sha256:", "sha512:") or text[at + 1:at + 6].lower() == "sha1:":
+        return False                       # an image digest (img:1.2@sha256:…), not userinfo
     colon = text.find(":", 0, at)
-    return colon >= 0 and (at < len(text) - 1 or colon + 1 < at)
+    while colon >= 0 and (text[colon + 1:colon + 2] == ":" or text[colon - 1:colon] == ":"):
+        colon = text.find(":", colon + 2, at)  # a scope operator (std::vector@), not user:password
+    if colon < 0:
+        return False
+    user = text[:colon].rsplit("/", 1)[-1]
+    if user.isdigit() and text[colon + 1:at].isdigit():
+        return False                       # a time or ratio (10:30@office, 3:1@scale)
+    return at < len(text) - 1 or colon + 1 < at
 
 
 def _credential_token(token: str) -> bool:
@@ -411,7 +418,7 @@ def sanitize_topic(value) -> str | None:
     # Whole secrets first (PEM, JWT, Authorization, key=/token=/password= assignments with quoted or URL
     # values): cutting paths could otherwise split a quoted value and leave its rest readable.
     if any(_credential_token(word) for word in text.split()):
-        return "…"   # a topic that held credentials is not kept at all (nothing of its paths can leak)
+        return None  # a topic that held credentials is not kept at all: the caller's heuristic topic is used
     for pattern in _WHOLE_SECRETS:
         text = pattern.sub("…", text)
     text = _short_paths(text)

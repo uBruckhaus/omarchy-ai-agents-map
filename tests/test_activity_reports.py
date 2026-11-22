@@ -1966,8 +1966,8 @@ class RoundElevenTest(TempCase):
 
     def test_encoded_whitespace_review_examples(self):
         cases = [
-            ("see https://user:top%20secret@localhost", "…"),   # credentials: the whole topic goes
-            ("see https://user:my%20secret%20pass@ex.com", "…"),
+            ("see https://user:top%20secret@localhost", None),   # credentials: the whole topic goes
+            ("see https://user:my%20secret%20pass@ex.com", None),
             ("see https://ex.com/doc?token=my%20super%20secret%20value", "see https://ex.com/doc"),
             ("check https://jira.corp.internal/issues/?jql=project%20=%20SecretClient",
              "check https://jira.corp.internal"),
@@ -2000,8 +2000,8 @@ class RoundElevenTest(TempCase):
             ('fix "/home/alice/Documents/Projects/My Private Client/src/x.py"', 'fix x.py"'),
             ("fix key=/home/alice/My Private Client/src/x.py", "fix x.py"),
             ("fix Bearer /home/alice/My Private Client/src/x.py", "fix …"),
-            ("fix file:///home/alice@corp/My Private Client/src/x.py", "…"),
-            ("see https://user@ex.com/My Private Client/src/x.py", "…"),
+            ("fix file:///home/alice@corp/My Private Client/src/x.py", None),
+            ("see https://user@ex.com/My Private Client/src/x.py", None),
             ("open /home/alice@corp.com My Private Client/src/x.py", "open x.py"),
         ]
         for topic, expected in cases:
@@ -2025,7 +2025,7 @@ class RoundElevenTest(TempCase):
                 for userinfo in (f"user:top{space}secret@", f"user:top{space}secret%40",
                                  f"user%3Atop{space}secret%2540"):
                     with self.subTest(scheme=scheme, space=space, userinfo=userinfo):
-                        self.assert_topic_prompt(f"see {scheme}://{userinfo}ex.com/dir/x.py", "…")
+                        self.assert_topic_prompt(f"see {scheme}://{userinfo}ex.com/dir/x.py", None)
 
     def test_url_prefixes_and_clean_names(self):
         for prefix, suffix in (("url=", ""), ("'", "'"), ("`", "`"), ("(", ")"), ("[docs](", ")"),
@@ -2378,6 +2378,21 @@ class RoundTwentyThreeTest(unittest.TestCase):
                 self.assertNotIn(word, out, (text, out))
         self.assertEqual(activity_log.sanitize_topic("mail bob@example.com"), "mail …")
         self.assertEqual(activity_log.sanitize_topic("note: @alice later"), "note: @alice later")
+
+
+class RoundTwentyFourTest(unittest.TestCase):
+    """Ordinary prompts are not taken for credentials; a dropped topic is None (heuristic used)."""
+
+    def test_digests_times_and_scopes_are_kept(self):
+        import activity_log
+        for text in ("run docker image foo:latest@sha256:abc123 and test", "meeting at 10:30@office then fix login",
+                     "ratio 3:1@scale in the chart", "fix c++ std::vector@ issue", "refactor Foo::bar@deprecated"):
+            self.assertIsNotNone(activity_log.sanitize_topic(text), text)
+
+    def test_credentials_still_drop_the_topic(self):
+        import activity_log
+        for text in ("connect alice:pw@db", "connect :token@localhost", "see https://u:p@h/x"):
+            self.assertIsNone(activity_log.sanitize_topic(text), text)
 
 
 if __name__ == "__main__":
