@@ -2182,5 +2182,18 @@ class RoundSixteenTest(unittest.TestCase):
             self.assertNotIn("Value", out, (text, out))
 
 
+class RoundSeventeenTest(unittest.TestCase):
+    """CLI flags and digit-prefixed secret keys (agy r17)."""
+
+    def test_flags_and_digit_keys_never_leak(self):
+        import activity_log
+        for text in ("cli --password=mySecretValue123", "cli --api-key=mySecretValue123",
+                     'cli --token="mySecret Value"', "cli -auth=mySecretValue123",
+                     "1password=mySecretValue123", "2fa_token=mySecretValue123"):
+            out = activity_log.sanitize_topic(text) or ""
+            self.assertNotIn("mySecret", out, (text, out))
+            self.assertNotIn("Value", out, (text, out))
+
+
 if __name__ == "__main__":
     unittest.main()

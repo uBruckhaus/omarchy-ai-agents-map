@@ -207,7 +207,7 @@ _SECRETS = [re.compile(p, re.IGNORECASE | re.DOTALL) for p in (
     r"-----BEGIN [^-]{1,64}-----(?:.*?-----END [^-]{1,64}-----|.*$)",
     r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+",
     r"\b(?:Bearer|Basic)\s+[^\s,;]+",
-    r"""(?<![A-Za-z0-9_.-])(?:[A-Za-z_][A-Za-z0-9_.-]*)?(?:key|token|secret|password|authorization|auth|sig)["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)""",
+    r"""(?<![A-Za-z0-9_.])(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*)?(?:key|token|secret|password|authorization|auth|sig)["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)""",
     r"(?<![A-Za-z0-9+/_])(?:[A-Fa-f0-9]{32,}|[A-Za-z0-9+/]{30,}==|[A-Za-z0-9+/]{31,}=|[A-Za-z0-9+/]{32,})(?![A-Za-z0-9+/=_])",
     r"(?<![A-Za-z0-9.!#$%&*+/=?^_{}|~-])[A-Za-z0-9.!#$%&*+/=?^_{}|~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b",
 )]
@@ -222,7 +222,7 @@ _WHOLE_SECRETS = [_SECRETS[0], _SECRETS[1], re.compile(
     r"""(?<![A-Za-z0-9_.])(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*)?authorization["']?\s*[:=]\s*"""
     r"""(?:(?:[A-Za-z][A-Za-z0-9+._-]*[ \t]+)?(?:"[^"]*"|'[^']*')[^\n]*|[^\n]*)""",
     re.IGNORECASE), re.compile(
-    r"""(?<![A-Za-z0-9_.-])(?:[A-Za-z_][A-Za-z0-9_.-]*)?(?:key|token|secret|password|authorization|auth|sig)["']?\s*[:=]\s*"""
+    r"""(?<![A-Za-z0-9_.])(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*)?(?:key|token|secret|password|authorization|auth|sig)["']?\s*[:=]\s*"""
     r"""(?:"[^"]*"|'[^']*'|[A-Za-z][A-Za-z0-9+.-]*://\S+)""", re.IGNORECASE)]
 # A whitespace token holding a URL together with userinfo (@ or an encoded @, raw or double-encoded)
 # fails closed as a whole, wherever the scheme starts inside it.
