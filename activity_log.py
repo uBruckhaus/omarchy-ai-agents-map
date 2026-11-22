@@ -201,7 +201,7 @@ def history_session(value: str) -> str:
     return value if SESSION.match(value) else hashlib.sha256(value.encode("utf-8", "surrogatepass")).hexdigest()
 
 
-_URL = re.compile(r"(?<![A-Za-z0-9+.-])[A-Za-z][A-Za-z0-9+.-]*://\S+")
+_URL = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://\S+")  # also glued to a prefix ("1.https://…")
 _PROVIDER = re.compile(r"\b(?:sk-|gh[pousr]_|github_pat_|glpat-|AIza|AKIA|ASIA|xox[baprs]-|hf_|npm_|pypi-)[A-Za-z0-9_+=/.-]+")
 _SECRETS = [re.compile(p, re.IGNORECASE | re.DOTALL) for p in (
     r"-----BEGIN [^-]{1,64}-----(?:.*?-----END [^-]{1,64}-----|.*$)",
@@ -216,8 +216,9 @@ _SECRETS = [re.compile(p, re.IGNORECASE | re.DOTALL) for p in (
 # Redacted before paths are cut: PEM blocks, JWTs and key=/token=/password= assignments whose value is
 # quoted or a URL (a plain unquoted path value is left to the path rule, then redacted).
 _WHOLE_SECRETS = [_SECRETS[0], _SECRETS[1], re.compile(
-    # HTTP Authorization headers: the scheme word and its credential go together (Token x, ApiKey x).
-    r"""(?<![A-Za-z0-9_.-])(?:proxy-)?authorization["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|\S+(?:[ \t]+[^\s,;]+)?)""",
+    # HTTP Authorization headers (also Proxy-/X-Authorization): everything after the header to the
+    # end of its line goes, whatever the scheme, quoting or URL (no path rule needed after it).
+    r"""(?<![A-Za-z0-9_.])[A-Za-z0-9_-]*authorization["']?[ \t]*[:=][^\n]*""",
     re.IGNORECASE), re.compile(
     r"""(?<![A-Za-z0-9_.-])(?:[A-Za-z_][A-Za-z0-9_.-]*)?(?:key|token|secret|password|authorization|auth|sig)["']?\s*[:=]\s*"""
     r"""(?:"[^"]*"|'[^']*'|[A-Za-z][A-Za-z0-9+.-]*://\S+)""", re.IGNORECASE)]
@@ -268,7 +269,9 @@ def _clean_url(raw: str) -> tuple[str, str]:
             name = ""
         if url.scheme.lower() in ("http", "https"):
             host = _decode_url_part(url.netloc)
-            host_ok = re.fullmatch(r"(?:[A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])(?::\d{1,5})?", host or "")
+            label = r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"
+            host_ok = "…" not in url.netloc and re.fullmatch(
+                rf"(?:{label}(?:\.{label})*\.?|\[[0-9A-Fa-f:.]+\])(?::\d{{1,5}})?", host or "")
             if host_ok and not _CONTROL.search(host):
                 origin = urlsplit(url.scheme + "://" + host)
                 origin.port  # a non-numeric "port" (user:password without @) fails closed below
@@ -360,7 +363,8 @@ def sanitize_topic(value) -> str | None:
     # values): cutting paths could otherwise split a quoted value and leave its rest readable.
     text = _CREDENTIAL_URL_TOKEN.sub(
         # "…/" keeps a separator, so a path continuing after the token (spaces in folders) is cut too.
-        lambda m: m.group() if "@" not in m.group() and not re.search(r"%(?:25)*40", m.group(), re.IGNORECASE)
+        lambda m: m.group() if "@" not in m.group() and "@" not in _decode_url_part(m.group())
+        and not re.search(r"%(?:25)*40", m.group(), re.IGNORECASE)
         else "…/" if re.search(r"[/\\]", m.string[m.end():]) else "…",
         text)
     for pattern in _WHOLE_SECRETS:

@@ -2135,5 +2135,39 @@ class RoundFourteenTest(unittest.TestCase):
         self.assertEqual(activity_log.sanitize_topic("open https://ex.com:8080/a/b"), "open https://ex.com:8080/b")
 
 
+class AuthorizationLineTest(unittest.TestCase):
+    """An Authorization header takes the rest of its line (agy r15)."""
+
+    def test_authorization_headers_never_leak(self):
+        import activity_log
+        cases = ("see Authorization: mysecret /home/alice/My Private Client/file.py",
+                 "see Authorization: mysecret C:\\Users\\alice\\My Secret Client\\file.py",
+                 "see Authorization: Token /home/alice/My Secret Client/file.py",
+                 "see Authorization: Token https://ex.com/a?x=1,PrivateClient;org=AcmeCorp",
+                 'see Authorization: Token "mySecret Value"', "see X-Authorization: mySecret Value",
+                 "see Proxy-Authorization: Basic abc", "see authorization=Digest username=bob, response=abc")
+        for text in cases:
+            out = activity_log.sanitize_topic(text) or ""
+            for word in ("mysecret", "mySecret", "Value", "alice", "Private", "Secret", "Client", "AcmeCorp",
+                         "abc", "bob"):
+                self.assertNotIn(word, out, (text, out))
+            self.assertTrue(out.startswith("see"), out)
+
+
+class RoundFifteenTest(unittest.TestCase):
+    """Decoded @ in credential tokens, glued URLs, strict host labels (agy r15)."""
+
+    def test_review_examples_never_leak(self):
+        import activity_log
+        cases = ("see 1.https://alice:mysecret%25%34%30localhost", "see 1.https://alice:mysecret%EF%BC%A0localhost",
+                 "see https://mysecrettoken-----BEGIN KEY-----x%25%34%30ex.com/a-----END KEY-----",
+                 "see https://mysecrettoken-----BEGIN KEY-----x%EF%BC%A0ex.com/a-----END KEY-----",
+                 "see 1.https://alice:mysecret", "see 1.https://ex.com/secretdir/file.py?client=AcmeCorp")
+        for text in cases:
+            out = activity_log.sanitize_topic(text) or ""
+            for word in ("alice", "mysecret", "secretdir", "AcmeCorp", "client="):
+                self.assertNotIn(word, out, (text, out))
+
+
 if __name__ == "__main__":
     unittest.main()
