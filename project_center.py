@@ -1644,6 +1644,9 @@ class ProjectCenter:
                 return {"project": self._view(self._projects[pid]), "message": _copy(message), "continued": False,
                         "reason": None}
             token = self._lifecycle.get(pid, 0)
+            # Send now pauses at once, in the same locked step as storing its message: a second Send
+            # now is refused as pausing, and no next teammate is dispatched meanwhile.
+            self._begin_pause(_copy(self._projects[pid]), active)
         reason, still_queued = None, True
         try:
             self._pause({"id": pid, "run_id": message["run_id"]}, lifecycle=False)
@@ -1766,6 +1769,14 @@ class ProjectCenter:
         self._record(item)
         active.done.set()
 
+    def _begin_pause(self, item: dict, active: _Attempt) -> None:
+        """Under the lock: no new dispatch, and Pausing shown (the stop itself follows unlocked)."""
+        active.cancelled = True                   # stop first: a storage fault must not keep agents running
+        if item["status"] != "pausing":
+            item["status"] = "pausing"
+            self._event(item, "pausing", "Stopping active work before saving the handoff.")
+            self._record(item)
+
     def _pause(self, params: dict, lifecycle: bool = True) -> dict:
         with self._lock:
             if lifecycle:                     # a user's Pause (Send now's own pause may finish a shutdown)
@@ -1779,11 +1790,7 @@ class ProjectCenter:
                 raise ProjectError("project_changed")
             if lifecycle:
                 self._advance_lifecycle(pid)
-            active.cancelled = True               # stop first: a storage fault must not keep agents running
-            if item["status"] != "pausing":
-                item["status"] = "pausing"
-                self._event(item, "pausing", "Stopping active work before saving the handoff.")
-                self._record(item)
+            self._begin_pause(item, active)
         self._stop_attempt(pid, active)
         with self._lock:
             current = self._projects.get(pid)

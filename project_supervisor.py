@@ -467,7 +467,9 @@ class SupervisedProcess:
         self.stuck = 0
         self._input_open = True
         self._close_requested = False
+        self._stop_requested = False    # a stop was asked (before the go-ahead it withdraws the launch)
         self._launch_seen = False       # a frame that only comes after the agent's spawn arrived
+        self._go_ahead_sent = False     # the launch line may have reached the supervisor (any byte written)
         # Loss is decided by the end of its output, never by its exit alone: the final "stopped"
         # line may still be buffered when the exit arrives.
         self._reader = threading.Thread(target=self._read_events, daemon=True)
@@ -504,10 +506,13 @@ class SupervisedProcess:
         if authorize is not None and not authorize(managed):
             managed._withdraw(10.0 - (time.monotonic() - began))
             raise ProjectError("project_launch_withdrawn")
-        if not managed._send({"launch": True}, 1.0):
-            # Control closed by a stop or detach: withdrawn; a supervisor gone meanwhile: unavailable.
-            requested = managed._close_requested
+        # A stop or detach that already reached this process (it was the attempt's from authorize
+        # on) withdraws the launch: no go-ahead after it.
+        if managed._stop_requested or managed._close_requested \
+                or not managed._send({"launch": True}, 1.0, go_ahead=True):
+            requested = managed._stop_requested or managed._close_requested
             managed._withdraw(10.0 - (time.monotonic() - began))
+            # Withdrawn by a stop or detach; a supervisor gone meanwhile: unavailable.
             raise ProjectError("project_launch_withdrawn" if requested else "project_agent_unavailable")
         return managed
 
@@ -593,7 +598,7 @@ class SupervisedProcess:
         self._settled.set()
         self._close_output()
 
-    def _send(self, message: dict, timeout: float = 2.0) -> bool:
+    def _send(self, message: dict, timeout: float = 2.0, go_ahead: bool = False) -> bool:
         """One control line, written whole within `timeout` (the pipe is non-blocking). A line that
         cannot be written in time closes control: a half line must never be followed by another."""
         data = memoryview((json.dumps(message, ensure_ascii=False) + "\n").encode("utf-8"))
@@ -601,6 +606,8 @@ class SupervisedProcess:
         with self._send_lock:
             if not self._input_open:
                 return False
+            if go_ahead:
+                self._go_ahead_sent = True   # from here on it may have reached the supervisor
             try:
                 fd = self._proc.stdin.fileno()
                 while data:
@@ -699,15 +706,18 @@ class SupervisedProcess:
         return self._exit if self._exit is not None else self._leader if self._leader is not None else -1
 
     def _never_launched(self) -> bool:
-        """The supervisor is gone without "stopped", but it never reported an agent (no spawn frame):
-        once it is reaped together with its process group (which an agent it was spawning shares),
-        nothing of this assignment is left to confirm."""
-        if self._launch_seen:
+        """The supervisor is gone without "stopped" and the go-ahead was never written to it, so it
+        cannot have launched an agent: once it is reaped (with its process group) nothing of this
+        assignment is left to confirm. Once the go-ahead may have reached it, a missing "started" is
+        no proof (it may have died after the spawn, and a descendant may have left its group): the
+        cleanup stays unconfirmed and the project keeps its claim (a restart recovers it)."""
+        if self._launch_seen or self._go_ahead_sent:
             return False
         self._reap(1.0)
         return True
 
     def stop(self, wait: float = 4.0) -> None:
+        self._stop_requested = True
         if self._confirmed.done:
             if self._confirmed.value is not True and not self._never_launched():
                 raise ProjectError("project_processes_still_running")
