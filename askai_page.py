@@ -607,6 +607,7 @@ class AskAiPage:
             return                              # nothing sent: the exchange stays as it was
         if fresh:
             self.ask_context = self.ask_context_helper = None
+            self.ask_follow_draft = ""          # a new question starts without the old follow-up
         facts = self.smart_facts(smart_card.AUTO, request, answer, probe=False)
         if context:
             facts["context"] = context

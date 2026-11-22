@@ -882,6 +882,22 @@ class RoundThreeTest(PageBase):
         page.reset_ask_exchange()
         self.assertEqual(page.ask_follow_draft, "")
 
+    def test_a_fresh_question_drops_the_old_follow_up_draft(self):
+        page = self.page
+        page.ask_follow_draft = "Why that one?"
+        page.ask_draft = lambda: "Which agents need sign-in?"
+        page.ask_helper_for = lambda *a: mock.Mock(command="claude")
+
+        class Stop(Exception):
+            pass
+
+        def facts(*a, **k):
+            raise Stop()
+        page.smart_facts = facts
+        with self.assertRaises(Stop):
+            page.ask_now(fresh=True)
+        self.assertEqual(page.ask_follow_draft, "")
+
 
 class SuggestionsTest(unittest.TestCase):
     """My suggestions keep every group's saved suggestions; a save merges with what is stored now."""
