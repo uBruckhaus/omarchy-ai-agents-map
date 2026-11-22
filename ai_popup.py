@@ -121,6 +121,8 @@ from first_agent_page import FirstAgentPage
 from projects_page import ProjectsPage  # the AI Project Center's Projects page (WP6)
 from reports_page import ReportsPage
 from agent_activity_dialog import AgentActivityDialog
+import main_tabs
+from main_tabs import MainTabs  # the header tabs [ Projects ] [ AI Map ] and the links between them
 import guide_navigation
 from skills_page import SkillsPage
 from mcp_pages import McpPages
@@ -184,7 +186,7 @@ class AppWindow(Adw.ApplicationWindow):
 
 
 class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, DetailsPages, InfoPage, McpPages, SkillsPage, ConnectPage, ConfigureMenu, TrafficPage, SubagentsPage, ModelsPage, SmartCheckPage,
-                LlmHelpPage, FirstAgentPage, ProjectsPage, ReportsPage, AgentActivityDialog,
+                LlmHelpPage, FirstAgentPage, ProjectsPage, ReportsPage, AgentActivityDialog, MainTabs,
                 Adw.Application):
     def __init__(self):
         super().__init__(application_id=desktop.app_id())
@@ -455,7 +457,10 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         stack.add_named(self.build_reports_page(), "reports")   # Reports (tasks 075/076)
         if hasattr(self, "build_addons_page"):
             stack.add_named(self.build_addons_page(), "addons")
-        stack.add_named(self.build_projects_page(), "projects")    # open_projects(); WP7 makes it a tab
+        stack.add_named(self.build_projects_page(), "projects")    # the Projects tab (main_tabs.py)
+        self.projects_header.set_visible(False)    # its interim Back row: the header's tabs lead away
+        self.projects_map_fix = self.map_fix_link             # Fix on map (task 092)
+        self.projects_show_on_map = self.show_on_map_link     # Show on map (task 091)
         # Details and the pages that change something open right of the cards, where the map is.
         right = self.right_stack
         right.add_named(self.build_connect_page(), "connect")
@@ -472,9 +477,10 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         right.add_named(self.build_smart_check_page(), "smartcheck")
         right.add_named(self.build_askai_page(), "askai")          # Ask AI (Maprisma's smart card)
         right.add_named(self.build_first_agent_page(), "firstagent")
-        right.connect("notify::visible-child-name", lambda *_: self.update_header())
+        right.connect("notify::visible-child-name", lambda *_: (self.follow_tab(), self.update_header()))
         self.guard_text_fields_in(window)
-        stack.connect("notify::visible-child-name", lambda *_: (self.update_header(), self.on_setup_shown()))
+        stack.connect("notify::visible-child-name", lambda *_: (self.follow_tab(), self.update_header(),
+                                                                self.on_setup_shown()))
         card.append(stack)
         self.stack = stack
 
@@ -509,16 +515,12 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         title.set_width_chars(12)          # in a header bar beside the window buttons: not just "…"
         header.append(title)
         self.title_label = title
-        header.append(Gtk.Box(hexpand=True))     # the room between the title and the buttons (they keep right)
-        # As in Maprisma's header (main.dart): AI Map · status · Ask AI · legend · Help · Settings · Refresh,
-        # plain symbols without frames. "AI Map" brings the map back from any page.
-        ai_map = Gtk.ToggleButton(label=_("AI Map"), valign=Gtk.Align.CENTER)
-        for css in ("flat", "am-view-btn", "am-ai-map-btn"):
-            ai_map.add_css_class(css)
-        ai_map.set_tooltip_text(_("Back to the map (Esc)"))
-        ai_map.connect("toggled", self.on_view_button, "main")
-        header.append(ai_map)
-        self.view_buttons = {"main": ai_map}
+        # As in Maprisma's header (main.dart, task 086): the tabs [ Projects ] [ AI Map ] after the title
+        # (Ctrl+1, Ctrl+2), then status · Ask AI · legend (only on the map) · Reports · Help · Settings ·
+        # Refresh at the right, plain symbols without frames.
+        header.append(self.build_main_tabs())
+        header.append(Gtk.Box(hexpand=True))     # the room between the tabs and the buttons (they keep right)
+        self.view_buttons = {}
 
         def symbol(icon: str, tip: str, clicked=None, button=None):
             button = button or Gtk.Button(valign=Gtk.Align.CENTER)
@@ -536,10 +538,13 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
 
         # The state of the setup (health.check): green when all is fine, yellow for tips and updates, red
         # when something needs fixing; opens the list (Maprisma: SmartStatusIcon).
-        self.problem_button = symbol("object-select-symbolic", _("All fine"), lambda: self.open_health())
+        self.problem_button = symbol("object-select-symbolic", _("All fine"),
+                                     lambda: self.to_map_first(self.open_health))
         self.problem_button.set_visible(False)
-        # Ask AI (✦, Maprisma's smart card): one request in a column of the map, answered by an agent.
-        self.smartcheck_button = symbol("am-smartcheck-symbolic", _("Ask AI"), lambda: self.open_ask_ai())
+        # Ask AI (✦, Maprisma's smart card): one request about the whole setup, answered by an agent; from
+        # Projects through the open project's guard to the AI Map first.
+        self.smartcheck_button = symbol("am-smartcheck-symbolic", _("Ask AI"),
+                                        lambda: self.to_map_first(self.open_ask_ai))
         self.smartcheck_button.set_visible(False)
         # The legend: what the map's dots, lines and marks mean.
         self.legend_button = symbol("help-about-symbolic", _("What the marks mean"), lambda: self.open_legend())
@@ -548,17 +553,27 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         self.traffic_button = None
         self.addons_button = None
         self.info_button = None             # the author's other plugins: on the Help page
-        self.help_button = symbol("help-browser-symbolic", _("Help (F1)"), lambda: self.open_help())
-        self.settings_button = symbol("emblem-system-symbolic", _("Settings"), lambda: self.open_settings())
-        # Refresh (F5): look at the PC again, as on start (reload_setup); the map follows.
+        # Reports (tasks 075/076): the activity log, topic reports and the report library.
+        self.reports_button = symbol("x-office-document-symbolic", _("Reports"),
+                                     lambda: self.after_leaving(self.open_reports))
+        self.help_button = symbol("help-browser-symbolic", _("Help (F1)"), lambda: self.after_leaving(self.open_help))
+        self.settings_button = symbol("emblem-system-symbolic", _("Settings"),
+                                      lambda: self.after_leaving(self.open_settings))
+        # Refresh (F5): look at the PC again, as on start (reload_setup); the map and the board follow.
         self.refresh_button = symbol("view-refresh-symbolic",
                                      _("Refresh") + " (F5) — " + _("Look again at what is on this PC (F5)").replace(" (F5)", ""),
-                                     lambda: self.reload_setup())
+                                     lambda: self.refresh_everything())
         self.setup_header_order(header)
         return header
 
     # The header's symbols in the user's order: hold the left mouse button on one and drag it.
-    HEADER_ITEMS = ("problem", "smartcheck", "legend", "help", "settings", "refresh")     # Maprisma's order
+    HEADER_ITEMS = ("problem", "smartcheck", "legend", "reports", "help", "settings", "refresh")   # Maprisma's order
+
+    def refresh_everything(self):
+        """The header's Refresh: the PC looked at again; on Projects the board is read again too."""
+        self.reload_setup()
+        if self.page_name() == "projects":
+            self.projects_refresh()
 
     def header_items(self) -> dict:
         found = {key: getattr(self, f"{key}_button", None) for key in self.HEADER_ITEMS}
@@ -964,6 +979,13 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         map_scroller = self.page_scroller(self.side_map.with_flow_layer(), bar_room=False)   # the lights on running agents' paths on top
         map_scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)   # zoomed in: sideways too
         side.append(map_scroller)
+        self.map_scroller = map_scroller       # Show on map / Fix on map scroll the box into view
+        # "Used in N projects" on agent boxes (task 091) and a local LLM's speed symbol: its Setup (093).
+        self.side_map.used_tip = main_tabs.used_in_text
+        self.side_map.on_used_in = self.projects_for_agent
+        self.side_map.setup_tip = _("Setup")
+        self.side_map.can_setup = self.can_setup_runtime
+        self.side_map.on_setup = lambda node_id: self.setup_runtime(node_id.partition(":")[2])
         self.side_map.set_zoom(ai_core.setting("map_zoom")
                                if isinstance(ai_core.setting("map_zoom"), (int, float)) else 1.0)
         self.load_map_layout()
@@ -1020,6 +1042,16 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         body.append(column)
         page.append(body)
         return page
+
+    def can_setup_runtime(self, node_id: str) -> bool:
+        """A local LLM with Configure for this PC (installed, its engine has a configuration)."""
+        rt = next((r for r in self.inventory.runtimes if f"runtime:{r.key}" == node_id), None)
+        return rt is not None and rt.installed and bool(llm_engine.of(rt).config)
+
+    def setup_runtime(self, key: str):
+        rt = next((r for r in self.inventory.runtimes if r.key == key), None)
+        if rt is not None and rt.installed:
+            self.open_provider_config(rt)
 
     SHOT_FOLDER = "AI Agents Map"      # ~/Pictures/AI Agents Map (shot_save: 0700 folder, 0600 files)
 
@@ -2248,7 +2280,8 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             return
         pane = terminal_pane.TerminalPane(agent, folder, self.theme.colors,
                                           on_back=lambda: self.show_view("main", save=False),
-                                          on_state=lambda _p: GLib.idle_add(self.terminal_changed))
+                                          on_state=lambda _p: GLib.idle_add(self.terminal_changed),
+                                          on_activity=lambda command, instance: self.open_agent_activity(command, instance))
         self.sessions[agent.command] = pane
         self.right_stack.add_named(pane, f"term:{agent.command}")
         self.show_terminal(agent.command)
@@ -2923,6 +2956,8 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         ids = {n.id for n in built.nodes}
         self.set_selection([i for i in self.selection if i in ids])
         self.update_first_card()
+        self.side_map.set_used_in(main_tabs.used_in(getattr(self, "project_summary", None)))
+        self.projects_map_changed()      # the next project list looks at agents and runtimes again
 
     def show_splash(self, over=None):
         """The first open: what is on this PC, kind by kind (splash.py), while the scans run."""
@@ -2992,6 +3027,11 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
     def show_view(self, name: str, save: bool = True):
         name = name if name in ai_core.VIEWS else "main"
         self.view = name
+        if name == "main" and getattr(self, "main_tab", "map") == "projects":
+            # Back from a page over the Projects tab (Reports, a closed page): the tab it covered.
+            self.show_page("projects")
+            self.update_header()
+            return
         self.show_page(name)
         self.update_header()
         if save and ai_core.start_view() == "last":
@@ -3010,6 +3050,13 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         for name, button in self.view_buttons.items():
             button.set_active(name == page)
         self.updating_buttons = False
+        # The legend only on the AI Map (Maprisma), Reports marked while it is shown.
+        if getattr(self, "legend_button", None) is not None:
+            self.legend_button.set_visible(getattr(self, "main_tab", "map") == "map")
+        reports = getattr(self, "reports_button", None)
+        if reports is not None:
+            (reports.add_css_class if page == "reports" else reports.remove_css_class)("am-header-on")
+        self.update_main_tabs()
 
     # --- health check: what works, what to fix, what this setup is good for --------------------------
 
@@ -4224,6 +4271,13 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
                                                  lambda: self.start_agent(agent, None, "terminal"),
                                                  _("Start {0} in {1}, in a terminal window of its own")
                                                  .format(agent.name, self.agent_folder())))
+            # What it is doing now (task 074), the projects it is in (task 091).
+            details.append(self.menu_item(_("What is it doing?"), popover, lambda: self.open_agent_activity(ident),
+                                          _("What {0} is working on now, from its session files").format(agent.name)))
+            projects = main_tabs.used_in(getattr(self, "project_summary", None)).get(ident, 0)
+            if projects:
+                details.append(self.menu_item(main_tabs.used_in_text(projects), popover,
+                                              lambda: self.projects_for_agent(ident)))
             details.append(self.menu_item(_("Details"), popover, lambda: self.open_agent_status(agent)))
         elif kind == "runtime":
             details.append(self.menu_item(_("Details"), popover, lambda: self.open_runtime_status(ident)))
@@ -4348,6 +4402,11 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             own, danger = self.model_menu(view, rect, node_id, popover)
         newer = self.update_menu_items(node_id, popover)
         starts, details = self.card_actions(node_id, popover)
+        if kind in ("agent", "runtime", "model", "cloud", "mcp") and view is self.side_map:
+            # Ask AI about this box (Maprisma's map menu): the question filled in, nothing sent yet.
+            label = self.item_name(node_id)
+            details = list(details) + [self.menu_item(_("Ask AI"), popover, lambda: self.to_map_first(
+                lambda: self.open_ask_ai(prompt=_("Tell me about {0}").format(label))))]
         self.show_menu(popover, title, [newer, own, starts, details, [e(popover) for e in extra], danger])
 
     # --- size ----------------------------------------------------------------------
@@ -4378,6 +4437,10 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             self.place_panes()
             self.update_header()
         self.auto_layers()
+        compact = 0 < self.window.get_width() < main_tabs.COMPACT_WIDTH
+        if compact != getattr(self, "tabs_compact", None):
+            self.tabs_compact = compact
+            self.update_main_tabs()      # the Projects tab's counts, or one dot in a narrow window
         return False
 
     auto_layers_key = None       # the situation the map's layers were last chosen for
@@ -4498,6 +4561,11 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
         if page == "terminal":
             return False          # Esc, Backspace, Ctrl+… belong to the agent
+        if ctrl and keyval in (Gdk.KEY_1, Gdk.KEY_KP_1, Gdk.KEY_KP_End, Gdk.KEY_2, Gdk.KEY_KP_2, Gdk.KEY_KP_Down) \
+                and not state & (Gdk.ModifierType.ALT_MASK | Gdk.ModifierType.SHIFT_MASK | Gdk.ModifierType.SUPER_MASK):
+            # Ctrl+1 Projects, Ctrl+2 the AI Map (task 086), also in a text field.
+            self.select_tab("projects" if keyval in (Gdk.KEY_1, Gdk.KEY_KP_1, Gdk.KEY_KP_End) else "map")
+            return True
         if keyval == Gdk.KEY_F12 and ai_core.setting("screenshot_key") is not False:
             self.take_screenshot()                 # Maprisma's F12: this window, privately, with a note
             return True
@@ -4505,7 +4573,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             self.show_reporting_help()             # F1 on Reports: How reporting works, not Help
             return True
         if keyval == Gdk.KEY_F1 and page != "help":
-            self.open_help()
+            self.after_leaving(self.open_help)
             return True
         if keyval == Gdk.KEY_F5 and (page == "main" or page == "setup" and not self.setup_welcome):
             self.reload_setup()
@@ -4522,12 +4590,16 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             if page == "setup" and keyval == Gdk.KEY_Escape:
                 self.close_setup()
                 return True
-            if page == "main" and keyval == Gdk.KEY_Escape and not self.editing():
-                if self.selection:
-                    self.set_selection([])   # Esc clears the selection; the window stays (an app)
+            if page == "main" and keyval == Gdk.KEY_Escape:
+                if self.editing():
+                    self.window.set_focus(None)   # Esc first leaves the field; the next one closes
+                elif self.selection:
+                    self.set_selection([])        # Esc clears the selection first
+                else:
+                    self.close()                  # nothing open: closes as the close button does (task 070)
                 return True
         if ctrl and keyval == Gdk.KEY_comma:
-            self.open_settings()
+            self.after_leaving(self.open_settings)
             return True
         if ctrl and page == "main" and keyval in (Gdk.KEY_plus, Gdk.KEY_equal, Gdk.KEY_KP_Add,
                                                     Gdk.KEY_minus, Gdk.KEY_KP_Subtract, Gdk.KEY_0, Gdk.KEY_KP_0):
@@ -4605,6 +4677,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         self.collect()
         self.refresh_overview()
         self.refresh_map()
+        self.decide_start_tab()          # once: the tab used last, or Projects when a project exists (task 086)
         if show:
             self.window.present()
             if self.page_name() == "firstagent" and callable(getattr(self, "first_resume", None)):
@@ -4615,6 +4688,8 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         if show:
             self.reports_shown()             # observing again before the first poll; the Log refresh goes on
             self.start_gpu_poll()
+            self.refresh_project_summary()   # the Projects tab's counts, the map's Used in badges
+            self.start_summary_poll()
         # A new agent is looked up only when the user asks for it (map menu); nothing is sent by itself.
         self.ai_check_mcp_updates()
         self.refresh_mcp_list()
@@ -4691,6 +4766,17 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             # Still starting (nothing runs here yet): other desktops quit, Omarchy hides.
             self.window.hide() if desktop.stays_in_background() else self.quit()
             return
+        if self.page_name() == "projects" and not getattr(self, "close_left", False):
+            # The open project's unsaved changes ask first (Save / Discard / Cancel).
+            def left(ok):
+                if ok:
+                    self.close_left = True
+                    try:
+                        self.close()
+                    finally:
+                        self.close_left = False
+            self.leave_pages(left)
+            return
         running = [pane for pane in self.sessions.values() if pane.running]
         if running and not getattr(self, "close_asked", False):
             self.ask_close(running)
@@ -4730,7 +4816,10 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             except OSError:
                 pass
         self.stop_gpu_poll()
-        self.reports_hidden()            # the Reports page's timers stop with the window
+        if hasattr(self, "stop_summary_poll"):
+            self.stop_summary_poll()     # the project counts are read only while the window shows
+        if hasattr(self, "reports_hidden"):
+            self.reports_hidden()        # the Reports page's timers stop with the window
         self.map_view.set_shift(False)   # Shift may have been let go elsewhere
         page = self.page_name()
         if page == "settings":
@@ -4747,7 +4836,9 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             self.close_install()    # a running install goes on in the background
         guide_navigation.abandon_read(self)
         self.window.hide()
-        busy = any(pane.running for pane in self.sessions.values()) or bool(self.jobs.active())
+        counts = main_tabs.tab_counts(getattr(self, "project_summary", None))
+        busy = any(pane.running for pane in self.sessions.values()) or bool(self.jobs.active()) \
+            or counts["running"] > 0       # project agents run on with the window closed
         if not desktop.stays_in_background() and not busy:
             self.quit()             # other desktops: closing quits, unless agents or downloads still run here
 

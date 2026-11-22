@@ -37,10 +37,35 @@ Version 1.0.0 brings the plugin in line with Maprisma, the stand-alone app it sh
 the same map, the same add-ons, Ask AI and the same rules for what may be done. Everything stays
 inside the plugin; nothing of Maprisma needs to be installed.
 
-The header has **AI Map**, the status of the setup, **✦ Ask AI**, **ⓘ** (the legend), **?** (Help,
-F1), the gear (Settings, Ctrl+,) and refresh (F5). The window is a normal app window; as an overlay
-inside it, pages such as connecting, installing or a terminal open in a centred frame over the dimmed
-map (Esc or Back closes them).
+The header has two tabs, **Projects** (Ctrl+1) and **AI Map** (Ctrl+2), then the status of the setup,
+**✦ Ask AI**, **ⓘ** (the legend, on the AI Map), **Reports**, **?** (Help, F1), the gear (Settings,
+Ctrl+,) and refresh (F5). The window opens on the tab used last (the first time on Projects when a
+project exists). The window is a normal app window; as an overlay inside it, pages such as connecting,
+installing or a terminal open in a centred frame over the dimmed map (Esc or Back closes them); Esc on
+the AI Map or the Projects board with nothing open closes the window.
+
+## Projects, Reports and the links between the tabs
+
+The same features as Maprisma 2.x, inside the plugin:
+
+- **Projects** (the AI Project Center): a board of your projects (filters with counts, Cards | Phases,
+  manual order and High/Medium/Low importance) and a project page with Goal, Plan, Team (with a graph of
+  who works with which provider), Activity (messages to a running team: **Send** / **Send now**) and
+  Setup. A team of your installed agents plans and runs the work step by step; every launch is checked
+  against Settings › Rules, agents run under a supervisor that stops their whole process tree, and an
+  open project with unsaved changes asks before you leave it (another tab, a header action, closing).
+- **Links between the tabs**: an agent's box on the map shows **Used in N projects** (opens the board
+  with that agent's chip); **Show on map** in a project's Team graph and **Fix on map** on a problem
+  switch to the AI Map, scroll to the box and mark it for a few seconds.
+- **Reports** (header): an opt-in local activity log (7 days by default), **Collect history** from the
+  agents' own session files, topic reports written by a helper of your choice, and a library of saved
+  reports. The same log switches are in Settings › Map.
+- **What is it doing?** in an agent's menu, its details and below its terminal: the phase, current
+  work, files changed and what started it; a terminal shows the progress the agent reports itself.
+- **Configure for this PC** for llama.cpp, Ollama, LM Studio, Jan, KoboldCpp, vLLM and Strata: the speed
+  symbol on a local LLM's box (**Setup**), its menu and its details; recommendations from this PC's
+  hardware, an editable form, a preview with backup and Undo. Ask AI can propose it and fill it in.
+- **3D map** (on by default; Settings › Map › 3D map layout).
 
 **The map** has four columns: MCP servers and skills ← agents → LLM providers → models. Chips above
 it leave whole columns out (remembered). Each column starts with a summary card: what is set up and
@@ -1035,6 +1060,12 @@ The full module map, with diagrams, is in [ARCHITECTURE.md](ARCHITECTURE.md). Th
 | `BarWidget.qml` | Bar button: runs `ai-agents-map-toggle` |
 | `ai-agents-map-toggle` | Singleton toggle: start the window, or signal it to show/hide |
 | `ai_popup.py` | The GTK4 app window: cards, map, pages, agents' terminals |
+| `main_tabs.py` | The header tabs Projects / AI Map, the departure guards and the links between the tabs |
+| `projects_page.py`, `projects_controller.py`, `project_detail_page.py`, `project_phases_page.py`, `project_messages_view.py`, `project_parts.py`, `project_texts.py` | The Projects tab: board, Phases, project page, messages |
+| `project_center.py`, `project_stage.py`, `project_supervisor.py` | The AI Project Center core: store, stages, issues, the agents' supervisor |
+| `reports_page.py`, `reports_ctl.py`, `activity_log.py`, `history_import.py`, `agent_activity_report.py`, `agent_activity_dialog.py`, `activity_mcp.py` | Reports, the activity log, Collect history, What is it doing? and the progress MCP server |
+| `provider_config.py`, `provider_config_page.py`, `provider_*.py` | Configure for this PC: hardware facts, recommendations, files, preview and Undo |
+| `map_3d.py` | The 3D look of the map |
 | `settings_pages.py`, `theme_css.py`, `ui_helpers.py` | The window's Settings, Reorganize and Help pages; its theme colours and CSS; small shared drawing helpers |
 | `previews.py` | The animated sketches in Settings and Help (drawn with cairo in the theme's colours) |
 | `app_entry.py`, `assets/ai-agents-map.svg` | Launcher entry and icon; bringing the window to the front |

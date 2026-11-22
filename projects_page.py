@@ -835,5 +835,11 @@ class ProjectsPage:
         if ctrl.open:
             ctrl.back_to_board()
             return True
-        self.close_projects()
+        escape = getattr(self, "projects_escape", None)
+        if escape is None:
+            self.close_projects()              # no tabs around it (tests): back to the map
+            return True
+        if keyval == Gdk.KEY_BackSpace:
+            return True                        # the board is a tab: nothing to go back to
+        escape()                               # Esc on the board closes the window (Maprisma, task 070)
         return True

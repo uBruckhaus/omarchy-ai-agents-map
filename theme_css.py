@@ -141,6 +141,24 @@ class ThemeCss:
             background: alpha({fg_hex}, 0.08); }}
         .am-card button.am-ai-map-btn {{ color: {accent_hex}; background: none; font-size: 15px; padding: 4px 10px; }}
         .am-card button.am-ai-map-btn:checked {{ background: none; }}
+        /* The header tabs [ Projects ] [ AI Map ] (Maprisma's main_tabs.dart): text, the chosen one in
+           the accent colour and underlined; the Projects tab's counts each with its own symbol. */
+        button.am-main-tab {{ border-radius: 0; padding: 4px 12px; margin: 0; min-height: 0; background: none;
+            box-shadow: none; border: none; border-bottom: 2px solid transparent; color: {fg_hex}; }}
+        button.am-main-tab label {{ font-size: 14px; font-weight: 400; }}
+        button.am-main-tab:hover {{ background: alpha({fg_hex}, 0.06); }}
+        button.am-main-tab:checked {{ color: {accent_hex}; border-bottom-color: {accent_hex}; background: none; }}
+        button.am-main-tab:checked label {{ font-weight: 600; }}
+        .am-tab-accent {{ color: {accent_hex}; }}
+        .am-tab-yellow {{ color: {yellow_hex}; }}
+        .am-tab-red {{ color: {red_hex}; }}
+        .am-tab-dim {{ color: {dim_hex}; }}
+        .am-tab-accent label, .am-tab-yellow label, .am-tab-red label {{ font-size: 12px; }}
+        .am-tab-dot {{ min-width: 8px; min-height: 8px; border-radius: 4px; }}
+        .am-tab-dot.am-tab-accent {{ background: {accent_hex}; }}
+        .am-tab-dot.am-tab-yellow {{ background: {yellow_hex}; }}
+        .am-tab-dot.am-tab-red {{ background: {red_hex}; }}
+        button.am-header-on {{ color: {accent_hex}; }}
         .am-card button.am-status-green {{ color: {green_hex}; }}
         .am-card button.am-status-yellow {{ color: {yellow_hex}; }}
         .am-card button.am-status-red {{ color: {red_hex}; }}
@@ -486,8 +504,9 @@ class ThemeCss:
         levelbar.am-limit block.empty {{ background: transparent; }}
         .am-card button.am-small-btn, .am-splash button.am-small-btn {{ font-size: 11px; min-height: 0;
             padding: 1px 10px; border: 1px solid alpha({fg_hex}, 0.35); border-radius: {radius}px; }}
-        .am-card button.am-chip {{ font-size: 11px; min-height: 0; padding: 1px 10px; border-radius: {pill}px;
-            border: 1px solid alpha({fg_hex}, 0.25); background: transparent; color: {dim_hex}; }}
+        .am-card button.am-chip, .am-card menubutton.am-chip > button {{ font-size: 11px; min-height: 0;
+            padding: 1px 10px; border-radius: {pill}px; border: 1px solid alpha({fg_hex}, 0.25);
+            background: transparent; box-shadow: none; color: {dim_hex}; }}
         .am-card button.am-chip:checked {{ background: alpha({accent_hex}, 0.18); border-color: {accent_hex};
             color: {fg_hex}; }}
         .am-card button.am-chip:disabled {{ opacity: 0.4; }}

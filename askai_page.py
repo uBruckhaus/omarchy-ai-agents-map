@@ -119,6 +119,8 @@ def review_label(candidate: dict) -> str:
         return N_("Review download")
     if kind == "provider_action" and action.get("step") == "performance":
         return N_("Open Performance")
+    if kind == "provider_config":
+        return N_("Review configuration") if candidate.get("prefill") else N_("Open Configuration")
     if kind in ("map_link", "mcp_add"):
         return N_("Review connection")
     return N_("Review")
@@ -636,6 +638,7 @@ class AskAiPage:
                     self.smart_probes(facts)
                     with ai_helper.watched(cancel):
                         result = smart_card.ask(helper, facts, progress=progress, cancel=cancel)
+                        self.ask_provider_values(helper, result, request, progress, cancel)
             except Exception:
                 result = {"status": "error", "summary": smart_card.NOT_POSSIBLE}
             GLib.idle_add(done, result)
@@ -648,6 +651,35 @@ class AskAiPage:
             return False
 
         threading.Thread(target=work, daemon=True).start()
+
+    def ask_provider_values(self, helper, result: dict, request: str, progress, cancel):
+        """On the Ask's worker: a Configure for this PC proposal gets its values (fresh hardware facts, one
+        helper answer, checked by provider_config); Review then opens the Setup page filled in. Without
+        values (an answer it cannot use) Review opens the page empty, where Ask AI can be tried again."""
+        import provider_config
+        for candidate in result.get("candidates") or []:
+            if candidate.get("kind") != "provider_config" or cancel.is_set():
+                continue
+            rt = next((r for r in self.inventory.runtimes if r.key == candidate["key"] and r.installed), None)
+            if rt is None:
+                continue
+            try:
+                progress(N_("Checking…"))
+                facts = provider_config.collect(rt)
+                model = provider_config.select_model(facts, candidate.get("model"))
+                if cancel.is_set():
+                    return
+                progress(N_("Ask AI"))
+                focus = " ".join(filter(None, [request, candidate.get("focus")]))[:500]
+                answer = provider_config.ask(helper, facts, model, candidate["profile"], focus)
+            except Exception as error:
+                candidate["reason"] = smart_card.line(str(error)) or ""
+                continue
+            candidate["model"] = candidate["action"]["model"] = model
+            candidate["prefill"] = candidate["action"]["prefill"] = answer
+            candidate["reason"] = answer.get("summary", "")
+            if not result.get("summary"):
+                result["summary"] = answer.get("summary", "")
 
     def ask_done(self, result: dict):
         if result.get("status") == "cancelled":
@@ -854,6 +886,7 @@ class AskAiPage:
                 facts["diagnostics"] = {"agents": agents, "agent_updates": None, "mcp_updates": None}
         if auto or column == "providers":
             import install_ctl
+            import llm_engine
             providers = []
             for rt in self.inventory.runtimes:
                 providers.append({
@@ -862,6 +895,8 @@ class AskAiPage:
                     "update": f"runtime:{rt.key}" in updates,
                     "start": rt.installed and not rt.running, "stop": rt.running,
                     "performance": rt.installed,
+                    "configurable": bool(rt.installed and llm_engine.of(rt).config),
+                    "models": [m if isinstance(m, str) else getattr(m, "name", "") for m in list(rt.models)[:40]],
                 })
             facts["providers"] = providers
             if not auto:
@@ -1198,6 +1233,11 @@ class AskAiPage:
                 self.offer_install("agent", command, step)
             elif step == "login":
                 self.offer_sign_in(command)
+        elif kind == "provider_config":
+            rt = next((r for r in self.inventory.runtimes if r.key == action["key"] and r.installed), None)
+            if rt is not None:
+                self.open_provider_config(rt, action.get("model"), action.get("profile") or "balanced",
+                                          prefill=action.get("prefill"))
         elif kind == "provider_action":
             key, step = action["key"], action["step"]
             rt = next((r for r in self.inventory.runtimes if r.key == key), None)

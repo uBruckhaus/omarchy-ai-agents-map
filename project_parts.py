@@ -42,9 +42,14 @@ _CSS = """
 .am-project-target.am-project-explicit {{ background: alpha({accent}, 0.16); }}
 .am-project-link {{ min-height: 2px; background: alpha({fg}, 0.25); }}
 .am-project-link.am-project-explicit {{ background: {accent}; }}
-.am-project-mark {{ font-size: 11px; padding: 0 6px; border-radius: 6px; min-height: 0; }}
-.am-project-mark.am-mark-high {{ background: alpha({accent}, 0.28); }}
-.am-project-mark.am-mark-medium {{ border: 1px solid alpha({fg}, 0.30); }}
+box.am-project-mark, menubutton.am-project-mark > button {{ font-size: 11px; padding: 0 6px; border-radius: 6px;
+  min-height: 18px; min-width: 0; margin: 0; border: none; box-shadow: none; background: none;
+  color: alpha({fg}, 0.62); font-weight: normal; }}
+menubutton.am-project-mark {{ background: none; padding: 0; min-height: 0; }}
+menubutton.am-project-mark > button:hover {{ background: alpha({fg}, 0.08); }}
+box.am-project-mark.am-mark-high, menubutton.am-project-mark.am-mark-high > button {{
+  background: alpha({accent}, 0.22); color: {accent}; font-weight: 600; }}
+dropdown.am-project-drop > button {{ font-size: 13px; font-weight: normal; min-height: 0; padding: 3px 8px; }}
 .am-project-badge {{ font-size: 11px; padding: 0 5px; border-radius: 6px; background: alpha({accent}, 0.20); }}
 .am-project-banner {{ background: alpha({red}, 0.16); border-radius: {r}px; padding: 6px 10px; }}
 .am-phase-column {{ background: alpha({fg}, 0.035); border-radius: {r}px; padding: 8px; }}
@@ -146,6 +151,8 @@ def label(text: str = "", classes=(), wrap: bool = False, xalign: float = 0, lin
 FALLBACKS = {
     "view-columns-symbolic": ("view-columns-symbolic", "view-dual-symbolic"),
     "flag-symbolic": ("flag-symbolic", "starred-symbolic"),
+    # Needs you: a person (Maprisma's hand); Adwaita's dialog-question is a diamond that reads as "�".
+    "avatar-default-symbolic": ("avatar-default-symbolic", "user-info-symbolic", "system-users-symbolic"),
     "list-drag-handle-symbolic": ("list-drag-handle-symbolic", "open-menu-symbolic"),
     "find-location-symbolic": ("find-location-symbolic", "mark-location-symbolic", "edit-find-symbolic"),
 }
@@ -355,6 +362,7 @@ def _member_box(member: dict, state, show_on_map) -> Gtk.Widget:
     target.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
     target.set_valign(Gtk.Align.CENTER)
     target.set_max_width_chars(24)
+    target.set_width_chars(min(len(config), 12))   # never squeezed into one letter per line
     if explicit:
         target.add_css_class("am-project-explicit")
     row.append(target)

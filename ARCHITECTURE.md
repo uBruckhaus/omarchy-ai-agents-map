@@ -27,6 +27,15 @@ command line is shlex-quoted word by word.
   uid, interpreter, exact script path and kernel start time. Same checks in Python: `pidfile.py`.
 - **App.** `ai_popup.py` holds itself (`Adw.Application.hold`): closing hides the window, the next
   click shows it. Slow work runs on worker threads and comes back with `GLib.idle_add`.
+- **Window shell.** Two header tabs (`main_tabs.MainTabs`, a mixin of `AgentsMap`): **Projects**
+  (`projects_page.ProjectsPage` over `projects_controller`, the in-process `project_center.ProjectCenter`
+  called only from worker threads) and **AI Map** (`map_view.MapView`). Every route away from an open
+  project (tab, Ctrl+1/2, a header action, closing) goes through `MainTabs.leave_pages` →
+  `projects_prepare_leave` (Save / Discard / Cancel, nothing while a step runs). The links between the tabs
+  only navigate: `reveal_on_map` pans and marks a box (`MapView.set_focused`, nothing saved),
+  `projects_for_agent` opens the board with an agent chip; the map's refresh raises the center's
+  `discovery_generation` so the next project list looks at agents and runtimes again. The project summary
+  (tab counts, the map's "Used in N projects") is read on a worker every 10 s while the window shows.
 - **Service.** `ai-agents-map-providers.service` exists only while *Settings › Start local LLMs with
   their agents* is on (`provider_watch.ensure_service`). It reads `providers-with-agents.json`
   through `provider_watch.read_config`, which keeps only runtime keys, unit names and ports that pass
@@ -50,6 +59,7 @@ that layer and on the change layer.** The pages above them call into these.
 | Anything from the web | `netfetch.fetch` / `fetch_json` | curl, https only (`_check`), redirects counted, headers in curl's config on stdin (`_quote`), size + time caps |
 | Downloads (LLM servers, models) | `install_ctl.download`, `install_ctl.sha256_of` | `.part` file opened without following links, published SHA-256 checked before unpacking, `MAX_DOWNLOAD` / `MAX_UNPACKED` |
 | Move or copy model files (Models page, Reorganize) | `model_move.move_file`, `model_layout._move` → `_copy` | Reorganize reaches each source through `_open_parent` (walked from `/` one folder at a time with `O_NOFOLLOW`, since the plan holds real paths) and it must still be the file the preview recorded (`Step.ident`, device and inode); the source is opened once without following links (`_open_own`, folder entries relative to the folder's descriptor) and must be this account's own regular file or folder; the copy reads only that descriptor into a 0600 `.part`, and the source is removed only if it is still the same file (`_same_file` / `_identity`) |
+| Local provider configuration (Configure for this PC, also from Ask AI) | `provider_config.collect` → `preview` → `apply` / `undo` | facts read fresh (hardware, the provider's own files, no links); an Ask AI proposal is only values checked by `provider_config.proposal_answer` against the verified schema and opens the page filled in (`open_provider_config(prefill=…)`); nothing is written before the reviewed preview; backup and Undo; Settings › Rules ("update providers") asked again on apply |
 | Change another program's settings | `connect.apply`, `connect.undo` | backup + `manifest.json` (0600) first, atomic write (temp, fsync, rename), owner-only mode kept, new files 0600; Undo leaves a file alone that was changed again since |
 | Claude Code's MCP list | `mcp_ctl._claude_json_change` → `connect.apply` | `~/.claude.json` edited as one planned change, refused if Claude wrote it in the meantime; deliberately **not** `claude mcp add-json`, whose argv (keys in env, headers, URL) other accounts could read in `/proc/<pid>/cmdline` |
 | Commands in a terminal the user watches | `desktop_omarchy.run_in_terminal` / `run_steps_in_terminal` | every word shlex-quoted; `sudo` only for system-package installs, password typed in that terminal (`install_dialog`) |
@@ -115,7 +125,7 @@ where it asks before each step. Daily AI checks are off by default.
 
 ## Tests that cover these points
 
-`python3 -m unittest discover -s tests` (92 modules, no network, no display). Where to look:
+`python3 -m unittest discover -s tests` (no network, no display). Where to look:
 
 - Plans, backups and Undo in a temporary home: `test_connect`, `test_mcp`, `test_mcp_update`,
   `test_skills`, `test_security` (the agents' security settings: only the one key changes)
@@ -128,6 +138,9 @@ where it asks before each step. Daily AI checks are off by default.
   `test_model_layout`, `test_desktop` (terminal quoting), `test_signin` (API keys)
 - `test_no_run_on_open`: only click handlers can reach code that runs an AppImage
 - `test_provider_watch`, `test_watch_service`: the watcher's config checks and stop rules
+- `test_tab_links`: the header tabs, Ctrl+1/2, the start tab, the departure guards, Esc, and the links
+  between the Projects tab and the AI Map; `test_project_center`, `test_projects_ui`,
+  `test_provider_config`, `test_activity_reports`, `test_map_3d` for the parity packages
 
 ## Where the code comes from
 

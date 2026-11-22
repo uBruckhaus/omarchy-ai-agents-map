@@ -39,6 +39,7 @@ Colours come from the Omarchy theme (set_palette).
 """
 
 import math
+import time
 
 import cairo
 
@@ -251,6 +252,17 @@ class MapView(Gtk.DrawingArea):
         self.outside = {}        # runtime id -> {model id: "in use · Video Trans"}: an app outside the map generates
         self.texture = None      # ((width, height, scale), Gdk.Texture): the map's last drawing
         self.three_d = True      # Settings › Map › 3D map layout (map_3d.py; Maprisma task 069b)
+        self.used_in = {}        # agent command -> projects that use it: the "Used in N projects" badge (task 091)
+        self.used_rects = {}     # agent box id -> rectangle of that badge
+        self.on_used_in = None   # on_used_in(agent command): the Projects tab with its chip
+        self.used_tip = lambda n: f"Used in {n} projects"   # translated by the window
+        self.can_setup = None    # can_setup(node id) -> bool: a local LLM with Setup (Configure for this PC)
+        self.on_setup = None     # on_setup(node id): its Setup page
+        self.setup_rects = {}    # runtime box id -> rectangle of its speed symbol
+        self.setup_tip = "Setup"
+        self.focused = None      # the box Show on map / Fix on map marks (framed, pulsing)
+        self.focus_began = 0.0
+        self.pulse_id = 0
         self.sockets = []        # (x, y, rgba, card z) where the cables drawn this time meet their boxes (3D)
         self.stage = map_3d.Stage()   # the 3D floor, kept per size and palette
         self.pal_cache = (None, None)  # (self.colors, map_3d.Palette of them)
@@ -276,6 +288,35 @@ class MapView(Gtk.DrawingArea):
         scroll = Gtk.EventControllerScroll(flags=Gtk.EventControllerScrollFlags.VERTICAL)
         scroll.connect("scroll", self.on_scroll)
         self.add_controller(scroll)
+
+    def set_used_in(self, counts: dict):
+        """{agent command: projects}: the agent boxes' "Used in N projects" badge."""
+        counts = {k: v for k, v in counts.items() if type(v) is int and v > 0}
+        if counts != self.used_in:
+            self.used_in = counts
+            self.queue_draw()
+
+    def box_rect(self, node_id: str):
+        """The box's rectangle on the map in pixels (as last laid out), None when it is not on it."""
+        rect = self.boxes.get(node_id)
+        return self.to_pixels(rect) if rect is not None else None
+
+    def set_focused(self, node_id):
+        """Show on map / Fix on map: the box framed in the accent colour, a ring pulsing around it."""
+        if node_id == self.focused:
+            return
+        self.focused = node_id
+        self.focus_began = time.monotonic()
+        if node_id is not None and not self.pulse_id:
+            self.pulse_id = GLib.timeout_add(60, self.pulse)
+        self.queue_draw()
+
+    def pulse(self):
+        if self.focused is None or self.get_root() is None:
+            self.pulse_id = 0
+            return False
+        self.queue_draw()
+        return True
 
     def set_three_d(self, on: bool):
         """Settings › Map › 3D map layout: raised cards and boxes, cables, a floor; off: the flat map."""
@@ -1440,7 +1481,15 @@ class MapView(Gtk.DrawingArea):
         battery = next((n for n, (bx, by, bw, bh) in self.battery_rects.items()
                         if bx <= x <= bx + bw and by <= y <= by + bh and n in self.batteries), None)
         stop = self.stop_at(x, y)
-        if self.halt_at(x, y) is not None:
+        used = next((n for n, (ux, uy, uw, uh) in getattr(self, "used_rects", {}).items()
+                     if ux <= x <= ux + uw and uy <= y <= uy + uh), None)
+        setup = next((n for n, (ux, uy, uw, uh) in getattr(self, "setup_rects", {}).items()
+                      if ux <= x <= ux + uw and uy <= y <= uy + uh), None)
+        if used is not None:
+            self.set_tooltip_text(self.used_tip(self.used_in.get(used.partition(":")[2], 0)))
+        elif setup is not None:
+            self.set_tooltip_text(self.setup_tip)
+        elif self.halt_at(x, y) is not None:
             self.set_tooltip_text(self.halt_tip)
         elif stop is not None and len(self.start_tips) > 2:
             self.set_tooltip_text(self.start_tips[3 if stop.startswith("runtime:") and len(self.start_tips) > 3 else 2])
@@ -1647,6 +1696,16 @@ class MapView(Gtk.DrawingArea):
                      if mx <= x <= mx + mw and my <= y <= my + mh), None)
         if info is not None and self.on_details is not None:
             self.on_details(info)
+            return
+        used = next((node_id for node_id, (mx, my, mw, mh) in getattr(self, "used_rects", {}).items()
+                     if mx <= x <= mx + mw and my <= y <= my + mh), None)
+        if used is not None and self.on_used_in is not None:
+            self.on_used_in(used.partition(":")[2])   # the Projects tab with this agent's chip
+            return
+        setup = next((node_id for node_id, (mx, my, mw, mh) in getattr(self, "setup_rects", {}).items()
+                      if mx <= x <= mx + mw and my <= y <= my + mh), None)
+        if setup is not None and self.on_setup is not None:
+            self.on_setup(setup)
             return
         menu = next((node_id for node_id, (mx, my, mw, mh) in self.menu_rects.items()
                      if mx <= x <= mx + mw and my <= y <= my + mh), None)
@@ -2211,6 +2270,8 @@ class MapView(Gtk.DrawingArea):
         self.filter_rects = {}
         self.details_rects = {}
         self.update_rects = {}
+        self.used_rects = {}
+        self.setup_rects = {}
         self.draw_summaries(cr, layout)
 
         if pal is not None:
@@ -2236,7 +2297,7 @@ class MapView(Gtk.DrawingArea):
 
     def draw_node(self, cr, layout, node, lit_nodes):
         x, y, w, h = self.boxes[node.id]
-        faded = lit_nodes is not None and node.id not in lit_nodes
+        faded = lit_nodes is not None and node.id not in lit_nodes and node.id != getattr(self, "focused", None)
         alpha = 0.3 if faded else (0.55 if node.dim or node.status == "missing" else 1.0)   # Maprisma: 30 %
         self.draw_box(cr, layout, node, x, y, w, h, faded, alpha, lit_nodes)
 
@@ -2459,11 +2520,13 @@ class MapView(Gtk.DrawingArea):
         running = node.status == "running"
         dim_factor = 0.4 if faded else 1.0
         joined = lit_nodes is not None and node.id in lit_nodes
-        framed = node.id == self.hover or selected or joined
+        focused = node.id == getattr(self, "focused", None)
+        framed = node.id == self.hover or selected or joined or focused
         tint = ("accent", 0.22 * dim_factor) if running else ("fg", (0.07 if node.kind == "agent" else 0.045) * dim_factor)
         pal = self.palette_3d()
-        recessed = map_3d.recessed(faded, node.dim, joined or node.id == self.hover or selected)
-        elevated = (node.id == self.hover or selected or running) and not recessed
+        recessed = map_3d.recessed(faded and not focused, node.dim, joined or node.id == self.hover or selected
+                                   or focused)
+        elevated = (node.id == self.hover or selected or running or focused) and not recessed
         if pal is not None:
             # A solid block, tiered by column, lifted while hovered, selected or running; pressed nearly
             # flat when faded, or dimmed of itself and not lit (Maprisma's map_editor).
@@ -2484,8 +2547,10 @@ class MapView(Gtk.DrawingArea):
             cr.fill_preserve()
         border = "accent" if framed or running else "fg"
         cr.set_source_rgba(*self.color(border, (0.9 if framed else 0.6 if running else 0.16) * (0.3 if faded else 1)))
-        cr.set_line_width(3 if selected else 2 if framed else 1.2 if running else 1)
+        cr.set_line_width(3 if selected or focused else 2 if framed else 1.2 if running else 1)
         cr.stroke()
+        if focused:
+            self.draw_pulse(cr, x, y, w, h)
         use = self.runtime_use(node)
         outside = node.kind == "model" and bool(self.outside_label(node.id))
         # Top row.
@@ -2506,6 +2571,8 @@ class MapView(Gtk.DrawingArea):
             right -= self.draw_cost(cr, layout, node.id, right, row, row_h, faded)
         if node.id in self.updates:
             right -= self.draw_update_badge(cr, layout, node.id, right, row, row_h, faded)
+        if node.kind == "agent" and getattr(self, "used_in", {}).get(node.id.partition(":")[2]):
+            right -= self.draw_used_in(cr, layout, node.id, right, row, row_h, faded)
         if node.kind == "model" and use is not None:
             state = self.model_state(node, use)
             if state:
@@ -2571,12 +2638,73 @@ class MapView(Gtk.DrawingArea):
                 cx += self.draw_subagents(cr, node.id, cx + 19, row, row_h, faded)
             if node.id in self.traffic:
                 cx += self.draw_traffic(cr, node.id, cx + 19, row, row_h, faded)
-        elif node.kind == "runtime" and self.on_stop is not None and use is not None and use.running \
+        elif node.kind == "runtime" and getattr(self, "can_setup", None) is not None and self.can_setup(node.id):
+            cx += self.draw_setup(cr, node.id, cx, row, row_h, faded)
+        if node.kind == "runtime" and self.on_stop is not None and use is not None and use.running \
                 and use.vram >= STOP_VRAM:
             sy = row + (row_h - START_W) / 2
             self.stop_rects[node.id] = (cx, sy, START_W, START_W)
             self.draw_square_button(cr, layout, cx, sy, STOP, "red", True, node.id == self.hover, faded)
         self.draw_pin(cr, layout, node.id, x, y + h - PIN_W - 6, w - 2, faded)
+
+    def draw_pulse(self, cr, x, y, w, h):
+        """A ring around the marked box that grows and fades, about once a second (Show on map)."""
+        phase = ((time.monotonic() - self.focus_began) % 1.2) / 1.2
+        spread = 2 + 7 * phase
+        cr.save()
+        cr.new_path()
+        self.rounded(cr, x - spread, y - spread, w + 2 * spread, h + 2 * spread, self.radius + spread)
+        cr.set_source_rgba(*self.color("accent", 0.75 * (1 - phase)))
+        cr.set_line_width(2.5)
+        cr.stroke()
+        cr.restore()
+
+    def draw_used_in(self, cr, layout, node_id, right, y, h, faded) -> int:
+        """The "Used in N projects" badge ending at `right`: a folder and the number (task 091)."""
+        count = self.used_in[node_id.partition(":")[2]]
+        layout.set_width(-1)
+        layout.set_ellipsize(Pango.EllipsizeMode.NONE)
+        layout.set_font_description(Pango.FontDescription.from_string("Sans 7.5"))
+        layout.set_text(str(count), -1)
+        tw, th = layout.get_pixel_size()
+        fw, fh = 12, 9
+        tx = right - tw - 4
+        fx, fy = tx - fw - 2, y + (h - fh) / 2
+        self.used_rects[node_id] = (fx - 3, y, fw + tw + 9, h)
+        hot = node_id == self.hover
+        cr.set_source_rgba(*self.color("fg", (0.95 if hot else 0.7) * (0.4 if faded else 1.0)))
+        cr.set_line_width(1.2)
+        cr.new_path()
+        cr.move_to(fx, fy + 1)                  # a folder: its tab at the top left
+        cr.line_to(fx + 4, fy + 1)
+        cr.line_to(fx + 5.5, fy + 2.5)
+        cr.line_to(fx + fw, fy + 2.5)
+        cr.line_to(fx + fw, fy + fh)
+        cr.line_to(fx, fy + fh)
+        cr.close_path()
+        cr.stroke()
+        cr.move_to(tx, y + (h - th) / 2)
+        PangoCairo.show_layout(cr, layout)
+        return fw + tw + 10
+
+    def draw_setup(self, cr, node_id, cx, row, row_h, faded) -> int:
+        """A local LLM's speed symbol (its Setup: Configure for this PC, Maprisma task 093)."""
+        r = 6.5
+        gx, gy = cx + r, row + row_h / 2 + 2
+        self.setup_rects[node_id] = (cx - 2, row, 2 * r + 4, row_h)
+        cr.set_source_rgba(*self.color("fg", (1.0 if node_id == self.hover else 0.65) * (0.4 if faded else 1.0)))
+        cr.set_line_width(1.3)
+        cr.new_path()
+        cr.arc(gx, gy, r, math.pi, 2 * math.pi)        # the dial
+        cr.stroke()
+        cr.new_path()
+        cr.move_to(gx, gy)                             # the needle, towards fast
+        cr.line_to(gx + r * 0.6, gy - r * 0.6)
+        cr.stroke()
+        cr.new_path()
+        cr.arc(gx, gy, 1.3, 0, 2 * math.pi)
+        cr.fill()
+        return 2 * r + 8
 
     def draw_small_icon(self, cr, layout, node, ix, iy, size, faded, alpha, use):
         """The kind's or agent's icon before the name (Uwe, 2026-11-11: Maprisma's box with a small icon in

@@ -150,6 +150,7 @@ class ProviderConfigPage:
         threading.Thread(target=work, daemon=True).start()
 
     def close_provider_config(self):
+        self.stop_provider_config_dictation()      # leaving stops the microphone
         if not self.provider_config_busy:
             self.provider_config_generation += 1
         self.provider_config_cancel_timer()
@@ -527,7 +528,23 @@ class ProviderConfigPage:
         card.body.append(picker)
         focus = Gtk.Entry(text=draft.focus, placeholder_text=_('What matters most?'), max_length=500)
         focus.connect('changed', lambda w: setattr(draft, 'focus', w.get_text()))
-        card.body.append(focus)
+        import dictation
+        engine = dictation.chosen(ai_core.setting('dictation_engine')) \
+            if ai_core.setting('dictation') is not False else None
+        if engine is None:
+            card.body.append(focus)
+        else:
+            # Dictation into "What matters most?" (Maprisma's configuration page), the same engine as Ask AI.
+            row = Gtk.Box(spacing=ai_core.GAP_INLINE)
+            focus.set_hexpand(True)
+            row.append(focus)
+            mic = Gtk.ToggleButton(icon_name='audio-input-microphone-symbolic', tooltip_text=_('Dictate'),
+                                   valign=Gtk.Align.CENTER)
+            mic.connect('toggled', lambda b: self.provider_config_dictate(b, focus, engine))
+            row.append(mic)
+            card.body.append(row)
+            names = {'omarchy': _('Omarchy dictation'), 'superwhisper': 'Superwhisper'}
+            self.card_text(card.body, _('Dictation engine') + ' · ' + names.get(engine, engine))
         web = Gtk.CheckButton(label=_('Search the web for guidance'), active=draft.web)
         card.body.append(web)
         cost = self.card_text(card.body, '')
@@ -551,6 +568,51 @@ class ProviderConfigPage:
             for source in draft.ai_answer['sources']:
                 self.card_text(card.body, source)
         body.append(card)
+
+    def provider_config_dictate(self, button, entry, engine):
+        """Start dictating into the focus field, or stop and put the words in (at most 500 characters)."""
+        import dictation
+        if getattr(self, 'provider_config_mic_busy', False):
+            return
+        if button.get_active():
+            self.provider_config_dictation = dictation.Dictation(engine)
+            entry.grab_focus()                       # where the desktop types the words
+            error = self.provider_config_dictation.start()
+            if error:
+                self.provider_config_dictation = None
+                self.provider_config_mic_busy = True
+                button.set_active(False)
+                self.provider_config_mic_busy = False
+                self.toast(_('Could not start dictation: {0}').format(error), 8)
+            return
+        running, self.provider_config_dictation = getattr(self, 'provider_config_dictation', None), None
+        if running is None:
+            return
+        before = entry.get_text()
+        button.set_sensitive(False)
+        generation = self.provider_config_generation
+
+        def work():
+            try:
+                text = running.stop()
+            except Exception:
+                text = ''
+            GLib.idle_add(done, text if isinstance(text, str) else '')
+
+        def done(text):
+            button.set_sensitive(True)
+            if generation != self.provider_config_generation or entry.get_root() is None:
+                return False
+            if text and entry.get_text() == before:
+                entry.set_text(((before + ' ') if before and not before.endswith(' ') else before) + text)
+                entry.set_text(entry.get_text()[:500])
+            return False
+        threading.Thread(target=work, daemon=True).start()
+
+    def stop_provider_config_dictation(self):
+        running, self.provider_config_dictation = getattr(self, 'provider_config_dictation', None), None
+        if running is not None:
+            threading.Thread(target=running.cancel, daemon=True).start()
 
     def ask_provider_config(self, helper, focus, web):
         draft = self.provider_config_draft

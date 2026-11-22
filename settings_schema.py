@@ -124,6 +124,8 @@ SCHEMA: dict[str, Setting] = {
     # The window
     "window_size": Setting(None, _size, "the window's size when it was last closed: [width, height]"),
     "last_view": Setting("main", _text, "the view open when the window was last closed"),
+    "main_tab": Setting("", _one_of("", "projects", "map"),
+                        "the header tab chosen last (task 086): projects, map, or none chosen yet"),
     "terminal_tabs": Setting(True, _bool, "Settings › Terminal tabs above the map"),
     "screenshot_key": Setting(True, _bool, "Settings › F12 saves a screenshot"),
     "action_rules": Setting(default_rules(), _rules, "what may be done, task 019: the most specific rule decides, on a tie allow"),

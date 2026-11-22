@@ -361,7 +361,8 @@ class SettingsPages:
                 ("agents", N_("Agents")), ("llms", N_("Local LLMs")), ("addons", N_("Add-ons")),
                 ("about", N_("About")))
     SECTION_OF = {N_("General"): "general", N_("Omarchy app"): "general", N_("Appearance"): "appearance", N_("AI features"): "agents",
-                  N_("Usage statistics box"): "map", N_("Map"): "map", N_("Subagents"): "agents",
+                  N_("Usage statistics box"): "map", N_("Map"): "map", N_("AI activity log"): "map",
+                  N_("Subagents"): "agents",
                   N_("Costs"): "agents", N_("Models"): "llms", N_("Add-ons"): "addons", N_("About"): "about"}
 
     def place_group(self, box, group, title: str):
@@ -707,6 +708,46 @@ class SettingsPages:
         row.set_sensitive(ai_core.setting("usage_box"))
         rows.append(row)
 
+    def activity_log_rows(self, side):
+        """Settings › AI activity log (Maprisma's settings_view, tasks 074–076): the same settings as
+        Reports › Log, and Review activity log opens it."""
+        import reports_page
+        group = self.preference_group(side, _("AI activity log"))
+        self.switch_row(group, _("AI activity log"),
+                        _("Off by default. Records when agents work, their project and file names and token "
+                          "counts, never file contents."),
+                        ai_core.setting("ai_activity_log") is True,
+                        lambda on: self.save_setting(ai_activity_log=bool(on)))
+        days = ai_core.setting("ai_activity_log_days")
+        choices = reports_page.keep_choices(days)
+        self.combo_row(group, _("Keep log for (days)"), _("Older entries are removed."),
+                       [reports_page.keep_label(d) for d in choices], choices.index(days),
+                       lambda i: self.save_setting(ai_activity_log_days=choices[i]))
+        topics = []
+
+        def importing(on):
+            self.save_setting(ai_activity_import=bool(on))
+            for row in topics:
+                row.set_sensitive(bool(on))
+        self.switch_row(group, _("Collect activity from agent history"),
+                        _("Reads the dates, projects and token counts from the agents' own session files into "
+                          "the log (on start and with Collect history)."),
+                        ai_core.setting("ai_activity_import") is True, importing)
+        row = self.switch_row(group, _("Use the agent's request as topic"),
+                              _("The first line of what was asked becomes the entry's topic."),
+                              ai_core.setting("ai_activity_import_topics") is True,
+                              lambda on: self.save_setting(ai_activity_import_topics=bool(on)))
+        row.set_sensitive(ai_core.setting("ai_activity_import") is True)
+        topics.append(row)
+        if callable(getattr(self, "local_ai_helper", None)) and self.local_ai_helper() is not None:
+            self.switch_row(group, _("Topic summaries by local LLM"),
+                            _("A local LLM names the topics of entries that have none; nothing leaves this PC."),
+                            ai_core.setting("ai_activity_local_topics") is True,
+                            lambda on: self.save_setting(ai_activity_local_topics=bool(on)))
+        if hasattr(self, "open_reports"):
+            self.button_row(group, _("Reports"), _("The log, topic reports and the report library."),
+                            _("Review activity log"), lambda: self.open_reports("log"))
+
     def subagents_rows(self, side):
         """Settings › Subagents: how long and how many finished ones the subagents page keeps."""
         group = self.preference_group(side, _("Subagents"))
@@ -868,6 +909,7 @@ class SettingsPages:
             text.set_wrap(True)
             text.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
             text.set_max_width_chars(24)
+            text.set_width_chars(min(len(label), 12))    # a short label ("Open") never breaks inside a word
         button.connect("clicked", lambda *_: on_click())
         row.add_suffix(button)
         row.set_activatable_widget(button)
@@ -1002,6 +1044,7 @@ class SettingsPages:
         preview.append(self.animation_sketch)
         group.add(preview)
         self.usage_box_rows(side)
+        self.activity_log_rows(side)
         self.subagents_rows(side)
         self.cost_rows(side)
         models_group = self.preference_group(side, _("Models"))
@@ -1057,7 +1100,11 @@ class SettingsPages:
 
     def remember_page(self):
         """The page right of the cards before Settings or Help opened (a terminal, details…)."""
-        inner = self.right_stack.get_visible_child_name() if self.stack.get_visible_child_name() == "main" else None
+        outer = self.stack.get_visible_child_name()
+        if outer in ("projects", "reports"):
+            self.return_page = outer        # the Projects tab or Reports: back to it (task 086)
+            return
+        inner = self.right_stack.get_visible_child_name() if outer == "main" else None
         self.return_page = inner if inner and inner != "map" else None
 
     def back_to_last_page(self):
@@ -1066,6 +1113,11 @@ class SettingsPages:
         resume = getattr(self, "first_resume", None)
         if page == "firstagent" and callable(resume):
             resume()
+            return
+        if page in ("projects", "reports"):
+            self.show_page(page)
+            if page == "reports" and hasattr(self, "show_reports_tab"):
+                self.show_reports_tab(getattr(self, "reports_tab", "log"))   # its values may have changed
             return
         self.show_view(self.view, save=False)
         if page and self.right_stack.get_child_by_name(page) is not None:

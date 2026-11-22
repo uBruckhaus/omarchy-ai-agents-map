@@ -123,6 +123,8 @@ def candidate_checks(candidate: dict) -> list[tuple]:
     if kind == "agent_action":
         step = {"install": "install", "update": "update", "uninstall": "remove"}.get(action["step"], "connect")
         return [(step, "agents", action["command"])]
+    if kind == "provider_config":
+        return [("update", "providers", action["key"])]
     if kind == "provider_action":
         step = action["step"]
         return [] if step == "performance" else [(step, "providers", action["key"])]

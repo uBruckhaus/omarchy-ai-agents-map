@@ -143,6 +143,12 @@ class DetailsPages:
             now = _("Not running")
         hero = self.status_hero(state, sentence, now)
         body.append(hero)
+        if agent.installed and hasattr(self, "open_agent_activity"):
+            # What it is doing now (Maprisma's agent details, task 074): its live sessions.
+            actions = Gtk.Box(spacing=ai_core.GAP_INLINE, halign=Gtk.Align.START)
+            actions.append(self.action_button(_("What is it doing?"),
+                                              on_click=lambda: self.open_agent_activity(agent.command)))
+            body.append(actions)
         self.details_cards = {"hero": hero}           # cards add-on sections join (fill_addon_cards)
         self.pending_health = []                      # add-on sections for the Health card, built later
         if panes is not None:
@@ -324,7 +330,7 @@ class DetailsPages:
         self.note(group, _("Tokens of the daily AI checks and of looking up new agents (Settings). Tasks you "
                            "give it with “Do it with …” are sessions of its own and count above."))
 
-    HERDR_STATES = {"blocked": (N_("Waiting for you"), "dialog-question-symbolic"),
+    HERDR_STATES = {"blocked": (N_("Waiting for you"), "avatar-default-symbolic"),
                     "working": (N_("Working"), "content-loading-symbolic"),
                     "idle": (N_("Idle"), "media-playback-pause-symbolic"),
                     "done": (N_("Done"), "object-select-symbolic"),

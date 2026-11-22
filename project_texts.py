@@ -15,7 +15,7 @@ from i18n import _
 FILTERS = (
     ("running", "Running", "media-playback-start-symbolic"),
     ("attention", "Attention", "dialog-error-symbolic"),
-    ("needs_you", "Needs you", "dialog-question-symbolic"),
+    ("needs_you", "Needs you", "avatar-default-symbolic"),
     ("ready", "Ready", "object-select-symbolic"),
     ("drafts", "Drafts", "document-edit-symbolic"),
     ("finished", "Agents finished", "flag-symbolic"),

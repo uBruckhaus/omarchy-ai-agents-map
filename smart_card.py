@@ -173,7 +173,8 @@ def providers_prompt(facts: dict) -> str:
             '{"action": "performance", "provider": "<key>"}\n'
             "when the user asks about speed, GPU memory, context size, Vulkan, ROCm or other local LLM "
             "performance; its details page shows the actual hardware and build.\n"
-            "only when that action is true for that provider above.\n"
+            + PROVIDER_CONFIG_CHOICE
+            + "only when that action is true for that provider above.\n"
             + tail(facts, "provider", "mcp, agents or models",
                    "when models should be loaded, unloaded, imported, chosen, disconnected or deleted use redirect "
                    "with column models and the request. for anything else beyond the listed actions. The app does "
@@ -283,12 +284,41 @@ def agents_answer(answer: dict, facts: dict, more=None) -> dict:
                      for i, a in enumerate(found)])
 
 
+# Configure for this PC from Ask AI (Maprisma's smart_card provider_config, task 077): the helper names the
+# provider (and optionally the model, profile and focus); the window then reads fresh hardware facts and
+# asks for the values, and its Review opens the provider's Setup page filled in (open_provider_config).
+PROVIDER_CONFIG_CHOICE = (
+    '{"action": "provider_config", "provider": "<key>", "model": "<optional>", '
+    '"profile": "<balanced|long_context|fast|several_agents, optional>", "focus": "<optional>"}\n'
+    "when configurable is true for that provider and the user asks about speed, memory, context, GPU or its "
+    "configuration; the app checks fresh hardware before proposing settings.\n")
+CONFIG_PROFILES = ("balanced", "long_context", "fast", "several_agents")
+
+
+def provider_config_answer(answer: dict, facts: dict) -> dict:
+    found = next((p for p in facts.get("providers", [])
+                  if p.get("key") == answer.get("provider") and p.get("configurable") is True), None)
+    profile = answer.get("profile") or "balanced"
+    model = answer.get("model") or None
+    if found is None or profile not in CONFIG_PROFILES or (
+            model is not None and (not isinstance(model, str) or model not in (found.get("models") or []))):
+        raise SmartError(N_("This provider configuration is unavailable"))
+    focus = line(answer.get("focus"), 500)
+    return proposal([{"id": "c1", "kind": "provider_config", "title": line(found.get("name")),
+                      "subtitle": "Configure for this PC", "reason": "", "key": found["key"], "model": model,
+                      "profile": profile, "focus": focus,
+                      "action": {"kind": "provider_config", "key": found["key"], "model": model,
+                                 "profile": profile, "focus": focus}}])
+
+
 def providers_answer(answer: dict, facts: dict, more=None) -> dict:
     action = answer.get("action")
     if action in ("lookup", "clarify", "redirect"):
         return checked(answer)
     if action == "addon":
         return addons_answer(answer, facts)
+    if action == "provider_config":
+        return provider_config_answer(answer, facts)
     found = next((p for p in facts.get("providers", [])
                   if p.get("key") == answer.get("provider") and p.get(action) is True), None)
     if action not in PROVIDER_STEPS or found is None:
@@ -635,6 +665,10 @@ def auto_prompt(facts: dict) -> str:
             '{"area": "providers", "action": "<install, update, start, stop or performance>", "provider": "<key>"}\n'
             "only when that action is true for that provider; performance for speed, GPU memory, context size, "
             "Vulkan or ROCm questions (its page shows the actual hardware and build).\n"
+            '{"area": "providers", "action": "provider_config", "provider": "<key>", "model": "<optional>", '
+            '"profile": "<balanced|long_context|fast|several_agents, optional>", "focus": "<optional>"}\n'
+            "when configurable is true for that provider and the user wants it set up for this PC (speed, "
+            "memory, context, GPU or its configuration); the app checks fresh hardware before proposing settings.\n"
             '{"area": "models", "action": "search", "query": "<1 to 3 English words of Hugging Face model names, '
             'a model family such as qwen, llama, gemma, or vision, coder>", "runtime": "<runner key>"}\n'
             '{"area": "models", "action": "remove", "runtime": "<runner key>", "model": "<exact model name>"}\n'

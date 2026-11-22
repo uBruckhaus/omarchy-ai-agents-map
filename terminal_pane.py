@@ -91,10 +91,20 @@ def open_outside(path: str, cwd: str, command: str = "") -> bool:
     return desktop.open_terminal(start_argv(command, path) if command else [path], cwd)
 
 
+def progress_text(report: dict) -> str:
+    """A progress report as the terminal's line: "2/5 · Running tests · 3 failing" (Maprisma)."""
+    text = f"{report.get('done')}/{report.get('total')} · {report.get('step') or ''}"
+    note = report.get("note")
+    return text + (f" · {note}" if note else "")
+
+
 class TerminalPane(Gtk.Box):
     """Header (Back, title, state, Stop/Start again) over the agent's terminal."""
 
-    def __init__(self, agent, cwd: str, colors: dict, on_back, on_state, argv: list | None = None):
+    PROGRESS_SECONDS = 3        # how often a running agent's own progress report is read
+
+    def __init__(self, agent, cwd: str, colors: dict, on_back, on_state, argv: list | None = None,
+                 on_activity=None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=GAP)
         Vte = vte()
         self.agent = agent
@@ -107,6 +117,9 @@ class TerminalPane(Gtk.Box):
         self.running = False
         self.started = 0.0
         self.exit_code = None
+        self.on_activity = on_activity    # on_activity(command, instance): What is it doing? (task 074)
+        self.activity_instance = None     # "<pid>:<start ticks>" of the agent running here
+        self.progress_id = 0
 
         header = Gtk.Box(spacing=8)
         from page_parts import PageParts       # here: gi's versions are set by then
@@ -128,6 +141,11 @@ class TerminalPane(Gtk.Box):
         self.stop_button.connect("clicked", lambda *_: self.stop())
         header.append(self.stop_button)
         self.append(header)
+        # The progress the agent reports itself (report_progress): "2/5 · step · note" (Maprisma's terminal).
+        self.progress_label = Gtk.Label(xalign=0, wrap=True, lines=2, ellipsize=Pango.EllipsizeMode.END,
+                                        visible=False)
+        self.progress_label.add_css_class("am-agent-detail")
+        self.append(self.progress_label)
 
         self.terminal = Vte.Terminal()
         self.terminal.set_vexpand(True)
@@ -149,6 +167,14 @@ class TerminalPane(Gtk.Box):
         frame.add_css_class("am-terminal-frame")
         frame.set_child(self.terminal)
         self.append(frame)
+        # Below the terminal, at the right: What is it doing? while it runs (only with argv of the agent).
+        self.activity_row = Gtk.Box(halign=Gtk.Align.END, visible=False)
+        self.activity_button = Gtk.Button(icon_name="utilities-system-monitor-symbolic",
+                                          tooltip_text=_("What is it doing?"), can_focus=False)
+        self.activity_button.add_css_class("flat")
+        self.activity_button.connect("clicked", lambda *_: self.show_activity())
+        self.activity_row.append(self.activity_button)
+        self.append(self.activity_row)
         self.start()
 
     # --- the process ------------------------------------------------------------------------
@@ -177,10 +203,62 @@ class TerminalPane(Gtk.Box):
         except OSError:
             self.leader_fd = None
         self.set_state(True, _("running in {0}").format(self.short_cwd()))
+        self.watch_progress(pid)
         self.terminal.grab_focus()
+
+    # --- what it is doing: the activity button and its own progress line --------------------------
+
+    def watch_progress(self, pid: int):
+        """The agent's instance (for What is it doing?) and, every few seconds, the progress it reports."""
+        if self.argv is not None:
+            return                     # a fixed command (an install), not the agent
+        import agent_activity_report
+        start = agent_activity_report.start_ticks(pid)
+        self.activity_instance = f"{pid}:{start}" if start is not None else None
+        self.activity_row.set_visible(self.on_activity is not None and self.activity_instance is not None)
+        self.progress_label.set_visible(False)
+        if not self.progress_id:
+            self.progress_id = GLib.timeout_add_seconds(self.PROGRESS_SECONDS, self.read_progress)
+        self.read_progress()
+
+    def read_progress(self) -> bool:
+        if not self.running or self.pid is None:
+            self.progress_id = 0
+            self.show_progress(None)
+            return False
+        import threading
+        pid, command = self.pid, self.agent.command
+
+        def work():
+            import agent_activity_report
+            try:
+                found = agent_activity_report.progress_snapshot({command: [pid]}).get(command) or []
+            except Exception:
+                found = []
+            report = next((item.get("progress") for item in found if item.get("pid") == pid), None)
+            GLib.idle_add(lambda: (self.show_progress(report) if self.pid == pid else None, False)[1])
+        threading.Thread(target=work, daemon=True).start()
+        return True
+
+    def show_progress(self, report):
+        if not isinstance(report, dict) or not self.running:
+            self.progress_label.set_visible(False)
+            return
+        self.progress_label.set_label(progress_text(report))
+        self.progress_label.set_visible(True)
+
+    def show_activity(self):
+        if self.on_activity is not None and self.activity_instance is not None and self.running:
+            self.on_activity(self.agent.command, self.activity_instance)
 
     def on_exited(self, _terminal, status):
         self.pid = None
+        self.activity_instance = None
+        self.activity_row.set_visible(False)
+        self.progress_label.set_visible(False)
+        if self.progress_id:
+            GLib.source_remove(self.progress_id)
+            self.progress_id = 0
         self.close_leader_fd()          # a Stop in progress holds its own copy (self.stopping)
         code = os.waitstatus_to_exitcode(status) if status >= 0 else status
         self.exit_code = code

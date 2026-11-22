@@ -63,8 +63,8 @@
   setup by drawing lines.</p>
 
   <div class="figure wide">
-    <img src="images/main-window.jpg" alt="The main window: in the header Setup, Map and a red ! for open problems; the GPU card, and the map across the whole width: MCP servers and skills, agents with a start button, LLM providers and models">
-    <p class="caption">The main window: the map across the whole width, the GPU card above it, the ! for open problems in the header.</p>
+    <img src="images/main-window.jpg" alt="The main window: in the header the tabs Projects and AI Map and the symbols for the status, Ask AI, the legend, Reports, Help, Settings and Refresh; below, the AI Map in 3D: agents, providers and models in their columns">
+    <p class="caption">The main window on the <b>AI Map</b> tab; <b>Projects</b> beside it holds the AI Project Center.</p>
   </div>
 
   <h2 id="what-it-does">What it does</h2>
@@ -77,7 +77,12 @@
       with the agents that use them.</li>
     <li><b>MCP servers and skills</b> — found on your computer or on the web, with recommended
       servers and a search of the official MCP registry.</li>
-    <li><b>Column status</b> — a symbol on each column's Ask AI bar, each problem with the way to where it is fixed; what your setup is good for is on the welcome page and in Help.</li>
+    <li><b>Projects</b> — a team of your agents plans and carries out work in one of your project folders,
+      step by step and under your control (see <a href="#ai-project-center">AI Project Center</a>).</li>
+    <li><b>Ask AI</b> — one question about your whole setup, answered by an agent or your local helper,
+      with every proposed change shown first; the status symbol in the header lists what needs fixing.</li>
+    <li><b>Reports</b> — a local log of what your agents did, topic reports and a library on this PC
+      (see <a href="#reports">Reports</a>).</li>
   </ul>
 
   <h2 id="key-ideas">Key ideas</h2>
@@ -146,42 +151,72 @@
   <div class="figure wide annotated">
     <div class="shot">
       <img src="images/main-window.jpg" alt="The main window with numbered areas">
-      <span class="pin" style="left:63.2%;top:2.6%">1</span>
-      <span class="pin" style="left:79.5%;top:2.6%">2</span>
-      <span class="pin" style="left:1.3%;top:12.9%">3</span>
-      <span class="pin" style="left:0.6%;top:27.9%">4</span>
-      <span class="pin" style="left:50.0%;top:34.9%">5</span>
-      <span class="pin" style="left:40.7%;top:43.6%">6</span>
+      <span class="pin" style="left:23.0%;top:1.2%">1</span>
+      <span class="pin" style="left:70.5%;top:1.2%">2</span>
+      <span class="pin" style="left:51.5%;top:7.4%">3</span>
+      <span class="pin" style="left:1.2%;top:12.6%">4</span>
+      <span class="pin" style="left:1.2%;top:56.0%">5</span>
+      <span class="pin" style="left:30.5%;top:56.2%">6</span>
     </div>
     <p class="caption">The main window. The numbers match the list below.</p>
   </div>
 
   <ol class="legend-list">
-    <li><b>Setup</b> and <b>Map</b> — the two views, on every page; the one in view is highlighted.
-      Setup has every agent, local LLM, MCP server, skill folder and model as a card: install, update,
-      sign in, remove (see below).</li>
-    <li>The header's symbols: <b>⟳</b> refresh (<kbd>F5</kbd>: look again, as on start), <b>!</b> the overall state (green: all fine; yellow: tips or updates; red: something to fix; a click goes to the first column concerned), <b>ⓘ</b> the legend (what every dot, line and mark on the map
-      means), <b>⇅</b> the network traffic of the running agents (see <a href="#network">Network
-      traffic</a>), the add-ons , the filled <b>i</b> for Information
-      (see <a href="#help">Help</a>), <b>?</b> Help (<kbd>F1</kbd>) and the gear for Settings
-      (<kbd>Ctrl</kbd>+<kbd>,</kbd>). Hold the left mouse button on a symbol and drag it sideways to put
-      it elsewhere: a bar shows where it lands, and the order is kept.</li>
-    <li><b>GPU</b> — GPU memory and GPU activity: how the graphics card is used right now, in a card that
-      folds (folded, its line keeps the numbers).</li>
+    <li><b>The tabs</b> — <b>Projects</b> (<kbd>Ctrl</kbd>+<kbd>1</kbd>) and <b>AI Map</b>
+      (<kbd>Ctrl</kbd>+<kbd>2</kbd>); the one in view is underlined. The Projects tab counts the running
+      projects (▶), the ones that need you and the ones that need attention, each with its own symbol (one
+      dot in a narrow window, a crossed-out network symbol while the project list cannot be read).</li>
+    <li>The header's symbols: the overall <b>status</b> (green: all fine; yellow: tips or updates; red:
+      something to fix; a click opens the list, see <a href="#health">Problems and updates</a>),
+      <b>Ask AI</b> (✦, see <a href="#smart-card">Ask AI</a>), the legend <b>ⓘ</b> (what every dot, line and
+      mark on the map means; only on the AI Map), <b>Reports</b> (see <a href="#reports">Reports</a>),
+      <b>Help</b> (<kbd>F1</kbd>), <b>Settings</b> (<kbd>Ctrl</kbd>+<kbd>,</kbd>) and <b>Refresh</b>
+      (<kbd>F5</kbd>: look again, as on start). Hold the left mouse button on a symbol and drag it sideways
+      to put it elsewhere: a bar shows where it lands, and the order is kept.</li>
     <li><b>Column filters and zoom</b> — filter the map's columns (<b>MCP servers</b>, <b>Agents</b>,
-      <b>Providers</b>, <b>Models</b>) and zoom or fit to the window above the map.</li>
-    <li><b>The map</b> — MCP servers and skills ← agents → LLM providers → models, across the whole width,
-      under its heading <b>MAP</b>.</li>
-    <li><b>▶</b> on an agent's box starts it in a terminal in the window; while it runs there, the button
-      brings its terminal back.</li>
+      <b>Providers</b>, <b>Models</b>), zoom, keep the layout with the pin, or put it back to the default.</li>
+    <li><b>A column's group card</b> — what is on and what more is available in that column, with its
+      status; <b>Expand</b> shows the whole group (see <a href="#map-groups-expand">Expand a category</a>).</li>
+    <li><b>An agent's box</b> — its name, a battery or cost, <b>Used in N projects</b> (the folder symbol)
+      and ⋮ for its menu; below, its details (ⓘ), start or stop, its terminal and its traffic.</li>
+    <li><b>The lines</b> — agent → provider → model, MCP servers and skills on the left; light runs along
+      the line of an agent at work.</li>
   </ol>
+
+  <h2 id="tabs">The two tabs</h2>
+  <p>The window has two tabs in its header: <b>Projects</b>, the AI Project Center's board, and
+  <b>AI Map</b>, everything set up on this PC. <kbd>Ctrl</kbd>+<kbd>1</kbd> shows Projects and
+  <kbd>Ctrl</kbd>+<kbd>2</kbd> the AI Map, also while you type in a field. AI Agents Map opens on the tab you
+  used last; the very first time it opens on the AI Map, or on Projects when a project exists already
+  (always on the AI Map while nothing is set up). Choosing <b>Projects</b> again while a project is open leads
+  back to the board.</p>
+  <p>Leaving an open project — for the other tab, Settings, Help, Reports, Ask AI or by closing the window —
+  asks first when it has unsaved changes: <b>Save</b>, <b>Discard</b> or <b>Cancel</b>; while the project is
+  saving, starting or pausing, AI Agents Map says <b>Wait for the current step</b>. Settings, Help and Reports
+  lie over the tab they were opened from and go back to it. Ask AI and the problems list work on the map: from
+  Projects they switch to the AI Map first. Switching to the AI Map clears the board's filters, the agent chip
+  and the Cards | Phases choice.</p>
+  <p><kbd>Esc</kbd> first leaves a text field, then goes back from a page (an open project back to its board).
+  On the AI Map it first clears the selection; on the AI Map or the Projects board with nothing open it closes
+  the window as its close button does (asking first while agents run in it). <kbd>Backspace</kbd> only goes
+  back from a page.</p>
+  <p>The two tabs are linked. On the AI Map an agent's box shows <b>Used in N projects</b> (a folder symbol
+  with the number) when projects use it: a click, or the same entry in its menu, opens the Projects board with
+  that agent's chip. On a project's page, the target symbol beside an agent in the <b>Team</b> graph
+  (<b>Show on map</b>) and <b>Fix on map</b> on a problem switch to the AI Map, scroll the box into view and
+  mark it with a pulsing frame for a few seconds; nothing about the map's layout is saved. If the box is not
+  on the map (its column is filtered out, or it was removed), a note says so.</p>
+  <div class="figure wide">
+    <img src="images/projects-tab.jpg" alt="The Projects tab: filter chips with counts, Cards and Phases, New project, and three project cards with their stage rail, team, problems, Open, Review plan and the trash symbol">
+    <p class="caption">The <b>Projects</b> tab: the board with its filters and three projects.</p>
+  </div>
 
   <h2 id="my-setup">Setup</h2>
   <p>The map shows what is set up — installed agents and local LLMs, the MCP servers and skill
   folders agents use, and models — and, faded, the MCP servers and skill folders found on this
   computer that no agent uses yet, ready to connect with a line (see <a href="#found-on-pc">Found on
-  this PC</a>). Everything else is done on <b>Setup</b> (the button in the header, beside <b>Map</b>),
-  one card per item, in sections that fold away with a click on their bar:</p>
+  this PC</a>). Everything else is done on <b>Setup</b> (a group card's <b>Expand</b> on the AI Map opens it for that
+  column), one card per item, in sections that fold away with a click on their bar:</p>
   <ul>
     <li><b>How things get onto your map</b> — a folded card at the top; open it for five numbered steps:
       switch on (or find) what you use, install what is missing, sign in to an online agent, connect by
@@ -246,9 +281,7 @@
 
   <h2 id="map">Working with the map</h2>
   <p>An agent’s model is a chain: one line from the agent to its provider, one from the provider to the model it uses. Models nobody uses stay boxes without a line, and a card’s filter (only what is connected or pinned) hides them. Drawing a local provider onto one of its models is one short step: the provider uses that model, and an agent you connect to the provider later gets it. If a drop cannot work, a short note says why, for example which provider the agent must be connected to first. A simple drawn connection or disconnection asks for Apply in a small dialog, then a short note confirms it, with Undo; an error says what went wrong. Changes requiring further steps use the detailed review. When one agent calls another, the called agent’s active path and the arrow between them use a separate collaboration colour, including deeper calls. The arrow points to the agent that is used; once the work is done, it stays dim. The tree symbol on an agent card opens its recent subagents; it is bright while one works and dim when only finished ones remain.</p>
-  <p>Ask AI can propose the same map edits, including switching an existing model, connecting an existing skill folder, repairing a failed connection and signing an agent in or out. It shows the same preview and asks before applying. For local LLM speed, GPU memory, context size, Vulkan or ROCm questions, Ask AI opens Performance, which uses this PC’s hardware and measurements before suggesting a change.</p>
-  <p>Below the question, a scrollable card suggests requests for MCP servers and skills, agents, providers and models. Choosing one fills the question with its category at the start (for example, Models:) and switches to that category; it does not send anything. You can edit the question or type a category yourself. Only Ask sends it. The status view still lets you inspect each category’s findings.</p>
-  <p>You can shape these suggestions: the bookmark button in the question field keeps what you typed as a new suggestion of the chosen category (up to 12 per category), the pencil next to a suggestion edits it in place (Enter keeps it, Esc cancels, an empty text removes it), its × removes it, and the arrow at the end of the line brings back the built-in suggestions.</p>
+  <p><a href="#smart-card">Ask AI</a> can propose the same map edits, including switching an existing model, connecting an existing skill folder, repairing a failed connection and signing an agent in or out. It shows the same preview and asks before applying.</p>
   <ul>
     <li><b>Hover</b> a box to light it up together with everything it is joined to: their frames turn the accent colour. Nothing fades.</li>
     <li><b>Click</b> a box to select it; <kbd>Shift</kbd>+click adds more. A selected box has a stronger frame, everything joined to it stays lit, and all other boxes and lines fade. A second click on it, or a click on empty map, ends the selection. To hide the faded lines instead, turn off <b>Settings › Map › Show faded lines</b>.</li>
@@ -256,6 +289,13 @@
     <li><b>Right-click</b> a box for everything its card on Setup offers: start or stop, details,
       install, sign in, models, update, remove, and more.</li>
     <li><b>▶</b> on an agent's box starts it in a terminal in the window.</li>
+    <li>An agent's menu has <b>What is it doing?</b> (see <a href="#agent-activity">What is it
+      doing?</a>), and every box's menu has <b>Ask AI</b>, which opens Ask AI with “Tell me about …” and the
+      box's name in the field; only <b>Ask</b> sends it.</li>
+    <li>The speed symbol on a local LLM's box (its tooltip and its menu entry say <b>Setup</b>) opens
+      <a href="#provider-configuration">Configure a local provider</a>.</li>
+    <li><b>Used in N projects</b> (a folder symbol with the number) on an agent's box opens the Projects tab
+      with that agent's chip (see <a href="#tabs">The two tabs</a>).</li>
     <li>The agents always stay in the middle of the map's visible part while you scroll.</li>
     <li>The map is drawn in 3D by default: raised cards, layered boxes, shadowed lines and a depth grid.
       <b>Settings › Map › 3D map layout</b> switches back to a flat map.</li>
@@ -314,21 +354,20 @@
   <b>Providers</b>; up to 80&nbsp;% (below 1600 pixels) it adds <b>Models</b>; above that, all
   four columns. The buttons above the map turn on any column in any view.</p></div>
 
-  <h2 id="health">Column status</h2>
-  <p>Every column's <b>Ask AI…</b> bar shows that column's state at its left, and the header shows the worst state of all columns, also of a hidden one: a green check mark when all is fine, a yellow triangle for tips, updates or suggestions, a red <b>!</b> when something needs fixing. A click on the symbol opens the column's list, worst first: an agent not signed in, a local LLM without models, a connection that does not work, little free space for models, each with a button to where it is fixed. <b>Ask AI</b> on a line puts it into the prompt; only <b>Ask</b> sends it. A click on the header's symbol goes to the first column concerned. The check only reads; it never changes, starts or sends anything.</p>
+  <h2 id="health">Problems and updates</h2>
+  <p>The status symbol in the header shows the state of the whole setup, also of a column that is filtered out: a green check mark when all is fine, a yellow triangle for tips, updates or suggestions, a red <b>!</b> when something needs fixing. A click opens the list, worst first: an agent not signed in, a local LLM without models, a connection that does not work, little free space for models, each with a button to where it is fixed. From the Projects tab it switches to the AI Map first. The check only reads; it never changes, starts or sends anything.</p>
   <p>The list also shows new programs or skills found on this PC, what is on this PC but not on the map, and updates for installed agents, local LLMs and MCP servers, each with its button. Updates are checked in the background when the window opens, at most every six hours. An update starts only when you click <b>Update</b> (see <a href="#smart-updates">Updates found</a>). What your setup is good for is on the welcome page and in Help, under <b>What you can do with it</b>.</p>
 
-  <h2 id="smart-card">Smart cards on the map</h2>
-  <p>A collapsed <b>Ask AI…</b> bar sits at the top of every map column, with a status symbol at its left: a green check mark when all is fine, a yellow triangle for tips, updates or suggestions, or a red <b>!</b> when something in that column needs fixing. The header bar shows the overall status across all four columns (even hidden ones) and opens the first column that needs attention. Clicking a column’s status symbol opens its status list: each finding for that column with the button that opens where it is fixed and <b>Ask AI</b> to pre-fill the prompt, newer versions of installed agents and local LLMs (<b>Update</b> runs <code>mise upgrade</code> or the agent’s own updater in a terminal, or opens the install review; checked at most every six hours), MCP server updates from the daily AI checks, and <b>Check again</b>. On the welcome page, <b>What you can do with it</b> shows the use cases (everyday help, vibe coding, images, voice, research and writing) as <b>Ready</b>, <b>Almost</b> or <b>Not yet</b>, with what is there for each and the next step.</p>
-  <h3 id="ask-ai">Ask AI: one question about your whole setup</h3>
-  <p>Open <b>Ask AI</b> (✦) in the map header and ask about your whole setup in your own words, for example “Which model fits this PC and works with my agent?” or “Why are answers slow on this PC?”. There is no category to choose: the helper decides with its first answer whether it answers directly, asks you back, looks something up on the web or proposes a step for agents, providers, models or MCP servers and skills. A few examples under the field fill it when you click them; <b>My suggestions</b> shows all saved questions (the built-in ones of every column and your own) to reuse, edit or remove, and <b>Save as suggestion</b> keeps the question in the field. <kbd>Enter</kbd> sends the question, <kbd>Ctrl</kbd>+<kbd>Enter</kbd> inserts a new line, <kbd>Esc</kbd> goes back to the map. <b>Ask</b> stays off for an empty question and for one over 2,000 characters.</p>
+  <h2 id="smart-card">Ask AI</h2>
+  <h3 id="ask-ai">One question about your whole setup</h3>
+  <p>Open <b>Ask AI</b> (✦) in the header — from the Projects tab it switches to the AI Map first — and ask about your whole setup in your own words, for example “Which model fits this PC and works with my agent?” or “Why are answers slow on this PC?”. There is no category to choose: the helper decides with its first answer whether it answers directly, asks you back, looks something up on the web or proposes a step for agents, providers, models or MCP servers and skills. A few examples under the field fill it when you click them; <b>My suggestions</b> shows all saved questions (the built-in ones of every column and your own) to reuse, edit or remove, and <b>Save as suggestion</b> keeps the question in the field. <kbd>Enter</kbd> sends the question, <kbd>Ctrl</kbd>+<kbd>Enter</kbd> inserts a new line, <kbd>Esc</kbd> goes back to the map. <b>Ask AI</b> in a box's menu on the map opens it with “Tell me about …” and that box's name in the field; nothing is sent until you click <b>Ask</b>. <b>Ask</b> stays off for an empty question and for one over 2,000 characters.</p>
   <p>The header shows which helper will answer and whether it runs locally (<b>Local, no tokens</b>) or <b>Online · uses plan/tokens</b>, with a menu when more than one is ready. If the helper you chose is no longer ready, Ask AI asks you to choose another one instead of switching on its own; with no helper at all, the field and examples stay usable and <b>Get started</b> sets one up. While it works the window shows what it is doing (checking the AI Map, searching); <b>Cancel</b> or <kbd>Esc</kbd> stops it before its next step, and your question stays in the field.</p>
   <p>“Which agents need sign-in?”, “Which agents have updates?” and “Which MCP servers have updates?” are answered from what the map itself observed, without asking a helper; without a recent update check the answer says so. Other answers lead with the direct answer and the facts behind it; web answers show their sources as links. When the helper asks you back, pick one of its suggested replies or type your own answer. Under an answer you can ask a follow-up (“Why that one?”): it carries a short summary of the previous exchange, kept only in memory, to the same helper; if you switched helpers, tick <b>Share the previous exchange with …</b> to send it along. <b>New question</b> clears the exchange. If something fails, <b>Edit question</b> goes back to your draft and <b>Try again</b> sends it once more.</p>
-  <p>Changes open the usual preview for your approval: the button names what it opens, such as <b>Review download</b>, <b>Review connection</b> or <b>Open Performance</b>. Steps your rules in <b>Settings › What may be done</b> refuse are left out, and every step is checked again when you open it.</p>
+  <p>Changes open the usual preview for your approval: the button names what it opens, such as <b>Review download</b>, <b>Review connection</b>, <b>Review configuration</b> or <b>Open Performance</b>. Steps your rules in <b>Settings › What may be done</b> refuse are left out, and every step is checked again when you open it.</p>
   <p><b>MCP servers and skills</b> — The helper can add an MCP server from the official registry, connect a server to an agent, or disconnect it. It can disconnect several or all servers in one step, with one preview and one Undo. You choose the agents, fill in what the server needs (keys stay on this PC and never reach the helper), and approve the normal review; then the change is made and the map shows it. It can also disconnect skill folders in the same step. It cannot add or update skills yet, update programs, or delete a server from the PC.</p>
   <p><b>Models</b> — The helper can find a model that fits this PC (VRAM, RAM and free disk space) and open its download preview, remove a model of a local LLM (you see the normal removal review first, and files go to Trash where that is possible), or move model folders to another disk, with a preview and <b>Undo</b> in the header. It can also disconnect agents from one, several or all models of a local LLM, in one preview with one Undo; no file is deleted.</p>
   <p><b>Agents</b> — The helper can install, update or remove an agent, where the Agents page offers that. You see its normal review; the step then runs in a terminal you can watch.</p>
-  <p><b>Providers</b> — The helper can install or update a local LLM, and start or stop it, where the app offers that; the app's normal review opens for the step. For speed, GPU memory or context questions it opens Performance. It cannot uninstall a provider or sign in to an online one.</p>
+  <p><b>Providers</b> — The helper can install or update a local LLM, and start or stop it, where the app offers that; the app's normal review opens for the step. When you want a local LLM set up for this PC (speed, GPU memory, context size or its configuration) and it can be configured, it proposes <b>Configure for this PC</b>: AI Agents Map reads this PC's hardware and the provider's settings afresh, asks the same helper once for the values, and <b>Review configuration</b> opens the provider's <a href="#provider-configuration">Configuration</a> page filled in, marked <b>From Ask AI</b>; nothing is written until you review and apply it there (Undo stays available). If no usable values came back, <b>Open Configuration</b> opens the page with its own recommendations. Other speed questions open Performance. It cannot uninstall a provider or sign in to an online one.</p>
   <p>Ask AI also offers the other steps of the app’s menus, each through the same menu with its own review and Undo. <b>Agents</b>: the test question, the API key card (you type the key there; the helper never sees it), security settings, starting an agent or stopping one that runs outside the app, its connections and details, and an add-on’s details, switching it on or off, installing, updating or removing it. <b>Providers</b>: the same add-on steps for local LLMs; the app does not uninstall a local LLM program itself. <b>MCP servers and skills</b>: what <b>Found on this PC</b> shows. Connecting an agent to an online provider signs it in to its own provider; another agent’s provider is refused with the reason. When agents leave a local LLM, only their configuration changes, as when you take the line away.</p>
   <p>For questions that need web research, an online helper can return an answer with links to its sources; a local helper cannot search the web and says so. After such an answer, <b>Do it with …</b> shows the prompt, and the agent then works in a terminal and asks before each step that changes files. The task itself waits in a private file in AI Agents Map’s cache; the agent’s command line only names that file, so other accounts on this PC cannot read it.</p>
 </section>
@@ -438,7 +477,9 @@
 
   <h2 id="agent-activity">What is it doing?</h2>
   <p>Choose <b>What is it doing?</b> in a running agent’s menu on the map, in its details or with the activity
-  button below its terminal. A window over the map shows, for one running instance (with several, it first
+  button below its terminal in the window. While an agent runs in a terminal here, the progress it reports
+  itself is also shown as a line above the terminal, for example <b>2/5 · Running tests · 3 failing</b>,
+  read again every three seconds. A window over the map shows, for one running instance (with several, it first
   asks which one): its <b>phase</b> (planning, editing, writing or running tests, finished), <b>Possibly
   stuck</b> when it should be working but nothing has changed for ten minutes, its <b>current work</b> (the
   request, its answers, the tools it called and the files it edited, read from its own session file: Claude
@@ -884,7 +925,7 @@
 <p>When an agent's details open and Omarchy collects that agent's usage (plan, limits and when they reset), the app asks Omarchy for fresh figures in the background if the last ones are older than ten minutes or older than the agent's last sign-in, then shows them; at most once every ten minutes per agent. Settings › <b>Corners</b> sets the corners of the window's cards, dialogs and the map's boxes: <b>Like windows</b> follows Hyprland's window rounding (with the number of pixels shown), <b>Slightly rounded (6 px)</b>, <b>Rounded (12 px)</b> or <b>Square</b>. Every control follows in three sizes: buttons, drop-downs, fields and chips at most 8 px, check boxes and progress bars at most 4 px.</p>
 
 <h2 id="settings-list">Settings</h2>
-  <p>The gear (<kbd>Ctrl</kbd>+<kbd>,</kbd>) opens Settings; <kbd>Backspace</kbd> or <kbd>Esc</kbd> returns. The sections are General, Appearance, Map, Agents, Local LLMs, Add-ons and About. <b>Find in Settings</b> searches every section.</p>
+  <p>The gear (<kbd>Ctrl</kbd>+<kbd>,</kbd>) opens Settings; <kbd>Backspace</kbd> or <kbd>Esc</kbd> returns to the page it was opened from (the Projects tab, Reports, the AI Map or a page on it). The sections are General, Appearance, Map, Agents, Local LLMs, Add-ons and About. <b>Find in Settings</b> searches every section.</p>
   <p>In a narrow window or with larger text, choose a section above the search field. Wide windows have a scrolling section list beside the settings. Resizing keeps the section, search and keyboard focus. Search shows matching sections together without selecting one; choosing a section clears the search.</p>
   <table>
     <thead><tr><th>Setting</th><th>What it does</th></tr></thead>
@@ -894,8 +935,10 @@
       <tr><td><b>3D map layout</b></td><td>On by default: the map stands on a faint floor grid, the cards are raised plinths with a tray for their boxes, the boxes are solid blocks (the agents' column stands out most; a box lifts while you hover, select or run it and lies flat while it is faded), the lines are floating cables with a shadow and a socket where they meet a box, and the light on a working agent's line is a shaded sphere. Only the look changes: clicks, drags and tooltips stay where they are. Off: the flat map.</td></tr>
       <tr><td><b>Map animations</b></td><td>Light runs along the lines on the map: <b>Agents and other programs</b> (a working agent's line, and a local LLM's line to a model another program uses), <b>Only my agents</b>, or <b>Off</b>. A small animated map under the setting shows what each choice moves.</td></tr>
       <tr><td><b>Usage statistics box</b></td><td>The numbers along a working agent's line (see <a href="#map">Working with the map</a>): on or off, which of <b>Tokens per second</b>, <b>Context size</b> and <b>Context used</b> it shows, and its <b>Text size</b> (7&nbsp;pt by default).</td></tr>
+      <tr><td><b>AI activity log</b> (Map)</td><td>The same settings as Reports › <b>Log</b>: <b>AI activity log</b> (off by default), <b>Keep log for (days)</b> (7 by default), <b>Collect activity from agent history</b> (on), <b>Use the agent's request as topic</b> (on; only while collecting) and <b>Topic summaries by local LLM</b> (only with a local helper). <b>Review activity log</b> opens Reports. See <a href="#reports-log">The activity log</a>.</td></tr>
       <tr><td><b>Subagents</b></td><td>For the <a href="#subagents">Subagents</a> page: how long finished subagents stay (<b>30 minutes</b> by default; 10, 30, 60 or 120) and how many at most (<b>10</b> by default; 5, 10, 20 or 40). Working ones are always shown.</td></tr>
       <tr><td><b>Costs</b></td><td><b>Currency</b>: US dollar, or Euro at the European Central Bank's daily reference rate (fetched once a day from ecb.europa.eu). <b>A day's limit</b> for an agent paid per token (<b>100</b> by default; 10 to 500). <b>Yellow from</b> and <b>Red from</b>: the share used at which a cost label or a battery turns yellow (75&nbsp;% by default) and red (90&nbsp;%). <b>Notify when red</b> (on by default): a desktop notification when an agent turns red — once for each limit until it resets, or once a day for a cost.</td></tr>
+      <tr><td><b>Use dictation in Ask AI</b></td><td><b>Automatic</b>, <b>Omarchy dictation</b>, <b>Superwhisper</b> or <b>Off</b>: the microphone in Ask AI and on a provider's Configuration page (see <a href="#dictation">Dictation in Ask AI</a>).</td></tr>
       <tr><td><b>Terminal tabs above the map</b></td><td>One tab per agent terminal in the window.</td></tr>
       <tr><td><b>Corners</b></td><td>Like windows, slightly rounded (6 px), rounded (12 px) or square; buttons, drop-downs and fields take at most 8 px, check boxes and progress bars at most 4 px.</td></tr>
       <tr><td><b>Start local LLMs with their agents</b></td><td>The background watcher described in <a href="#start-with-agents">Starting and stopping with agents</a>.</td></tr>
@@ -923,11 +966,13 @@
   <b>Automatic</b> (Omarchy's dictation where it is there, else Superwhisper), <b>Omarchy dictation</b>
   (<code>omarchy-dictation</code> with Omarchy's default dictation tool; it types the words into the
   prompt itself), <b>Superwhisper</b> (its command line; when you stop, the text of that dictation is
-  put into the prompt) or <b>Off</b>. Without either of them the button is hidden. The app records and
+  put into the prompt) or <b>Off</b>. The same microphone sits beside <b>What matters most?</b> on a local
+  provider's <a href="#provider-configuration-ai">Configuration</a> page (at most 500 characters there);
+  leaving the page or Ask AI stops a recording. Without either of them the button is hidden. The app records and
   keeps nothing itself; the engines keep their own history as set up there.</p>
 
   <h2 id="help">Help</h2>
-  <p><b>?</b> (<kbd>F1</kbd>) opens Help: <b>Open user manual</b> opens this manual (the copy that
+  <p><b>?</b> (<kbd>F1</kbd>) opens Help over the page you are on and goes back to it: <b>Open user manual</b> opens this manual (the copy that
   came with your version) in your PDF viewer; <b>Disk space</b> (below); an animation of setting up by
   drawing; and LLM Monitor, a companion bar plugin that shows what a local LLM is doing (a small
   animation of its bar item and panel). Both animations are drawn in your theme's colours and follow
@@ -992,7 +1037,7 @@
   <h2 id="smart-summary">PC setup summary</h2>
   <p><b>Check now</b> gives the agent a short text about the setup — the graphics card and memory, the
   agents with their models, the local LLMs, the MCP servers with their versions, the skills and what
-  <a href="#health">Column status</a> found — and lets it look things up on the web. No keys, headers or
+  <a href="#health">Problems and updates</a> found — and lets it look things up on the web. No keys, headers or
   settings values are in it. It takes a minute or more in the background; the line under the button
   says how many tokens the last check used. The answer is a short summary and a list of findings:
   <b>!</b> problems, <b>·</b> tips and <b>✓</b> what is good. Answers that do not hold up are left out.</p>
@@ -1333,12 +1378,12 @@
   <p>The AI Project Center lets a team of your installed agents plan and carry out work in one of your project folders, step by step and under your control, as in Maprisma. A project has a title, a goal, an existing folder, a plan and a team: one <b>lead</b>, optional <b>implementers</b> and optional <b>reviewers</b>, with a separate <b>Planning</b> team if you want one (otherwise planning uses the execution team). Only Claude Code, Codex, Antigravity (<code>agy</code>) and Pi have a managed project profile; other agents are listed as unavailable for projects.</p>
 
   <h2 id="project-center-board">The Projects board</h2>
-  <p>The <b>Projects</b> page shows your projects as a <b>board</b> of cards in your order: a new project comes on top, and a card stays where you put it. Drag a card by its handle (<b>Move</b>) onto another card to put it there; a click on the handle offers <b>Move up</b>, <b>Move down</b>, <b>Move to top</b> and <b>Move to end</b>, and <kbd>Ctrl</kbd>+<kbd>↑</kbd>, <kbd>Ctrl</kbd>+<kbd>↓</kbd>, <kbd>Ctrl</kbd>+<kbd>Home</kbd> and <kbd>Ctrl</kbd>+<kbd>End</kbd> move the card that has the keyboard. Each card carries its importance, <b>High</b>, <b>Medium</b> (a new project) or <b>Low</b>: click the mark to change it, or choose it in the project's <b>Goal</b> tab; the importance never moves a card.</p>
-  <p>The row above the cards filters them: <b>All</b>, <b>Running</b>, <b>Attention</b>, <b>Needs you</b>, <b>Ready</b>, <b>Drafts</b> and <b>Agents finished</b>, each with its count; a filter chosen again is cleared. <b>Importance</b> shows only the <b>High</b>, <b>Medium</b> or <b>Low</b> projects (with their counts; × or <b>All</b> clears it). When the board was opened for one agent from the map, a chip with its name narrows the board; its × removes it. When the project list cannot be read, the counts say <b>Project status unavailable</b> with <b>Retry</b> instead of showing zero.</p>
+  <p>The <b>Projects</b> tab (<kbd>Ctrl</kbd>+<kbd>1</kbd>, see <a href="#tabs">The two tabs</a>) shows your projects as a <b>board</b> of cards in your order: a new project comes on top, and a card stays where you put it. Drag a card by its handle (<b>Move</b>) onto another card to put it there; a click on the handle offers <b>Move up</b>, <b>Move down</b>, <b>Move to top</b> and <b>Move to end</b>, and <kbd>Ctrl</kbd>+<kbd>↑</kbd>, <kbd>Ctrl</kbd>+<kbd>↓</kbd>, <kbd>Ctrl</kbd>+<kbd>Home</kbd> and <kbd>Ctrl</kbd>+<kbd>End</kbd> move the card that has the keyboard. Each card carries its importance, <b>High</b>, <b>Medium</b> (a new project) or <b>Low</b>: click the mark to change it, or choose it in the project's <b>Goal</b> tab; the importance never moves a card.</p>
+  <p>The row above the cards filters them: <b>All</b>, <b>Running</b>, <b>Attention</b>, <b>Needs you</b>, <b>Ready</b>, <b>Drafts</b> and <b>Agents finished</b>, each with its count; a filter chosen again is cleared. <b>Importance</b> shows only the <b>High</b>, <b>Medium</b> or <b>Low</b> projects (with their counts; × or <b>All</b> clears it). When the board was opened for one agent from the map (<b>Used in N projects</b> on its box), a chip with its name narrows the board; its × removes it. On the board, <kbd>Esc</kbd> closes the window like on the AI Map. When the project list cannot be read, the counts say <b>Project status unavailable</b> with <b>Retry</b> instead of showing zero.</p>
   <p>Each card shows where the project is on its way (Goal, Plan, Approval, Ready, Run, Agents finished) as a small rail, what happens now and, when it matters, a second line such as <b>Check the changes first</b> or <b>Approve again</b>; its team (up to four agents, three in a narrow window, the agent at work always among them, and the helper while a team is being set up); its problems with the link of the first one; how many messages wait for the next assignment; and its last event. <b>Open</b> shows the project, <b>Review plan</b> opens its plan, <b>Pause</b> stops the agent at work (<b>Retry pause</b> when stopping could not be confirmed). The trash symbol (<b>Delete project</b>) removes a saved project after a question; its working folder is kept, and it is not possible while agents work on the project or it is stopping. When a quick action is refused, its reason stays on the board. <b>New project</b> beside the filters (a + symbol in a narrow window, a card on an empty board) starts a new project.</p>
   <p>The switch <b>Cards | Phases</b> shows the same projects by stage: one column each for Goal, Plan, Approval, Ready, Run and Agents finished, with its count and a small card per project (in a narrow window a list per stage). The filters apply there too. The Phases view only shows the way: click a project (or press <kbd>Enter</kbd>) to open it; nothing there changes a project. The filter and the Cards | Phases choice stay while AI Agents Map runs and are not saved.</p>
   <h2 id="project-center-page">A project's page</h2>
-  <p>An open project shows <b>Projects › <i>its title</i></b> at the top: <b>Projects</b>, <kbd>Esc</kbd> or <kbd>Backspace</kbd> lead back to the board with the keyboard on the project's card (in a text field <kbd>Esc</kbd> first leaves the field). With unsaved changes you are asked first: <b>Save</b>, <b>Discard</b> or <b>Cancel</b>; while the project is saving, starting or pausing, AI Agents Map says <b>Wait for the current step</b>. Under the title the <b>stage rail</b> shows the project's way with what happens now, and its problems are listed with their links: <b>Go to Team</b> and <b>Go to Goal</b> open that tab (<b>Fix on map</b> goes to the box on the AI Map that needs it).</p>
+  <p>An open project shows <b>Projects › <i>its title</i></b> at the top: <b>Projects</b>, <kbd>Esc</kbd> or <kbd>Backspace</kbd> lead back to the board with the keyboard on the project's card (in a text field <kbd>Esc</kbd> first leaves the field). With unsaved changes you are asked first: <b>Save</b>, <b>Discard</b> or <b>Cancel</b>; while the project is saving, starting or pausing, AI Agents Map says <b>Wait for the current step</b>. Under the title the <b>stage rail</b> shows the project's way with what happens now, and its problems are listed with their links: <b>Go to Team</b> and <b>Go to Goal</b> open that tab (<b>Fix on map</b> goes to the box on the AI Map that needs it and marks it; the target symbol beside an agent in the Team graph, <b>Show on map</b>, does the same for that agent).</p>
   <p>The tabs are <b>Goal</b> (title, goal, working folder with <b>Choose folder</b>, and the importance), <b>Plan</b>, <b>Team</b>, <b>Activity</b> and <b>Setup</b>; in a narrow window they become a list to choose from, and the footer keeps the main action for the project's state, with the others under <b>More</b>. The <b>Team</b> tab draws the saved team next to the form (below it in a narrow window): a row for Planning and one for Execution, in the order the agents work, each agent with a line to the provider or local LLM you chose for it, or <b>Agent default</b>; the agent at work is marked, and a problem shows under its name. The footer has <b>Save project</b>, <b>Draft plan with AI</b>, <b>Approve plan</b>, <b>Run project</b>, <b>Pause project</b> (<b>Retry pause</b>), <b>Continue project</b> and <b>Delete project</b>, each only when it is possible; deleting asks first and leads back to the board.</p>
   <h2 id="project-center-workflow">Planning and running a project</h2>
   <p>Create a project and save it. Generate a plan with the lead (planning and reviewers always work read-only) or write your own, then review and approve the current plan. The approval covers the plan, the goal, the folder, both teams and the effective agent profiles: when any of them changes, for example after an agent update changed its command, the project asks you to <b>Approve again</b>. Running starts the assignments one after the other — lead, implementers, reviewers — and each passes its result to the next in the saved handoff. For execution you choose read-only access or permission to edit project files; reviewers always stay read-only. Two projects never work in the same folder (or one inside the other) at the same time, and at most four projects run at once.</p>
@@ -1364,7 +1409,7 @@
   reports from it, and keeps saved reports in a library on this PC.</p>
 
   <h2 id="reports-log">The activity log</h2>
-  <p>Open <b>Reports</b> from the header. The <b>Log</b> tab has the log’s settings at the top:
+  <p>Open <b>Reports</b> from the header (the document symbol); <b>Back</b>, <kbd>Esc</kbd> or <kbd>Backspace</kbd> return to the tab you came from. The same log settings are in Settings › <b>Map</b> › <b>AI activity log</b>. The <b>Log</b> tab has the log’s settings at the top:
   <b>AI activity log</b> (off by default), <b>Keep log for (days)</b> (one week by default, today included),
   <b>Collect activity from agent history</b>, <b>Use the agent’s request as topic</b> and <b>Topic summaries by
   local LLM</b> (only with a local helper set up). While the log is on and the window is open, each span of
@@ -1527,15 +1572,17 @@
   <h2 id="shortcuts">Keyboard shortcuts</h2>
   <table class="keys">
     <tbody>
-      <tr><th scope="row"><kbd>F1</kbd></th><td>Help</td></tr>
+      <tr><th scope="row"><kbd>Ctrl</kbd>+<kbd>1</kbd> / <kbd>Ctrl</kbd>+<kbd>2</kbd></th><td>The Projects tab / the AI Map tab (an open project with unsaved changes asks first)</td></tr>
+      <tr><th scope="row"><kbd>F1</kbd></th><td>Help (on Reports: How reporting works)</td></tr>
       <tr><th scope="row"><kbd>F12</kbd></th><td>F12 saves a screenshot. A picture of the window goes to <code>~/Pictures/AI Agents Map</code>, on by default. In a terminal, use the camera symbol below it. You can add a note, saved as a text file next to the picture. Settings can send the pictures to another folder. Only F12 alone counts (not with Ctrl, Shift, Alt or Super). Only you can open the folder (0700) and its files (0600); an existing picture or note is never overwritten, and nothing is uploaded.</td></tr>
       <tr><th scope="row"><kbd>Ctrl</kbd>+<kbd>,</kbd></th><td>Settings</td></tr>
       <tr><th scope="row"><kbd>F5</kbd></th><td>Refresh (the map and Setup)</td></tr>
       <tr><th scope="row"><kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>Ctrl</kbd>+<kbd>−</kbd> / <kbd>Ctrl</kbd>+<kbd>0</kbd></th><td>Zoom the map in, out, or fit to window</td></tr>
       <tr><th scope="row">Mouse wheel</th><td>Scroll the map</td></tr>
       <tr><th scope="row"><kbd>Shift</kbd>+click</th><td>Add to or remove from the selection</td></tr>
-      <tr><th scope="row"><kbd>Esc</kbd></th><td>Clear the selection; go back from a page</td></tr>
+      <tr><th scope="row"><kbd>Esc</kbd></th><td>Leave a text field; go back from a page (an open project to its board); on the AI Map clear the selection; on the AI Map or the Projects board with nothing open, close the window</td></tr>
       <tr><th scope="row"><kbd>Backspace</kbd></th><td>Go back from a page</td></tr>
+      <tr><th scope="row"><kbd>Ctrl</kbd>+<kbd>↑</kbd> / <kbd>↓</kbd> / <kbd>Home</kbd> / <kbd>End</kbd></th><td>On the Projects board: move the card that has the keyboard</td></tr>
     </tbody>
   </table>
 

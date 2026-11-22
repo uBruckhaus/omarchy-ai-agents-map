@@ -87,6 +87,7 @@ def dropdown(items, selected, on_choose, sensitive: bool = True, missing: str | 
     factory.connect("setup", setup)
     factory.connect("bind", bind)
     drop = Gtk.DropDown(model=names, factory=factory)
+    drop.add_css_class("am-project-drop")       # the size of the page's other controls, not bold
     current = values.index(selected)
     drop.set_selected(current)
     drop.set_sensitive(sensitive)
