@@ -31,11 +31,12 @@ script folder or user site on sys.path). process_group is imported by the contro
 from __future__ import annotations
 
 import codecs
+import collections
 import ctypes
 import fcntl
 import json
 import os
-import queue
+import select
 import signal
 import subprocess
 import sys
@@ -46,6 +47,8 @@ from pathlib import Path
 MAX_CONTROL_LINE = 4 * 1024 * 1024      # the start line carries the prompt (at most ~120 KiB, JSON-escaped)
 MAX_EVENT_LINE = 1024 * 1024
 READ_CHUNK = 16 * 1024
+OUTPUT_BUFFER = 128 * 1024              # output kept for the controller between reads (the oldest goes first)
+START_DEADLINE = 5.0                    # the start line written and the run lock reported within this
 PR_SET_CHILD_SUBREAPER = 36
 
 
@@ -407,16 +410,21 @@ def command() -> list[str] | None:
 
 
 class _Once:
-    """A value set once; wait() returns it (None while unset after the timeout)."""
+    """A value set once (the first set wins, also across threads); wait() returns it (None while
+    unset after the timeout)."""
 
     def __init__(self):
         self._event = threading.Event()
+        self._lock = threading.Lock()
         self.value = None
 
-    def set(self, value) -> None:
-        if not self._event.is_set():
+    def set(self, value) -> bool:
+        with self._lock:
+            if self._event.is_set():
+                return False
             self.value = value
             self._event.set()
+            return True
 
     @property
     def done(self) -> bool:
@@ -435,8 +443,20 @@ class SupervisedProcess:
     def __init__(self, proc: subprocess.Popen):
         self._proc = proc
         self._send_lock = threading.Lock()
-        self._output: queue.Queue = queue.Queue()
+        self._reap_lock = threading.Lock()
+        self._reaped = False
+        # The agent's output between reads, bounded: a noisy agent drops its oldest chunks (dropped)
+        # while the reader goes on draining the supervisor, so stop events are never held up.
+        self._out = threading.Condition()
+        self._chunks: collections.deque = collections.deque()
+        self._chunk_bytes = 0
+        self._out_error: Exception | None = None
         self._output_closed = False
+        self.dropped = False
+        try:
+            os.set_blocking(proc.stdin.fileno(), False)    # every write has a deadline (_send)
+        except (OSError, ValueError, AttributeError):
+            pass
         self._leader: int | None = None
         self._exit: int | None = None
         self._settled = threading.Event()
@@ -462,20 +482,29 @@ class SupervisedProcess:
         except (OSError, ValueError, subprocess.SubprocessError):
             raise ProjectError("project_agent_unavailable") from None
         managed = cls(proc)
-        managed._send({"argv": argv, "cwd": cwd, "input": input_text, "lock": lock,
-                       "controller": {"pid": os.getpid(), "start": start_time(os.getpid())}})
+        deadline = began + START_DEADLINE
+        # The start line (it carries the prompt) is written within the startup deadline, never
+        # blocking on a supervisor that does not read.
+        sent = managed._send({"argv": argv, "cwd": cwd, "input": input_text, "lock": lock,
+                              "controller": {"pid": os.getpid(), "start": start_time(os.getpid())}},
+                             deadline - time.monotonic())
         # The supervisor holds the run lock before the controller authorizes the launch, and the
         # controller authorizes it only while it still owns the store: no moment without an owner.
-        deadline = began + 5.0
-        while not managed._locked.is_set() and not managed._confirmed.done and time.monotonic() < deadline:
+        while sent and not managed._locked.is_set() and not managed._confirmed.done and time.monotonic() < deadline:
             managed._locked.wait(0.02)
-        if not managed._locked.is_set() or not managed._start_ack:
+        if not sent or not managed._locked.is_set() or not managed._start_ack:
             managed._withdraw(10.0 - (time.monotonic() - began))
             raise ProjectError("project_agent_unavailable")
-        if authorize is not None and not authorize():
+        # authorize(managed): the controller checks that it still owns the store and the attempt was
+        # not stopped, and takes `managed` as the attempt's process, atomically (under its lock). A
+        # stop or detach after that reaches this process: a stop line or EOF before the go-ahead
+        # makes the supervisor end without launching.
+        if authorize is not None and not authorize(managed):
             managed._withdraw(10.0 - (time.monotonic() - began))
             raise ProjectError("project_launch_withdrawn")
-        managed._send({"launch": True})
+        if not managed._send({"launch": True}, 1.0):
+            managed._withdraw(10.0 - (time.monotonic() - began))
+            raise ProjectError("project_launch_withdrawn")
         return managed
 
     # --- events --------------------------------------------------------------------------------------
@@ -492,10 +521,28 @@ class SupervisedProcess:
             pass
         self._lost()
 
+    def _push(self, text: str) -> None:
+        with self._out:
+            if self._output_closed:
+                return
+            self._chunks.append(text)
+            self._chunk_bytes += len(text.encode("utf-8", "replace"))
+            while self._chunk_bytes > OUTPUT_BUFFER and len(self._chunks) > 1:
+                self._chunk_bytes -= len(self._chunks.popleft().encode("utf-8", "replace"))
+                self.dropped = True
+            self._out.notify_all()
+
+    def _fail_output(self, error: Exception) -> None:
+        with self._out:
+            if not self._output_closed:
+                self._out_error = error
+                self._output_closed = True
+                self._out.notify_all()
+
     def _close_output(self) -> None:
-        if not self._output_closed:
+        with self._out:
             self._output_closed = True
-            self._output.put(None)
+            self._out.notify_all()
 
     def _event(self, raw: bytes) -> None:
         try:
@@ -508,8 +555,7 @@ class SupervisedProcess:
         if isinstance(data.get("out"), str) or any(type(data.get(k)) is int for k in ("leader", "stuck", "exit")):
             self._started.set(True)
         if isinstance(data.get("out"), str):
-            if not self._output_closed:
-                self._output.put(data["out"])
+            self._push(data["out"])
         elif data.get("locked") is True:
             self._start_ack = data.get("start_ack") is True
             self._locked.set()
@@ -525,8 +571,7 @@ class SupervisedProcess:
             self._exit = data["exit"]
         elif isinstance(data.get("error"), str):
             self._started.set(False)
-            if not self._output_closed:
-                self._output.put(ProjectError("project_agent_unavailable"))
+            self._fail_output(ProjectError("project_agent_unavailable"))
         elif data.get("stopped") is True and not self._confirmed.done:
             self._started.set(False)
             self.stuck = 0
@@ -542,27 +587,59 @@ class SupervisedProcess:
         self._settled.set()
         self._close_output()
 
-    def _send(self, message: dict) -> None:
+    def _send(self, message: dict, timeout: float = 2.0) -> bool:
+        """One control line, written whole within `timeout` (the pipe is non-blocking). A line that
+        cannot be written in time closes control: a half line must never be followed by another."""
+        data = memoryview((json.dumps(message, ensure_ascii=False) + "\n").encode("utf-8"))
+        deadline = time.monotonic() + max(0.0, timeout)
         with self._send_lock:
             if not self._input_open:
-                return
+                return False
             try:
-                self._proc.stdin.write((json.dumps(message, ensure_ascii=False) + "\n").encode("utf-8"))
-                self._proc.stdin.flush()
-            except (OSError, ValueError):
-                self._input_open = False
-
-    def _close_input(self) -> None:
-        with self._send_lock:
-            self._input_open = False
-            try:
-                self._proc.stdin.close()
+                fd = self._proc.stdin.fileno()
+                while data:
+                    if not self._input_open:              # closed meanwhile (detach): stop here
+                        break
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    _r, writable, _x = select.select([], [fd], [], min(remaining, 0.05))
+                    if not writable:
+                        continue
+                    try:
+                        data = data[os.write(fd, data):]
+                    except BlockingIOError:
+                        continue
             except (OSError, ValueError):
                 pass
+            if data:
+                self._input_open = False
+                self._close_stdin()
+                return False
+            return True
+
+    def _close_stdin(self) -> None:
+        try:
+            self._proc.stdin.close()
+        except (OSError, ValueError):
+            pass
+
+    def _close_input(self) -> None:
+        """Close control without waiting: a write in progress sees the flag at once and closes it."""
+        self._input_open = False
+        if self._send_lock.acquire(blocking=False):
+            try:
+                self._close_stdin()
+            finally:
+                self._send_lock.release()
 
     def _reap(self, wait: float) -> None:
         import process_group
-        process_group.end_child(self._proc, wait=max(0.0, wait))
+        with self._reap_lock:            # one reaper: a second must never signal a released group id
+            if self._reaped:
+                return
+            process_group.end_child(self._proc, wait=max(0.0, wait))
+            self._reaped = True
         # Reaped: its stdout ends (the reader sees EOF), then both pipes are released.
         if self._reader is not threading.current_thread():
             self._reader.join(2.0)
@@ -593,11 +670,16 @@ class SupervisedProcess:
         """The agent's output in chunks, until the supervisor's confirmed end (or its loss); raises
         ProjectError when the supervisor reported an error."""
         while True:
-            item = self._output.get()
-            if item is None:
-                return
-            if isinstance(item, Exception):
-                raise item
+            with self._out:
+                while not self._chunks and not self._output_closed:
+                    self._out.wait()
+                if self._chunks:
+                    item = self._chunks.popleft()
+                    self._chunk_bytes -= len(item.encode("utf-8", "replace"))
+                elif self._out_error is not None:
+                    raise self._out_error
+                else:
+                    return
             yield item
 
     def started(self, timeout: float = 10.0) -> bool:
@@ -618,7 +700,7 @@ class SupervisedProcess:
                 raise ProjectError("project_processes_still_running")
             self._reap(2.0)
             return
-        self._send({"stop": True})
+        self._send({"stop": True}, 1.0)
         if self._confirmed.wait(wait) is not True:
             raise ProjectError("project_processes_still_running")
         self._reap(2.0)
