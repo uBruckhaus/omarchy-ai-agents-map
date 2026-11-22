@@ -946,6 +946,105 @@ class SupervisorTest(CenterCase):
 
 
 class SupervisorProtocolTest(unittest.TestCase):
+    def test_normal_completion_and_pause_exit_cleanly_with_control_still_open(self):
+        # Keep stdin open through stop(), as the real controller does. A buffered daemon
+        # readline used to abort CPython on both paths and spend ~1 s dumping core.
+        popen = ps.subprocess.Popen
+        for pause in (False, True):
+            with self.subTest(pause=pause), tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryFile() as stderr:
+                lock = os.path.join(tmp, "run.lock")
+                Path(lock).touch()
+
+                def capture(*args, **kwargs):
+                    kwargs["stderr"] = stderr
+                    return popen(*args, **kwargs)
+
+                with mock.patch.object(ps.subprocess, "Popen", side_effect=capture):
+                    process = ps.run([sys.executable, "-c", "import time; time.sleep(60)" if pause else "pass"],
+                                     tmp, dict(os.environ), None, lock, lambda p: True)
+                try:
+                    self.assertTrue(process.started(5))
+                    if not pause:
+                        self.assertEqual(process.wait(), 0)
+                    self.assertFalse(process._proc.stdin.closed)
+                    began = time.monotonic()
+                    process.stop()
+                    elapsed = time.monotonic() - began
+                    stderr.seek(0)
+                    error = stderr.read()
+                    self.assertNotIn(b"Fatal Python error", error)
+                    self.assertEqual(process._proc.returncode, 0, error.decode("utf-8", "replace"))
+                    self.assertEqual(error, b"")
+                    self.assertLess(elapsed, 0.75, "stop waited for supervisor finalization")
+                finally:
+                    process.detach()
+                    process._reap(0.0)
+
+    def test_invalid_utf8_long_lines_and_eof_after_launch_still_stop_the_agent(self):
+        for mode in ("invalid_utf8", "long_line", "eof"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
+                proc = ps.subprocess.Popen(ps.command(), stdin=-1, stdout=-1, stderr=-1, cwd=tmp)
+                managed = ps.SupervisedProcess(proc)
+                start = {"argv": [sys.executable, "-c", "import time; time.sleep(60)"], "cwd": tmp,
+                         "controller": {"pid": os.getpid(), "start": ps.start_time(os.getpid())}}
+                try:
+                    self.assertTrue(managed._send(start))
+                    self.assertTrue(managed._locked.wait(5))
+                    self.assertTrue(managed._start_ack)
+                    self.assertTrue(managed._send({"launch": True}))
+                    self.assertTrue(managed.started(5))
+                    if mode == "eof":
+                        managed.detach()
+                    elif mode == "invalid_utf8":
+                        os.write(proc.stdin.fileno(), b"\xff\n")
+                    else:
+                        managed._send({"extra": "x" * ps.MAX_CONTROL_LINE})
+                    # For malformed/long lines the controller is still here: no EOF is
+                    # needed to stop the tree. Confirmation requires the final stopped frame.
+                    self.assertIs(managed._confirmed.wait(5), True)
+                    managed.stop()
+                    self.assertEqual(proc.returncode, 0)
+                    self.assertEqual(proc.stderr.read(), b"")
+                finally:
+                    managed.detach()
+                    managed._reap(0.0)
+                    proc.stderr.close()
+
+    def test_raw_control_preserves_bounded_line_and_utf8_semantics(self):
+        import io
+        # Splits at the byte bound, replaces malformed UTF-8, preserves queued lines,
+        # and returns a final unterminated line before EOF, just like the old reader.
+        data = b'{"x":"\xff"}\n' + b"x" * 31 + b'\n{"launch":true}\nlast'
+        fd, writer = os.pipe()
+        os.write(writer, data)
+        os.close(writer)
+        with os.fdopen(fd, "rb", buffering=0) as stream, mock.patch.object(ps, "MAX_CONTROL_LINE", 16):
+            reader = ps._ControlReader(stream)
+            fallback = ps._ControlReader(io.BytesIO(data))
+            try:
+                expected = []
+                while (line := fallback.readline()) is not None:
+                    expected.append(line)
+                actual = []
+                while (line := reader.readline()) is not None:
+                    actual.append(line)
+                self.assertEqual(actual, expected)
+                self.assertEqual(actual[0], '{"x":"\ufffd"}\n')
+                self.assertTrue(all(len(line.encode("utf-8")) <= 16 for line in actual))
+            finally:
+                reader.close()
+                fallback.close()
+
+    def test_malformed_and_overlong_start_lines_are_refused(self):
+        for line in (b"\xff\n", b"x" * (ps.MAX_CONTROL_LINE + 1) + b"\n"):
+            with self.subTest(size=len(line)), tempfile.TemporaryDirectory() as tmp:
+                proc = ps.subprocess.Popen(ps.command(), stdin=-1, stdout=-1, stderr=-1, cwd=tmp)
+                out, error = proc.communicate(line, timeout=10)
+                self.assertEqual([json.loads(line) for line in out.splitlines()],
+                                 [{"error": "invalid_start"}, {"stopped": True}])
+                self.assertEqual(proc.returncode, 2)
+                self.assertEqual(error, b"")
+
     def test_a_start_from_another_controller_is_refused_without_launching(self):
         with tempfile.TemporaryDirectory() as tmp:
             lock = os.path.join(tmp, "run.lock")
@@ -1798,6 +1897,95 @@ class ReviewRoundSixTest(CenterCase):
         self.assertTrue(result["projects"][0]["approval_valid"])
         self.assertEqual(result["projects"][0]["activity"], "ready_to_run")
         self.assertEqual(result["summary"]["ready"], 1)
+
+
+class ReviewRoundEightTest(CenterCase):
+    def changing_assignment_discovery(self, item):
+        original = self.center._discover
+        scans, displayed = [], []
+
+        def discover(required):
+            snapshot = original(required)
+            if required and threading.current_thread().name == f"project-{item['id'][:8]}":
+                scans.append(snapshot.generation)
+                self.assertLessEqual(len(scans), pc.MAX_DISCOVERY_RESCANS + 1)
+                with self.center._lock:
+                    self.center.discovery_generation += 1
+                if len(scans) == pc.MAX_DISCOVERY_RESCANS + 1:
+                    # A concurrent list installs new permissions after the last scan took
+                    # its copy. The assignment must neither replace them nor approve old argv.
+                    self.profiles[0]["run_argv"][1] = "new-permissions"
+                    self.assertFalse(self.card(item["id"])["approval_valid"])
+                    displayed.append(self.center._display)
+            return snapshot
+        self.center._discover = discover
+        return scans, displayed
+
+    def test_an_exhausted_execution_scan_cannot_validate_stale_approval(self):
+        item = self.approve(self.save(plan="The approved plan."))
+        scans, displayed = self.changing_assignment_discovery(item)
+        self.center.call("run", {"id": item["id"], "revision": item["revision"]})
+        wait_until(lambda: self.commands or not self.center._active)
+        self.assertEqual(self.commands, [], "obsolete permissions reached the runner")
+        self.idle()
+        self.assertEqual(len(scans), pc.MAX_DISCOVERY_RESCANS + 1)
+        self.assertIs(self.center._display, displayed[0])
+        current = self.get(item["id"])
+        self.assertEqual(current["events"][-1]["text"], "project_discovery_unstable")
+        self.assertFalse(current["approval_valid"])
+        self.assertFalse(current["assignment_started"])
+        self.assertNotIn("assignment", self.types(current))
+
+    def test_an_exhausted_planning_scan_preserves_a_newer_display(self):
+        item = self.approve(self.save(plan="The old plan."))
+        scans, displayed = self.changing_assignment_discovery(item)
+        self.center.call("plan", {"id": item["id"], "revision": item["revision"]})
+        wait_until(lambda: self.processes or not self.center._active)
+        self.assertEqual(len(scans), pc.MAX_DISCOVERY_RESCANS + 1)
+        self.assertEqual(len(self.processes), 1)
+        self.assertIs(self.center._display, displayed[0])
+        self.assertEqual(self.center._display[2]["fixture"]["run_argv"][1], "new-permissions")
+        self.processes[0].finish("A new plan.")
+        self.idle()
+
+    def test_review_adopts_the_last_available_scan_when_the_display_is_empty(self):
+        item = self.save(plan="A plan.")
+        self.center._display = None
+        original = self.center._discover
+        scans = []
+
+        def discover(required):
+            snapshot = original(required)
+            scans.append(snapshot.generation)
+            with self.center._lock:
+                self.center.discovery_generation += 1
+            return snapshot
+        self.center._discover = discover
+        reviewed = self.approve(item)
+        self.assertEqual(len(scans), pc.MAX_DISCOVERY_RESCANS + 1)
+        self.assertEqual(reviewed["status"], "ready")
+        self.assertTrue(reviewed["approval_valid"])
+        self.assertIsNotNone(self.center._display)
+        self.assertEqual(self.center._display[0], scans[-1])
+
+    def test_closing_during_an_obsolete_scan_does_not_retry_discovery(self):
+        for name in ("detach", "shutdown"):
+            with self.subTest(close=name):
+                original = self.center._discover
+                scans = []
+
+                def discover(required):
+                    snapshot = original(required)
+                    scans.append(snapshot.generation)
+                    self.center.discovery_generation += 1
+                    getattr(self.center, name)()
+                    return snapshot
+                with mock.patch.object(self.center, "_discover", side_effect=discover):
+                    self.assertCode("project_center_closed", self.center.call, "profiles", {})
+                self.assertEqual(len(scans), 1)
+            # Reopen the store for the shutdown variant.
+            if name == "detach":
+                self.center = self.make()
 
 
 class SupervisorControlTest(unittest.TestCase):

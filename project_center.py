@@ -1113,6 +1113,8 @@ class ProjectCenter:
         for rescan in range(MAX_DISCOVERY_RESCANS + 1):
             snapshot = self._discover(required) if required or (display and self._display_stale()) else None
             with self._lock:
+                if self._closed:
+                    raise ProjectError("project_center_closed")
                 if required and snapshot.generation != self.discovery_generation and rescan < MAX_DISCOVERY_RESCANS:
                     continue
                 with self._using(snapshot):
@@ -1120,9 +1122,8 @@ class ProjectCenter:
                 return
 
     def _adopt(self, snapshot) -> None:
-        """Under the lock: a launch's fresh snapshot replaces the display snapshot at once (none is
-        left empty), unless the map's data changed while it was taken."""
-        if isinstance(snapshot, _Snapshot) and snapshot.generation == self.discovery_generation:
+        """Under the lock: adopt the latest available facts without downgrading the display."""
+        if isinstance(snapshot, _Snapshot) and (self._display is None or snapshot.generation >= self._display[0]):
             self._install_display(snapshot[1], snapshot[2], snapshot.generation)
 
     def _setup_proposal(self, output: str, item: dict, snapshot: tuple | None = None) -> dict:
@@ -1380,10 +1381,12 @@ class ProjectCenter:
                     if snapshot.generation != self.discovery_generation and rescans < MAX_DISCOVERY_RESCANS:
                         rescans += 1
                         continue                 # obsolete facts cannot validate approval or build argv
-                    # Once rescans are exhausted, use the latest facts. Only changes after this
-                    # validation withdraw its launch, otherwise a busy map could starve it forever.
+                    if phase == "running" and snapshot.generation != self.discovery_generation:
+                        raise ProjectError("project_discovery_unstable")
+                    # Planning/setup can use the latest available scan after the retry budget;
+                    # approved execution requires current facts to validate its permissions.
                     validated_generation = self.discovery_generation
-                    self._install_display(profiles, runtimes, snapshot.generation)
+                    self._adopt(snapshot)
                     item = _copy(self._projects[project_id])
                     profile = profiles.get(member["agent"])
                     if profile is None:
@@ -1919,12 +1922,6 @@ class ProjectCenter:
             return {"project": self._view(current)}
 
     # --- the display snapshot (summary and board) ----------------------------------------------------
-
-    def _drop_display(self) -> None:
-        self._display = None
-        self._display_failed = None
-        self._approval_memo.clear()
-        self._readiness_memo.clear()
 
     def _install_display(self, profiles: dict, runtimes: dict, generation: int | None = None) -> None:
         generation = self.discovery_generation if generation is None else generation
