@@ -40,6 +40,7 @@ LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 SECRETISH = re.compile(r"(^[a-f0-9]{24,}$|(?:^|[._-])(?:secret|token|credentials?|auth|password|apikey|key)(?:[._-]|$)"
                        r"|^sk-[A-Za-z0-9_-]+)", re.IGNORECASE)
 SESSION = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+UNOBSERVED = dt.timedelta(seconds=60)   # observe() comes every 2 s while the window is shown
 LOCK_WAIT = 5.0                    # seconds an import waits for a day file's lock
 HEURISTIC = ("editing", "testing")
 
@@ -380,6 +381,8 @@ class ActivityLog:
         self.timeline = timeline          # (roots, since epoch seconds) -> groups (agent_activity_report)
         self.pending: list[dict] = []
         self.active: dict[str, tuple] = {}
+        self.last_seen: dt.datetime | None = None      # the last observe(): a longer gap closes open spans
+        self.unobserved = UNOBSERVED
         self.mutex = threading.Lock()
 
     @property
@@ -414,6 +417,14 @@ class ActivityLog:
             self.pending.clear()
         completed = list(self.pending)
         self.pending.clear()
+        last, self.last_seen = self.last_seen, now
+        if enabled and last is not None and now - last > self.unobserved:
+            # Not looked at meanwhile (window hidden, PC asleep): what was working is counted only up
+            # to the last look, never across the gap; still working now, it starts a new span.
+            for source in list(self.active):
+                start, cwd, _usage = self.active.pop(source)
+                if start < last:
+                    completed.append(self._live_row(source, start, cwd, None, None, last))
         if enabled:
             for source in list(self.active):
                 if source in active:

@@ -47,6 +47,14 @@ def agent_pids() -> list[int]:
     return [p for found in pids.values() for p in found]
 
 
+def _encodable(text: str) -> bool:
+    try:
+        text.encode("utf-8")
+        return True
+    except UnicodeEncodeError:              # a lone surrogate ("\ud800")
+        return False
+
+
 def _text(payload, error: bool = False) -> dict:
     return {"content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}], "isError": error}
 
@@ -79,7 +87,11 @@ def reply(frame, mode: str, pids=agent_pids) -> dict | None:
         return {"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "Invalid request"}}
     if "id" not in frame:
         return None
-    out = {"jsonrpc": "2.0", "id": frame["id"]}
+    ident = frame["id"]
+    if not (ident is None or (type(ident) is int and -INT64 - 1 <= ident <= INT64)
+            or (isinstance(ident, str) and len(ident) <= 256 and _encodable(ident))):
+        return {"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "Invalid request"}}
+    out = {"jsonrpc": "2.0", "id": ident}
     method, params = frame.get("method"), frame.get("params")
     if method == "initialize":
         out["result"] = {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}},
@@ -135,7 +147,11 @@ def serve(mode: str, stdin=None, stdout=None) -> int:
                     answer = {"jsonrpc": "2.0", "id": frame.get("id") if isinstance(frame, dict) else None,
                               "error": {"code": -32603, "message": "Internal error"}}
         if answer is not None:
-            stdout.write(json.dumps(answer, ensure_ascii=False) + "\n")
+            try:
+                text = json.dumps(answer)            # ASCII only: an odd id or text can never break the output
+            except (TypeError, ValueError):
+                text = json.dumps({"jsonrpc": "2.0", "id": None, "error": {"code": -32603, "message": "Internal error"}})
+            stdout.write(text + "\n")
             stdout.flush()
 
 

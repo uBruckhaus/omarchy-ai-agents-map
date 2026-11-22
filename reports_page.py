@@ -192,6 +192,7 @@ class ReportsPage:
             button.add_css_class("am-small-btn")
             if group is None:
                 group = button
+                button.set_active(True)       # before its signal: building the page reads nothing
             else:
                 button.set_group(group)
             button.connect("toggled", lambda b, k=key: b.get_active() and self.show_reports_tab(k))
@@ -207,7 +208,6 @@ class ReportsPage:
         page.append(self.reports_stack)
         self.reports_footer = Gtk.Box()
         page.append(self.reports_footer)
-        self.reports_tab_buttons["log"].set_active(True)
         return page
 
     def open_reports(self, tab: str = "log"):
@@ -294,8 +294,15 @@ class ReportsPage:
 
     def reports_hidden(self):
         """The window is hidden: nothing of this page keeps running in the background but a report
-        being generated (it ends by itself; the next open shows it)."""
+        being generated (it ends by itself; the next open shows it). The log's open spans end now:
+        nothing watches the agents while the window is hidden."""
         self.stop_reports_timer()
+        store = getattr(self, "_activity_store", None)
+        if store is not None and store.enabled:
+            try:
+                store.observe(set(), usage_for=self.activity_usage_reader(dict(getattr(self, "agent_pids", {}) or {})))
+            except OSError:
+                pass
 
     # --- small parts -------------------------------------------------------------------------------
 
@@ -826,7 +833,8 @@ class ReportsPage:
             try:
                 with ai_helper.watched(cancel):
                     draft = reports_ctl.generate_topic_report(
-                        store, params, lambda prompt: reports_ctl.ask_with(helper["helper"], prompt), before_run=gate)
+                        store, params, lambda prompt: reports_ctl.ask_with(helper["helper"], prompt), before_run=gate,
+                        cancel=cancel)
                 result = ("draft", draft)
             except reports_ctl.ReportError as error:
                 result = ("error", error.code)

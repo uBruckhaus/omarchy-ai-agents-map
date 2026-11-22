@@ -407,6 +407,8 @@ def read_bounded_output(argv: list[str], max_bytes: int = 64 * 1024, timeout: fl
     `merge_stderr`: read error messages too (same cap);
     `cancel`: an Event; once it is set the program and its children are ended (not ok);
     `keep_children`: a launcher whose server is meant to keep running after it ends."""
+    if cancel is not None and cancel.is_set():
+        return b"", False                  # cancelled before it began: never started, nothing handed over
     try:
         proc = subprocess.Popen(list(argv), stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
                                 stdout=subprocess.PIPE,

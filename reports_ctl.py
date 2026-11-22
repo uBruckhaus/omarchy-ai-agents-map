@@ -82,6 +82,7 @@ MESSAGES = {
     "report_not_found": "The report could not be found.",
     "report_damaged": "This saved report is damaged and cannot be shown.",
     "invalid_request": "The report operation failed.",
+    "cancelled": "The report was cancelled.",
 }
 
 
@@ -526,6 +527,8 @@ def ask_with(helper, prompt: str, run=None) -> str:
     agent's no-tools rewrite form."""
     import ai_helper
     import smart_card
+    if ai_helper.cancelled():               # cancelled meanwhile: no helper is started at all
+        raise ReportError("cancelled")
     if helper.local:
         return ai_helper.advise(helper.candidate, "reports", prompt)
     return (run or smart_card.run_rewrite)(helper.command, prompt)
@@ -598,7 +601,7 @@ def validate_topic_report(answer: str, entries: list) -> dict:
 
 
 def generate_topic_report(log: activity_log.ActivityLog, params: dict, ask, before_run=lambda: None,
-                          language: str = "English", now: dt.datetime | None = None) -> dict:
+                          language: str = "English", now: dt.datetime | None = None, cancel=None) -> dict:
     """A draft report: the matching retained rows (sanitized), the helper's grouping and summaries.
     ask(prompt) -> answer; before_run() raises to stop (the online gate). ReportError on failure."""
     filters = report_parameters(params)
@@ -616,7 +619,11 @@ def generate_topic_report(log: activity_log.ActivityLog, params: dict, ask, befo
                     f"<untrusted-focus>\n{json.dumps(filters.get('focus'))}\n</untrusted-focus>\n")
     room = BUDGET - len(instructions.encode()) - 512
     entries, total, size, capped = [], 0, 0, False
+    def stop_if_cancelled():
+        if cancel is not None and cancel.is_set():
+            raise ReportError("cancelled")
     for _local, row in log.retained_rows(today, keep, first, last):
+        stop_if_cancelled()                 # Cancel report: nothing more is read, nothing is sent
         if not matches(row, filters):
             continue
         total += 1
@@ -648,12 +655,14 @@ def generate_topic_report(log: activity_log.ActivityLog, params: dict, ask, befo
             raise ReportError("log_off")
         before_run()
         request = prompt()
+        stop_if_cancelled()                 # the last moment before the log leaves for the helper
         try:
             answer = ask(request if attempt == 0 else
                          request + "\nThe previous answer did not match the JSON schema. Try again.")
         except ReportError:
             raise
         except Exception:
+            stop_if_cancelled()
             raise ReportError("helper_failed") from None
         try:
             report = validate_topic_report(answer if isinstance(answer, str) else "", entries)

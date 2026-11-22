@@ -63,6 +63,9 @@ class TempCase(unittest.TestCase):
         self.addCleanup(lambda: __import__("shutil").rmtree(self.tmp, ignore_errors=True))
         self.settings = settings()
         self.log = activity_log.ActivityLog(self.tmp / "data/ai-log", setting=self.settings)
+        # These tests look at a span from its start to its end only; the real poll looks every 2 s
+        # (the gap rule has its own test, test_unobserved_time_is_never_logged).
+        self.log.unobserved = dt.timedelta(days=30)
 
     def rows(self, day: str) -> list:
         path = self.log.directory / f"{day}.jsonl"
@@ -1476,6 +1479,109 @@ class RoundFourTest(TempCase):
         with self.assertRaises(reports_ctl.ReportError) as caught:
             library.get(rows[0]["id"])
         self.assertEqual(caught.exception.code, "report_damaged")
+
+
+class RoundFiveTest(TempCase):
+    def test_cancelled_report_sends_nothing(self):
+        import threading as _threading
+        import ai_core
+        import ai_helper
+        self.log.directory.mkdir(parents=True)
+        (self.log.directory / "2026-11-20.jsonl").write_text(jl(
+            {"version": 1, "source_kind": "agent", "source": "codex", "started_at": "2026-11-20T11:00:00Z",
+             "ended_at": "2026-11-20T11:05:00Z", "duration_ms": 0}))
+        cancel = _threading.Event()
+        cancel.set()
+        asked = []
+        with self.assertRaises(reports_ctl.ReportError) as caught:
+            reports_ctl.generate_topic_report(self.log, {"helper": "h"}, asked.append, cancel=cancel,
+                                              now=at("2026-11-20T12:00:00"))
+        self.assertEqual((caught.exception.code, asked), ("cancelled", []))
+        helper = mock.Mock(local=True, candidate=object())
+        with ai_helper.watched(cancel), mock.patch.object(ai_helper, "advise") as advise:
+            with self.assertRaises(reports_ctl.ReportError):
+                reports_ctl.ask_with(helper, "prompt")
+        advise.assert_not_called()
+        with mock.patch.object(ai_core.subprocess, "Popen") as popen:
+            self.assertEqual(ai_core.read_bounded_output(["true"], stdin=b"log", cancel=cancel), (b"", False))
+        popen.assert_not_called()
+
+    def test_mcp_survives_malformed_unicode(self):
+        import io
+        import activity_mcp
+        out = io.StringIO()
+        activity_mcp.serve("log", io.BytesIO(b'{"jsonrpc":"2.0","id":"\\ud800","method":"ping"}\n'
+                                             b'{"jsonrpc":"2.0","id":2,"method":"ping"}\n'), out)
+        text = out.getvalue()
+        self.assertTrue(text.isascii())
+        answers = [json.loads(line) for line in text.splitlines()]
+        self.assertEqual(answers[0]["error"]["code"], -32600)
+        self.assertEqual((answers[1]["id"], answers[1]["result"]), (2, {}))
+        self.assertEqual(activity_mcp.reply({"jsonrpc": "2.0", "id": 1 << 80, "method": "ping"}, "log")["error"]["code"],
+                         -32600)
+
+    def test_unobserved_time_is_never_logged(self):
+        self.log.unobserved = activity_log.UNOBSERVED
+        t0 = at("2026-11-20T10:00:00")
+        self.log.observe({"agent:claude"}, now=t0)
+        self.log.observe({"agent:claude"}, now=t0 + dt.timedelta(seconds=2))
+        self.log.observe(set(), now=t0 + dt.timedelta(hours=8))          # window was hidden all that time
+        row = self.rows("2026-11-20")[0]
+        self.assertEqual(row["duration_ms"], 2000)
+        self.log.observe({"agent:pi"}, now=t0 + dt.timedelta(hours=9))
+        self.log.observe({"agent:pi"}, now=t0 + dt.timedelta(hours=9, seconds=2))
+        self.log.observe({"agent:pi"}, now=t0 + dt.timedelta(hours=12))  # still working after the gap
+        self.log.observe(set(), now=t0 + dt.timedelta(hours=12, seconds=4))
+        pi = sorted((r["duration_ms"] for r in self.rows("2026-11-20") if r["source"] == "pi"))
+        self.assertEqual(pi, [2000, 4000])
+
+    def test_hiding_ends_open_spans(self):
+        import reports_page
+        page = reports_page.ReportsPage()
+        page._activity_store = self.log
+        page.agent_pids = {}
+        page.reports_timer = page.reports_pulse = None
+        self.log.observe({"agent:claude"}, now=activity_log.now_utc() - dt.timedelta(seconds=30))
+        page.reports_hidden()
+        self.assertEqual(self.log.active, {})
+
+    def test_building_the_page_reads_nothing(self):
+        import reports_page
+
+        class Toggle:
+            def __init__(self, **kw):
+                self.active, self.handlers = False, []
+
+            def set_group(self, _g):
+                pass
+
+            def connect(self, _name, handler):
+                self.handlers.append(handler)
+
+            def get_active(self):
+                return self.active
+
+            def set_active(self, value):
+                changed, self.active = self.active != value, value
+                if changed:
+                    for handler in self.handlers:
+                        handler(self)
+
+            def add_css_class(self, _c):
+                pass
+        fake = mock.MagicMock()
+        fake.ToggleButton = Toggle
+        page = reports_page.ReportsPage()
+        page.page_header = mock.Mock()
+        page.scrolled = mock.Mock()
+        page.show_reports_tab = mock.Mock()
+        with mock.patch.object(reports_page, "Gtk", fake), mock.patch.object(reports_page.GLib, "timeout_add_seconds") as timer:
+            page.build_reports_page()
+        page.show_reports_tab.assert_not_called()
+        timer.assert_not_called()
+        self.assertTrue(page.reports_tab_buttons["log"].get_active())
+        page.reports_tab_buttons["library"].set_active(True)
+        page.show_reports_tab.assert_called_once_with("library")
 
 
 class SchemaTest(unittest.TestCase):
