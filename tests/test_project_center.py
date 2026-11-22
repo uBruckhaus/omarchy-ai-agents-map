@@ -1327,14 +1327,13 @@ class ReviewRoundThreeTest(CenterCase):
 
     def test_send_now_pauses_in_the_same_step_as_its_message(self):
         item = self.started([{"agent": "fixture", "role": "lead"}, {"agent": "fixture", "role": "implementer"}])
-        original, entered, go = self.center._pause, threading.Event(), threading.Event()
+        original, entered, go = self.center._stop_attempt, threading.Event(), threading.Event()
 
-        def slow_pause(params, lifecycle=True):
-            if not lifecycle:
-                entered.set()
-                go.wait(5)
-            return original(params, lifecycle)
-        self.center._pause = slow_pause
+        def slow_stop(project_id, active):
+            entered.set()
+            go.wait(5)
+            return original(project_id, active)
+        self.center._stop_attempt = slow_stop
         first = {}
         sender = threading.Thread(target=lambda: first.update(self.center.call(
             "message", {"id": item["id"], "run_id": item["run_id"], "text": "Now one.", "mode": "now",
@@ -1353,6 +1352,101 @@ class ReviewRoundThreeTest(CenterCase):
         wait_until(lambda: len(self.processes) == 3)
         self.processes[2].finish("Done.")
         self.idle()
+
+
+class ReviewRoundFourTest(CenterCase):
+    def test_control_closing_right_after_a_written_go_ahead_keeps_the_process(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lock = os.path.join(tmp, "run.lock")
+            open(lock, "w").close()
+            real_write = os.write
+            seen = {}
+
+            def authorize(managed):
+                seen["managed"] = managed
+
+                def write(fd, data):
+                    written = real_write(fd, data)
+                    if b'"launch"' in bytes(data):
+                        managed._input_open = False    # EOF (_lost) or a detach right after the write
+                    return written
+                seen["patch"] = mock.patch.object(ps.os, "write", side_effect=write)
+                seen["patch"].start()
+                return True
+            try:
+                process = ps.run([sys.executable, "-c", "import time; time.sleep(30)"], tmp, dict(os.environ),
+                                 None, lock, authorize)
+            finally:
+                if "patch" in seen:
+                    seen["patch"].stop()
+            self.assertIs(process, seen["managed"])        # not withdrawn: it may have launched
+            self.assertTrue(process._go_ahead_sent)
+            process.stop(wait=8)                            # control closed: the supervisor ends its tree
+            self.assertTrue(process._confirmed.value)
+
+    def test_a_runner_failing_after_a_written_go_ahead_keeps_the_claim(self):
+        item = self.approve(self.save(plan="The plan."))
+        stuck = StuckProcess()
+        stuck._go_ahead_sent = True
+
+        def runner(argv, cwd, env, input_text, lock, may_launch):
+            self.assertTrue(may_launch(stuck))
+            raise ProjectError("project_agent_unavailable")
+        self.center._runner = runner
+        self.center.call("run", {"id": item["id"], "revision": item["revision"]})
+        wait_until(lambda: self.get(item["id"])["status"] in ("pausing", "failed"), timeout=10)
+        self.assertEqual(self.get(item["id"])["status"], "pausing")
+        self.assertIn(item["id"], self.center._active)
+        stuck.release.set()
+        self.center.call("pause", {"id": item["id"]})
+
+    def test_send_now_continues_when_the_attempt_ends_before_its_stop(self):
+        item = self.started([{"agent": "fixture", "role": "lead"}, {"agent": "fixture", "role": "implementer"}])
+        begin = self.center._begin_pause
+
+        def begin_and_end(found, active):
+            begin(found, active)
+            self.processes[0].finish("Lead stopped.")       # the agent ends by itself right away
+        self.center._begin_pause = begin_and_end
+        original_pause = self.center._pause
+
+        def late_pause(params, lifecycle=True):             # the old path: looked the attempt up again
+            wait_until(lambda: item["id"] not in self.center._active, timeout=5)
+            return original_pause(params, lifecycle)
+        self.center._pause = late_pause
+        sent = self.center.call("message", {"id": item["id"], "run_id": item["run_id"], "text": "Now.",
+                                            "mode": "now", "acknowledge_interrupted": True})
+        self.assertTrue(sent["continued"], sent["reason"])
+        wait_until(lambda: len(self.processes) == 2)
+        self.processes[1].finish("Done.")
+        wait_until(lambda: len(self.processes) == 3)
+        self.processes[2].finish("Done.")
+        self.idle()
+
+    def test_a_slow_discovery_does_not_hold_up_pause(self):
+        item = self.started([{"agent": "fixture", "role": "lead"}])
+        gate, scanning = threading.Event(), threading.Event()
+        profiles = self.profiles
+
+        def slow():
+            scanning.set()
+            gate.wait(10)
+            return profiles
+        self.center.agent_profiles = slow
+        self.center.discovery_generation += 1               # the next list scans
+        lister = threading.Thread(target=lambda: self.center.call("list", {}))
+        lister.start()
+        scanning.wait(5)
+        result = {}
+        pauser = threading.Thread(target=lambda: result.update(self.center.call("pause", {"id": item["id"]})))
+        pauser.start()
+        pauser.join(5)
+        stopped = not pauser.is_alive()
+        gate.set()
+        lister.join(10)
+        pauser.join(10)
+        self.assertTrue(stopped, "Pause waited for the discovery")
+        self.assertEqual(result["project"]["status"], "paused")
 
 
 class SupervisorControlTest(unittest.TestCase):

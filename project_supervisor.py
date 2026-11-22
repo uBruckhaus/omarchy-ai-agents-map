@@ -469,7 +469,7 @@ class SupervisedProcess:
         self._close_requested = False
         self._stop_requested = False    # a stop was asked (before the go-ahead it withdraws the launch)
         self._launch_seen = False       # a frame that only comes after the agent's spawn arrived
-        self._go_ahead_sent = False     # the launch line may have reached the supervisor (any byte written)
+        self._go_ahead_sent = False     # every byte of the launch object was written: it may have launched
         # Loss is decided by the end of its output, never by its exit alone: the final "stopped"
         # line may still be buffered when the exit arrives.
         self._reader = threading.Thread(target=self._read_events, daemon=True)
@@ -508,13 +508,16 @@ class SupervisedProcess:
             raise ProjectError("project_launch_withdrawn")
         # A stop or detach that already reached this process (it was the attempt's from authorize
         # on) withdraws the launch: no go-ahead after it.
-        if managed._stop_requested or managed._close_requested \
-                or not managed._send({"launch": True}, 1.0, go_ahead=True):
-            requested = managed._stop_requested or managed._close_requested
-            managed._withdraw(10.0 - (time.monotonic() - began))
-            # Withdrawn by a stop or detach; a supervisor gone meanwhile: unavailable.
-            raise ProjectError("project_launch_withdrawn" if requested else "project_agent_unavailable")
-        return managed
+        managed._send({"launch": True}, 1.0, go_ahead=True)
+        if managed._go_ahead_sent:
+            # It may have launched: whatever happens next (its loss, a stop, a detach), this is the
+            # attempt's process and its confirmed stop decides; it is never withdrawn or killed here
+            # (after a detach, EOF makes the supervisor stop its own tree).
+            return managed
+        requested = managed._stop_requested or managed._close_requested
+        managed._withdraw(10.0 - (time.monotonic() - began))
+        # Never received: withdrawn by a stop or detach; a supervisor gone meanwhile: unavailable.
+        raise ProjectError("project_launch_withdrawn" if requested else "project_agent_unavailable")
 
     # --- events --------------------------------------------------------------------------------------
 
@@ -599,15 +602,18 @@ class SupervisedProcess:
         self._close_output()
 
     def _send(self, message: dict, timeout: float = 2.0, go_ahead: bool = False) -> bool:
-        """One control line, written whole within `timeout` (the pipe is non-blocking). A line that
-        cannot be written in time closes control: a half line must never be followed by another."""
-        data = memoryview((json.dumps(message, ensure_ascii=False) + "\n").encode("utf-8"))
+        """One control line, written whole within `timeout` (the pipe is non-blocking): True when the
+        whole line was written (also if control closed right after), False when it was not. A line
+        that cannot be written in time closes control: a half line is never followed by another.
+        go_ahead: the launch line; refused once a stop or close was asked, and _go_ahead_sent marks
+        it as possibly received once every byte of its JSON was written (the supervisor reads a line
+        without its newline at EOF too)."""
+        line = (json.dumps(message, ensure_ascii=False) + "\n").encode("utf-8")
+        data = memoryview(line)
         deadline = time.monotonic() + max(0.0, timeout)
         with self._send_lock:
-            if not self._input_open:
+            if not self._input_open or (go_ahead and (self._stop_requested or self._close_requested)):
                 return False
-            if go_ahead:
-                self._go_ahead_sent = True   # from here on it may have reached the supervisor
             try:
                 fd = self._proc.stdin.fileno()
                 while data:
@@ -625,13 +631,14 @@ class SupervisedProcess:
                         continue
             except (OSError, ValueError):
                 pass
+            if go_ahead and len(data) <= 1:
+                self._go_ahead_sent = True         # the whole object is with the supervisor
             if data or not self._input_open:
                 # A half line, or control closed meanwhile (_close_input waits for this lock and
                 # closes too): never another line after it.
                 self._input_open = False
                 self._close_stdin()
-                return False
-            return True
+            return not data
 
     def _close_stdin(self) -> None:
         try:
