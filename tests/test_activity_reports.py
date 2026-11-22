@@ -98,7 +98,7 @@ class TopicTest(unittest.TestCase):
     def test_urls_paths_and_bounds(self):
         self.assertNotIn("user:pw", activity_log.sanitize_topic("see https://user:pw@host.example/x") or "")
         clean = activity_log.sanitize_topic("open https://example.com/a?token=SECRET123&page=2 now")
-        self.assertIn("page=2", clean)
+        self.assertEqual(clean, "open https://example.com/a now")
         self.assertNotIn("SECRET123", clean)
         self.assertEqual(activity_log.sanitize_topic("fix /home/uwe/project/src/main.py now"), "fix main.py now")
         self.assertEqual(activity_log.sanitize_topic("look at ~/notes/todo.md"), "look at todo.md")
@@ -922,11 +922,11 @@ class RoundOneTest(TempCase):
         self.assertNotIn("/home/u", prompts[0])
         self.assertNotIn("private/", prompts[0])
         self.assertNotIn("secret/", prompts[0])
-        # An unquoted path conservatively consumes through the last slash on this line.
+        # Any path conservatively consumes through the last separator in the topic.
         self.assertIn('"topic": "fix d"', prompts[0])
         self.assertEqual(activity_log.sanitize_topic("see https://example.com/docs/x?q=1"),
-                         "see https://example.com/docs/x?q=1")
-        self.assertEqual(activity_log.sanitize_topic("ratio 2/3 and a/b"), "ratio 2/3 and a/b")
+                         "see https://example.com/x")
+        self.assertEqual(activity_log.sanitize_topic("ratio 2/3 and a/b"), "ratio b")
 
     def test_damaged_report_json(self):
         library = reports_ctl.ReportsLibrary(self.tmp / "reports")
@@ -1103,8 +1103,9 @@ class RoundTwoTest(TempCase):
                                           now=at("2026-11-20T12:00:00"))
         self.assertNotIn("/home/u", prompts[0])
         self.assertNotIn("%2Fhome", prompts[0])
-        self.assertIn("file=a.py", prompts[0])
-        self.assertIn("page=2", prompts[0])
+        self.assertIn('"topic": "see https://example.com"', prompts[0])
+        self.assertNotIn("file=", prompts[0])
+        self.assertNotIn("page=2", prompts[0])
 
     def test_older_addons_keep_the_session_facts(self):
         import dataclasses
@@ -1283,8 +1284,9 @@ class RoundThreeTest(TempCase):
                                           now=at("2026-11-20T23:00:00"))
         for leak in ("/home/u", "%2Fhome", "private"):
             self.assertNotIn(leak, prompts[0])
-        for name in ("a.py", "b.py=1", "c.py", "d.py", "/open/e.py"):
-            self.assertIn(name, prompts[0])
+        for topic in ("a https://example.com", "b https://example.com", "c https://example.com",
+                      "d https://example.com", "e https://example.com/e.py"):
+            self.assertIn('"topic": ' + json.dumps(topic), prompts[0])
 
     def conversation(self, root: Path) -> Path:
         root.mkdir(exist_ok=True)
@@ -1746,9 +1748,9 @@ class RoundEightTest(TempCase):
                                           now=at("2026-11-20T23:00:00"))
         for leak in ("alice", "Private", "Client", "project/", "Work Stuff", "notes", "Secret", "src/"):
             self.assertNotIn(leak, prompts[0])
-        for kept in ("login.py", "a.md", "b.py", "x.py", "please", "now"):
+        for kept in ("login.py", "a.md", "b.py", "https://e.com", "please", "now"):
             self.assertIn(kept, prompts[0])
-        self.assertEqual(activity_log.sanitize_topic("ratio 2/3 and a/b"), "ratio 2/3 and a/b")
+        self.assertEqual(activity_log.sanitize_topic("ratio 2/3 and a/b"), "ratio b")
 
     def test_two_hides_before_any_finalizer_keep_the_first_cutoff(self):
         t0 = at("2026-11-20T10:00:00")
@@ -1776,23 +1778,24 @@ class RoundNineTest(TempCase):
         reports_ctl.generate_topic_report(self.log, {"helper": "h"}, lambda p: prompts.append(p) or answer,
                                           now=at("2026-11-20T12:00:00"))
         self.assertEqual(len(prompts), 1)
-        for leak in ("alice", "Private", "Client", "Secret", "Confidential", "Bob's", "project/", "src/"):
+        for leak in ("alice", "Bob", "Secret", "Client", "Private", "Confidential", "Files", "Folder",
+                     "Users", "share", "project/", "src/"):
             self.assertNotIn(leak, unquote(prompts[0]))
         entries = json.loads(prompts[0].split("<untrusted-entries>\n", 1)[1].split("\n</untrusted-entries>", 1)[0])
         self.assertEqual(entries[0]["topic"], expected)
 
     def test_review_examples_never_reach_the_helper(self):
         cases = [
-            ('fix "/home/alice/Client\'s Private Project/src/login.py"', 'fix "login.py"'),
+            ('fix "/home/alice/Client\'s Private Project/src/login.py"', 'fix login.py"'),
             ("fix /home/alice/My Private Client/project/src/login.py now", "fix login.py now"),
             ("see https://e.com/?f=%2Fhome%2Falice%2FMy%20Private%20Client%2Fsrc%2Fx.py",
-             "see https://e.com/?f=x.py"),
+             "see https://e.com"),
             ("see https://e.com/open/%2Fhome%2Falice%2FMy%20Private%20Client%2Fsrc%2Fx.py",
-             "see https://e.com/open/x.py"),
-            ('fix "/home/alice/Bob\'s Secret/project/a.py"', 'fix "a.py"'),
+             "see https://e.com/x.py"),
+            ('fix "/home/alice/Bob\'s Secret/project/a.py"', 'fix a.py"'),
             ("fix /home/alice/Client (Confidential)/src/x.py", "fix x.py"),
             ("see https://e.com/?f=%2Fhome%2Falice%2FClient%20%28Secret%29%2Fsrc%2Fx.py",
-             "see https://e.com/?f=x.py"),
+             "see https://e.com"),
             ("diff /home/alice/a.py /home/alice/b.py", "diff b.py"),
             ("check /home/alice/a.py and/or /home/alice/b.py", "check b.py"),
             ("fix /home/alice/a.py 2/3", "fix 3"),
@@ -1807,15 +1810,15 @@ class RoundNineTest(TempCase):
                 with self.subTest(root=root, delimiter=delimiter):
                     path = root + "Private  Client (Confidential)/project/src/x.py"
                     self.assert_private_topic_prompt(f"fix {delimiter}{path}{delimiter} now",
-                                                     f"fix {delimiter}x.py{delimiter} now")
+                                                     f"fix x.py{delimiter} now")
         for topic, expected in [
-            ('fix "/home/alice/Bob\'s Secret/project/a.py" now 2/3', 'fix "a.py" now 2/3'),
-            ('''fix '/home/alice/Client "Secret"/src/x.py' now''', "fix 'x.py' now"),
-            ('''fix `/home/alice/Bob's "Secret"/src/x.py` now''', 'fix `x.py` now'),
+            ('fix "/home/alice/Bob\'s Secret/project/a.py" now 2/3', 'fix 3'),
+            ('''fix '/home/alice/Client "Secret"/src/x.py' now''', "fix x.py' now"),
+            ('''fix `/home/alice/Bob's "Secret"/src/x.py` now''', 'fix x.py` now'),
             ('fix "edit /home/alice/Bob\'s Secret/src/x.py" now', 'fix "edit x.py" now'),
-            ('fix "/home/alice/Bob\'s Secret/src/x.py', 'fix "x.py'),
-            ("fix /home/alice/Private/src/x.py\nkeep 2/3 and a/b", "fix x.py keep 2/3 and a/b"),
-            ("ratio 2/3 and a/b", "ratio 2/3 and a/b"),
+            ('fix "/home/alice/Bob\'s Secret/src/x.py', 'fix x.py'),
+            ("fix /home/alice/Private/src/x.py\nkeep 2/3 and a/b", "fix b"),
+            ("ratio 2/3 and a/b", "ratio b"),
         ]:
             with self.subTest(topic=topic):
                 self.assert_private_topic_prompt(topic, expected)
@@ -1826,11 +1829,84 @@ class RoundNineTest(TempCase):
                      "/home/alice/Bob's Secret/project/x.py", "~/alice/Confidential/src/x.py",
                      "file:///home/alice/Private/src/x.py", "x:/home/alice/Private/src/x.py"):
             encoded = quote(path, safe="")
-            for raw, expected in ((f"https://e.com/?{encoded}=1", "https://e.com/?x.py=1"),
-                                  (f"https://e.com/?f={encoded}", "https://e.com/?f=x.py"),
-                                  (f"https://e.com/open/{encoded}", "https://e.com/open/x.py")):
+            for raw, expected in ((f"https://e.com/?{encoded}=1", "https://e.com"),
+                                  (f"https://e.com/?f={encoded}", "https://e.com"),
+                                  # Directory whitespace stays inside the URL; nested URLs fail closed.
+                                  (f"https://e.com/open/{encoded}",
+                                   "…" if "://" in path else "https://e.com/x.py")):
                 with self.subTest(url=raw):
                     self.assert_private_topic_prompt("see " + raw, "see " + expected)
+
+    def test_independent_reviewer_probes_never_reach_the_helper(self):
+        # Every input from rev-final/p4.py and e2e4.py, plus the requested variants.
+        cases = [
+            ("'/home/u/Uwe's Files/Client/x.py'", "x.py'"),
+            ("Check 'it in /home/u/Uwe's Files/Client/x.py", "Check 'it in x.py"),
+            ('"see /home/u/Sec" ret/Private/x.py', '"see x.py'),
+            ("open /home/u/My\nSecret Folder/x.py", "open x.py"),
+            (r"open C:\Users\Uwe\Secret\x.py", "open x.py"),
+            ("open ~uwe/Secret/x.py", "open x.py"),
+            ("open $HOME/Secret/x.py", "open x.py"),
+            ("build -I/home/u/Secret/include now", "build include now"),
+            ("open ./Secret/x.py and ../Client/y.py", "open y.py"),
+            ("see https://ex.com/v?f=%252Fhome%252Fu%252FSecret%252Fx.py", "see https://ex.com/v"),
+            ("see https://ex.com/a/%252Fhome%252Fu%252FSecret%252Fx.py", "see https://ex.com/x.py"),
+            ("see https://ex.com/#/home/u/My Secret/x.py", "see https://ex.com"),
+            ("see https://ex.com/?%2Fhome%2Fu%2FSecret%2Fx=1", "see https://ex.com"),
+            ("file://host/home/u/Secret/x.py done", "x.py done"),
+            ("FILE:///home/u/My%20Secret/x.py", "x.py"),
+            ("file:///home%2Fu%2FSecret%2Fx.py", "x.py"),
+            ("vscode://file/home/u/Secret/x.py:10", "x.py:10"),
+            ("(/home/u/Secret (old)/x.py)", "x.py)"),
+            ("open\t/home/u/Secret\t\tdir/x.py", "open x.py"),
+            ("fix ／home／u／Secret／x.py", "fix x.py"),
+            ("%HOME%/Secret/x.py", "x.py"),
+            (r"\\server\share\Secret\x.py", "x.py"),
+            ("x" * 100 + " /home/u/Secret/" + "y" * 30, "… …"),
+            ("/review fix the login bug in src/auth.py", "/review fix the login bug in auth.py"),
+            ("Compare A / B and C / D carefully", "Compare A / B and C / D carefully"),
+            ("Summarize TCP/IP and read/write in /etc/hosts and then explain DNS",
+             "Summarize hosts and then explain DNS"),
+            ("it’s /home/u/Secret/x.py", "it’s x.py"),
+            ("`/home/u/Se`cret/x.py`", "x.py`"),
+            ("«/home/u/Secret»/x", "x"),
+            ("path=/home/u/Uwe’s Secret/x.py", "x.py"),
+            ("\u2028/home/u/Secret/x.py", "x.py"),
+            ('https://ex.com/?q="/home/u/Secret dir/x.py"', "https://ex.com"),
+            ("scp a me@host:/home/u/Secret/x .", "scp a x ."),
+            ("ssh://host/home/u/Secret/x", "x"),
+            ("fix '/home/alice/Bob's Files/Client/a.py'", "fix a.py'"),
+            ("build -I/home/alice/Secret/include", "build include"),
+            ("open ~alice/Secret/x.py", "open x.py"),
+            ("see /home/alice/My\nSecret Folder/x.py", "see x.py"),
+            ("fix x/home/alice/Secret/x.py", "fix x.py"),
+            ("open ./Secret/x.py", "open x.py"),
+            ("open ../Client/y.py", "open y.py"),
+            ("open /home/alice/Private\r\nConfidential Folder/x.py", "open x.py"),
+            ("fix https://ex.com/a/%25252Fhome%25252Falice%25252FSecret%25252Fx.py",
+             "fix https://ex.com/x.py"),
+            ("fix https://ex.com/a/%EF%BC%8Fhome%EF%BC%8Falice%EF%BC%8FSecret%EF%BC%8Fx.py",
+             "fix https://ex.com/x.py"),
+            ("please /review fix ./Secret/x.py /summarize", "please /review fix x.py /summarize"),
+            ("/review/path fix the bug", "path fix the bug"),
+            (r"fix ／home／alice／Private\Client/x.py", "fix x.py"),
+            ("see https://ex.com/home/alice/Secret/x.py?f=/Private/Client/y.py#Confidential/Files",
+             "see https://ex.com/x.py"),
+            ("see https://ex.com/home/alice/Secret/", "see https://ex.com"),
+            ("see https://ex.com alice Private /home/alice/Secret/x.py", "see https://ex.com"),
+            ("see https://ex.com/home/alice/Private Folder/x.py now", "see https://ex.com now"),
+            ("see https://ex.com/home/alice/Bob's%20Files%2FSecret%2Fx.py", "see https://ex.com/x.py"),
+            ('see https://ex.com/home/alice/"Private%2FFolder%2Fx.py', "see https://ex.com/x.py"),
+        ]
+        for topic, expected in cases:
+            with self.subTest(topic=topic):
+                self.assert_private_topic_prompt(topic, expected)
+
+    def test_redaction_and_cut_follow_path_removal(self):
+        self.assert_private_topic_prompt("fix /home/alice/Private/x.py " + "word " * 40,
+                                         ("fix x.py " + "word " * 40)[:120])
+        self.assert_private_topic_prompt("fix /home/alice/Private/x.py " + "word " * 20
+                                         + "sk-abcdefghijklmnopqrstuvwxyz", "fix x.py " + "word " * 20 + "…")
 
 
 class SchemaTest(unittest.TestCase):
@@ -1842,6 +1918,526 @@ class SchemaTest(unittest.TestCase):
         self.assertIs(settings_schema.value({}, "ai_activity_import"), True)
         self.assertIs(settings_schema.value({}, "ai_activity_log_online"), False)
         self.assertEqual(settings_schema.value({"ai_activity_log_days": True}, "ai_activity_log_days"), 7)
+
+
+class EncodedSeparatorTest(unittest.TestCase):
+    """Encoded separators outside URLs are cut like plain ones."""
+
+    def test_encoded_paths_outside_urls_do_not_leak(self):
+        import activity_log
+        for text in ("?f=%252Fhome%252Fu%252FSecret%252Fx.py", "open %2Fhome%2Falice%2FSecret%2Fx.py",
+                     "C:%5CUsers%5CUwe%5CSecret%5Cx.py"):
+            out = activity_log.sanitize_topic(text)
+            for word in ("home", "alice", "Secret", "Users", "Uwe"):
+                self.assertNotIn(word, out or "", (text, out))
+            self.assertIn("x.py", out)
+
+    def test_a_later_path_after_a_url_never_names_the_url(self):
+        import activity_log
+        for text in ("see https://ex.com/a then open /home/u/AcmeCorp#Internal/x.py",
+                     "see https://ex.com/a then open /home/u/Acme?Internal/x.py",
+                     "see https://github.com/foo/bar and fix the bug in src/app.py"):
+            out = activity_log.sanitize_topic(text)
+            for word in ("Acme", "Internal", "foo", "bar"):
+                self.assertNotIn(word, out, (text, out))
+            self.assertNotIn("github.com/app.py", out)
+        self.assertEqual(activity_log.sanitize_topic("read https://ex.com/docs/guide.html"),
+                         "read https://ex.com/guide.html")
+
+
+class RoundElevenTest(TempCase):
+    """Raw day-file topics must be safe both on read and in the generated helper prompt."""
+
+    def assert_topic_prompt(self, topic, expected):
+        row = {"version": 1, "origin": "history", "session": "s", "source_kind": "agent", "source": "claude",
+               "topic": topic, "started_at": "2026-11-20T10:00:00Z", "ended_at": "2026-11-20T10:10:00Z",
+               "duration_ms": 0}
+        self.log.directory.mkdir(parents=True, exist_ok=True)
+        (self.log.directory / "2026-11-20.jsonl").write_text(jl(row))
+        prompts = []
+        answer = json.dumps({"title": "t", "text": "x", "topics": []})
+        reports_ctl.generate_topic_report(self.log, {"helper": "h"}, lambda p: prompts.append(p) or answer,
+                                          now=at("2026-11-20T12:00:00"))
+        self.assertEqual(len(prompts), 1)
+        entries = json.loads(prompts[0].split("<untrusted-entries>\n", 1)[1].split("\n</untrusted-entries>", 1)[0])
+        self.assertEqual([entry["topic"] for entry in entries], [expected])
+        self.assertEqual(activity_log.sanitize_topic(topic), expected)
+        self.assertEqual(list(activity_log.clean_rows(jl(row)))[0]["topic"], expected)
+
+    def test_encoded_whitespace_review_examples(self):
+        cases = [
+            ("see https://user:top%20secret@localhost", None),   # credentials: the whole topic goes
+            ("see https://user:my%20secret%20pass@ex.com", None),
+            ("see https://ex.com/doc?token=my%20super%20secret%20value", "see https://ex.com/doc"),
+            ("check https://jira.corp.internal/issues/?jql=project%20=%20SecretClient",
+             "check https://jira.corp.internal"),
+            ("see https://ex.com/a#private%20client%20name", "see https://ex.com/a"),
+            ("see https://ex.com/doc?q=foo%0Asecret%20data", "see https://ex.com/doc"),
+            ("see myapp://open?token=my%20secret%20token", "see …"),
+        ]
+        for topic, expected in cases:
+            with self.subTest(topic=topic):
+                self.assert_topic_prompt(topic, expected)
+
+    def test_wrapped_and_non_http_review_examples(self):
+        cases = [
+            ("see [docs](https://ex.com/a/b?client=AcmeCorp&sig=abc123#private)", "see https://ex.com/b"),
+            ("see (https://ex.com/doc?q=ConfidentialClientInfo#private-section)", "see https://ex.com/doc"),
+            ('see "https://ex.com/Private/Secret/x.py?client=AcmeCorp&note=Confidential"',
+             "see https://ex.com/x.py"),
+            ("see <https://ex.com/a?client=AcmeCorp&sig=abc123>", "see https://ex.com/a"),
+            ("fix ./a.py and https://ex.com/y?auth=supersecret&client=AcmeCorp", "fix https://ex.com/y"),
+            ("see file:///home/alice/a.py?auth=supersecret&client=AcmeCorp", "see a.py"),
+            ("see vscode://file/home/alice/a.py?client=AcmeCorp&sig=123", "see a.py"),
+        ]
+        for topic, expected in cases:
+            with self.subTest(topic=topic):
+                self.assert_topic_prompt(topic, expected)
+
+    def test_redaction_keeps_path_boundaries_review_examples(self):
+        cases = [
+            ("fix /home/alice/Documents/Projects/My Secret Private Client/src/x.py", "fix x.py"),
+            ('fix "/home/alice/Documents/Projects/My Private Client/src/x.py"', 'fix x.py"'),
+            ("fix key=/home/alice/My Private Client/src/x.py", "fix x.py"),
+            ("fix Bearer /home/alice/My Private Client/src/x.py", "fix …"),
+            ("fix file:///home/alice@corp/My Private Client/src/x.py", None),
+            ("see https://user@ex.com/My Private Client/src/x.py", None),
+            ("open /home/alice@corp.com My Private Client/src/x.py", "open x.py"),
+        ]
+        for topic, expected in cases:
+            with self.subTest(topic=topic):
+                self.assert_topic_prompt(topic, expected)
+
+    def test_url_whitespace_never_creates_outer_tokens(self):
+        for space in ("%20", "%09", "%0A", "%C2%A0", "%2520"):
+            for scheme in ("https", "myapp", "file", "vscode"):
+                base = f"{scheme}://ex.com"
+                expected = "see https://ex.com/x.py" if scheme == "https" else "see x.py"
+                for suffix in (f"?token=my{space}super{space}secret", f"?client=private{space}client",
+                               f"#private{space}client", f"?q=foo{space}secret{space}data"):
+                    with self.subTest(scheme=scheme, space=space, suffix=suffix):
+                        self.assert_topic_prompt(f"see {base}/dir/x.py{suffix}", expected)
+                with self.subTest(scheme=scheme, space=space, component="directory"):
+                    self.assert_topic_prompt(f"see {base}/Private{space}Client/x.py", expected)
+                with self.subTest(scheme=scheme, space=space, component="name"):
+                    self.assert_topic_prompt(f"see {base}/Private/client{space}name",
+                                             "see https://ex.com" if scheme == "https" else "see …")
+                for userinfo in (f"user:top{space}secret@", f"user:top{space}secret%40",
+                                 f"user%3Atop{space}secret%2540"):
+                    with self.subTest(scheme=scheme, space=space, userinfo=userinfo):
+                        self.assert_topic_prompt(f"see {scheme}://{userinfo}ex.com/dir/x.py", None)
+
+    def test_url_prefixes_and_clean_names(self):
+        for prefix, suffix in (("url=", ""), ("'", "'"), ("`", "`"), ("(", ")"), ("[docs](", ")"),
+                               ("<", ">"), ('"', '"')):
+            with self.subTest(prefix=prefix):
+                self.assert_topic_prompt(f"read {prefix}https://ex.com/docs/x.py?auth=private%20client#secret{suffix}",
+                                         "read https://ex.com/x.py")
+        for separator in ("%2F", "%5C", "%252F", "%EF%BC%8F"):
+            with self.subTest(separator=separator):
+                self.assert_topic_prompt(f"read https://ex.com/Private{separator}Client{separator}x.py",
+                                         "read https://ex.com/x.py")
+        self.assert_topic_prompt("see ssh://host?auth=private%20client", "see …")
+        self.assert_topic_prompt("see https://ex.com?sig=private%20client", "see https://ex.com")
+        self.assert_topic_prompt("set auth=private sig=confidential", "set … …")
+
+    def test_strict_separators_and_encoded_paths_still_apply(self):
+        cases = [
+            ("see https://ex.com/a then open /home/u/AcmeCorp#Internal/x.py", "see https://ex.com"),
+            ("see https://ex.com/a then open /home/u/Acme?Internal/x.py", "see https://ex.com"),
+            ("see https://github.com/foo/bar and fix the bug in src/app.py", "see https://github.com"),
+            ("fix /home/alice/My Private Client/src/x.py now", "fix x.py now"),
+            ("open %2Fhome%2Falice%2FPrivate%2Fx.py", "open x.py"),
+            ("open %252Fhome%252Falice%252FPrivate%252Fx.py", "open x.py"),
+            ("open C:%5CUsers%5Calice%5CPrivate%5Cx.py", "open x.py"),
+            ("Compare A %2F B and C %252F D carefully", "Compare A / B and C / D carefully"),
+            ("please %2Freview fix ./Private/x.py %252Fsummarize", "please /review fix x.py /summarize"),
+        ]
+        for topic, expected in cases:
+            with self.subTest(topic=topic):
+                self.assert_topic_prompt(topic, expected)
+
+    def test_secrets_crossing_the_final_separator_remain_redacted(self):
+        cases = [
+            ("use sk-abcdefghijklmnop/qrstuvw now", "use … now"),
+            ("set token=abc/xyz now", "set … now"),
+            ("use ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ/abcdef now", "use … now"),
+            ("key=top/secret more", "… more"),
+            ("use -----BEGIN PRIVATE KEY-----abc/xyz-----END PRIVATE KEY----- now", "use … now"),
+        ]
+        for topic, expected in cases:
+            with self.subTest(topic=topic):
+                self.assert_topic_prompt(topic, expected)
+
+
+class SecretBeforePathTest(unittest.TestCase):
+    """A quoted or URL secret assignment is redacted whole, before paths are cut (agy round 12)."""
+
+    def test_secret_assignments_around_paths_never_leak(self):
+        import activity_log
+        for text in ('secret="my super secret https://ex.com/a"',
+                     'password="top secret value file:///home/u/a.py"',
+                     "token='alpha beta https://ex.com/x' done",
+                     'see key="https://ex.com/a my super secret value"',
+                     'see secret="file:///home/u/a.py my super secret value"',
+                     "see token=https://ex.com/MySecretValue",
+                     "see api_key=file:///home/u/MySecretValue",
+                     'secret="my super secret /home/alice/Secret/x.py" and /tmp/y.py',
+                     'see "key":"my super secret /home/u/x.py" and /tmp/y.py'):
+            out = activity_log.sanitize_topic(text) or ""
+            for word in ("super", "alpha", "beta", "MySecretValue", "top", "alice", "Secret/"):
+                self.assertNotIn(word, out, (text, out))
+
+
+class MalformedCredentialUrlTest(unittest.TestCase):
+    """Malformed URLs with credentials fail closed; Authorization values are redacted (review r13)."""
+
+    def test_malformed_credential_urls_never_leak(self):
+        import activity_log
+        for text in ("see https://alice:mysecret<1>@ex.com/a", "see https://alice:mysecret>1@ex.com/a",
+                     "see https://alice:1234<secret>@ex.com/a", "see https://mysecrettoken<1>@ex.com/a",
+                     "see https://a:b<c>@h/x", "see https://user:mysecretpassword @ex.com/a",
+                     "see https://user:mysecretpassword/a/b", "see https://user:pw/a"):
+            out = activity_log.sanitize_topic(text) or ""
+            for word in ("mysecret", "1234", "secret", "mysecrettoken", "mysecretpassword", "pw", "a:b"):
+                self.assertNotIn(word, out, (text, out))
+
+    def test_authorization_values_are_redacted(self):
+        import activity_log
+        for text in ("Authorization=VAL1", 'Authorization="VAL1 VAL2 VAL3"'):
+            out = activity_log.sanitize_topic(text) or ""
+            self.assertNotIn("VAL", out, (text, out))
+        self.assertEqual(activity_log.sanitize_topic("read https://ex.com/docs/guide.html"),
+                         "read https://ex.com/guide.html")
+
+
+class RoundFourteenTest(unittest.TestCase):
+    """URL secrets taken whole, credential URL tokens fail closed, Authorization schemes (agy r14)."""
+
+    def test_review_examples_never_leak(self):
+        import activity_log
+        cases = ("see token=https://ex.com/a?x=1;client=AcmeCorp",
+                 "see token=https://ex.com/a?ids=1,2,ConfidentialClientInfo",
+                 "see token=https://ex.com/a#section,PrivateClientName",
+                 "see authorization=https://ex.com/a?x=1,PrivateClient",
+                 "see https://ex.com/secretdir/file.py;token=https://other.com/y?a=1,PrivateTail",
+                 'see https://mysecrettoken&key="x@ex.com/a"',
+                 "see https://mysecrettoken;token=https://foo.com@ex.com/a",
+                 "see https://mysecrettoken,authorization=https://foo.com@ex.com/a",
+                 "see Authorization: Token mySecretValue123", "see Authorization: ApiKey mySecretValue123",
+                 "see Authorization: Bot mySecretValue123", "see Authorization: OAuth mySecretValue123",
+                 "see 1.https://alice:mysecret@localhost", "see https://mycred: @ex.com/a",
+                 "see https://mysecrettoken%2540ex.com/a")
+        for text in cases:
+            out = activity_log.sanitize_topic(text) or ""
+            for word in ("AcmeCorp", "Confidential", "PrivateClient", "PrivateTail", "mysecret", "mySecretValue",
+                         "alice", "mycred", "secretdir"):
+                self.assertNotIn(word, out, (text, out))
+        self.assertEqual(activity_log.sanitize_topic("open https://ex.com:8080/a/b"), "open https://ex.com:8080/b")
+
+
+class AuthorizationLineTest(unittest.TestCase):
+    """An Authorization header takes the rest of its line (agy r15)."""
+
+    def test_authorization_headers_never_leak(self):
+        import activity_log
+        cases = ("see Authorization: mysecret /home/alice/My Private Client/file.py",
+                 "see Authorization: mysecret C:\\Users\\alice\\My Secret Client\\file.py",
+                 "see Authorization: Token /home/alice/My Secret Client/file.py",
+                 "see Authorization: Token https://ex.com/a?x=1,PrivateClient;org=AcmeCorp",
+                 'see Authorization: Token "mySecret Value"', "see X-Authorization: mySecret Value",
+                 "see Proxy-Authorization: Basic abc", "see authorization=Digest username=bob, response=abc")
+        for text in cases:
+            out = activity_log.sanitize_topic(text) or ""
+            for word in ("mysecret", "mySecret", "Value", "alice", "Private", "Secret", "Client", "AcmeCorp",
+                         "abc", "bob"):
+                self.assertNotIn(word, out, (text, out))
+            self.assertTrue(out.startswith("see"), out)
+
+
+class RoundFifteenTest(unittest.TestCase):
+    """Decoded @ in credential tokens, glued URLs, strict host labels (agy r15)."""
+
+    def test_review_examples_never_leak(self):
+        import activity_log
+        cases = ("see 1.https://alice:mysecret%25%34%30localhost", "see 1.https://alice:mysecret%EF%BC%A0localhost",
+                 "see https://mysecrettoken-----BEGIN KEY-----x%25%34%30ex.com/a-----END KEY-----",
+                 "see https://mysecrettoken-----BEGIN KEY-----x%EF%BC%A0ex.com/a-----END KEY-----",
+                 "see 1.https://alice:mysecret", "see 1.https://ex.com/secretdir/file.py?client=AcmeCorp")
+        for text in cases:
+            out = activity_log.sanitize_topic(text) or ""
+            for word in ("alice", "mysecret", "secretdir", "AcmeCorp", "client="):
+                self.assertNotIn(word, out, (text, out))
+
+
+class RoundSixteenTest(unittest.TestCase):
+    """Authorization values on the next line, multi-line quotes and dotted keys (agy r16)."""
+
+    def test_review_examples_never_leak(self):
+        import activity_log
+        for text in ("see Authorization:\nmySecretValue123", "see Authorization:\n  Token mySecretValue123",
+                     'see "authorization":\n  "mySecret Value"', 'see Authorization: "line1\nmySecretLine2"',
+                     "see req.headers.authorization: Token mySecret123", "see http.authorization: Token mySecret123"):
+            out = activity_log.sanitize_topic(text) or ""
+            self.assertNotIn("mySecret", out, (text, out))
+            self.assertNotIn("Value", out, (text, out))
+
+
+class RoundSeventeenTest(unittest.TestCase):
+    """CLI flags and digit-prefixed secret keys (agy r17)."""
+
+    def test_flags_and_digit_keys_never_leak(self):
+        import activity_log
+        for text in ("cli --password=mySecretValue123", "cli --api-key=mySecretValue123",
+                     'cli --token="mySecret Value"', "cli -auth=mySecretValue123",
+                     "1password=mySecretValue123", "2fa_token=mySecretValue123"):
+            out = activity_log.sanitize_topic(text) or ""
+            self.assertNotIn("mySecret", out, (text, out))
+            self.assertNotIn("Value", out, (text, out))
+
+
+class RoundEighteenTest(unittest.TestCase):
+    """Chained URLs, escaped secret quotes and folded Authorization values (agy r18)."""
+
+    def assert_topic_prompt(self, topic, expected):
+        row = {"version": 1, "origin": "history", "session": "s", "source_kind": "agent", "source": "claude",
+               "topic": topic, "started_at": "2026-11-20T10:00:00Z", "ended_at": "2026-11-20T10:10:00Z",
+               "duration_ms": 0}
+        self.assertEqual(activity_log.sanitize_topic(topic), expected)
+        self.assertEqual(list(activity_log.clean_rows(jl(row)))[0]["topic"], expected)
+        log = activity_log.ActivityLog(setting=settings())
+        # Only the filesystem reader is replaced: row validation and prompt generation run normally.
+        with mock.patch.object(log, "retained_rows", side_effect=lambda *_: (
+                (dt.date(2026, 11, 20), clean) for clean in activity_log.clean_rows(jl(row)))):
+            prompts = []
+            answer = json.dumps({"title": "t", "text": "x", "topics": []})
+            reports_ctl.generate_topic_report(log, {"helper": "h"}, lambda p: prompts.append(p) or answer,
+                                              now=at("2026-11-20T12:00:00"))
+        self.assertEqual(len(prompts), 1)
+        entries = json.loads(prompts[0].split("<untrusted-entries>\n", 1)[1].split("\n</untrusted-entries>", 1)[0])
+        self.assertEqual([entry["topic"] for entry in entries], [expected])
+
+    def test_chained_url_review_examples_fail_closed(self):
+        for topic in ("see https://ex.com/a,https://alice:mysecret",
+                      "see https://ex.com/a;https://alice:mysecret",
+                      "see (https://ex.com/a/b),https://alice:mysecret",
+                      "see https://ex.com/a/https://alice:mysecret",
+                      "see https://ex.com/a,https%3A%2F%2Falice:mysecret"):
+            with self.subTest(topic=topic):
+                self.assert_topic_prompt(topic, "see …")
+        for separator in (",", ";", "/"):
+            for scheme in ("https://", "https%3A%2F%2F", "https%253A%252F%252F"):
+                with self.subTest(separator=separator, scheme=scheme):
+                    self.assert_topic_prompt(f"see https://ex.com/a{separator}{scheme}alice:mysecret", "see …")
+        self.assert_topic_prompt("read https://ex.com/docs/guide.html", "read https://ex.com/guide.html")
+
+    def test_escaped_quote_review_examples_never_leak(self):
+        for topic, expected in (
+                (r'{"token": "a\"mySecretValue123"}', '{"…}'),
+                (r'{"password": "foo\"mySecretValue123"}', '{"…}'),
+                (r'api_key="abc\"mySecretValue123"', "…"),
+                (r"token='it\'sMySecretValue123'", "…"),
+                ('Authorization: "a\\"\nmySecretValue123"', "…"),
+                (r'Authorization: "a\"\nmySecretValue123"', "…")):
+            with self.subTest(topic=topic):
+                self.assert_topic_prompt(topic, expected)
+        self.assert_topic_prompt(r'{"token": "abc\\"} keep this', '{"…} keep this')
+        self.assert_topic_prompt(r"token='abc\\' keep this", "… keep this")
+
+    def test_each_assignment_pattern_consumes_escaped_quotes(self):
+        # Both stages must handle escapes, even when the earlier whole-secret pass masks a defect.
+        for pattern in (activity_log._SECRETS[3], activity_log._WHOLE_SECRETS[3]):
+            for value in (r'"a\"mySecretValue123"', r"'it\'sMySecretValue123'",
+                          '"a\\\nmySecretValue123"'):
+                with self.subTest(pattern=pattern.pattern, value=value):
+                    self.assertEqual(pattern.sub("…", "token=" + value + " keep this"), "… keep this")
+            self.assertEqual(pattern.sub("…", r'token="abc\\" keep this'), "… keep this")
+
+    def test_multiline_authorization_review_examples_never_leak(self):
+        for topic, expected in (
+                ("see Authorization: Bearer\nmySecretValue123", "see …"),
+                ("see Authorization: Basic\ndXNlcjpwYXNz", "see …"),
+                ("see Authorization: Token\nmySecretValue123", "see …"),
+                ("Authorization:\n  Bearer\n  mySecretValue123", "…")):
+            with self.subTest(topic=topic):
+                self.assert_topic_prompt(topic, expected)
+        for scheme in ("Bearer", "Basic", "Token", "ApiKey", "OAuth", "Bot", "Digest", "Custom"):
+            for value in ("mySecretValue123", r'"a\"mySecretValue123"', '"a\\"\nmySecretValue123"'):
+                topic = f"see Authorization: {scheme}\n  {value}\nkeep this"
+                with self.subTest(scheme=scheme, value=value):
+                    self.assert_topic_prompt(topic, "see … keep this")
+        self.assert_topic_prompt("Authorization: mySecretValue123\nkeep this", "… keep this")
+
+    def test_leading_dot_secret_keys_never_leak(self):
+        for key in (".token", ".password", ".api_key"):
+            with self.subTest(key=key):
+                self.assert_topic_prompt(f"set {key}=mySecretValue123", "set …")
+                self.assert_topic_prompt(f'set {key}="mySecret Value"', "set …")
+
+    def test_encoded_fullwidth_paths_outside_urls_are_shortened(self):
+        for separator in ("%EF%BC%8F", "%ef%bc%8f", "%25EF%25BC%258F"):
+            with self.subTest(separator=separator):
+                self.assert_topic_prompt(f"open {separator}home{separator}alice{separator}Private{separator}x.py",
+                                         "open x.py")
+
+    def test_pause_preserves_gap_detection_for_surviving_spans(self):
+        for delay in (0, 1):  # a span starting at or after the pause cutoff survives its finalizer
+            with self.subTest(delay=delay), tempfile.TemporaryDirectory() as directory:
+                log = activity_log.ActivityLog(Path(directory) / "log", setting=settings())
+                t0 = at("2026-11-20T10:00:00")
+                start = t0 + dt.timedelta(seconds=delay)
+                log.observe({"agent:claude"}, now=start)
+                log.observe({"agent:claude"}, now=start + dt.timedelta(seconds=2))
+                log.pause(t0)
+                log.resume()
+                with mock.patch.object(activity_log, "private_dir", side_effect=PermissionError):
+                    log.observe(set(), now=t0 + dt.timedelta(hours=3))
+                self.assertEqual([row["duration_ms"] for row in log.pending], [2000])
+                self.assertEqual(log.active, {})
+
+
+class LinearTimeTest(unittest.TestCase):
+    """Long tokens without spaces are cleaned in linear time (agy r19: no catastrophic backtracking)."""
+
+    def test_long_tokens_stay_fast(self):
+        import time
+        import activity_log
+        for text in ("a" * 100_000, "-" * 250_000, "key" * 30_000, "x@" * 30_000, "https://x" + "a" * 100_000,
+                     "a-a-a-" * 40_000, "%40" * 80_000, "a:" * 100_000, "a" * 200_000 + ":",
+                     "a:b@c " * 40_000, "a:" * 120_000 + "%", "a:" * 120_000 + "@"):
+            started = time.monotonic()
+            activity_log.sanitize_topic(text)
+            self.assertLess(time.monotonic() - started, 3.0, text[:12])
+
+
+class LongKeyNameTest(unittest.TestCase):
+    """Secret keys of any length are found (agy r20)."""
+
+    def test_long_dotted_and_env_keys(self):
+        import activity_log
+        for text in ("spring.security.oauth2.client.registration.google.provider.custom_secret=mySecret123",
+                     "a" * 65 + '_token="mySecret123"', "a" * 65 + "_authorization: Custom mySecret123",
+                     "a" * 65 + "_password=https://example.com/secret", "cli --password=mySecret123",
+                     ".token=mySecret123"):
+            out = activity_log.sanitize_topic(text) or ""
+            self.assertNotIn("mySecret", out, (text, out))
+            self.assertNotIn("example.com/secret", out, (text, out))
+
+
+class RoundTwentyOneTest(unittest.TestCase):
+    """user:password@host without a valid scheme, single-word Authorization lines, chained URLs."""
+
+    def test_review_examples_never_leak(self):
+        import activity_log
+        for text in ("see https%253A%252F%252Falice:mysecret@localhost", "see https%253A%252F%252Falice:mysecret%40localhost",
+                     "see https%253A%252F%252Falice:mysecret@127.0.0.1:5432", "see https%253A//alice:mysecret@localhost",
+                     "see alice:mysecret@localhost", "see Authorization: Custom\r\n  mySecretValue123",
+                     "see Proxy-Authorization: Custom\n  mySecretValue123", "see wss://ex.com,https://alice:mysecret",
+                     "see ftp://ex.com,https://alice:mysecret", "see https://ex.com:443,https://alice:mysecret"):
+            out = activity_log.sanitize_topic(text) or ""
+            self.assertNotIn("mysecret", out.lower(), (text, out))
+            self.assertNotIn("alice", out, (text, out))
+        self.assertEqual(activity_log.sanitize_topic("mail me at bob@example.com later"), "mail me at … later")
+        self.assertEqual(activity_log.sanitize_topic("open https://ex.com:8080/a/b"), "open https://ex.com:8080/b")
+
+
+class RoundTwentyTwoTest(unittest.TestCase):
+    """Schemeless credentials of any length or encoding; chained URLs behind an encoded ? or #."""
+
+    def test_review_examples_never_leak(self):
+        import activity_log
+        for text in ("connect alice:my%20secret%40localhost", "connect alice:my%09secret%40localhost",
+                     "connect alice:my%0Asecret%40localhost", "connect alice%253Amy%20secret@localhost",
+                     "connect alice:my-secret-pass-" + "a-b-" * 260 + "@localhost",
+                     "see alice:mysecret%25252540localhost", "see ftp://ex.com%3Ffoo,https://alice:mysecret",
+                     "see wss://ex.com%23foo,https://alice:mysecret", "see ftp://ex.com%3Ffoo,https%3A//alice:mysecret"):
+            out = activity_log.sanitize_topic(text) or ""
+            self.assertNotIn("secret", out, (text, out))
+            self.assertNotIn("alice", out, (text, out))
+        self.assertEqual(activity_log.sanitize_topic("mail bob@example.com"), "mail …")
+        self.assertEqual(activity_log.sanitize_topic("clone user@host:path/x.py"), "clone x.py")
+
+
+class RoundTwentyThreeTest(unittest.TestCase):
+    """A topic with credentials is dropped whole; empty-user and cut-off userinfo; deep-encoded chains."""
+
+    def test_review_examples_never_leak(self):
+        import activity_log
+        for text in ("open /home/uwe/My Secret Folder/alice:pass@host",
+                     "open /home/uwe/My Secret Folder/https://alice:pass@ex.com/a/b",
+                     "open /home/uwe/Private Client/a\\alice:pass@host",
+                     "see /home/uwe/My Secret/a:b@ex.com and /home/uwe/Other Secret/c:d@ey.com",
+                     "connect :my-secret-token@localhost", "connect :my-secret-token@127.0.0.1:6379",
+                     "connect /:my-secret-token@localhost", "connect :my-secret-token%40localhost",
+                     "connect alice:my-secret-token@", "connect alice:my-secret-token%40",
+                     "see ftp://ex.com/a,https%252525253A//alice:mysecret",
+                     "see https://ex.com/a,https%252525253A//alice:mysecret",
+                     "see ftp://ex.com%252525253A//alice:mysecret"):
+            out = activity_log.sanitize_topic(text) or ""
+            for word in ("Secret", "Private", "Other", "secret", "alice", "pass"):
+                self.assertNotIn(word, out, (text, out))
+        self.assertEqual(activity_log.sanitize_topic("mail bob@example.com"), "mail …")
+        self.assertEqual(activity_log.sanitize_topic("note: @alice later"), "note: @alice later")
+
+
+class RoundTwentyFourTest(unittest.TestCase):
+    """Ordinary prompts are not taken for credentials; a dropped topic is None (heuristic used)."""
+
+    def test_digests_times_and_scopes_are_kept(self):
+        import activity_log
+        for text in ("run docker image foo:latest@sha256:" + "ab12" * 16 + " and test", "meeting at 10:30@office then fix login",
+                     "ratio 3:1@scale in the chart", "fix c++ std::vector@ issue", "refactor Foo::bar@deprecated"):
+            self.assertIsNotNone(activity_log.sanitize_topic(text), text)
+
+    def test_credentials_still_drop_the_topic(self):
+        import activity_log
+        for text in ("connect alice:pw@db", "connect :token@localhost", "see https://u:p@h/x"):
+            self.assertIsNone(activity_log.sanitize_topic(text), text)
+
+
+class RoundTwentyFiveTest(unittest.TestCase):
+    """Narrow exemptions only; names from URLs never carry ":" (agy r24)."""
+
+    def test_review_examples_never_leak(self):
+        import activity_log
+        for text in ("see ftp://ex.com/a,https%252525253A/%5Calice:mysecret",
+                     "see https://ex.com/a,https%252525253A/%5Calice:mysecret",
+                     "see ftp://ex.com/a,https%252525253A\\alice:mysecret",
+                     "see ftp://ex.com/a,https:%252525255C/alice:mysecret",
+                     "connect alice:mysecret@host@sha256:abc123", "connect alice:mysecret@localhost,img:1@sha256:deadbeef",
+                     "connect alice:mysecret@sha256:not-a-digest", "connect alice::mysecret@127.0.0.1:5432",
+                     "connect alice:::mysecret@localhost", "connect ::mysecret@localhost",
+                     "connect 123456:987654321@localhost", "connect 12:34@127.0.0.1:6379"):
+            out = activity_log.sanitize_topic(text) or ""
+            self.assertNotIn("secret", out, (text, out))
+            self.assertNotIn("987654321", out, (text, out))
+            self.assertNotIn("12:34", out, (text, out))
+        for text in ("run docker image foo:latest@sha256:" + "ab12" * 16 + " and test", "meeting at 10:30@office",
+                     "fix c++ std::vector@ issue"):
+            self.assertIsNotNone(activity_log.sanitize_topic(text), text)
+
+
+class ShortDigestTest(unittest.TestCase):
+    def test_short_fake_digest_is_a_credential(self):
+        import activity_log
+        for text in ("see root:hunter2@sha256:abc", "see u:pw@sha256:deadbeef"):
+            self.assertIsNone(activity_log.sanitize_topic(text), text)
+
+
+class RoundTwentySixTest(unittest.TestCase):
+    """Chained URLs through any separator encoding; numeric passwords are no line numbers (agy r25)."""
+
+    def test_review_examples_never_leak(self):
+        import activity_log
+        for text in ("see ftp://ex.com/a,https%252525253A/%5Calice:123456",
+                     "see https://ex.com/a,https%252525253A/%5Calice:123456",
+                     "see ftp://ex.com/a,https%252525253A\\alice:123456", "see ftp://ex.com/a,https:%252525255C/alice:123456",
+                     "see ftp://ex.com/a,https%252525253A/%5C:123456", "see ftp://ex.com/a,https%252525253A/%5Calice:1234:5678",
+                     "see https://ex.com/a/alice:123456"):
+            out = activity_log.sanitize_topic(text) or ""
+            self.assertNotIn("123456", out, (text, out))
+            self.assertNotIn("1234:5678", out, (text, out))
+        self.assertEqual(activity_log.sanitize_topic("open vscode://file/home/u/x.py:10:4"), "open x.py:10:4")
 
 
 if __name__ == "__main__":
