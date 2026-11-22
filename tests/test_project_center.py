@@ -1579,6 +1579,127 @@ class ReviewRoundFiveTest(CenterCase):
         self.assertTrue(self.get(item["id"])["approval_valid"])
 
 
+class ReviewRoundSixTest(CenterCase):
+    def hold_discovery(self, thread_name):
+        """Hold one scan after its profiles were copied, without holding the center's lock."""
+        scanning, release = threading.Event(), threading.Event()
+        original = self.center.runtime_profiles
+
+        def runtimes():
+            if threading.current_thread().name == thread_name and not scanning.is_set():
+                scanning.set()
+                if not release.wait(10):
+                    raise AssertionError("discovery was not released")
+            return original()
+        self.center.runtime_profiles = runtimes
+        self.addCleanup(release.set)
+        return scanning, release
+
+    def test_an_obsolete_assignment_scan_cannot_launch_with_old_permissions(self):
+        item = self.approve(self.save(plan="A plan."))
+        scanning, release = self.hold_discovery(f"project-{item['id'][:8]}")
+        self.center.call("run", {"id": item["id"], "revision": item["revision"]})
+        self.assertTrue(scanning.wait(5))
+        with self.center._lock:
+            self.profiles[0]["run_argv"][1] = "read-only"
+            self.center.discovery_generation += 1
+        self.assertFalse(self.get(item["id"])["approval_valid"])
+        release.set()
+        wait_until(lambda: self.commands or not self.center._active)
+        self.assertEqual(self.commands, [], "the stale workspace-write profile reached the runner")
+        self.idle()
+        self.assertEqual(self.get(item["id"])["events"][-1]["text"], "project_plan_not_approved")
+
+    def test_an_obsolete_assignment_scan_is_refreshed_when_approval_still_matches(self):
+        item = self.approve(self.save(plan="A plan."))
+        scanning, release = self.hold_discovery(f"project-{item['id'][:8]}")
+        self.center.call("run", {"id": item["id"], "revision": item["revision"]})
+        self.assertTrue(scanning.wait(5))
+        with self.center._lock:
+            self.center.discovery_generation += 1
+        release.set()
+        wait_until(lambda: self.processes or not self.center._active)
+        self.assertEqual(len(self.processes), 1)
+        self.assertEqual(self.center._display[0], self.center.discovery_generation)
+        self.processes[0].finish("Done.")
+        self.idle()
+
+    def test_review_refreshes_an_obsolete_scan_before_approving(self):
+        item = self.save(plan="A plan.")
+        scanning, release = self.hold_discovery("review")
+        result = {}
+        reviewer = threading.Thread(target=lambda: result.update(self.approve(item)), name="review")
+        reviewer.start()
+        self.assertTrue(scanning.wait(5))
+        with self.center._lock:
+            self.profiles[0]["run_argv"][1] = "read-only"
+            self.center.discovery_generation += 1
+        release.set()
+        reviewer.join(10)
+        self.assertFalse(reviewer.is_alive())
+        self.assertTrue(result["approval_valid"])
+        with self.center._lock:
+            self.assertEqual(result["approved_digest"], self.center._approval(result))
+
+    def test_a_discovery_change_at_the_launch_gate_withdraws_the_launch(self):
+        item = self.approve(self.save(plan="A plan."))
+        reached, release = threading.Event(), threading.Event()
+        self.addCleanup(release.set)
+        self.before_launch = lambda: (reached.set(), release.wait(10))
+        self.center.call("run", {"id": item["id"], "revision": item["revision"]})
+        self.assertTrue(reached.wait(5))
+        with self.center._lock:
+            self.profiles[0]["run_argv"][1] = "read-only"
+            self.center.discovery_generation += 1
+        release.set()
+        wait_until(lambda: self.processes or not self.center._active)
+        self.assertEqual(self.processes, [], "obsolete argv received launch authorization")
+        self.idle()
+        self.assertEqual(len(self.withdrawn), 1)
+        self.assertEqual(self.get(item["id"])["events"][-1]["text"], "project_launch_withdrawn")
+
+    def test_an_obsolete_adoption_preserves_a_newer_display_for_a_waiting_list(self):
+        item = self.approve(self.save(plan="A plan."))
+        scanning, release_scan = self.hold_discovery("adopter")
+
+        def adopt():
+            snapshot = self.center._discover(True)
+            with self.center._lock:
+                self.center._adopt(snapshot)
+        adopter = threading.Thread(target=adopt, name="adopter")
+        adopter.start()
+        self.assertTrue(scanning.wait(5))
+        with self.center._lock:
+            self.center.discovery_generation += 1
+        self.assertEqual(self.center.call("list", {})["summary"]["ready"], 1)
+        display = self.center._display
+        checked, release_list = threading.Event(), threading.Event()
+        self.addCleanup(release_list.set)
+        original = self.center._display_stale
+
+        def stale():
+            answer = original()
+            checked.set()
+            if not release_list.wait(10):
+                raise AssertionError("list was not released")
+            return answer
+        result = {}
+        with mock.patch.object(self.center, "_display_stale", side_effect=stale):
+            reader = threading.Thread(target=lambda: result.update(self.center.call("list", {})))
+            reader.start()
+            self.assertTrue(checked.wait(5))  # the list will use the already-fresh display
+            release_scan.set()
+            adopter.join(10)
+            self.assertFalse(adopter.is_alive())
+            release_list.set()
+            reader.join(10)
+            self.assertFalse(reader.is_alive())
+        self.assertIs(self.center._display, display)
+        self.assertTrue(result["projects"][0]["approval_valid"])
+        self.assertEqual(result["projects"][0]["activity"], "ready_to_run")
+        self.assertEqual(result["summary"]["ready"], 1)
+
+
 class SupervisorControlTest(unittest.TestCase):
     def silent(self, tmp):
         import subprocess

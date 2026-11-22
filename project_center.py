@@ -1104,10 +1104,22 @@ class ProjectCenter:
             return None
         return found
 
+    @contextlib.contextmanager
+    def _discovery_context(self, required: bool, display: bool = False):
+        """Scan outside the lock, then hold it while using the snapshot. Required scans are
+        refreshed if the map changed meanwhile, before any approval or launch checks use them."""
+        while True:
+            snapshot = self._discover(required) if required or (display and self._display_stale()) else None
+            with self._lock:
+                if required and snapshot.generation != self.discovery_generation:
+                    continue
+                with self._using(snapshot):
+                    yield snapshot
+                return
+
     def _adopt(self, snapshot) -> None:
         """Under the lock: a launch's fresh snapshot replaces the display snapshot at once (none is
         left empty), unless the map's data changed while it was taken."""
-        self._drop_display()
         if isinstance(snapshot, _Snapshot) and snapshot.generation == self.discovery_generation:
             self._install_display(snapshot[1], snapshot[2], snapshot.generation)
 
@@ -1362,8 +1374,9 @@ class ProjectCenter:
                 with self._lock:
                     if active.cancelled:          # paused, halted or shut down during the scan
                         break
-                    if snapshot.generation == self.discovery_generation:
-                        self._install_display(profiles, runtimes, snapshot.generation)
+                    if snapshot.generation != self.discovery_generation:
+                        continue                 # obsolete facts cannot validate approval or build argv
+                    self._install_display(profiles, runtimes, snapshot.generation)
                     item = _copy(self._projects[project_id])
                     profile = profiles.get(member["agent"])
                     if profile is None:
@@ -1403,7 +1416,8 @@ class ProjectCenter:
                     # Atomic against pause, halt, shutdown and detach: either they see this process
                     # (and stop or detach it before or after its go-ahead) or it is never launched.
                     with self._lock:
-                        if not self._owns_store() or active.cancelled:
+                        if not self._owns_store() or active.cancelled \
+                                or snapshot.generation != self.discovery_generation:
                             return False
                         active.process = process
                         return True
@@ -1714,8 +1728,7 @@ class ProjectCenter:
         try:
             # The attempt captured (and marked) under the lock above: it may end by itself meanwhile.
             self._stop_attempt(pid, active)
-            snapshot = self._discover(True)         # the continuation's facts, outside the lock
-            with self._lock, self._using(snapshot):
+            with self._discovery_context(required=True) as snapshot:
                 paused = self._projects.get(pid)
                 if paused is None:
                     raise ProjectError("project_unknown")
@@ -2169,9 +2182,7 @@ class ProjectCenter:
         # A launch takes a fresh snapshot; operations that show derived state only when the display
         # snapshot is stale; the others none.
         launch = operation in _LAUNCH_OPERATIONS or operation == "profiles"
-        snapshot = self._discover(True) if launch else \
-            self._discover(False) if operation in _DISPLAY_OPERATIONS and self._display_stale() else None
-        with self._lock, self._using(snapshot):
+        with self._discovery_context(required=launch, display=operation in _DISPLAY_OPERATIONS) as snapshot:
             self._check_open(operation)
             # A launch reads profiles and runtimes fresh; the display snapshot is replaced with it.
             if operation in _LAUNCH_OPERATIONS:
