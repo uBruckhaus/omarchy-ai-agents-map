@@ -211,6 +211,10 @@ class Harness:
                                       # prefix, context size), …)): the map's usage statistics box (usage_box)
     subagents: tuple = ()             # (format, "~/…" where it keeps them): its subagents (subagents.py)
     session_files: str = ""           # its [sessions] reader ("pi-files", "claude-files"): session_follow.py follows those
+    activity_reader: str = ""         # its live session form for What is it doing? and Collect history
+                                      # ([sessions] activity_reader, agent_activity_report.FORMS)
+    activity_dir: str = ""            # "~/…" folder of those session files
+    extra_dir_option: str = ""        # its option that adds a project folder ("--add-dir")
     asks_setting: str = ""            # the security setting that says when it asks before acting
 
 

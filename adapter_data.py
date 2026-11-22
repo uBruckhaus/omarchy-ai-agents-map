@@ -58,7 +58,8 @@ GAMES = ("chess",)
 # How long the agent may think (AI Playground's Thinking time): per level, its own options for how
 # hard the model thinks (ask.effort), put in before the prompt.
 THINKING = ("quick", "normal", "deep", "max")
-SESSIONS = {"reader": STR, "hook": BOOL, "note": STR, "note_args": STRS}
+SESSIONS = {"reader": STR, "hook": BOOL, "note": STR, "note_args": STRS,
+            "activity_reader": STR, "activity_dir": STR, "extra_dir_option": STR}
 DETAILS = {"reader": STR, "dir": STR, "hook": BOOL}     # its model and providers, read from its settings
 MODELS = {"reader": STR, "hook": BOOL}                  # the online models it can be switched to
 TOOLS = {"file": STR, "key": STR}                       # the tools it is given (a JSON list)
@@ -556,6 +557,9 @@ def harness(data: dict, name: str = "adapter", hooks=None) -> Harness:
         subagents=(data["subagents"]["format"], data["subagents"]["path"]) if "subagents" in data else (),
         plan_limits=_plan_limits(data["plan_limits"]) if "plan_limits" in data else (),
         session_files=data.get("sessions", {}).get("reader", ""),
+        activity_reader=data.get("sessions", {}).get("activity_reader", ""),
+        activity_dir=data.get("sessions", {}).get("activity_dir", ""),
+        extra_dir_option=data.get("sessions", {}).get("extra_dir_option", ""),
         usage=ref(*USAGE[data["usage"]]) if "usage" in data else None,
         local_llm=llm, skills=skills, mcp=mcp,
         login_status=(tuple(data["login_status"]["argv"]), data["login_status"]["no"], data["login_status"]["yes"])

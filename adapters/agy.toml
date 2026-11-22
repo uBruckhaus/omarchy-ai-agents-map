@@ -18,6 +18,11 @@ home = "~/.gemini/antigravity-cli"
 activity = ["~/.gemini/antigravity-cli"]
 web_search = true                      # searches the web itself (Google Search grounding)
 
+[sessions]                             # its conversations: What is it doing? and Collect history
+extra_dir_option = "--add-dir"
+activity_reader = "trajectory-sqlite"
+activity_dir = "~/.gemini/antigravity-cli/conversations"
+
 [details]                              # its model: the one its newest log says it selected
 reader = "agy"
 

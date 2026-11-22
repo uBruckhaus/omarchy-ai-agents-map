@@ -177,6 +177,9 @@
   "~/.claude/projects"
  ],
  "session_files": "claude-files",
+ "activity_reader": "",
+ "activity_dir": "~/.claude/projects",
+ "extra_dir_option": "--add-dir",
  "asks_setting": "permissions.defaultMode",
  "access": {
   "how": "A Claude Pro or Max subscription (claude.ai), or an API key from console.anthropic.com",

@@ -68,6 +68,9 @@
  "replies": [],
  "subagents": [],
  "session_files": "",
+ "activity_reader": "",
+ "activity_dir": "",
+ "extra_dir_option": "",
  "asks_setting": "approvalMode",
  "access": {
   "how": "A Cursor account (cursor.com)",

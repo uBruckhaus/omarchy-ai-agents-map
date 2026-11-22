@@ -117,6 +117,8 @@ from traffic_page import TrafficPage
 from smart_check_page import SmartCheckPage
 from llm_help_page import LlmHelpPage
 from first_agent_page import FirstAgentPage
+from reports_page import ReportsPage
+from agent_activity_dialog import AgentActivityDialog
 import guide_navigation
 from skills_page import SkillsPage
 from mcp_pages import McpPages
@@ -180,7 +182,7 @@ class AppWindow(Adw.ApplicationWindow):
 
 
 class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, DetailsPages, InfoPage, McpPages, SkillsPage, ConnectPage, ConfigureMenu, TrafficPage, SubagentsPage, ModelsPage, SmartCheckPage,
-                LlmHelpPage, FirstAgentPage, Adw.Application):
+                LlmHelpPage, FirstAgentPage, ReportsPage, AgentActivityDialog, Adw.Application):
     def __init__(self):
         super().__init__(application_id=desktop.app_id())
         self.window = None
@@ -446,6 +448,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         stack.add_named(self.build_info_page(), "info")     # the author's other Omarchy plugins
         stack.add_named(self.build_reorganize_page(), "reorganize")
         stack.add_named(self.build_setup_page(), "setup")
+        stack.add_named(self.build_reports_page(), "reports")   # Reports (tasks 075/076)
         if hasattr(self, "build_addons_page"):
             stack.add_named(self.build_addons_page(), "addons")
         # Details and the pages that change something open right of the cards, where the map is.
@@ -1336,6 +1339,10 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
                 working = self.working_now(pids, usage, runtimes)
             except Exception:
                 working = set(running)
+            try:
+                self.observe_activity(working, pids, usage, runtimes)   # the AI activity log (opt-in)
+            except Exception:
+                pass
             try:
                 outside = self.outside_now(usage, runtimes)
             except Exception:
@@ -4454,7 +4461,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
                 "firstagent": self.close_first_agent,
                 "subagents": self.close_subagents,
                 "addmcp": self.close_add_mcp, "addskills": self.close_add_skills,
-                "askai": self.close_ask_ai}
+                "askai": self.close_ask_ai, "reports": self.close_reports}
 
     def editing(self) -> bool:
         """A text field (an entry, a search field, a number field, a text box) has the keyboard."""
@@ -4477,6 +4484,9 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             return False          # Esc, Backspace, Ctrl+… belong to the agent
         if keyval == Gdk.KEY_F12 and ai_core.setting("screenshot_key") is not False:
             self.take_screenshot()                 # Maprisma's F12: this window, privately, with a note
+            return True
+        if keyval == Gdk.KEY_F1 and page == "reports":
+            self.show_reporting_help()             # F1 on Reports: How reporting works, not Help
             return True
         if keyval == Gdk.KEY_F1 and page != "help":
             self.open_help()

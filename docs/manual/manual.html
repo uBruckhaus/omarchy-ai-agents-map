@@ -430,6 +430,29 @@
   <p>An agent that started another one and uses it — Claude Code running <code>pi -p …</code> through its shell, for example — is joined to it on the map by a line bent along the right of the agents’ boxes. Light runs on it while either of them works. It is found from the process tree only (the agents’ own processes and their parents), and the line is shown, never edited. The subagents of Claude Code, Codex, GitHub Copilot, OpenCode and Goose are read as in the app.</p>
 
 
+  <h2 id="agent-activity">What is it doing?</h2>
+  <p>Choose <b>What is it doing?</b> in a running agent’s menu on the map, in its details or with the activity
+  button below its terminal. A window over the map shows, for one running instance (with several, it first
+  asks which one): its <b>phase</b> (planning, editing, writing or running tests, finished), <b>Possibly
+  stuck</b> when it should be working but nothing has changed for ten minutes, its <b>current work</b> (the
+  request, its answers, the tools it called and the files it edited, read from its own session file: Claude
+  Code, Codex, Pi and Antigravity), the progress it reported itself, an <b>activity timeline</b> of the files
+  changed in its project folders since it started, its <b>helper processes</b> (a test run is named as one)
+  and what <b>started</b> it: its parent processes and the terminal window, with a note that closing that
+  terminal may stop the work. The window reads all of it again every three seconds while it is open and keeps
+  your scroll position; <b>Copy</b> copies the whole report as text, Esc or <b>Close</b> closes it and stops
+  the reading.</p>
+  <p>The timeline shows the modification times of files only; a change in the same folder may have come from
+  another program. The window reads only this account’s own processes and files, never through a link, and
+  only the end of a session file. Hidden folders, <code>.git</code>, <code>build</code>,
+  <code>node_modules</code> and credential files are skipped.</p>
+  <p>To let an agent report its own progress, add the plugin's <code>activity_mcp.py</code> to that agent by hand
+  as a local stdio MCP server with the argument <code>progress</code>. Its tool <code>report_progress</code>
+  takes a step, the number done, the total and an optional note; the report is shown for the running instance
+  that started the server, nobody else's. With the argument <code>log</code>, the same file is a read-only
+  server with <code>activity_log_report</code>, <code>reports_list</code> and <code>reports_get</code> (see
+  <a href="#reports">Reports</a>).</p>
+
   <h2 id="costs-flutter">Costs</h2>
   <p>An agent’s details show what its tokens cost at the providers’ API prices: today, in the last 7 and 30 days, and per model split into input, output, cache read and cache write. <b>API cost</b> for an agent paid per token (with the share of the day’s limit), <b>API value</b> for one on a plan (which covers it). It is an estimate from the numbers in its own session files; no text of them is read. Settings › <b>Costs</b> sets the <b>Currency</b> (euros at the European Central Bank’s daily rate, fetched once a day), <b>A day’s limit</b> and the levels <b>Yellow from</b> and <b>Red from</b> (red always above yellow). Claude Code’s session files are read on from where the last look stopped, so very long sessions are counted whole; a first look on a PC with very many of them may take two looks to be complete.</p>
   <p>On the map, an agent with plan limits shows a small battery in its box with what is left of the tightest limit, and one paid per token shows today’s cost there, with a battery beside it of what is left of the day’s limit; green, yellow or red at the levels of Settings › Costs, the details in its tooltip. Both are looked at again every minute. A battery whose numbers may be out of date (the collector kept them after a failed check, or they were measured more than 30 minutes ago) is faded, and its tooltip says when they were measured; a limit without a reset time is no longer shown then. The limits come from Omarchy’s usage collector for that agent (<code>omarchy-agent-usage-claude</code>, <code>-codex</code>, …): on Omarchy through Omarchy itself, on another desktop when the collector is on your PATH. Without a collector, Codex is asked itself while it is signed in: its own <code>codex app-server</code> tells its plan’s limits (no prompt is sent, and it is closed again right away). Only Codex as it is installed is asked, never a launcher that would install or update it first; a sign-in in the keyring or in the folder that <code>CODEX_HOME</code> names counts too. While the app is open, the limits are asked for again every ten minutes; after a sign-out they are no longer shown. AI Agents Map reads no sign-in files itself; the collector or the agent does that. An agent whose own session store says what its sessions cost (Hermes, OpenCode) counts as paid per token; an estimated cost alone does not. With <b>Notify when red</b> on, a cost in the red gets one desktop notification a day.</p>
@@ -1295,6 +1318,62 @@
   of facts for an agent. Once it is reviewed and signed by the author, a new add-on comes with a later version of AI Agents Map.</p>
 </section>
 
+<section class="chapter" id="reports">
+  <h1>Reports</h1>
+  <p class="lead">The Reports page keeps a local log of what your agents did, lets an AI helper write topic
+  reports from it, and keeps saved reports in a library on this PC.</p>
+
+  <h2 id="reports-log">The activity log</h2>
+  <p>Open <b>Reports</b> from the header. The <b>Log</b> tab has the log’s settings at the top:
+  <b>AI activity log</b> (off by default), <b>Keep log for (days)</b> (one week by default, today included),
+  <b>Collect activity from agent history</b>, <b>Use the agent’s request as topic</b> and <b>Topic summaries by
+  local LLM</b> (only with a local helper set up). While the log is on and the window is open, each span of
+  work of an agent (and of the one running local LLM while it generates) becomes one entry when it ends: when,
+  which agent, the project folder’s name, the names of the files changed meanwhile and, where its session tells
+  them, the tokens used. File contents, paths, keys and secrets are never stored. The entries are kept in
+  <code>~/.local/share/ai-agents-map/ai-log/</code> (private to your account), one file per day; days older than
+  the retention are removed.</p>
+  <p>Below the settings are the entries of the chosen <b>Date range</b>, newest first, with totals by agent or
+  runtime, by project, by day and by week. <b>Refresh</b> reads them again (the tab also does that every 30
+  seconds), <b>Next</b> and <b>First page</b> page through them, and <b>Copy</b>, <b>TXT</b> and <b>JSON</b>
+  take the page elsewhere.</p>
+
+  <h2 id="reports-history">Collect history</h2>
+  <p><b>Collect history</b> (“Collect activity from outside AI Agents Map”) reads past sessions from the agents’
+  own history files, so the log also covers work done while the window was closed or before the log was on:
+  Claude Code, Codex, Pi and Antigravity (whose conversations carry no times, so they are counted from the
+  file’s times and marked partial). It also runs once after the window opens, at most once an hour. Afterwards
+  one line per agent says how many sessions it read and how many entries are new or updated; agents whose
+  history cannot be read are listed as unsupported. Entries from an agent’s own history carry a small history
+  symbol. With <b>Use the agent’s request as topic</b> on, an entry’s topic is the first request of that span,
+  shortened to 120 characters with paths cut to file names and secret-looking text (keys, tokens, passwords,
+  e-mail addresses, URLs with credentials) replaced by …; with it off, the topic is only “Editing” or “Writing
+  or running tests”. Only the <code>ai-log</code> folder is ever written.</p>
+
+  <h2 id="reports-topics">Topic reports</h2>
+  <p>On <b>Topic reports</b>, choose a date range, optionally a project, an agent or runtime and a focus (“what
+  should the report look at?”), and the helper, then <b>Generate</b>. The helper gets only the log’s entries —
+  agent, model, project name, topic, times, durations, token counts and the number of files — never paths or
+  file contents, and a request topic only while that switch is on. A local helper always may; an online helper
+  only when <b>Online helpers may write topic reports</b> is on (off by default) and only one that can answer
+  without any tools. While it works you can <b>Cancel report</b>; leaving the page asks first. The draft shows
+  each topic as a card with its agents, projects, spans, time and tokens, then the summary. Edit its title,
+  then <b>Copy</b>, <b>Export</b> (TXT, Markdown, JSON) or <b>Save to library</b>.</p>
+
+  <h2 id="reports-library">Library</h2>
+  <p>The <b>Library</b> keeps saved reports on this PC until you delete them, also after the log’s entries are
+  gone (<code>~/.local/share/ai-agents-map/reports/reports.db</code>, private to your account). Search them by
+  title, note, topic or text, open one, <b>Edit title and note</b>, copy, export or <b>Delete</b> it. A damaged
+  library is reported, and <b>Move aside and start new</b> renames it (nothing is deleted) and starts an empty
+  one; a library made by a newer version is shown read-only.</p>
+
+  <h2 id="reports-help">How reporting works</h2>
+  <p>The <b>?</b> on the Reports page (or F1 there) opens <b>How reporting works</b>: what the log keeps, which
+  agents’ history can be collected, what a topic report sends and what the library keeps, with tips (collect
+  first, then generate; use the focus for one project or question). <b>Copy</b> copies it, <b>Open user
+  manual</b> opens this manual, Esc closes it.</p>
+</section>
+
 <section class="chapter" id="privacy">
   <h1>Privacy and safety</h1>
   <ul>
@@ -1306,7 +1385,10 @@
       headers are never shown.</li>
     <li><b>No conversations read.</b> Usage figures are read as numbers and times only. The one
       exception is watching an instance <i>In the background</i> (<a href="#running-agents">Terminals…</a>),
-      on your click, for that instance only; nothing of it is stored.</li>
+      on your click, for that instance only; nothing of it is stored. <b>What is it doing?</b> reads the
+      end of a running instance's session file on your click, only while its window is open, and stores nothing.
+      With <b>AI activity log</b> and <b>Use the agent's request as topic</b> on (<a href="#reports">Reports</a>), a
+      shortened request with secrets removed is kept as an entry's topic on this PC.</li>
     <li><b>Network only when asked</b> — searching models, MCP servers or skills, installing, testing
       a server — plus an update check every few hours.</li>
     <li><b>Checked downloads.</b> Programs are installed only from releases pinned in the plugin, and only when the download matches the pinned checksum.</li>

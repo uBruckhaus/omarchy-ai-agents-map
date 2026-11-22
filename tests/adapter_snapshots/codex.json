@@ -191,6 +191,9 @@
   "~/.codex/sessions"
  ],
  "session_files": "codex-files",
+ "activity_reader": "codex-jsonl",
+ "activity_dir": "~/.codex/sessions",
+ "extra_dir_option": "--add-dir",
  "asks_setting": "approval_policy",
  "access": {
   "how": "A ChatGPT plan (Plus, Pro, Business), or an API key from platform.openai.com",

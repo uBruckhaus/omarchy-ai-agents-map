@@ -61,6 +61,9 @@
  "replies": [],
  "subagents": [],
  "session_files": "crush-db",
+ "activity_reader": "",
+ "activity_dir": "",
+ "extra_dir_option": "",
  "asks_setting": "",
  "access": {
   "how": "An API key for a provider, or a local LLM from the map",

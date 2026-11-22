@@ -61,6 +61,9 @@
  "replies": [],
  "subagents": [],
  "session_files": "",
+ "activity_reader": "",
+ "activity_dir": "",
+ "extra_dir_option": "",
  "asks_setting": "",
  "access": {
   "how": "Nothing: it runs models on this computer",

@@ -73,6 +73,9 @@
  "replies": [],
  "subagents": [],
  "session_files": "",
+ "activity_reader": "trajectory-sqlite",
+ "activity_dir": "~/.gemini/antigravity-cli/conversations",
+ "extra_dir_option": "--add-dir",
  "asks_setting": "toolPermission",
  "access": {
   "how": "A Google account (free tier or Google AI plan), or a Gemini API key from aistudio.google.com",

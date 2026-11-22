@@ -25,6 +25,9 @@ format = "codex-rollouts"
 path = "~/.codex/sessions"
 
 [sessions]
+activity_reader = "codex-jsonl"
+activity_dir = "~/.codex/sessions"
+extra_dir_option = "--add-dir"
 reader = "codex-files"            # a reader the app has (~/.codex/sessions)
 note = "Numbers from {0}'s session files (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs."
 note_args = ["Codex"]

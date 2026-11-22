@@ -129,6 +129,9 @@
  ],
  "subagents": [],
  "session_files": "pi-files",
+ "activity_reader": "",
+ "activity_dir": "~/.pi/agent/sessions",
+ "extra_dir_option": "",
  "asks_setting": "defaultTools",
  "access": {
   "how": "Sign in inside Pi (/login: Claude, ChatGPT, Copilot …), an API key, or a local LLM from the map",
