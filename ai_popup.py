@@ -1098,18 +1098,27 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         # One row above the map, as in Maprisma: what is selected (only then) on the left; the columns'
         # switches, the zoom and the layout pin on the right.
         bar = Gtk.Box(spacing=8)
+        # What is selected and the columns' switches scroll sideways in a narrow window (Maprisma's
+        # map_editor: the chips in a horizontal scroll view, the zoom fixed at the right), so the row never
+        # makes the page wider than the window and every control stays reachable.
+        lead = Gtk.Box(spacing=8, hexpand=True)
+        lead_scroll = Gtk.ScrolledWindow(hexpand=True, propagate_natural_width=True, propagate_natural_height=True)
+        lead_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
+        lead_scroll.set_child(lead)
+        self.map_bar_scroller = lead_scroll
+        bar.append(lead_scroll)
         self.side_filter = Gtk.Label(xalign=0, hexpand=True)
         self.side_filter.add_css_class("am-agent-detail")
         self.side_filter.set_ellipsize(Pango.EllipsizeMode.END)
         self.side_filter.set_max_width_chars(1)
-        bar.append(self.side_filter)
+        lead.append(self.side_filter)
         self.map_show_all = Gtk.Button(label=_("Clear selection"))
         self.map_show_all.add_css_class("flat")
         self.map_show_all.add_css_class("am-small-btn")
         self.map_show_all.set_tooltip_text(_("Clear the selection (Esc)"))
         self.map_show_all.connect("clicked", lambda *_: self.set_selection([]))
-        bar.append(self.map_show_all)
-        bar.append(self.build_layer_toggles())
+        lead.append(self.map_show_all)
+        lead.append(self.build_layer_toggles())
         # Zoom: − 100 % + (also Ctrl+scroll on the map, Ctrl+plus / minus / 0).
         zoom = Gtk.Box(spacing=0)
         zoom.add_css_class("am-zoom")
@@ -2855,6 +2864,8 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             step.append(words)
             row.append(step)
         card.append(row)
+        self.first_steps_row = row          # three columns; one under the other in a narrow window
+        self.narrow_map_page()
         revealer = Gtk.Revealer(transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN)
         card.append(revealer)
 
@@ -4741,6 +4752,18 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             _("Add AI Agents Map to Omarchy's app launcher (Super + Space)?"), _("Add"), _("Not now"),
             lambda: answer(True), lambda: answer(False)) or False)
 
+    MAP_NARROW = 700     # below it the first connection's three steps stand one under the other
+
+    def narrow_map_page(self):
+        """The map page in a narrow window: the first connection's steps one under the other."""
+        row = getattr(self, "first_steps_row", None)
+        if row is None or getattr(self, "window", None) is None:
+            return
+        narrow = 0 < self.window.get_width() < self.MAP_NARROW
+        row.set_orientation(Gtk.Orientation.VERTICAL if narrow else Gtk.Orientation.HORIZONTAL)
+        row.set_spacing(10 if narrow else 24)
+        row.set_homogeneous(not narrow)
+
     def width_changed(self, _width):
         split = self.split
         self.fit()
@@ -4749,6 +4772,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             self.update_header()
         self.auto_layers()
         self.queue_header_layout()           # narrow: Reports, Help, Settings and Refresh in More
+        self.narrow_map_page()
         compact = 0 < self.window.get_width() < main_tabs.COMPACT_WIDTH
         if compact != getattr(self, "tabs_compact", None):
             self.tabs_compact = compact
