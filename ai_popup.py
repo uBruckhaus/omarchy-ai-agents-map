@@ -4894,6 +4894,16 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             return
         if not getattr(self, "close_asked", False) and self.dialog_open():
             return                                 # a question is open (also "still running here"): it answers first
+        if getattr(self, "reports_running", None) is not None and not getattr(self, "close_report_ok", False):
+            # A topic report being generated: "Cancel the report?" first (Back keeps the window open).
+            def cancelled():
+                self.close_report_ok = True
+                try:
+                    self.close()
+                finally:
+                    self.close_report_ok = False
+            self.confirm_leave_reports(cancelled)
+            return
         if self.page_name() == "projects" and getattr(self, "close_commit", None) is None:
             # The open project's unsaved changes ask first (Save / Discard / Cancel). A Discard is only
             # carried out once every question of closing has been answered (prepare_leave's commit).

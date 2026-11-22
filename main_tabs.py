@@ -268,22 +268,37 @@ class MainTabs:
                 return False
             try:
                 self.refresh_map(facts=facts)
+                self._map_failures = 0
+                self.cancel_map_retry()
             except Exception:
                 self.map_stale = True
             return False
         threading.Thread(target=work, name="map-read", daemon=True).start()
 
+    _map_retry = 0                     # the pending retry's timer
+    _map_failures = 0                  # failed reads in a row (the note once, retries back off)
+
     def map_read_failed(self):
-        """A background read of the map failed: the map stays as it was (stale), a note says so, and the
-        next read is tried on a worker again in a few seconds — never a scan on the GTK thread."""
+        """A background read of the map failed: the map stays as it was (stale), a note says so (once
+        per run of failures), and the next read is tried on a worker again — after 5, 10, 20… s, at most
+        a minute; never a scan on the GTK thread. Hiding or a successful read ends the retries."""
         self.map_stale = True
-        self.toast(_("The AI Map could not be read again. It is tried again in a moment."), 5)
+        self._map_failures += 1
+        if self._map_failures == 1:
+            self.toast(_("The AI Map could not be read again. It is tried again in a moment."), 5)
+        self.cancel_map_retry()
 
         def again():
+            self._map_retry = 0
             if self.map_stale and not self.map_work_waits() and self.window_shown():
                 self.refresh_map_async()
             return False
-        GLib.timeout_add_seconds(5, again)
+        self._map_retry = GLib.timeout_add_seconds(min(60, 5 * 2 ** (self._map_failures - 1)), again)
+
+    def cancel_map_retry(self):
+        if self._map_retry:
+            GLib.source_remove(self._map_retry)
+            self._map_retry = 0
 
     def save_tab(self, tab: str):
         if ai_core.setting("main_tab") != tab:
@@ -583,6 +598,7 @@ class MainTabs:
                 if generation == getattr(self, "map_generation", 0):   # else drawn from newer facts already
                     try:
                         self.refresh_map(facts=facts)
+                        self._map_failures = 0
                     except Exception:
                         self.map_stale = True
                 # After the map has been laid out once more (its boxes are placed while it is drawn).
@@ -600,7 +616,7 @@ class MainTabs:
         self.projects_refocus = True
         ctrl = getattr(self, "projects_ctrl", None)
         if ctrl is not None and not ctrl.disposed and self.page_name() == "projects":
-            ctrl.refresh()
+            ctrl.refresh(profiles=True)        # the Team and Setup choices too (Maprisma: profiles: true)
 
     projects_refocus = False
 
@@ -642,6 +658,7 @@ class MainTabs:
 
     def forget_map_mark(self):
         self._reveal_seq += 1                  # a reveal still on its way is dropped
+        self.cancel_map_retry()                # hidden or on Projects: no retry runs
         if self._reveal_wait:
             GLib.source_remove(self._reveal_wait)
             self._reveal_wait = 0

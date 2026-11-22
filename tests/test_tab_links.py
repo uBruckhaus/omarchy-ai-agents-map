@@ -922,7 +922,7 @@ class ReviewRound4Test(unittest.TestCase):
         host._projects_closed = False
         host.projects_ctrl.refresh = mock.Mock()
         host.projects_refocused()
-        host.projects_ctrl.refresh.assert_called_once_with()
+        host.projects_ctrl.refresh.assert_called_once_with(profiles=True)   # agy r5: Team and Setup choices too
         import projects_page
         import threading
         center = SimpleNamespace(bump_discovery=mock.Mock(), call=lambda op, params: {"projects": []})
@@ -947,6 +947,34 @@ class ReviewRound4Test(unittest.TestCase):
         host.refresh_project_summary = mock.Mock()
         self.assertTrue(timers[1][1]())                # a tick reads the counts
         host.refresh_project_summary.assert_called_once_with()
+
+    def test_closing_asks_about_a_report_being_generated(self):
+        """Codex r5 #1: closing while a topic report is generated asks "Cancel the report?" first; Back
+        keeps the window, Cancel report closes."""
+        answers = []
+        app = SimpleNamespace(booting=False, close_asked=False, dialog_open=lambda: False, page_name=lambda: "reports",
+                              sessions={}, hide_window=mock.Mock(), reports_running=object())
+        app.confirm_leave_reports = lambda then, stay=None: answers.append(then)
+        app.close = lambda: ai_popup.AgentsMap.close(app)
+        ai_popup.AgentsMap.close(app)
+        app.hide_window.assert_not_called()             # asked, not closed (Back: nothing more happens)
+        answers[0]()                                     # Cancel report
+        app.hide_window.assert_called_once_with()
+
+    def test_failed_map_reads_back_off_and_stop(self):
+        """agy r5 nit: retries are tracked, back off, note once, and end when the map is left or hidden."""
+        host = Host()
+        timers = []
+        with mock.patch.object(main_tabs.GLib, "timeout_add_seconds",
+                               lambda secs, fn, *a: timers.append(secs) or len(timers)), \
+                mock.patch.object(main_tabs.GLib, "source_remove", lambda _id: timers.append("removed")):
+            host.map_read_failed()
+            host.map_read_failed()
+            host.map_read_failed()
+            host.forget_map_mark()
+        self.assertEqual([t for t in timers if t != "removed"], [5, 10, 20])
+        self.assertEqual(timers[-1], "removed")
+        self.assertEqual(len(host.toasts), 1)
 
     def test_map_chosen_before_the_start_decision_is_drawn(self):
         """agy r4 #1: AI Map, Ask AI or Problems chosen while the summary decides draws the waiting map."""
