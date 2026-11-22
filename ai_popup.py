@@ -436,7 +436,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             row.add_css_class("am-header-row")
             row.set_hexpand(True)
             header.set_hexpand(True)
-            row.append(header)
+            row.append(self.header_clipper(header))
             row.append(Gtk.WindowControls(side=Gtk.PackType.END))
             bar.set_child(row) if isinstance(bar, Gtk.WindowHandle) else bar.append(row)
             toolbar = Adw.ToolbarView()
@@ -445,7 +445,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             window.set_content(toolbar)
         else:
             window.set_content(self.toasts)
-            card.append(header)
+            card.append(self.header_clipper(header))
         # Reordering the header's symbols (right mouse button) on the window itself: a window's
         # capture phase comes before everything in it, also the title bar's own move and right-click
         # (on Wayland they would take the press first, move the window and Hyprland floats it).
@@ -455,7 +455,9 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
         stack.set_transition_duration(140)
         stack.set_interpolate_size(False)
-        stack.set_hhomogeneous(True)
+        # Each page as wide as it needs: in a narrow window the Projects board is not held at the map's
+        # width (its own narrow layouts take over; the map scrolls sideways as before).
+        stack.set_hhomogeneous(False)
         stack.set_vhomogeneous(True)
         stack.add_named(self.build_main_page(), "main")
         stack.add_named(self.build_settings_page(), "settings")
@@ -573,8 +575,74 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         self.refresh_button = symbol("view-refresh-symbolic",
                                      _("Refresh") + " (F5) — " + _("Look again at what is on this PC (F5)").replace(" (F5)", ""),
                                      lambda: self.refresh_everything())
+        # A narrow window (Maprisma's _headerActions(narrow), task 086): Reports, Help, Settings and Refresh
+        # move into More, so the tabs and the other symbols never get cut off.
+        self.header_more = self.build_header_more()
+        header.append(self.header_more)
         self.setup_header_order(header)
+        self.header_narrow = None
+        self.update_header_layout()
         return header
+
+    HEADER_NARROW = 760              # Maprisma: below this width the header's page actions live in More
+
+    def header_clipper(self, header) -> Gtk.Widget:
+        """The header row's holder: its full width never becomes the window's minimum (a tiled or narrow
+        window can be narrower; then update_header_layout moves the page actions into More)."""
+        clip = Gtk.ScrolledWindow(hexpand=True, propagate_natural_height=True, propagate_natural_width=True)
+        clip.set_policy(Gtk.PolicyType.EXTERNAL, Gtk.PolicyType.NEVER)
+        clip.set_child(header)
+        self.header_clip = clip
+        return clip
+    MORE_ITEMS = ("reports", "help", "settings", "refresh")
+
+    def build_header_more(self) -> Gtk.MenuButton:
+        more = Gtk.MenuButton(icon_name="view-more-symbolic", valign=Gtk.Align.CENTER, tooltip_text=_("More"))
+        for css in ("flat", "am-header-btn", "am-plain-btn"):
+            more.add_css_class(css)
+        popover = Gtk.Popover()
+        menu = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        self.header_more_items = {}
+        for key, label, action in (
+                ("reports", _("Reports"), lambda: None if self.page_name() == "reports"
+                 else self.after_leaving(self.open_reports)),
+                ("help", _("Help (F1)"), lambda: self.after_leaving(self.open_help)),
+                ("settings", _("Settings"), lambda: self.after_leaving(self.open_settings)),
+                ("refresh", _("Refresh"), lambda: self.refresh_everything())):
+            item = Gtk.Button(label=label)
+            item.add_css_class("flat")
+            item.get_child().set_xalign(0)
+            item.connect("clicked", lambda _b, run=action: (popover.popdown(), run()))
+            menu.append(item)
+            self.header_more_items[key] = item
+        popover.set_child(menu)
+        more.set_popover(popover)
+        return more
+
+    def update_header_layout(self):
+        """Wide: every header symbol in the row (and draggable). Narrow: Reports, Help, Settings and
+        Refresh in More, the title shortened; the tabs and status, Ask AI and the legend stay."""
+        width = self.window.get_width() if getattr(self, "window", None) is not None else 0
+        if not getattr(self, "header_narrow", None) and getattr(self, "header", None) is not None:
+            # What the full row needs (measured while it is shown in full): the window may be wider than
+            # the breakpoint and still too narrow for it (a long title, larger text).
+            self.header_wide_need = self.header.measure(Gtk.Orientation.HORIZONTAL, -1)[0]
+        clip = getattr(self, "header_clip", None)
+        room = clip.get_width() if clip is not None else 0
+        narrow = 0 < width < self.HEADER_NARROW or (room > 0 and getattr(self, "header_wide_need", 0) > room)
+        if narrow == getattr(self, "header_narrow", None):
+            return
+        self.header_narrow = narrow
+        for key in self.MORE_ITEMS:
+            button = getattr(self, f"{key}_button", None)
+            if button is not None:
+                button.set_visible(not narrow)
+        more = getattr(self, "header_more", None)
+        if more is not None:
+            more.set_visible(narrow)
+        title = getattr(self, "title_label", None)
+        if title is not None:
+            title.set_width_chars(1 if narrow else 12)      # ellipsized: the tabs keep their room
 
     # The header's symbols in the user's order: hold the left mouse button on one and drag it.
     HEADER_ITEMS = ("problem", "smartcheck", "legend", "reports", "help", "settings", "refresh")   # Maprisma's order
@@ -4537,6 +4605,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             self.place_panes()
             self.update_header()
         self.auto_layers()
+        self.update_header_layout()          # narrow: Reports, Help, Settings and Refresh in More
         compact = 0 < self.window.get_width() < main_tabs.COMPACT_WIDTH
         if compact != getattr(self, "tabs_compact", None):
             self.tabs_compact = compact

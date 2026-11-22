@@ -988,6 +988,40 @@ class ReviewRound4Test(unittest.TestCase):
             self.assertFalse(host.map_stale)
 
 
+@unittest.skipUnless(__import__("shutil").which("gtk4-broadwayd"), "needs gtk4-broadwayd for a headless GTK build")
+class HeaderNarrowTest(unittest.TestCase):
+    """Codex r6: at narrow widths Reports, Help, Settings and Refresh move into More; nothing is cut off
+    (a real GTK allocation under a headless Broadway display, isolated HOME)."""
+
+    def test_header_fits_narrow_and_wide(self):
+        import os
+        import subprocess
+        import tempfile
+        import time
+        root = Path(__file__).resolve().parent.parent
+        with tempfile.TemporaryDirectory() as home:
+            runtime = Path(home) / "run"
+            runtime.mkdir(mode=0o700)
+            env = {k: v for k, v in os.environ.items()
+                   if k not in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_CURRENT_DESKTOP", "HYPRLAND_INSTANCE_SIGNATURE",
+                                "KDE_FULL_SESSION")}
+            display = f":{240 + os.getpid() % 200}"
+            env.update(HOME=home, XDG_RUNTIME_DIR=str(runtime), XDG_CONFIG_HOME=f"{home}/.config",
+                       XDG_STATE_HOME=f"{home}/.local/state", XDG_CACHE_HOME=f"{home}/.cache",
+                       GDK_BACKEND="broadway", BROADWAY_DISPLAY=display, GSK_RENDERER="cairo")
+            daemon = subprocess.Popen(["gtk4-broadwayd", display], env=env, stdout=subprocess.DEVNULL,
+                                      stderr=subprocess.DEVNULL)
+            try:
+                time.sleep(0.5)
+                done = subprocess.run([sys.executable, str(root / "tests" / "header_smoke.py")], env=env,
+                                      capture_output=True, text=True, timeout=60, cwd=str(root))
+            finally:
+                daemon.terminate()
+                daemon.wait(5)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertIn("HEADER OK", done.stdout)
+
+
 class ActivityAndConfigTest(unittest.TestCase):
     def test_progress_line(self):
         self.assertEqual(terminal_pane.progress_text({"done": 2, "total": 5, "step": "Tests", "note": None}),
