@@ -29,7 +29,9 @@ import re
 import stat
 import threading
 import time
+import unicodedata
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 MAX_FILE = 2 << 20                 # bytes per day file
 PAGE_SIZE = 100                    # entries per report page
@@ -199,7 +201,7 @@ def history_session(value: str) -> str:
     return value if SESSION.match(value) else hashlib.sha256(value.encode("utf-8", "surrogatepass")).hexdigest()
 
 
-_URL = re.compile(r"""(?<![A-Za-z0-9+.-])[A-Za-z][A-Za-z0-9+.-]*://[^\s<>"']+""")
+_URL = re.compile(r"(?<![A-Za-z0-9+.-])[A-Za-z][A-Za-z0-9+.-]*://[^\s<>]+")
 _PROVIDER = re.compile(r"\b(?:sk-|gh[pousr]_|github_pat_|glpat-|AIza|AKIA|ASIA|xox[baprs]-|hf_|npm_|pypi-)[A-Za-z0-9_+=/.-]+")
 _SECRETS = [re.compile(p, re.IGNORECASE | re.DOTALL) for p in (
     r"-----BEGIN [^-]{1,64}-----(?:.*?-----END [^-]{1,64}-----|.*$)",
@@ -219,15 +221,7 @@ def plain(text: str) -> str:
     """Text safe to write as UTF-8 and to hand to GTK: lone surrogates (also from file names that are
     not UTF-8) become the replacement character."""
     return SURROGATES.sub("\ufffd", text)
-_QUERY_SECRET = re.compile(r"(?:token|key|secret|auth|sig|password)$", re.IGNORECASE)
-# Deliberately conservative: after a path start, discard through the LAST slash in the line
-# (or enclosing quote). Folder names may contain spaces, apostrophes and punctuation. A later
-# relative path or slash-word can be swallowed too; keeping directories private takes precedence.
-_PATH = re.compile(r"(?<![A-Za-z0-9_.~%+/-])(?:file://|[A-Za-z]:/|~/|/)[^\n]*", re.IGNORECASE)
-# Only the opening delimiter closes a quote. An apostrophe within a word is not an opener.
-# Include unfinished quotes up to the line end, so they receive the same privacy treatment.
-_QUOTED_PATH = re.compile(r'''"[^"\n]*(?:"|$)|(?<!\w)'[^'\n]*(?:'|$)|`[^`\n]*(?:`|$)''', re.MULTILINE)
-_PATH_OR_QUOTE = re.compile(_QUOTED_PATH.pattern + "|" + _PATH.pattern, re.MULTILINE | re.IGNORECASE)
+_SLASH_COMMAND = re.compile(r"/[A-Za-z][\w-]*")
 
 
 def _redact(text: str) -> str:
@@ -238,96 +232,72 @@ def _redact(text: str) -> str:
     return text
 
 
-def _short_paths(text: str, depth: int = 0) -> str:
-    """Paths in text cut to their names, and URLs inside it cleaned the same way (one level deep)."""
-    if depth < 2:
-        text = _URL.sub(lambda m: m.group(0) if m.group(0).lower().startswith("file://")
-                        else _clean_url(m.group(0), depth + 1), text)
-
-    def shorten(match):
-        span = match.group(0)
-        if span[0] in "\"'`":
-            closing = span[0] if len(span) > 1 and span[-1] == span[0] else ""
-            body = span[1:-1] if closing else span[1:]
-            return span[0] + _PATH.sub(lambda m: _last_name(m.group(0)), body) + closing
-        return _last_name(span)
-
-    return _PATH_OR_QUOTE.sub(shorten, text)
+def _decode_url(match) -> str:
+    """Expose encoded separators before deciding what can be kept; bound nested decoding."""
+    raw = match.group(0)
+    for _ in range(3):
+        decoded = unquote(raw)
+        if decoded == raw:
+            break
+        raw = decoded
+    return unicodedata.normalize("NFKC", raw)
 
 
-def _last_name(path: str) -> str:
-    # Preserve text after the final component ("a.py now", "a.py)", ...).
-    return path.rsplit("/", 1)[-1].replace("\\ ", " ") or "…"
+def _short_paths(text: str) -> str:
+    """Discard from the first separator token through the last separator, regardless of grammar.
 
-
-def _clean_url(raw: str, depth: int = 0) -> str:
-    """A URL kept with its secrets taken out (no user info, no secret-named query values) and no
-    local paths in its query or fragment (?file=/home/u/a.py keeps a.py)."""
-    from urllib.parse import quote
-    from urllib.parse import unquote, unquote_plus, urlsplit, urlunsplit
-    try:
-        parts = urlsplit(raw)
-        host = parts.hostname or ""
-    except ValueError:
-        return "…"
-    if parts.scheme.lower() not in ("http", "https") or not host:
-        # https:///home/u/a.py (no host) is a local path too.
-        # file://, ssh://, vscode:// and the like name places on this PC: only the last name is kept.
-        name = os.path.basename(unquote(parts.path).rstrip("/"))
-        return _redact(name) if name else "…"
-    netloc = unquote(parts.netloc)
-    if parts.username or parts.password or "@" in netloc or _redact(netloc) != netloc or _redact(host) != host:
-        return "…"
-    query = []
-    for pair in parts.query.split("&") if parts.query else []:
-        key, sep, value = pair.partition("=")
-        name = unquote_plus(key)
-        if _redact(name) != name:
-            return "…"
-        short_name = _short_paths(name, depth)      # ?/home/u/a.py, ?file:///home/u/a.py=1: keys too
-        key = key if short_name == name else quote(short_name, safe="…")
-        plain = unquote_plus(value)
-        if _QUERY_SECRET.search(name) or _redact(plain) != plain:
-            query.append(key + sep + "…")
+    Quotes, flags, variables and whitespace inside directory names do not delimit a path.
+    Only standalone slash commands and spaced division slashes are exempt.
+    """
+    first = None
+    first_end = 0
+    last = end = 0
+    for token in re.finditer(r"\S+", text):
+        if _SLASH_COMMAND.fullmatch(token.group()):
             continue
-        short = _short_paths(plain, depth)
-        query.append(key + sep + (value if short == plain else quote(short, safe="…")))
-    segments = []
-    for segment in parts.path.split("/"):
-        plain = unquote(segment)
-        if _redact(plain) != plain:
-            segments.append("…")
-            continue
-        short = _short_paths(plain, depth)              # /open/%2Fhome%2Fu%2Fa.py: a path hidden by encoding
-        segments.append(segment if short == plain else quote(short, safe="…"))
-    path = "/".join(segments)
-    fragment = _short_paths(_redact(unquote(parts.fragment)), depth) if parts.fragment else ""
-    return urlunsplit((parts.scheme, parts.netloc, path, "&".join(query), fragment))
+        for index in range(token.start(), token.end()):
+            if text[index] not in "/\\":
+                continue
+            if (text[index] == "/" and index > 0 and index + 1 < len(text)
+                    and text[index - 1].isspace() and text[index + 1].isspace()):
+                continue
+            if first is None:
+                first = token.start()
+                first_end = token.end()
+            last, end = index, token.end()
+    if first is None:
+        return text
+    if text[first:].lower().startswith(("http://", "https://")):
+        try:
+            # Include tokens up to the final separator: URL paths/fragments can contain spaces.
+            origin = urlsplit(text[first:first_end].replace("\\", "/"))
+            parts = urlsplit(text[first:end].replace("\\", "/"))
+            if origin.hostname and not origin.username and not origin.password:
+                name = parts.path.rsplit("/", 1)[-1]
+                url = origin.scheme + "://" + origin.netloc + ("/" + name if name else "")
+                return text[:first] + url + text[end:]
+        except ValueError:
+            pass
+    return text[:first] + text[last + 1:]
+
+
+_ENCODED_SEP = re.compile(r"%(?:25)*(2[Ff]|5[Cc])")
 
 
 def sanitize_topic(value) -> str | None:
-    """A request as a topic (task 076's sanitizer): control and bidi characters out, URLs with
-    credentials and secret query values, keys, tokens, JWTs, PEM blocks, long hex/base64 strings and
-    e-mail addresses redacted to …, paths shortened to their names, then cut to 120 characters."""
+    """Normalize a request, redact secrets and conservatively remove directories, then cut to 120.
+
+    HTTP(S) URLs retain only their host and final path name; queries and fragments are dropped.
+    """
     if not isinstance(value, str):
         return None
-    # Keep line boundaries until paths are shortened; an unquoted path ends at the line end.
-    text = _CONTROL.sub(lambda m: "\n" if m.group(0) in "\r\n" else " ", value[:256 * 1024])
-    urls: list[str] = []
-
-    def keep(match):
-        if match.group(0).lower().startswith("file://"):
-            return match.group(0)             # spaces and other quote types may belong to this path
-        urls.append(_clean_url(match.group(0)))
-        return f"⟦url{len(urls) - 1}⟧"
-    text = _URL.sub(keep, text)
-    text = _redact(text)
-    text = _short_paths(text, 2)
-
-    def back(match):
-        index = int(match.group(1))
-        return urls[index] if index < len(urls) else "…"
-    text = " ".join(_CONTROL.sub(" ", re.sub(r"⟦url(\d+)⟧", back, text)).split())[:120]
+    text = unicodedata.normalize("NFKC", value[:256 * 1024])
+    text = _URL.sub(_decode_url, text)
+    # Encoded separators outside URLs too (%2F, %5C, also double-encoded %252F): they are cut below.
+    text = _ENCODED_SEP.sub(lambda m: "/" if m.group(1) in "2f2F" else "\\", text)
+    text = _CONTROL.sub(" ", text)
+    text = _short_paths(_redact(text))
+    text = " ".join(_redact(text).split())[:120]
     return text or None
 
 

@@ -1346,8 +1346,11 @@
   one line per agent says how many sessions it read and how many entries are new or updated; agents whose
   history cannot be read are listed as unsupported. Entries from an agent’s own history carry a small history
   symbol. With <b>Use the agent’s request as topic</b> on, an entry’s topic is the first request of that span,
-  shortened to 120 characters with paths cut to file names and secret-looking text (keys, tokens, passwords,
-  e-mail addresses, URLs with credentials) replaced by …; with it off, the topic is only “Editing” or “Writing
+  shortened to 120 characters after secrets are removed and paths are cut to file names. To keep directory
+  names private, text from the first path token through the final path separator is removed, including
+  intervening words. URLs keep only their host and final file name; queries and fragments are removed.
+  Slash commands and spaced slashes such as “A / B” are kept. Secret-looking text (keys, tokens, passwords,
+  e-mail addresses, URLs with credentials) is replaced by …; with it off, the topic is only “Editing” or “Writing
   or running tests”. Only the <code>ai-log</code> folder is ever written.</p>
 
   <h2 id="reports-topics">Topic reports</h2>

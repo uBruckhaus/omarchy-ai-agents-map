@@ -98,7 +98,7 @@ class TopicTest(unittest.TestCase):
     def test_urls_paths_and_bounds(self):
         self.assertNotIn("user:pw", activity_log.sanitize_topic("see https://user:pw@host.example/x") or "")
         clean = activity_log.sanitize_topic("open https://example.com/a?token=SECRET123&page=2 now")
-        self.assertIn("page=2", clean)
+        self.assertEqual(clean, "open https://example.com/a now")
         self.assertNotIn("SECRET123", clean)
         self.assertEqual(activity_log.sanitize_topic("fix /home/uwe/project/src/main.py now"), "fix main.py now")
         self.assertEqual(activity_log.sanitize_topic("look at ~/notes/todo.md"), "look at todo.md")
@@ -922,11 +922,11 @@ class RoundOneTest(TempCase):
         self.assertNotIn("/home/u", prompts[0])
         self.assertNotIn("private/", prompts[0])
         self.assertNotIn("secret/", prompts[0])
-        # An unquoted path conservatively consumes through the last slash on this line.
+        # Any path conservatively consumes through the last separator in the topic.
         self.assertIn('"topic": "fix d"', prompts[0])
         self.assertEqual(activity_log.sanitize_topic("see https://example.com/docs/x?q=1"),
-                         "see https://example.com/docs/x?q=1")
-        self.assertEqual(activity_log.sanitize_topic("ratio 2/3 and a/b"), "ratio 2/3 and a/b")
+                         "see https://example.com/x")
+        self.assertEqual(activity_log.sanitize_topic("ratio 2/3 and a/b"), "ratio b")
 
     def test_damaged_report_json(self):
         library = reports_ctl.ReportsLibrary(self.tmp / "reports")
@@ -1103,8 +1103,9 @@ class RoundTwoTest(TempCase):
                                           now=at("2026-11-20T12:00:00"))
         self.assertNotIn("/home/u", prompts[0])
         self.assertNotIn("%2Fhome", prompts[0])
-        self.assertIn("file=a.py", prompts[0])
-        self.assertIn("page=2", prompts[0])
+        self.assertIn('"topic": "see https://example.com/preview"', prompts[0])
+        self.assertNotIn("file=", prompts[0])
+        self.assertNotIn("page=2", prompts[0])
 
     def test_older_addons_keep_the_session_facts(self):
         import dataclasses
@@ -1283,8 +1284,9 @@ class RoundThreeTest(TempCase):
                                           now=at("2026-11-20T23:00:00"))
         for leak in ("/home/u", "%2Fhome", "private"):
             self.assertNotIn(leak, prompts[0])
-        for name in ("a.py", "b.py=1", "c.py", "d.py", "/open/e.py"):
-            self.assertIn(name, prompts[0])
+        for topic in ("a https://example.com", "b https://example.com", "c https://example.com",
+                      "d https://example.com", "e https://example.com/e.py"):
+            self.assertIn('"topic": ' + json.dumps(topic), prompts[0])
 
     def conversation(self, root: Path) -> Path:
         root.mkdir(exist_ok=True)
@@ -1746,9 +1748,9 @@ class RoundEightTest(TempCase):
                                           now=at("2026-11-20T23:00:00"))
         for leak in ("alice", "Private", "Client", "project/", "Work Stuff", "notes", "Secret", "src/"):
             self.assertNotIn(leak, prompts[0])
-        for kept in ("login.py", "a.md", "b.py", "x.py", "please", "now"):
+        for kept in ("login.py", "a.md", "b.py", "https://e.com", "please", "now"):
             self.assertIn(kept, prompts[0])
-        self.assertEqual(activity_log.sanitize_topic("ratio 2/3 and a/b"), "ratio 2/3 and a/b")
+        self.assertEqual(activity_log.sanitize_topic("ratio 2/3 and a/b"), "ratio b")
 
     def test_two_hides_before_any_finalizer_keep_the_first_cutoff(self):
         t0 = at("2026-11-20T10:00:00")
@@ -1776,23 +1778,24 @@ class RoundNineTest(TempCase):
         reports_ctl.generate_topic_report(self.log, {"helper": "h"}, lambda p: prompts.append(p) or answer,
                                           now=at("2026-11-20T12:00:00"))
         self.assertEqual(len(prompts), 1)
-        for leak in ("alice", "Private", "Client", "Secret", "Confidential", "Bob's", "project/", "src/"):
+        for leak in ("alice", "Bob", "Secret", "Client", "Private", "Confidential", "Files", "Folder",
+                     "Users", "share", "project/", "src/"):
             self.assertNotIn(leak, unquote(prompts[0]))
         entries = json.loads(prompts[0].split("<untrusted-entries>\n", 1)[1].split("\n</untrusted-entries>", 1)[0])
         self.assertEqual(entries[0]["topic"], expected)
 
     def test_review_examples_never_reach_the_helper(self):
         cases = [
-            ('fix "/home/alice/Client\'s Private Project/src/login.py"', 'fix "login.py"'),
+            ('fix "/home/alice/Client\'s Private Project/src/login.py"', 'fix login.py"'),
             ("fix /home/alice/My Private Client/project/src/login.py now", "fix login.py now"),
             ("see https://e.com/?f=%2Fhome%2Falice%2FMy%20Private%20Client%2Fsrc%2Fx.py",
-             "see https://e.com/?f=x.py"),
+             "see https://e.com"),
             ("see https://e.com/open/%2Fhome%2Falice%2FMy%20Private%20Client%2Fsrc%2Fx.py",
-             "see https://e.com/open/x.py"),
-            ('fix "/home/alice/Bob\'s Secret/project/a.py"', 'fix "a.py"'),
+             "see https://e.com/x.py"),
+            ('fix "/home/alice/Bob\'s Secret/project/a.py"', 'fix a.py"'),
             ("fix /home/alice/Client (Confidential)/src/x.py", "fix x.py"),
             ("see https://e.com/?f=%2Fhome%2Falice%2FClient%20%28Secret%29%2Fsrc%2Fx.py",
-             "see https://e.com/?f=x.py"),
+             "see https://e.com"),
             ("diff /home/alice/a.py /home/alice/b.py", "diff b.py"),
             ("check /home/alice/a.py and/or /home/alice/b.py", "check b.py"),
             ("fix /home/alice/a.py 2/3", "fix 3"),
@@ -1807,15 +1810,15 @@ class RoundNineTest(TempCase):
                 with self.subTest(root=root, delimiter=delimiter):
                     path = root + "Private  Client (Confidential)/project/src/x.py"
                     self.assert_private_topic_prompt(f"fix {delimiter}{path}{delimiter} now",
-                                                     f"fix {delimiter}x.py{delimiter} now")
+                                                     f"fix x.py{delimiter} now")
         for topic, expected in [
-            ('fix "/home/alice/Bob\'s Secret/project/a.py" now 2/3', 'fix "a.py" now 2/3'),
-            ('''fix '/home/alice/Client "Secret"/src/x.py' now''', "fix 'x.py' now"),
-            ('''fix `/home/alice/Bob's "Secret"/src/x.py` now''', 'fix `x.py` now'),
+            ('fix "/home/alice/Bob\'s Secret/project/a.py" now 2/3', 'fix 3'),
+            ('''fix '/home/alice/Client "Secret"/src/x.py' now''', "fix x.py' now"),
+            ('''fix `/home/alice/Bob's "Secret"/src/x.py` now''', 'fix x.py` now'),
             ('fix "edit /home/alice/Bob\'s Secret/src/x.py" now', 'fix "edit x.py" now'),
-            ('fix "/home/alice/Bob\'s Secret/src/x.py', 'fix "x.py'),
-            ("fix /home/alice/Private/src/x.py\nkeep 2/3 and a/b", "fix x.py keep 2/3 and a/b"),
-            ("ratio 2/3 and a/b", "ratio 2/3 and a/b"),
+            ('fix "/home/alice/Bob\'s Secret/src/x.py', 'fix x.py'),
+            ("fix /home/alice/Private/src/x.py\nkeep 2/3 and a/b", "fix b"),
+            ("ratio 2/3 and a/b", "ratio b"),
         ]:
             with self.subTest(topic=topic):
                 self.assert_private_topic_prompt(topic, expected)
@@ -1826,11 +1829,82 @@ class RoundNineTest(TempCase):
                      "/home/alice/Bob's Secret/project/x.py", "~/alice/Confidential/src/x.py",
                      "file:///home/alice/Private/src/x.py", "x:/home/alice/Private/src/x.py"):
             encoded = quote(path, safe="")
-            for raw, expected in ((f"https://e.com/?{encoded}=1", "https://e.com/?x.py=1"),
-                                  (f"https://e.com/?f={encoded}", "https://e.com/?f=x.py"),
-                                  (f"https://e.com/open/{encoded}", "https://e.com/open/x.py")):
+            for raw, expected in ((f"https://e.com/?{encoded}=1", "https://e.com"),
+                                  (f"https://e.com/?f={encoded}", "https://e.com"),
+                                  (f"https://e.com/open/{encoded}", "https://e.com/x.py")):
                 with self.subTest(url=raw):
                     self.assert_private_topic_prompt("see " + raw, "see " + expected)
+
+    def test_independent_reviewer_probes_never_reach_the_helper(self):
+        # Every input from rev-final/p4.py and e2e4.py, plus the requested variants.
+        cases = [
+            ("'/home/u/Uwe's Files/Client/x.py'", "x.py'"),
+            ("Check 'it in /home/u/Uwe's Files/Client/x.py", "Check 'it in x.py"),
+            ('"see /home/u/Sec" ret/Private/x.py', '"see x.py'),
+            ("open /home/u/My\nSecret Folder/x.py", "open x.py"),
+            (r"open C:\Users\Uwe\Secret\x.py", "open x.py"),
+            ("open ~uwe/Secret/x.py", "open x.py"),
+            ("open $HOME/Secret/x.py", "open x.py"),
+            ("build -I/home/u/Secret/include now", "build include now"),
+            ("open ./Secret/x.py and ../Client/y.py", "open y.py"),
+            ("see https://ex.com/v?f=%252Fhome%252Fu%252FSecret%252Fx.py", "see https://ex.com/v"),
+            ("see https://ex.com/a/%252Fhome%252Fu%252FSecret%252Fx.py", "see https://ex.com/x.py"),
+            ("see https://ex.com/#/home/u/My Secret/x.py", "see https://ex.com"),
+            ("see https://ex.com/?%2Fhome%2Fu%2FSecret%2Fx=1", "see https://ex.com"),
+            ("file://host/home/u/Secret/x.py done", "x.py done"),
+            ("FILE:///home/u/My%20Secret/x.py", "x.py"),
+            ("file:///home%2Fu%2FSecret%2Fx.py", "x.py"),
+            ("vscode://file/home/u/Secret/x.py:10", "x.py:10"),
+            ("(/home/u/Secret (old)/x.py)", "x.py)"),
+            ("open\t/home/u/Secret\t\tdir/x.py", "open x.py"),
+            ("fix ／home／u／Secret／x.py", "fix x.py"),
+            ("%HOME%/Secret/x.py", "x.py"),
+            (r"\\server\share\Secret\x.py", "x.py"),
+            ("x" * 100 + " /home/u/Secret/" + "y" * 30, "… …"),
+            ("/review fix the login bug in src/auth.py", "/review fix the login bug in auth.py"),
+            ("Compare A / B and C / D carefully", "Compare A / B and C / D carefully"),
+            ("Summarize TCP/IP and read/write in /etc/hosts and then explain DNS",
+             "Summarize hosts and then explain DNS"),
+            ("it’s /home/u/Secret/x.py", "it’s x.py"),
+            ("`/home/u/Se`cret/x.py`", "x.py`"),
+            ("«/home/u/Secret»/x", "x"),
+            ("path=/home/u/Uwe’s Secret/x.py", "x.py"),
+            ("\u2028/home/u/Secret/x.py", "x.py"),
+            ('https://ex.com/?q="/home/u/Secret dir/x.py"', "https://ex.com"),
+            ("scp a me@host:/home/u/Secret/x .", "scp a x ."),
+            ("ssh://host/home/u/Secret/x", "x"),
+            ("fix '/home/alice/Bob's Files/Client/a.py'", "fix a.py'"),
+            ("build -I/home/alice/Secret/include", "build include"),
+            ("open ~alice/Secret/x.py", "open x.py"),
+            ("see /home/alice/My\nSecret Folder/x.py", "see x.py"),
+            ("fix x/home/alice/Secret/x.py", "fix x.py"),
+            ("open ./Secret/x.py", "open x.py"),
+            ("open ../Client/y.py", "open y.py"),
+            ("open /home/alice/Private\r\nConfidential Folder/x.py", "open x.py"),
+            ("fix https://ex.com/a/%25252Fhome%25252Falice%25252FSecret%25252Fx.py",
+             "fix https://ex.com/x.py"),
+            ("fix https://ex.com/a/%EF%BC%8Fhome%EF%BC%8Falice%EF%BC%8FSecret%EF%BC%8Fx.py",
+             "fix https://ex.com/x.py"),
+            ("please /review fix ./Secret/x.py /summarize", "please /review fix x.py /summarize"),
+            ("/review/path fix the bug", "path fix the bug"),
+            (r"fix ／home／alice／Private\Client/x.py", "fix x.py"),
+            ("see https://ex.com/home/alice/Secret/x.py?f=/Private/Client/y.py#Confidential/Files",
+             "see https://ex.com/x.py"),
+            ("see https://ex.com/home/alice/Secret/", "see https://ex.com"),
+            ("see https://ex.com alice Private /home/alice/Secret/x.py", "see https://ex.com/x.py"),
+            ("see https://ex.com/home/alice/Private Folder/x.py now", "see https://ex.com/x.py now"),
+            ("see https://ex.com/home/alice/Bob's%20Files%2FSecret%2Fx.py", "see https://ex.com/x.py"),
+            ('see https://ex.com/home/alice/"Private%2FFolder%2Fx.py', "see https://ex.com/x.py"),
+        ]
+        for topic, expected in cases:
+            with self.subTest(topic=topic):
+                self.assert_private_topic_prompt(topic, expected)
+
+    def test_redaction_and_cut_follow_path_removal(self):
+        self.assert_private_topic_prompt("fix /home/alice/Private/x.py " + "word " * 40,
+                                         ("fix x.py " + "word " * 40)[:120])
+        self.assert_private_topic_prompt("fix /home/alice/Private/x.py " + "word " * 20
+                                         + "sk-abcdefghijklmnopqrstuvwxyz", "fix x.py " + "word " * 20 + "…")
 
 
 class SchemaTest(unittest.TestCase):
@@ -1842,6 +1916,19 @@ class SchemaTest(unittest.TestCase):
         self.assertIs(settings_schema.value({}, "ai_activity_import"), True)
         self.assertIs(settings_schema.value({}, "ai_activity_log_online"), False)
         self.assertEqual(settings_schema.value({"ai_activity_log_days": True}, "ai_activity_log_days"), 7)
+
+
+class EncodedSeparatorTest(unittest.TestCase):
+    """Encoded separators outside URLs are cut like plain ones."""
+
+    def test_encoded_paths_outside_urls_do_not_leak(self):
+        import activity_log
+        for text in ("?f=%252Fhome%252Fu%252FSecret%252Fx.py", "open %2Fhome%2Falice%2FSecret%2Fx.py",
+                     "C:%5CUsers%5CUwe%5CSecret%5Cx.py"):
+            out = activity_log.sanitize_topic(text)
+            for word in ("home", "alice", "Secret", "Users", "Uwe"):
+                self.assertNotIn(word, out or "", (text, out))
+            self.assertIn("x.py", out)
 
 
 if __name__ == "__main__":
