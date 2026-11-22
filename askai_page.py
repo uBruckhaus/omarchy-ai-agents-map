@@ -283,6 +283,9 @@ class AskAiPage:
         self.fill_ask_examples()
         self.fill_ask_suggestions()
         if prompt:
+            if self.ask_running is not None:
+                self.ask_running.set()          # its late answer must not land beside the new prompt
+                self.ask_running = None
             self.reset_ask_exchange()
             self.fill_ask(prompt)
         if not self.ask_running:
@@ -337,7 +340,7 @@ class AskAiPage:
             self.ask_cost.set_label("")
         else:
             cost = _("Local, no tokens") if helper.local else _("Online · uses plan/tokens")
-            self.ask_cost.set_label(f"{helper.name} · {cost}" if len(helpers) == 1 else cost)
+            self.ask_cost.set_label(cost if self.ask_helper_box.get_visible() else f"{helper.name} · {cost}")
         if not helpers:
             note = _("No AI helper is set up yet.")
         elif helper is None:
@@ -578,12 +581,7 @@ class AskAiPage:
     def ask_fresh(self):
         """Ask (the button, Enter): the field's question as a new one. A follow-up's or a question
         back's context never rides along with it (and the built-in questions stay answered locally)."""
-        if self.ask_running is not None:
-            return
-        self.ask_context = None
-        self.ask_context_helper = None
-        self.ask_clarification = None
-        self.ask_now()
+        self.ask_now(fresh=True)
 
     def ask_helper_for(self, request: str, answer, context):
         """The helper for this Ask; a built-in diagnostic question needs none (the app answers it from
@@ -593,19 +591,21 @@ class AskAiPage:
             return smart_card.Helper("", _("AI Agents Map"), local=True)
         return helper
 
-    def ask_now(self, answer: str | None = None, request: str | None = None):
+    def ask_now(self, answer: str | None = None, request: str | None = None, fresh: bool = False):
         """Ask the question (the field's, or `request`) across the whole map, in the background; Cancel
         ends it. The facts that take time (GPU, disks, sign-in files) are read in the worker."""
         if self.ask_running is not None:
             return
         request = (self.ask_draft() if request is None else request).strip()
         chosen = self.current_helper()
-        context = self.ask_context if self.ask_context and chosen is not None \
+        context = self.ask_context if not fresh and self.ask_context and chosen is not None \
             and chosen.command == self.ask_context_helper else None
         helper = self.ask_helper_for(request, answer, context)
         if helper is None or smart_card.request_problem(request, answer, context) is not None:
             self.update_ask_button()
-            return
+            return                              # nothing sent: the exchange stays as it was
+        if fresh:
+            self.ask_context = self.ask_context_helper = None
         facts = self.smart_facts(smart_card.AUTO, request, answer, probe=False)
         if context:
             facts["context"] = context
@@ -749,6 +749,7 @@ class AskAiPage:
         before = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), False)
         self.ask_mic.set_sensitive(False)
         self.ask_text.grab_focus()
+        generation = getattr(self, "ask_dictation_generation", 0)
 
         def work():
             text = ""
@@ -761,6 +762,8 @@ class AskAiPage:
 
         def done(text):
             self.ask_mic.set_sensitive(True)
+            if generation != getattr(self, "ask_dictation_generation", 0):
+                return False                         # Ask AI was closed meanwhile: the words are dropped
             now = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), False)
             if text and now == before:               # not typed in already: put it at the cursor
                 buffer.insert_at_cursor(("" if not now or now.endswith((" ", "\n")) else " ") + text)
@@ -769,7 +772,9 @@ class AskAiPage:
         threading.Thread(target=work, daemon=True).start()
 
     def stop_ask_dictation(self):
-        """Closing Ask AI while recording stops the microphone."""
+        """Closing Ask AI while recording stops the microphone; a transcription still on its way (Stop
+        was clicked before) is dropped when it arrives."""
+        self.ask_dictation_generation = getattr(self, "ask_dictation_generation", 0) + 1
         running = getattr(self, "ask_dictation", None)
         self.ask_dictation = None
         if running is None:
@@ -815,7 +820,6 @@ class AskAiPage:
             import install_recipes
             import terminal_pane
             agents = []
-            fresh = self.agent_updates_fresh() if auto else False
             for h in harnesses.all_harnesses():
                 agent = next((a for a in self.agent_list if a.command == h.command), None)
                 installed = bool(agent and agent.installed)
@@ -835,20 +839,16 @@ class AskAiPage:
                 }
                 if auto and installed:
                     entry["signed_in"] = self.sign_in_observed(h.command) if probe else None
-                    entry["update_available"] = (f"agent:{h.command}" in updates) if fresh else None
+                    entry["update_available"] = None           # smart_probes: from the cached check
                 agents.append(entry)
             facts["agents"] = agents
             facts["addons"] = (self.smart_addon_facts(agents=True) + self.smart_addon_facts(agents=False)) \
                 if auto else self.smart_addon_facts(agents=True)
             facts["providers_of"] = self.smart_provider_links()
             if auto:
-                mcp_open = self.mcp_updates_known()
-                facts["mcp_updates"] = mcp_open
-                facts["diagnostics"] = {
-                    "agents": agents,
-                    "agent_updates": [{"name": u.name, "current": u.current, "available": u.available}
-                                      for k, u in updates.items() if k.startswith("agent:")] if fresh else None,
-                    "mcp_updates": mcp_open}
+                # No recent check known until smart_probes reads the caches (off the GTK thread).
+                facts["mcp_updates"] = None
+                facts["diagnostics"] = {"agents": agents, "agent_updates": None, "mcp_updates": None}
         if auto or column == "providers":
             import install_ctl
             providers = []
@@ -904,9 +904,17 @@ class AskAiPage:
             facts["limits"] = {"vram": install_ctl.detect_gpu().vram, "ram": models_ctl.system_ram(),
                                "free_disk": free}
         if facts.get("column") == smart_card.AUTO:
+            agent_open = self.agent_updates_known()
+            keys = {u["key"] for u in agent_open or []}
             for entry in facts.get("agents") or []:
                 if entry.get("installed"):
                     entry["signed_in"] = self.sign_in_observed(entry["command"])
+                    entry["update_available"] = None if agent_open is None else entry["command"] in keys
+            mcp_open = self.mcp_updates_known()
+            facts["mcp_updates"] = mcp_open
+            diagnostics = facts.setdefault("diagnostics", {"agents": facts.get("agents") or []})
+            diagnostics["agent_updates"] = agent_open
+            diagnostics["mcp_updates"] = mcp_open
 
     @staticmethod
     def sign_in_observed(command: str):
@@ -931,16 +939,37 @@ class AskAiPage:
         now = time.time() if now is None else now
         return isinstance(checked, (int, float)) and 0 <= now - checked < agent_updates.CHECK_EVERY
 
+    def agent_updates_known(self, now: float | None = None):
+        """The agents' updates of a recent check ([{key, name, current, available}]), read from the
+        check's cache (the window's list may not be loaded yet), still open; None without a recent check."""
+        import agent_updates
+        if not self.agent_updates_fresh(now):
+            return None
+        saved = ai_core.load_settings(agent_updates.CACHE)
+        found = [agent_updates.Update(**u) for u in saved.get("updates") or [] if agent_updates._usable(u)] \
+            if isinstance(saved.get("updates"), list) else []
+        try:
+            found = agent_updates.still_open(found, self.agent_list, self.inventory.runtimes)
+        except (OSError, ValueError):
+            pass
+        return [{"key": u.key, "name": u.name, "current": u.current, "available": u.available}
+                for u in found if u.kind == "agent"]
+
     def mcp_updates_known(self):
-        """The MCP server updates of a recent daily AI check, or None when there is no recent check."""
+        """The MCP server updates of a recent AI check (daily, or Smart Check's Check now), read from its
+        cache and still open; None when there is no recent check."""
         import mcp_updates
         try:
             ok = mcp_updates._read(mcp_updates.CACHE).get("ok") is True and not mcp_updates.due()
         except (OSError, ValueError):
             ok = False
-        if not ai_core.setting("ai_checks") or not ok:
+        if not (ai_core.setting("ai_checks") or getattr(self, "mcp_check_forced", False)) or not ok:
             return None
-        return [{"name": u.name, "current": u.current, "latest": u.latest} for u in self.open_ai_mcp_updates()]
+        try:
+            found = mcp_updates.still_open(mcp_updates.cached(), mcp_updates.installed_servers())
+        except (OSError, ValueError):
+            found = list(getattr(self, "ai_mcp_updates", []))
+        return [{"name": u.name, "current": u.current, "latest": u.latest} for u in found]
 
     def smart_provider_links(self) -> dict:
         """The providers an agent can be connected to (the map's online providers and local LLMs) and

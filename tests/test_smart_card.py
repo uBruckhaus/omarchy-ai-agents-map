@@ -293,7 +293,8 @@ class AutoTest(unittest.TestCase):
     def test_sources(self):
         self.assertTrue(sc.source_ok("https://docs.example.org/x?y=1"))
         for bad in ("http://a.example", "https://", "https://a b", "https://u@a.example", "javascript:x",
-                    "https://a.example/\n", 7, "https://a.example/" + "x" * 3000):
+                    "https://a.example/\n", 7, "https://a.example/" + "x" * 3000,
+                    "https://example.org:abc/", "https://example.org:99999/"):
             self.assertFalse(sc.source_ok(bad), bad)
 
     def test_the_prompt_has_the_map_but_no_paths(self):
@@ -662,7 +663,9 @@ class SettingsLockTest(unittest.TestCase):
         import tempfile
         import ai_core
         import askai_page
+        import shutil
         folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
         path = Path(folder) / "settings.json"
         path.write_text(json.dumps({"ask_prompts": {"agents": [2]}}))
 
@@ -690,6 +693,143 @@ class SettingsLockTest(unittest.TestCase):
         self.assertTrue(held and all(held))
         self.assertEqual(json.loads(path.read_text())["ask_prompts"],
                          {"agents": [2], "models": ["Find a coder model"], "general": ["Mine"]})
+
+
+class CoreRoundTwoTest(unittest.TestCase):
+    """Codex and Antigravity, round 2: the core's own limits and cancellation."""
+
+    def test_ask_enforces_the_limits_itself(self):
+        cases = [dict(request="  "), dict(request="x" * 2001), dict(answer="a" * 201),
+                 dict(context="c" * 3001)]
+        for more in cases:
+            run = Counting('{"action": "answer", "summary": "x"}')
+            out = sc.ask(helper(), auto_facts(**more), run=run)
+            self.assertEqual((out["status"], run.prompts), ("error", []), list(more))
+        run = Counting('{"action": "update", "agents": ["claude"]}')
+        out = sc.ask(helper(), facts("agents", context="earlier"), run=run)     # context: auto only
+        self.assertEqual((out["status"], run.prompts), ("error", []))
+        out = sc.ask(helper(), auto_facts(request="x" * 2000, context="c" * 3000), run=Counting(
+            '{"action": "answer", "summary": "ok"}'))
+        self.assertEqual(out["status"], "answer")
+
+    def test_a_helper_run_ended_by_cancel_is_cancelled_not_an_error(self):
+        import threading
+        cancel = threading.Event()
+
+        def run(command, prompt):
+            cancel.set()
+            raise RuntimeError("killed")
+        self.assertEqual(sc.ask(helper(), auto_facts(), run=run, cancel=cancel)["status"], "cancelled")
+
+        cancel = threading.Event()
+
+        def look_up(*_args):
+            cancel.set()
+            raise RuntimeError("killed")
+        out = sc.ask(helper(), auto_facts(), run=Counting('{"action": "lookup", "question": "q"}'),
+                     look_up=look_up, cancel=cancel)
+        self.assertEqual(out["status"], "cancelled")
+
+    def test_no_fallback_model_search_after_cancel(self):
+        import threading
+        import models_ctl
+        cancel = threading.Event()
+        searched = []
+
+        def search(words, limit):
+            searched.append(words)
+            cancel.set()                      # Cancel during the first (empty) search
+            return []
+
+        def run(command, prompt):
+            return '{"area": "models", "action": "search", "query": "qwen coder", "runtime": "ollama"}'
+        with mock.patch.object(models_ctl, "search", search):
+            out = sc.ask(helper(), auto_facts(), run=run, cancel=cancel)
+        self.assertEqual((out["status"], searched), ("cancelled", ["qwen coder"]))
+
+    def test_an_add_on_proposal_keeps_its_summary(self):
+        out = sc.ask(helper(), auto_facts(), run=Counting(
+            '{"action": "addon", "step": "on", "addons": ["agent-goose"], "summary": "Goose needs its add-on."}'))
+        self.assertEqual(out["summary"], "Goose needs its add-on.")
+
+    def test_the_prompt_marks_everything_from_outside_as_data(self):
+        prompt = sc.auto_prompt(auto_facts())
+        self.assertNotIn("one column", prompt)
+        self.assertIn("the previous exchange", prompt)
+
+
+class PageRoundTwoTest(PageBase):
+    def test_a_late_transcription_after_closing_is_dropped(self):
+        import askai_page
+        later = []
+        page = self.page
+        page.ask_mic = Thing(active=True)
+        page.ask_dictation = type("D", (), {"stop": lambda _s: "late words"})()
+        with mock.patch.object(askai_page.threading, "Thread",
+                               lambda target, daemon: type("T", (), {"start": lambda _s: later.append(target)})()):
+            page.on_ask_mic(False)                       # Stop: the words are on their way
+        page.stop_ask_dictation()                        # then Ask AI closes
+        later[0]()
+        self.assertEqual(page.ask_draft(), "")
+
+    def test_an_opened_prompt_ends_the_ask_under_way(self):
+        import threading
+        running = threading.Event()
+        page = self.page
+        page.ask_running = running
+        for name in ("ask_helpers",):
+            setattr(page, name, lambda: page.ask_helper_list)
+        page.ask_helper_box.set_model = lambda m: None
+        page.ask_helper_box.get_visible = lambda: False
+        page.update_ask_cost = lambda: None
+        page.fill_ask_examples = page.fill_ask_suggestions = lambda: None
+        page.page_name = lambda: "main"
+        page.show_page = lambda name: None
+        page.ask_mic = Thing()
+        with mock.patch("ai_core.setting", lambda key, *a: None), \
+                mock.patch.object(self.module.Gtk, "StringList", mock.MagicMock()):
+            page.open_ask_ai(prompt="Ollama")
+        self.assertTrue(running.is_set())
+        self.assertEqual(page.ask_draft(), "Ollama")
+
+    def test_enter_on_an_empty_field_keeps_the_exchange(self):
+        self.page.ask_context, self.page.ask_context_helper = "earlier", "claude"
+        self.type("")
+        self.page.ask_fresh()
+        self.assertEqual(self.page.ask_context, "earlier")
+
+    def test_update_diagnostics_come_from_the_caches(self):
+        import json
+        import tempfile
+        import time
+        import agent_updates
+        import mcp_updates
+        page = self.page
+        page.agent_list = [type("A", (), {"command": "claude", "installed": True, "version": "2.0.1"})()]
+        page.inventory = type("I", (), {"runtimes": []})()
+        page.ai_mcp_updates = []                          # the window's lists are not loaded yet
+        with tempfile.TemporaryDirectory() as folder:
+            cache = Path(folder) / "updates.json"
+            cache.write_text(json.dumps({"checked": time.time(), "updates": [
+                {"kind": "agent", "key": "claude", "name": "Claude Code", "current": "2.0.1", "available": "2.0.3",
+                 "command": [], "page": False}]}))
+            with mock.patch.object(agent_updates, "CACHE", cache):
+                self.assertEqual(page.agent_updates_known(), [
+                    {"key": "claude", "name": "Claude Code", "current": "2.0.1", "available": "2.0.3"}])
+            stale = Path(folder) / "old.json"
+            stale.write_text(json.dumps({"checked": 0, "updates": []}))
+            with mock.patch.object(agent_updates, "CACHE", stale):
+                self.assertIsNone(page.agent_updates_known())
+        found = mcp_updates.Found("fetch", "", "1.0", "1.1", "", "", "", "")
+        with mock.patch.object(mcp_updates, "_read", lambda cache: {"ok": True}), \
+                mock.patch.object(mcp_updates, "due", lambda: False), \
+                mock.patch.object(mcp_updates, "cached", lambda: [found]), \
+                mock.patch.object(mcp_updates, "installed_servers", lambda: []), \
+                mock.patch.object(mcp_updates, "still_open", lambda f, s: f), \
+                mock.patch("ai_core.setting", lambda key, *a: False):
+            self.assertIsNone(page.mcp_updates_known())   # daily checks off, no Check now
+            page.mcp_check_forced = True
+            self.assertEqual(page.mcp_updates_known(), [{"name": "fetch", "current": "1.0", "latest": "1.1"}])
 
 
 class SuggestionsTest(unittest.TestCase):

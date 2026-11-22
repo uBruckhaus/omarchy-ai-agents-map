@@ -1912,6 +1912,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         return command not in skills_ctl.NATIVE and command not in mcp_ctl.SUPPORTED
 
     ai_mcp_updates = []              # the daily AI checks' finds (mcp_updates.Found)
+    mcp_check_forced = False         # Check now ran this session (Ask AI's diagnostics use its cache)
     ai_checking_mcp = False
 
     def ai_check_mcp_updates(self, force: bool = False):
@@ -1941,6 +1942,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             if isinstance(found, Exception):
                 found = []
             self.ai_checking_mcp = False
+            self.mcp_check_forced = self.mcp_check_forced or force    # Ask AI trusts its cache too
             if (ai_core.setting("ai_checks") or force) and [vars(f) for f in found] != [vars(f) for f in self.ai_mcp_updates]:
                 self.ai_mcp_updates = found
                 self.refresh_overview()
