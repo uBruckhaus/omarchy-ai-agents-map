@@ -1408,12 +1408,12 @@ class ReviewRoundFourTest(CenterCase):
             begin(found, active)
             self.processes[0].finish("Lead stopped.")       # the agent ends by itself right away
         self.center._begin_pause = begin_and_end
-        original_pause = self.center._pause
+        original_stop = self.center._stop_attempt
 
-        def late_pause(params, lifecycle=True):             # the old path: looked the attempt up again
+        def late_stop(project_id, active):                  # the attempt is gone before the stop
             wait_until(lambda: item["id"] not in self.center._active, timeout=5)
-            return original_pause(params, lifecycle)
-        self.center._pause = late_pause
+            return original_stop(project_id, active)
+        self.center._stop_attempt = late_stop
         sent = self.center.call("message", {"id": item["id"], "run_id": item["run_id"], "text": "Now.",
                                             "mode": "now", "acknowledge_interrupted": True})
         self.assertTrue(sent["continued"], sent["reason"])
@@ -1447,6 +1447,136 @@ class ReviewRoundFourTest(CenterCase):
         pauser.join(10)
         self.assertTrue(stopped, "Pause waited for the discovery")
         self.assertEqual(result["project"]["status"], "paused")
+
+
+class ReviewRoundFiveTest(CenterCase):
+    def test_a_stop_racing_a_written_go_ahead_waits_for_its_record(self):
+        script = self.root / "spawning.py"
+        script.write_text(SPAWNING_SUPERVISOR)
+        escaped = self.root / "escaped.pid"
+        real_write = os.write
+        written, release = threading.Event(), threading.Event()
+        seen, outcome = {}, {}
+
+        def authorize(managed):
+            seen["managed"] = managed
+
+            def write(fd, data):
+                count = real_write(fd, data)
+                if b'"launch"' in bytes(data):
+                    written.set()
+                    release.wait(10)           # the writer holds on after the write, before its record
+                return count
+            seen["patch"] = mock.patch.object(ps.os, "write", side_effect=write)
+            seen["patch"].start()
+            return True
+
+        def start():
+            try:
+                ps.run([sys.executable, "-c", "pass"], str(self.root), dict(os.environ), None,
+                       str(self.root / "l"), authorize, supervisor=[sys.executable, str(script)])
+            except ProjectError as error:
+                outcome["start"] = error.code
+        starter = threading.Thread(target=start)
+        starter.start()
+        try:
+            self.assertTrue(written.wait(10))
+            managed = seen["managed"]
+            wait_until(lambda: managed._confirmed.done, timeout=10)       # the supervisor is gone
+
+            def stop():
+                try:
+                    managed.stop(wait=1.0)
+                    outcome["stop"] = "confirmed"
+                except ProjectError as error:
+                    outcome["stop"] = error.code
+            stopper = threading.Thread(target=stop)
+            stopper.start()
+            time.sleep(0.3)
+            self.assertNotIn("stop", outcome)                              # waits for the writer
+            release.set()
+            stopper.join(10)
+            starter.join(10)
+            self.assertEqual(outcome["stop"], "project_processes_still_running")
+            self.assertNotIn("start", outcome)                              # it may have launched
+        finally:
+            release.set()
+            seen.get("patch") and seen["patch"].stop()
+            wait_until(escaped.exists, timeout=10)
+            wait_until(lambda: escaped.read_text().strip() != "", timeout=5)
+            try:
+                os.kill(int(escaped.read_text()), 9)
+            except ProcessLookupError:
+                pass
+            if "managed" in seen:
+                seen["managed"]._reap(0.0)
+
+    def test_only_the_failure_of_the_confirmed_process_is_taken_over(self):
+        item = self.save()
+        confirmed, other = FakeProcess(), FakeProcess()
+        active = pc._Attempt()
+        active.process, active.finished, active.cleanup_failed, active.failed_process = confirmed, True, True, other
+        with self.center._lock:
+            self.center._active[item["id"]] = active
+        result = {}
+
+        def stop():
+            try:
+                self.center._stop_attempt(item["id"], active)
+                result["done"] = True
+            except ProjectError as error:
+                result["error"] = error.code
+        stopping = threading.Thread(target=stop)
+        stopping.start()
+        time.sleep(0.5)
+        self.assertTrue(confirmed.stopped)
+        self.assertIn(item["id"], self.center._active)         # another process's failure: not taken over
+        self.assertEqual(result, {})
+        with self.center._lock:
+            active.failed_process = confirmed                    # now it is the one that failed
+        stopping.join(10)
+        self.assertEqual(result, {"done": True})
+        self.assertNotIn(item["id"], self.center._active)
+        self.assertEqual(self.get(item["id"])["status"], "paused")
+
+    def test_a_scan_from_before_a_discovery_change_is_not_installed(self):
+        self.add_runtime()
+        item = self.approve(self.save(plan="A plan.", team=[{"agent": "fixture", "role": "lead",
+                                                             "runtime": "runtime", "provider": "local-provider",
+                                                             "model": "tiny-model"}]))
+        gate, scanning = threading.Event(), threading.Event()
+        stopped = [dict(self.runtimes[0], running=False)]
+
+        def slow():
+            scanning.set()
+            gate.wait(10)
+            return stopped
+        self.center.runtime_profiles = slow
+        self.center.discovery_generation += 1
+        lister = threading.Thread(target=lambda: self.center.call("list", {}))
+        lister.start()
+        scanning.wait(5)
+        self.center.runtime_profiles = lambda: self.runtimes        # fixed meanwhile
+        self.center.discovery_generation += 1
+        gate.set()
+        lister.join(10)
+        self.assertEqual(self.card(item["id"])["activity"], "ready_to_run")
+
+    def test_a_closed_center_says_so_before_any_discovery(self):
+        item = self.approve(self.save(plan="A plan."))
+        self.center.shutdown()
+
+        def broken():
+            raise OSError("discovery failed")
+        self.center.agent_profiles = broken
+        self.assertCode("project_center_closed", self.center.call, "run",
+                        {"id": item["id"], "revision": item["revision"]})
+
+    def test_a_refused_launch_leaves_a_display_snapshot(self):
+        item = self.approve(self.save(plan="A plan."))
+        self.assertCode("project_changed", self.center.call, "run", {"id": item["id"], "revision": 999})
+        self.assertIsNotNone(self.center._display)
+        self.assertTrue(self.get(item["id"])["approval_valid"])
 
 
 class SupervisorControlTest(unittest.TestCase):
