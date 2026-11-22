@@ -60,7 +60,9 @@ GAMES = ("chess",)
 # How long the agent may think (AI Playground's Thinking time): per level, its own options for how
 # hard the model thinks (ask.effort), put in before the prompt.
 THINKING = ("quick", "normal", "deep", "max")
-SESSIONS = {"reader": STR, "hook": BOOL, "note": STR, "note_args": STRS}
+ACTIVITY_FORMS = ("claude-files", "codex-jsonl", "pi-files", "trajectory-sqlite")   # agent_activity_report.FORMS
+SESSIONS = {"reader": STR, "hook": BOOL, "note": STR, "note_args": STRS,
+            "activity_reader": STR, "activity_dir": STR, "extra_dir_option": STR}
 DETAILS = {"reader": STR, "dir": STR, "hook": BOOL}     # its model and providers, read from its settings
 MODELS = {"reader": STR, "hook": BOOL}                  # the online models it can be switched to
 TOOLS = {"file": STR, "key": STR}                       # the tools it is given (a JSON list)
@@ -329,6 +331,13 @@ def check(data: dict, name: str) -> None:
                 raise AdapterError(f"{name}: plan_limits.store must be a json or toml file in ~/")
     sessions = data.get("sessions", {})
     _check(sessions, SESSIONS, f"{name}: sessions")
+    if sessions.get("activity_reader", "claude-files") not in ACTIVITY_FORMS:
+        raise AdapterError(f"{name}: sessions.activity_reader must be one of {', '.join(ACTIVITY_FORMS)}")
+    if "activity_dir" in sessions and (not sessions["activity_dir"].startswith("~/")
+                                       or ".." in Path(sessions["activity_dir"]).parts):
+        raise AdapterError(f"{name}: sessions.activity_dir must be a folder in ~/")
+    if "extra_dir_option" in sessions and not re.fullmatch(r"--?[A-Za-z][A-Za-z0-9-]{0,40}", sessions["extra_dir_option"]):
+        raise AdapterError(f"{name}: sessions.extra_dir_option must be an option (\"--add-dir\")")
     if "reader" in sessions and sessions["reader"] not in READERS:
         raise AdapterError(f"{name}: sessions.reader “{sessions['reader']}” is not one the app has "
                            f"({', '.join(READERS)})")
@@ -595,6 +604,9 @@ def harness(data: dict, name: str = "adapter", hooks=None) -> Harness:
         plan_limits=_plan_limits(data["plan_limits"]) if "plan_limits" in data else (),
         project=json.dumps(data["project"], sort_keys=True, ensure_ascii=False) if "project" in data else "",
         session_files=data.get("sessions", {}).get("reader", ""),
+        activity_reader=data.get("sessions", {}).get("activity_reader", ""),
+        activity_dir=data.get("sessions", {}).get("activity_dir", ""),
+        extra_dir_option=data.get("sessions", {}).get("extra_dir_option", ""),
         usage=ref(*USAGE[data["usage"]]) if "usage" in data else None,
         local_llm=llm, skills=skills, mcp=mcp,
         login_status=(tuple(data["login_status"]["argv"]), data["login_status"]["no"], data["login_status"]["yes"])

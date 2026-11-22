@@ -153,6 +153,15 @@ SCHEMA: dict[str, Setting] = {
     "map_scan_targets": Setting(list(MAP_SCAN_TARGETS), lambda v: _texts(v) and set(v) <= set(MAP_SCAN_TARGETS),
                                 "Background scan groups; startup/manual Refresh always refresh everything"),
     "map_animations": Setting("all", _one_of(*MAP_ANIMATIONS), "Settings › Map animations"),
+    # The activity log and Reports (Maprisma tasks 074-076: activity_log.py, history_import.py, reports_ctl.py)
+    "ai_activity_log": Setting(False, _bool, "Reports › Log: AI activity log (local activity observations; off by default)"),
+    "ai_activity_log_days": Setting(7, lambda v: type(v) is int and 1 <= v <= 365,
+                                    "Reports › Log: Keep log for (days), including today"),
+    "ai_activity_import": Setting(True, _bool, "Reports › Log: Collect activity from agent history"),
+    "ai_activity_import_topics": Setting(True, _bool, "Reports › Log: Use the agent's request as topic"),
+    "ai_activity_local_topics": Setting(False, _bool, "Reports › Log: Topic summaries by local LLM"),
+    "ai_activity_log_online": Setting(False, _bool, "Reports › Topic reports: online helpers may write topic reports "
+                                      "(Maprisma's Ask AI data rule maprisma.activity_log_online)"),
     "usage_box": Setting(True, _bool, "Settings › Usage statistics box: shown on a working agent's line"),
     "usage_box_items": Setting(list(USAGE_BOX_ITEMS), lambda v: _texts(v) and set(v) <= set(USAGE_BOX_ITEMS),
                                "Settings › Usage statistics box: what it shows (usage_box.ITEMS)"),

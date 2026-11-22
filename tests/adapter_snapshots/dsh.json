@@ -63,6 +63,9 @@
  "replies": [],
  "subagents": [],
  "session_files": "dsh-files",
+ "activity_reader": "",
+ "activity_dir": "",
+ "extra_dir_option": "",
  "asks_setting": "",
  "access": {
   "how": "An API key from platform.deepseek.com, or a local LLM from the map",

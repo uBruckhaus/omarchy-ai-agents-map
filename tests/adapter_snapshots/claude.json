@@ -177,6 +177,9 @@
   "~/.claude/projects"
  ],
  "session_files": "claude-files",
+ "activity_reader": "",
+ "activity_dir": "~/.claude/projects",
+ "extra_dir_option": "--add-dir",
  "asks_setting": "permissions.defaultMode",
  "project": "{\"model_option\": \"--model\", \"native_subagents\": true, \"permissions\": \"Planning and review read project files. Execution may edit project files; shell commands and external MCP tools are disabled.\", \"plan\": [\"claude\", \"-p\", \"--restricted\", \"--permission-mode\", \"plan\", \"--tools\", \"Read,Glob,Grep,Agent\", \"--strict-mcp-config\", \"--settings\", \"{\\\"disableAllHooks\\\":true}\", \"{prompt}\"], \"run\": [\"claude\", \"-p\", \"--restricted\", \"--permission-mode\", \"acceptEdits\", \"--permission-prompts\", \"none\", \"--tools\", \"Read,Glob,Grep,Edit,Write,Agent\", \"--strict-mcp-config\", \"--settings\", \"{\\\"disableAllHooks\\\":true}\", \"{prompt}\"], \"setup\": [\"claude\", \"-p\", \"--safe-mode\", \"--restricted\", \"--permission-mode\", \"plan\", \"--permission-prompts\", \"none\", \"--tools\", \"\", \"--strict-mcp-config\", \"--no-session-persistence\", \"--disable-slash-commands\", \"--settings\", \"{\\\"disableAllHooks\\\":true}\", \"{prompt}\"], \"subagent_definitions\": {\"researcher\": {\"description\": \"Read-only project researcher\", \"prompt\": \"Inspect the project and return evidence-based findings. Do not change files or run commands.\", \"tools\": [\"Read\", \"Glob\", \"Grep\"]}, \"reviewer\": {\"description\": \"Read-only project reviewer\", \"prompt\": \"Inspect the project and return actionable correctness findings with file evidence, or CLEAN. Do not change files or run commands.\", \"tools\": [\"Read\", \"Glob\", \"Grep\"]}}, \"subagent_option\": \"--agents\"}",
  "access": {

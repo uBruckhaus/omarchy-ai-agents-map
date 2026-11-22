@@ -191,6 +191,9 @@
   "~/.codex/sessions"
  ],
  "session_files": "codex-files",
+ "activity_reader": "codex-jsonl",
+ "activity_dir": "~/.codex/sessions",
+ "extra_dir_option": "--add-dir",
  "asks_setting": "approval_policy",
  "project": "{\"model_option\": \"--model\", \"permissions\": \"Planning and review are read-only. Execution may edit and run commands in the project sandbox, with command network access disabled.\", \"plan\": [\"codex\", \"--ask-for-approval\", \"never\", \"exec\", \"--sandbox\", \"read-only\", \"--skip-git-repo-check\", \"--color\", \"never\", \"--disable\", \"apps\", \"--disable\", \"plugins\", \"--disable\", \"hooks\", \"{prompt}\"], \"run\": [\"codex\", \"--ask-for-approval\", \"never\", \"exec\", \"--sandbox\", \"workspace-write\", \"--skip-git-repo-check\", \"--color\", \"never\", \"--disable\", \"apps\", \"--disable\", \"plugins\", \"--disable\", \"hooks\", \"-c\", \"sandbox_workspace_write.network_access=false\", \"{prompt}\"]}",
  "access": {

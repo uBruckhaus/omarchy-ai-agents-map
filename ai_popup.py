@@ -119,6 +119,8 @@ from smart_check_page import SmartCheckPage
 from llm_help_page import LlmHelpPage
 from first_agent_page import FirstAgentPage
 from projects_page import ProjectsPage  # the AI Project Center's Projects page (WP6)
+from reports_page import ReportsPage
+from agent_activity_dialog import AgentActivityDialog
 import guide_navigation
 from skills_page import SkillsPage
 from mcp_pages import McpPages
@@ -182,7 +184,8 @@ class AppWindow(Adw.ApplicationWindow):
 
 
 class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, DetailsPages, InfoPage, McpPages, SkillsPage, ConnectPage, ConfigureMenu, TrafficPage, SubagentsPage, ModelsPage, SmartCheckPage,
-                LlmHelpPage, FirstAgentPage, ProjectsPage, Adw.Application):
+                LlmHelpPage, FirstAgentPage, ProjectsPage, ReportsPage, AgentActivityDialog,
+                Adw.Application):
     def __init__(self):
         super().__init__(application_id=desktop.app_id())
         self.window = None
@@ -449,6 +452,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         stack.add_named(self.build_info_page(), "info")     # the author's other Omarchy plugins
         stack.add_named(self.build_reorganize_page(), "reorganize")
         stack.add_named(self.build_setup_page(), "setup")
+        stack.add_named(self.build_reports_page(), "reports")   # Reports (tasks 075/076)
         if hasattr(self, "build_addons_page"):
             stack.add_named(self.build_addons_page(), "addons")
         stack.add_named(self.build_projects_page(), "projects")    # open_projects(); WP7 makes it a tab
@@ -1341,6 +1345,10 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
                 working = self.working_now(pids, usage, runtimes)
             except Exception:
                 working = set(running)
+            try:
+                self.observe_activity(working, pids, usage, runtimes)   # the AI activity log (opt-in)
+            except Exception:
+                pass
             try:
                 outside = self.outside_now(usage, runtimes)
             except Exception:
@@ -4469,7 +4477,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
                 "providerconfig": self.close_provider_config,
                 "subagents": self.close_subagents,
                 "addmcp": self.close_add_mcp, "addskills": self.close_add_skills,
-                "askai": self.close_ask_ai}
+                "askai": self.close_ask_ai, "reports": self.close_reports}
 
     def editing(self) -> bool:
         """A text field (an entry, a search field, a number field, a text box) has the keyboard."""
@@ -4492,6 +4500,9 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             return False          # Esc, Backspace, Ctrl+… belong to the agent
         if keyval == Gdk.KEY_F12 and ai_core.setting("screenshot_key") is not False:
             self.take_screenshot()                 # Maprisma's F12: this window, privately, with a note
+            return True
+        if keyval == Gdk.KEY_F1 and page == "reports":
+            self.show_reporting_help()             # F1 on Reports: How reporting works, not Help
             return True
         if keyval == Gdk.KEY_F1 and page != "help":
             self.open_help()
@@ -4602,6 +4613,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             self.splash_counts()
         self.sync_provider_watch()
         if show:
+            self.reports_shown()             # observing again before the first poll; the Log refresh goes on
             self.start_gpu_poll()
         # A new agent is looked up only when the user asks for it (map menu); nothing is sent by itself.
         self.ai_check_mcp_updates()
@@ -4718,6 +4730,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             except OSError:
                 pass
         self.stop_gpu_poll()
+        self.reports_hidden()            # the Reports page's timers stop with the window
         self.map_view.set_shift(False)   # Shift may have been let go elsewhere
         page = self.page_name()
         if page == "settings":

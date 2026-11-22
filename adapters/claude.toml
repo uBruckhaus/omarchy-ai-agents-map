@@ -19,6 +19,8 @@ self = ["claude", "update"]            # its own updater
 latest = "claude-channel"              # a reader the app has: the newest version of its channel
 
 [sessions]
+activity_dir = "~/.claude/projects"
+extra_dir_option = "--add-dir"
 reader = "claude-files"                # a reader the app has (~/.claude/projects)
 note = "Numbers from Claude Code's session files (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs."
 

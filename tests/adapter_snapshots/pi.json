@@ -129,6 +129,9 @@
  ],
  "subagents": [],
  "session_files": "pi-files",
+ "activity_reader": "",
+ "activity_dir": "~/.pi/agent/sessions",
+ "extra_dir_option": "",
  "asks_setting": "defaultTools",
  "project": "{\"access_modes\": [\"read-only\"], \"model_option\": \"--model\", \"permissions\": \"Reads and searches files only. Pi has no filesystem sandbox or approval prompts; edits and shell commands are unavailable in this managed profile. Offline disables startup checks, not inference requests.\", \"plan\": [\"pi\", \"--print\", \"--offline\", \"--no-session\", \"--no-mcp\", \"--no-extensions\", \"--no-skills\", \"--no-prompt-templates\", \"--no-approve\", \"--tools\", \"read,grep,find,ls\", \"{prompt}\"], \"provider_option\": \"--provider\", \"run\": [\"pi\", \"--print\", \"--offline\", \"--no-session\", \"--no-mcp\", \"--no-extensions\", \"--no-skills\", \"--no-prompt-templates\", \"--no-approve\", \"--tools\", \"read,grep,find,ls\", \"{prompt}\"], \"setup\": [\"pi\", \"--print\", \"--offline\", \"--no-session\", \"--no-tools\", \"--no-mcp\", \"--no-extensions\", \"--no-skills\", \"--no-prompt-templates\", \"--no-context-files\", \"--no-approve\", \"{prompt}\"]}",
  "access": {

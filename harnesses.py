@@ -211,6 +211,10 @@ class Harness:
                                       # prefix, context size), …)): the map's usage statistics box (usage_box)
     subagents: tuple = ()             # (format, "~/…" where it keeps them): its subagents (subagents.py)
     session_files: str = ""           # its [sessions] reader ("pi-files", "claude-files"): session_follow.py follows those
+    activity_reader: str = ""         # its live session form for What is it doing? and Collect history
+                                      # ([sessions] activity_reader, agent_activity_report.FORMS)
+    activity_dir: str = ""            # "~/…" folder of those session files
+    extra_dir_option: str = ""        # its option that adds a project folder ("--add-dir")
     asks_setting: str = ""            # the security setting that says when it asks before acting
     project: str = ""                 # its [project] table as JSON text (adapter_data.PROJECT): the AI
                                       # Project Center's managed commands; "" = no managed profile
@@ -367,7 +371,8 @@ def _extended(harness: Harness) -> Harness:
 # app's own adapter for the same agent gives them until the add-on is signed again.
 NEWER_FACTS = ("home", "activity", "details", "program_dir", "web_search", "chat_app", "herdr", "logout",
                "start", "research", "rewrite", "task", "closed", "advise", "models", "tools_setting", "sandbox_setting",
-               "asks_setting", "replies", "subagents", "sessions", "install_marks", "plan_limits")
+               "asks_setting", "replies", "subagents", "sessions", "install_marks", "plan_limits",
+               "activity_reader", "activity_dir", "extra_dir_option")
 
 
 def _with_newer_facts(harness: Harness) -> Harness:

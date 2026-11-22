@@ -73,6 +73,9 @@
  "replies": [],
  "subagents": [],
  "session_files": "",
+ "activity_reader": "trajectory-sqlite",
+ "activity_dir": "~/.gemini/antigravity-cli/conversations",
+ "extra_dir_option": "--add-dir",
  "asks_setting": "toolPermission",
  "project": "{\"model_option\": \"--model\", \"permissions\": \"Planning and review use plan mode. Execution may edit project files in the sandbox; tool requests needing approval are denied in this managed session.\", \"plan\": [\"agy\", \"--mode\", \"plan\", \"--sandbox\", \"--settings\", \"{\\\"toolPermission\\\":\\\"request-review\\\",\\\"allowNonWorkspaceAccess\\\":false}\", \"-p\", \"{prompt}\"], \"run\": [\"agy\", \"--mode\", \"accept-edits\", \"--sandbox\", \"--settings\", \"{\\\"toolPermission\\\":\\\"request-review\\\",\\\"allowNonWorkspaceAccess\\\":false}\", \"-p\", \"{prompt}\"]}",
  "access": {
