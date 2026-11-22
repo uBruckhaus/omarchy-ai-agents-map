@@ -24,7 +24,7 @@ from main_tabs import MainTabs  # noqa: E402
 WINDOW_BUTTONS = 110            # what the desktop's minimize / maximize / close take beside the header
 COPIED = ("build_header", "build_header_more", "header_clipper", "update_header_layout", "setup_header_order",
           "apply_header_order", "header_items", "header_position", "header_item_at", "header_child_shown",
-          "header_need", "queue_header_layout", "run_header_layout", "update_header", "apply_theme_css",
+          "header_need", "header_child_width", "queue_header_layout", "run_header_layout", "update_header", "apply_theme_css",
           "apply_style_scheme", "adw_colors_css", "header_wanted", "header_child_changed", "set_header_wanted")
 FULL = {"connected": True, "running": 3, "pausing": 1, "needs_you": 12, "attention_projects": 7,
         "error": "project_store_corrupt"}
@@ -128,6 +128,58 @@ def fits(host, header, label):
         child = child.get_next_sibling()
 
 
+def stable(host, header, level, label):
+    """Checked again and again at the same width (the 10 s summary, the status, a redraw): the same level,
+    nothing cut off (Codex r8: hidden symbols measured as 0 made it flip back to the full row)."""
+    for turn in range(3):
+        host.update_header_layout()
+        assert host.header_level == level, (label, "check", turn, host.header_level, "was", level)
+        host.update_main_tabs()                 # as the summary poll does
+        spin(0.2)
+        assert host.header_level == level, (label, "turn", turn, host.header_level, "was", level)
+        fits(host, header, f"{label}, turn {turn}")
+
+
+def resize(width_from: int):
+    """One window made narrow, wide and narrow again: each time the level fits its width again."""
+    window = Gtk.Window(default_width=width_from, default_height=200)
+    host = Host(window)
+    try:
+        host.apply_theme_css()
+    except Exception:
+        pass
+    header = host.build_header()
+    holder = Gtk.Box()
+    holder.append(host.header_clipper(header))
+    holder.append(Gtk.Box(width_request=WINDOW_BUTTONS))
+    window.set_child(holder)
+    window.present()
+    host.project_summary = dict(FULL)
+    host.update_main_tabs()
+    host.set_header_wanted(host.problem_button, True)
+    host.set_header_wanted(host.smartcheck_button, True)
+    host.main_tab = "map"
+    host.update_header()
+    seen = []
+    for width in (width_from, 1000, 600, 1000, 420, 900):   # Broadway's screen is 1024 px wide
+        window.set_default_size(width, 200)
+        deadline = time.monotonic() + 4
+        while window.get_width() != width and time.monotonic() < deadline:
+            spin(0.1)
+        assert window.get_width() == width, ("not resized", width, window.get_width())
+        host.update_main_tabs()                  # as width_changed does (the counts' compact form)
+        host.update_header_layout()
+        spin(0.6)
+        fits(host, header, f"resized to {width}")
+        stable(host, header, host.header_level, f"resized to {width}")
+        seen.append((width, host.header_level))
+    print("resize:", seen, flush=True)
+    levels = dict(seen)
+    assert levels[1000] == 0 and levels[600] >= 1 and levels[420] >= levels[600], seen
+    window.destroy()
+    spin(0.2)
+
+
 def check(width: int):
     window = Gtk.Window(default_width=width, default_height=200)
     host = Host(window)
@@ -156,6 +208,7 @@ def check(width: int):
     assert window.get_width() <= width + 0.5, ("the content widened the window", window.get_width(), width)
     fits(host, header, f"{width} with counts and status")
     level = host.header_level
+    stable(host, header, level, f"{width} with counts and status")
     if width < Host.HEADER_NARROW:
         assert level >= 1, (width, level)
     if level >= 1:
@@ -176,6 +229,7 @@ def check(width: int):
     host.set_header_wanted(host.smartcheck_button, False)
     spin(1.5)
     fits(host, header, f"{width} after the content went")
+    stable(host, header, host.header_level, f"{width} after the content went")
     print(f"{width}: level {level} with content, {host.header_level} without", flush=True)
     window.destroy()
     spin(0.2)
@@ -186,4 +240,5 @@ Adw.init()
 levels = {width: check(width) for width in (1400, 900, 800, 760, 600, 500, 420)}
 assert levels[1400] == 0, levels
 assert levels[420] >= levels[600] >= levels[800] >= levels[1400], levels
+resize(600)
 print("HEADER OK")

@@ -690,11 +690,26 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
                     metrics = child.get_pango_context().get_metrics(None, None)
                     width = metrics.get_approximate_char_width() / Pango.SCALE * (12 if level == 0 else 1)
                 else:
-                    width = child.measure(Gtk.Orientation.HORIZONTAL, -1)[0]
+                    width = self.header_child_width(child)
                 total += width
                 count += 1
             child = child.get_next_sibling()
         return int(total + header.get_spacing() * max(0, count - 1) + 0.5)
+
+    def header_child_width(self, child) -> int:
+        """A header child's least width as it would be shown: GTK measures a hidden widget as 0, so one
+        the layout hid (Reports, Help, Settings, Refresh, the legend, Ask AI, More) is shown for the moment
+        of the measurement, under the layout's own guard (no re-check, nothing drawn in between)."""
+        if child.get_visible():
+            return child.measure(Gtk.Orientation.HORIZONTAL, -1)[0]
+        busy = getattr(self, "header_layout_busy", False)
+        self.header_layout_busy = True
+        try:
+            child.set_visible(True)
+            return child.measure(Gtk.Orientation.HORIZONTAL, -1)[0]
+        finally:
+            child.set_visible(False)
+            self.header_layout_busy = busy
 
     def queue_header_layout(self, *_args):
         """Once per main-loop turn: after the header's content or its room changed."""
