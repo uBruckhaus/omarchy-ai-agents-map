@@ -466,6 +466,8 @@ class SupervisedProcess:
         self._start_ack = False
         self.stuck = 0
         self._input_open = True
+        self._close_requested = False
+        self._launch_seen = False       # a frame that only comes after the agent's spawn arrived
         # Loss is decided by the end of its output, never by its exit alone: the final "stopped"
         # line may still be buffered when the exit arrives.
         self._reader = threading.Thread(target=self._read_events, daemon=True)
@@ -503,8 +505,10 @@ class SupervisedProcess:
             managed._withdraw(10.0 - (time.monotonic() - began))
             raise ProjectError("project_launch_withdrawn")
         if not managed._send({"launch": True}, 1.0):
+            # Control closed by a stop or detach: withdrawn; a supervisor gone meanwhile: unavailable.
+            requested = managed._close_requested
             managed._withdraw(10.0 - (time.monotonic() - began))
-            raise ProjectError("project_launch_withdrawn")
+            raise ProjectError("project_launch_withdrawn" if requested else "project_agent_unavailable")
         return managed
 
     # --- events --------------------------------------------------------------------------------------
@@ -552,7 +556,9 @@ class SupervisedProcess:
         if not isinstance(data, dict):
             return
         # These frames come only after the agent's spawn succeeded.
-        if isinstance(data.get("out"), str) or any(type(data.get(k)) is int for k in ("leader", "stuck", "exit")):
+        if isinstance(data.get("out"), str) or any(type(data.get(k)) is int for k in ("leader", "stuck", "exit")) \
+                or data.get("started") is True:
+            self._launch_seen = True
             self._started.set(True)
         if isinstance(data.get("out"), str):
             self._push(data["out"])
@@ -612,7 +618,9 @@ class SupervisedProcess:
                         continue
             except (OSError, ValueError):
                 pass
-            if data:
+            if data or not self._input_open:
+                # A half line, or control closed meanwhile (_close_input waits for this lock and
+                # closes too): never another line after it.
                 self._input_open = False
                 self._close_stdin()
                 return False
@@ -625,13 +633,12 @@ class SupervisedProcess:
             pass
 
     def _close_input(self) -> None:
-        """Close control without waiting: a write in progress sees the flag at once and closes it."""
+        """Close control. A write in progress sees the flag within one 50 ms slice and stops (its
+        writes never block), so waiting for its lock is short; stdin is then closed for certain."""
+        self._close_requested = True
         self._input_open = False
-        if self._send_lock.acquire(blocking=False):
-            try:
-                self._close_stdin()
-            finally:
-                self._send_lock.release()
+        with self._send_lock:
+            self._close_stdin()
 
     def _reap(self, wait: float) -> None:
         import process_group
@@ -657,12 +664,9 @@ class SupervisedProcess:
         self._started.set(False)
         self._close_input()
         self._confirmed.wait(min(2.0, end - time.monotonic()))
-        try:
-            self._proc.wait(timeout=max(0.0, min(1.0, end - time.monotonic())))
-        except subprocess.TimeoutExpired:
-            pass
-        # It never had the go-ahead, so nothing of the agent's runs: whatever is left of it goes.
-        self._reap(0.0)
+        # It never had the go-ahead, so nothing of the agent's runs: the single reaper gives it what
+        # is left of the budget to end by itself, then ends whatever is left of it.
+        self._reap(max(0.0, min(1.0, end - time.monotonic())))
 
     # --- ProjectProcess --------------------------------------------------------------------------
 
@@ -694,14 +698,23 @@ class SupervisedProcess:
             raise ProjectError("project_processes_still_running")
         return self._exit if self._exit is not None else self._leader if self._leader is not None else -1
 
+    def _never_launched(self) -> bool:
+        """The supervisor is gone without "stopped", but it never reported an agent (no spawn frame):
+        once it is reaped together with its process group (which an agent it was spawning shares),
+        nothing of this assignment is left to confirm."""
+        if self._launch_seen:
+            return False
+        self._reap(1.0)
+        return True
+
     def stop(self, wait: float = 4.0) -> None:
         if self._confirmed.done:
-            if self._confirmed.value is not True:
+            if self._confirmed.value is not True and not self._never_launched():
                 raise ProjectError("project_processes_still_running")
             self._reap(2.0)
             return
         self._send({"stop": True}, 1.0)
-        if self._confirmed.wait(wait) is not True:
+        if self._confirmed.wait(wait) is not True and not (self._confirmed.done and self._never_launched()):
             raise ProjectError("project_processes_still_running")
         self._reap(2.0)
 

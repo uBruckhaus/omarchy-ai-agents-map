@@ -143,7 +143,8 @@ class CenterCase(unittest.TestCase):
     @staticmethod
     def _close(center):
         for process in [a.process for a in center._active.values() if a.process is not None]:
-            process.finish("", 0)
+            if hasattr(process, "finish"):
+                process.finish("", 0)
         try:
             center.shutdown()
         except ProjectError:
@@ -1154,6 +1155,130 @@ class SupervisorBoundsTest(unittest.TestCase):
             self.assertEqual(errors, [])
             self.assertEqual(end.call_count, 1)
             self.assertIsNotNone(process._proc.returncode)
+
+
+DYING_SUPERVISOR = """import json, sys
+sys.stdin.buffer.readline()
+print(json.dumps({"locked": True, "start_ack": True}), flush=True)
+"""
+
+
+class ReviewRoundTwoTest(CenterCase):
+    """Findings of review round 2 (Codex, Antigravity)."""
+
+    def test_unpaired_surrogates_are_refused_and_the_store_reopens(self):
+        self.assertCode("invalid", self.save, "bad \ud800 title")
+        item = self.save()
+        self.assertCode("invalid", self.center.call, "save",
+                        {"id": item["id"], "revision": item["revision"], "brief": "x\udfff"})
+        running = self.started([{"agent": "fixture", "role": "lead"}])
+        self.assertCode("project_message_invalid", self.center.call, "message",
+                        {"id": running["id"], "run_id": running["run_id"], "text": "hi \ud800"})
+        self.processes[0].finish("Done.")
+        self.idle()
+        self.center.detach()
+        self.assertEqual(len(self.make().call("list", {})["projects"]), 2)
+
+    def test_a_closed_center_says_so_before_checking_message_fields(self):
+        self.center.shutdown()
+        self.assertCode("project_center_closed", self.center.call, "message", {"id": "x", "text": ""})
+
+    def test_a_returned_message_is_a_copy(self):
+        item = self.started([{"agent": "fixture", "role": "lead"}])
+        sent = self.center.call("message", {"id": item["id"], "run_id": item["run_id"], "text": "Hello"})
+        sent["message"]["state"] = "delivered"
+        sent["message"]["text"] = "changed"
+        stored = self.get(item["id"])
+        self.assertEqual(stored["messages_queued"], 1)
+        self.assertEqual(stored["messages"][0]["text"], "Hello")
+        self.processes[0].finish("Done.")
+        self.idle()
+
+    def test_setup_validation_uses_the_snapshot_runtimes(self):
+        self.add_runtime()
+        item = self.save()
+        snapshot = self.center._snapshot()
+        proposal = {"team": [{"agent": "fixture", "role": "lead", "runtime": "runtime",
+                              "provider": "local-provider", "model": "tiny-model"}],
+                    "target": "run", "rationale": "r", "warnings": [], "excluded_agents": [], "excluded_runtimes": []}
+
+        def no_scan():
+            raise AssertionError("runtimes scanned again during validation")
+        self.center.runtime_profiles = no_scan
+        self.center._validate_setup_proposal(proposal, {**item, "setup_request": "Use fixture."}, snapshot)
+
+    def test_an_old_output_reader_writes_nothing_after_its_assignment(self):
+        item = self.approve(self.save(plan="The plan."))
+        stuck = StuckProcess()
+
+        def runner(argv, cwd, env, input_text, lock, may_launch):
+            self.assertTrue(may_launch(stuck))
+            return stuck
+        self.center._runner = runner
+        self.center.call("run", {"id": item["id"], "revision": item["revision"]})
+        wait_until(lambda: self.get(item["id"])["status"] == "pausing", timeout=10)
+        before = self.get(item["id"])["output"]
+        for text in ("late one ", "late two "):
+            stuck.add(text)
+            time.sleep(0.6)
+        self.assertEqual(self.get(item["id"])["output"], before)
+        stuck.release.set()
+        self.center.call("pause", {"id": item["id"]})
+
+    def test_the_notifier_ends_with_the_center(self):
+        self.center.on_change = lambda project_id: None
+        self.save()
+        wait_until(lambda: self.center._notifier is not None)
+        notifier = self.center._notifier
+        self.center.detach()
+        wait_until(lambda: not notifier.is_alive())
+
+    def test_a_supervisor_gone_before_the_go_ahead_does_not_wedge_the_project(self):
+        script = self.root / "dying.py"
+        script.write_text(DYING_SUPERVISOR)
+        self.center.detach()
+        self.profiles[0]["run_argv"] = [sys.executable, "-c", "pass", "{prompt}"]
+        self.center = self.make(runner=None, supervisor=[sys.executable, str(script)])
+        item = self.approve(self.save(plan="The plan."))
+        self.center.call("run", {"id": item["id"], "revision": item["revision"]})
+        wait_until(lambda: self.get(item["id"])["status"] == "failed", timeout=20)
+        done = self.get(item["id"])
+        self.assertEqual(done["events"][-1]["text"], "project_agent_unavailable")
+        self.assertNotIn("cleanup_failed", self.types(done))
+        self.assertEqual(self.center.summary()["running"], 0)
+        self.center.shutdown()
+
+
+class SupervisorControlTest(unittest.TestCase):
+    def silent(self, tmp):
+        import subprocess
+        proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], stdin=-1, stdout=-1,
+                                cwd=tmp, start_new_session=True)
+        return ps.SupervisedProcess(proc)
+
+    def test_detach_during_a_send_still_closes_control(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            managed = self.silent(tmp)
+            managed._send_lock.acquire()          # a write in progress
+            closing = threading.Thread(target=managed.detach)
+            closing.start()
+            time.sleep(0.1)
+            managed._send_lock.release()
+            closing.join(5)
+            self.assertTrue(managed._proc.stdin.closed)
+            managed._reap(0.0)
+
+    def test_withdrawal_reaps_only_through_the_single_reaper(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            managed = self.silent(tmp)
+            original = managed._proc.wait
+
+            def wait(*args, **kwargs):
+                assert managed._reap_lock.locked(), "the supervisor was waited for outside the reaper"
+                return original(*args, **kwargs)
+            managed._proc.wait = wait
+            managed._withdraw(1.0)
+            self.assertIsNotNone(managed._proc.returncode)
 
 
 class AdapterProjectTest(unittest.TestCase):
