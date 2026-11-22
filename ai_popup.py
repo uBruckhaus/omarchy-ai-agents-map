@@ -4598,7 +4598,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         if getattr(self, "setup_pending", False):
             self.setup_pending = False
             GLib.idle_add(self.open_setup)
-        # Restarted after a language change: back on the settings page.
+        # Restore the view and page requested by a restart or launcher.
         view = os.environ.pop("AI_AGENTS_MAP_VIEW", "")
         if view in ai_core.VIEWS:
             self.show_view(view, save=False)

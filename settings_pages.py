@@ -4,7 +4,6 @@ window (a mixin of ai_popup.AgentsMap, split off to keep ai_popup.py small)."""
 import html
 import os
 import re
-import sys
 import threading
 import time
 from pathlib import Path
@@ -19,7 +18,6 @@ import app_entry
 import corners
 import desktop
 import disk_usage
-import i18n
 import install_ctl
 import inventory
 import llm_engine
@@ -896,12 +894,11 @@ class SettingsPages:
     def fill_general_settings(self, box, side):
         """General in `box`; Models and Window in `side` (the right column, or below)."""
         group = self.preference_group(box, _("General"))
-        codes = ["auto"] + [code for code, _name in i18n.LANGUAGES]
-        setting = i18n.language_setting()
-        self.combo_row(group, _("Language"), _("AI Agents Map restarts in the new language."),
-                       [_("System ({0})").format(i18n.language_name(i18n.system_language()))]
-                       + [name for _code, name in i18n.LANGUAGES],
-                       codes.index(setting) if setting in codes else 0, lambda i: self.set_language(codes[i]))
+        row = Adw.ActionRow(title=_("Language and manual"),
+                            subtitle=_("English only. For other languages and translated manuals, install Maprisma."),
+                            use_markup=False)
+        self.wrap_preference_labels(row)
+        group.add(row)
         self.button_row(group, _("Open problems"), _("What needs fixing; the ! in the header shows when there is "
                                                     "something"), _("Open"), self.open_health)
         self.button_row(group, _("What may be done"), _("Rules for Ask AI and for what you draw on the map."),
@@ -1046,19 +1043,6 @@ class SettingsPages:
             ai_core.update_settings(**values)
         except OSError:
             pass
-
-    def set_language(self, code: str):
-        if code == i18n.language_setting():
-            return
-        try:
-            i18n.save_language(code)
-        except OSError:
-            return
-        os.environ["AI_AGENTS_MAP_PAGE"] = "settings"
-        os.environ["AI_AGENTS_MAP_VIEW"] = self.view
-        sys.stdout.flush()
-        sys.stderr.flush()
-        os.execv(sys.executable, [sys.executable, *sys.argv])
 
     def remember_page(self):
         """The page right of the cards before Settings or Help opened (a terminal, details…)."""
@@ -1451,13 +1435,10 @@ class SettingsPages:
 
     @staticmethod
     def manual_path() -> Path | None:
-        """The user manual that comes with this version (assets/ in the plugin, data/ in Asterism), in
-        the interface language: user-manual.<language>.pdf, else the English user-manual.pdf."""
+        """The bundled English manual (assets/ in the plugin, data/ in Asterism)."""
         here = Path(__file__).resolve().parent
-        lang = i18n.current()
-        names = ([f"user-manual.{lang}.pdf"] if lang and lang != "en" else []) + ["user-manual.pdf"]
-        return next((folder / name for name in names for folder in (here / "assets", here / "data")
-                     if (folder / name).is_file()), None)
+        return next((folder / "user-manual.pdf" for folder in (here / "assets", here / "data")
+                     if (folder / "user-manual.pdf").is_file()), None)
 
     def help_manual_card(self) -> Gtk.Widget | None:
         """The user manual (a PDF of this version), opened in the desktop's PDF viewer."""
@@ -1480,7 +1461,8 @@ class SettingsPages:
         card.append(top)
         intro = Gtk.Label(label=_("Everything this app does, step by step: the map, agents, local LLMs and models, "
                                   "connecting by drawing, MCP servers, skills, settings and troubleshooting "
-                                  "(a PDF, in English, for this version)."),
+                                  "(a PDF, in English, for this version). "
+                                  "Install Maprisma for multi-language manuals."),
                           xalign=0, wrap=True, max_width_chars=1)
         intro.add_css_class("am-agent-detail")
         card.append(intro)

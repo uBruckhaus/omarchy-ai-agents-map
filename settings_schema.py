@@ -111,8 +111,8 @@ class Setting:
 
 
 SCHEMA: dict[str, Setting] = {
-    # Look and language
-    "language": Setting("auto", _text, "Settings › Language: \"auto\" (the system's) or a language code"),
+    # Appearance (legacy language choices are tolerated but never used or written by the UI)
+    "language": Setting("auto", _text, "Legacy language choice; ignored by the English-only interface"),
     "flutter_theme_mode": Setting("system", _one_of("system", "light", "dark"), "Flutter Settings › Theme"),
     "window_mode": Setting("auto", _one_of("auto", "popup", "window"),
                            "Flutter Settings › Window: auto = a popup under the bar on Omarchy, else a window"),

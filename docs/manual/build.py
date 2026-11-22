@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """Build the user manual PDF from manual.html.
 
-    python3 docs/manual/build.py [--lang de | --all] [--plugin-version 0.10.1] [--out FILE.pdf]
+    python3 docs/manual/build.py [--plugin-version 0.10.1] [--out FILE.pdf]
 
-One PDF per language: manual.html (English) and manual.<lang>.html (de, es, fr, it, nl, pl, pt; the
-same markup and ids, the text translated). English goes to assets/user-manual.pdf, the others to
-assets/user-manual.<lang>.pdf; the app opens the one of its interface language (English when missing).
+The English manual.html builds assets/user-manual.pdf, which Help opens.
+Install Maprisma for other languages and translated manuals.
 
-1. manual.<lang>.html → build/manual.html: chapters and sections numbered, the contents page filled in,
+1. manual.html → build/manual.html: chapters and sections numbered, the contents page filled in,
    {{PLUGIN_VERSION}} / {{DATE}} replaced.
 2. Chromium prints it to PDF. pdftotext tells on which page each heading landed; the contents page
    gets those numbers and is printed again until the numbers stay the same.
@@ -34,35 +33,10 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 BUILD = HERE / "build"
 AUTHOR = "Uwe Bruckhaus"
-LANGUAGES = ("en", "de", "es", "fr", "it", "nl", "pl", "pt")
-# The words the build adds itself, per language.
-WORDS = {
-    "en": dict(chapter="Chapter", appendix="Appendix", contents="Contents", about="About this manual",
-               manual="User Manual", subject="User manual for the AI Agents Map Omarchy plugin",
-               months="January February March April May June July August September October November December"),
-    "de": dict(chapter="Kapitel", appendix="Anhang", contents="Inhalt", about="Über dieses Handbuch",
-               manual="Benutzerhandbuch", subject="Benutzerhandbuch für das Omarchy-Plugin AI Agents Map",
-               months="Januar Februar März April Mai Juni Juli August September Oktober November Dezember"),
-    "es": dict(chapter="Capítulo", appendix="Apéndice", contents="Contenido", about="Sobre este manual",
-               manual="Manual de usuario", subject="Manual de usuario del plugin AI Agents Map para Omarchy",
-               months="enero febrero marzo abril mayo junio julio agosto septiembre octubre noviembre diciembre"),
-    "fr": dict(chapter="Chapitre", appendix="Annexe", contents="Sommaire", about="À propos de ce manuel",
-               manual="Manuel d'utilisation", subject="Manuel d'utilisation du plugin AI Agents Map pour Omarchy",
-               months="janvier février mars avril mai juin juillet août septembre octobre novembre décembre"),
-    "it": dict(chapter="Capitolo", appendix="Appendice", contents="Indice", about="Informazioni su questo manuale",
-               manual="Manuale utente", subject="Manuale utente del plugin AI Agents Map per Omarchy",
-               months="gennaio febbraio marzo aprile maggio giugno luglio agosto settembre ottobre novembre dicembre"),
-    "nl": dict(chapter="Hoofdstuk", appendix="Bijlage", contents="Inhoud", about="Over deze handleiding",
-               manual="Gebruikershandleiding", subject="Gebruikershandleiding voor de Omarchy-plugin AI Agents Map",
-               months="januari februari maart april mei juni juli augustus september oktober november december"),
-    "pl": dict(chapter="Rozdział", appendix="Dodatek", contents="Spis treści", about="O tej instrukcji",
-               manual="Instrukcja obsługi", subject="Instrukcja obsługi wtyczki AI Agents Map dla Omarchy",
-               months="styczeń luty marzec kwiecień maj czerwiec lipiec sierpień wrzesień październik listopad grudzień"),
-    "pt": dict(chapter="Capítulo", appendix="Apêndice", contents="Índice", about="Sobre este manual",
-               manual="Manual do utilizador", subject="Manual do utilizador do plugin AI Agents Map para Omarchy",
-               months="janeiro fevereiro março abril maio junho julho agosto setembro outubro novembro dezembro"),
-}
-W = WORDS["en"]                  # the language being built (main sets it)
+LANGUAGES = ("en",)
+W = dict(chapter="Chapter", appendix="Appendix", contents="Contents", about="About this manual",
+         manual="User Manual", subject="User manual for the AI Agents Map Omarchy plugin", lang="en",
+         months="January February March April May June July August September October November December")
 PLUGIN_MANIFEST = REPO / "manifest.json"
 
 
@@ -248,30 +222,21 @@ def finish(pdfcraft: str, raw: Path, out: Path, chapters: list, count: int, body
 
 
 def build(lang: str, plugin_version_given: str | None, out_given: Path | None, chromium: str, pdfcraft: str):
-    """One language's PDF: assets/user-manual[.<lang>].pdf, and --out when given."""
-    global W
-    W = dict(WORDS[lang], lang=lang)
-    source_file = HERE / ("manual.html" if lang == "en" else f"manual.{lang}.html")
+    """Build only the bundled English PDF, and an optional --out copy."""
+    if lang not in LANGUAGES:
+        raise ValueError("Only the English manual is available")
+    source_file = HERE / "manual.html"
     if not source_file.is_file():
         sys.exit(f"{source_file.name} is missing")
-    if lang != "en":
-        # Built anyway; the parts still in the English of before are named (translations.py).
-        import translations
-        changed, new, removed, problems = translations.report(lang)
-        if changed or new or removed or problems:
-            print(f"{lang}: translation behind the English — changed: {', '.join(changed) or '–'}; new: "
-                  f"{', '.join(new) or '–'}; markup: {'; '.join(problems) or 'ok'} (docs/manual/translations.py)",
-                  file=sys.stderr)
-    suffix = "" if lang == "en" else f".{lang}"
     pv = plugin_version(plugin_version_given)
     today = datetime.date.today()
     values = {"PLUGIN_VERSION": pv,
               "DATE": f"{W['months'].split()[today.month - 1]} {today.year}"}
     source = source_file.read_text()
     chapters = outline(source)
-    page, raw = BUILD / f"manual{suffix}.html", BUILD / f"manual-raw{suffix}.pdf"
+    page, raw = BUILD / "manual.html", BUILD / "manual-raw.pdf"
     versions = f"AI Agents Map {pv}"
-    # Headers and footers come from pdfcraft, or from Chromium when pdfcraft can't draw the text (pl).
+    # Use Chromium headers if a heading contains characters pdfcraft cannot draw.
     by_pdfcraft = pdfcraft_can_draw(W["manual"], versions,
                                     *(chapter_label(ch) + ch["title"] for ch in chapters))
     head = "" if by_pdfcraft else margin_boxes(chapters, versions)
@@ -289,7 +254,7 @@ def build(lang: str, plugin_version_given: str | None, out_given: Path | None, c
         sys.exit("Page numbers did not settle")
 
     # pdfcraft works inside build/ only (its --root); the result is copied to --out from there.
-    built = BUILD / f"AI-Agents-Map-User-Manual{suffix}.pdf"
+    built = BUILD / "AI-Agents-Map-User-Manual.pdf"
     finish(pdfcraft, raw, built, chapters, count, body, physical, versions, by_pdfcraft)
     if out_given is not None and out_given.resolve() != built.resolve():
         out_given.parent.mkdir(parents=True, exist_ok=True)
@@ -301,7 +266,9 @@ def build(lang: str, plugin_version_given: str | None, out_given: Path | None, c
     if len(data) <= 512 * 1024 or b"\0" not in data[:4096]:
         sys.exit(f"{built}: {len(data)} bytes, NUL in the first 4 KiB: {b'\0' in data[:4096]} — the marketplace "
                  "scan would refuse it as an app asset (needs > 512 KiB and a NUL in the first 4 KiB)")
-    shutil.copyfile(built, REPO / f"assets/user-manual{suffix}.pdf")
+    asset = REPO / "assets/user-manual.pdf"
+    shutil.copyfile(built, asset)
+    asset.chmod(0o644)
     print(f"{lang}: {out_given or built} — {count} pages, chapter 1 on page {body}")
 
 
@@ -309,7 +276,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--plugin-version")
     parser.add_argument("--lang", choices=LANGUAGES, default="en")
-    parser.add_argument("--all", action="store_true", help="every language")
+    parser.add_argument("--all", action="store_true", help="build the English manual (compatibility option)")
     parser.add_argument("--out", type=Path, help="also copy the (single) PDF here")
     args = parser.parse_args()
     chromium = tool("chromium", "CHROMIUM", ("/usr/bin/google-chrome-stable",))

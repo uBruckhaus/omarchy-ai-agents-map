@@ -111,10 +111,7 @@ class GpuStackTest(unittest.TestCase):
 
 
 class CatalogTextsTest(unittest.TestCase):
-    def test_every_routes_access_text_is_translated(self):
+    def test_every_routes_access_text_stays_english(self):
         import i18n
-        for code, _name in i18n.LANGUAGES:
-            if code == "en":
-                continue
-            for route in fa.load().routes:
-                self.assertIn(route.access, i18n.STRINGS[code], (code, route.id))
+        for route in fa.load().routes:
+            self.assertEqual(i18n._(route.access), route.access, route.id)

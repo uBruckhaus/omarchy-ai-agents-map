@@ -47,11 +47,12 @@ Status: HAVE · PART · MISS · N/A. Source: py = copy from Maprisma's Python, d
 | System Map page | 008–011 | N/A (removed in Maprisma) | – | – |
 
 Kept from the plugin (house rules, not in Maprisma): ⓘ More plugins page, bar widget + toggle singleton,
-own settings folder `~/.config/omarchy/ai-agents-map/` (BarWidget reads `language` there), 8 languages.
+own settings folder `~/.config/omarchy/ai-agents-map/`. The interface and manual are now English only;
+install Maprisma for other languages and translated manuals.
 
 ## Phases
 
-Each phase: tests green (`python3 -m unittest discover -s tests`), manual + translations for user-visible
+Each phase: tests green (`python3 -m unittest discover -s tests`), the English manual for user-visible
 changes, one commit per step, Uwe looks at it before the next phase.
 
 1. **Core sync (py).** Bring Maprisma's newer Python core into the plugin file by file (graph, inventory,
@@ -80,7 +81,7 @@ changes, one commit per step, Uwe looks at it before the next phase.
 5. **Settings and the rest.** Progress: sections + Find in Settings done (7bcfa1f, 14f026e). Open: measure and
    tune (llama-bench), the add-on lock while an agent runs, remaining 063 details in the GTK pages. Sections + Find in Settings and the new keys; measure and tune;
    remaining 063 details.
-6. **Release.** Manual (8 languages + PDFs), preview.png, publishing skill preflight, Codex until CLEAN, then
+6. **Release.** English manual and PDF, preview.png, publishing skill preflight, Codex until CLEAN, then
    ask Uwe before push and [Verify].
 
 ## Decisions (Uwe, 2026-11-11)

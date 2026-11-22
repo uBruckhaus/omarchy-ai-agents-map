@@ -25,7 +25,7 @@ class SyncPluginTest(unittest.TestCase):
         self.tool = load_tool()
         self.tmp = tempfile.TemporaryDirectory()
         self.plugin = Path(self.tmp.name)
-        own = {"manifest.json": "{}", "BarWidget.qml": "Item {}", "I18n.js": "//", "README.md": "plugin",
+        own = {"manifest.json": "{}", "BarWidget.qml": "Item {}", "README.md": "plugin",
                "ai-agents-map-toggle": "# LOCAL ONLY", "assets/drawing-demo.gif": "gif"}
         for rel, text in own.items():
             (self.plugin / rel).parent.mkdir(parents=True, exist_ok=True)
@@ -46,7 +46,7 @@ class SyncPluginTest(unittest.TestCase):
         self.assertEqual(self.run_quietly(self.tool.check), 0)
         self.assertFalse((self.plugin / "gone_module.py").exists())
         self.assertTrue((self.plugin / "ai_popup.py").is_file())
-        self.assertTrue((self.plugin / "translations/de.json").is_file())
+        self.assertFalse((self.plugin / "translations").exists())
         self.assertTrue((self.plugin / "assets/user-manual.pdf").is_file())
         for rel, text in self.own.items():                       # the plugin's own files untouched
             self.assertEqual((self.plugin / rel).read_text(), text, rel)

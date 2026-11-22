@@ -1,23 +1,20 @@
 # User manual
 
-The user manual of the AI Agents Map Omarchy plugin, one PDF per interface language (8). It started
-as a copy of Maprisma's manual (2026-11-11, plugin 1.0.0); the plugin's own parts (bar button,
+The English user manual of the AI Agents Map Omarchy plugin. Install Maprisma for other languages
+and translated manuals. It started as a copy of Maprisma's manual (2026-11-11, plugin 1.0.0); the plugin's own parts (bar button,
 marketplace install, launcher entry) replace Maprisma's install chapter.
 
 | File | What it is |
 | --- | --- |
 | `manual.html` | The English text. Edit this. |
-| `manual.<lang>.html` | The translations (de, es, fr, it, nl, pl, pt), same markup and ids. |
-| `translations.py` | `check` lists English sections changed since a translation; `stamp <lang>` after translating. |
 | `manual.css` | The print layout (A4, cover, contents, callouts, tables). |
 | `images/` | Screenshots and the icon used in the manual. |
-| `build.py` | Builds `assets/user-manual[.<lang>].pdf` (Help opens the one of the interface language). |
+| `build.py` | Builds `assets/user-manual.pdf`, the English manual opened by Help. |
 
 ## Build
 
 ```sh
-python3 docs/manual/build.py --all                    # every language; version from manifest.json
-python3 docs/manual/build.py --lang de                # one language
+python3 docs/manual/build.py                          # English; version from manifest.json
 python3 docs/manual/build.py --out ~/Documents/AI-Agents-Map-User-Manual.pdf
 ```
 
@@ -41,7 +38,6 @@ What the build does:
   bookmarks and numbers follow by themselves.
 - **A new chapter:** `<section class="chapter" id="…"><h1>Title</h1> … </section>` before the
   Reference appendix (`class="chapter appendix"`).
-- **Every language:** change all 8 files in the same way, then `translations.py stamp <lang>`.
 - **Screenshots:** replace the files in `images/` (same names), or add one in a
   `<div class="figure wide"><img src="images/…" alt="…"><p class="caption">…</p></div>`. Always
   give `alt`. The numbered markers on the main window (`.pin`, `left`/`top` in percent of the

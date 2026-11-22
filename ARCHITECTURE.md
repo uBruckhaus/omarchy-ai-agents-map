@@ -78,7 +78,6 @@ For a complete audit, these are all the `subprocess` / `exec` calls outside `tes
 | `desktop_omarchy.py` `open_terminal`, `run_in_terminal`, `run_steps_in_terminal`, focus helpers | the terminal launcher (argv; the command line inside it is shlex-quoted), `hyprctl dispatch`, `omarchy-agent-usage-update <agent>` |
 | `desktop_generic.py` | the same for other desktops (used only outside Omarchy) |
 | `provider_watch.py` | `systemctl --user …`, `lms server start/stop` |
-| `settings_pages.py` | `os.execv(sys.executable, sys.argv)`: the app restarts itself after a language change |
 
 ## Changes: plan, preview, backup, Undo
 

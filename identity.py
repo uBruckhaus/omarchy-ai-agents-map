@@ -1,8 +1,8 @@
 """The application's identity: the AI Agents Map Omarchy plugin.
 
 The core modules come from Maprisma (the Flutter app, docs/plan-maprisma-parity.md); they ask this module
-for the app's name and folders, so the plugin keeps its own: ~/.config/omarchy/ai-agents-map (the bar
-widget reads `language` there), ~/.cache/ai-agents-map, the PID file ai-agents-map.pid.
+for the app's name and folders, so the plugin keeps its own: ~/.config/omarchy/ai-agents-map,
+~/.cache/ai-agents-map, the PID file ai-agents-map.pid. The bar widget invokes the toggle script.
 """
 
 import os

@@ -196,7 +196,7 @@ class View(module.SettingsPages):
         return []
 
     def fill_general_settings(self, left, right):
-        for section, title in (("general", "Language"), ("map", "Notify map"), ("agents", "Notify when red")):
+        for section, title in (("general", "Language and manual"), ("map", "Notify map"), ("agents", "Notify when red")):
             group = Widget()
             group.append(ActionRow(title=title, subtitle="fixture detail"))
             self.settings_sections[section].append(group)
@@ -434,7 +434,7 @@ class ResponsiveSettingsTest(unittest.TestCase):
     def test_opening_settings_does_not_restore_a_different_pages_focus(self):
         view = self.view
         other_page = Widget(root=view.root)
-        outside = ActionRow(title="Language")
+        outside = ActionRow(title="Language and manual")
         other_page.append(outside)
         outside.grab_focus()
         view.fill_settings()
@@ -501,6 +501,44 @@ class ResponsiveSettingsTest(unittest.TestCase):
         for callback, args in queued:
             callback(*args)
         self.assertIs(view.root.focus, target)
+
+
+class EnglishOnlySettingsTest(unittest.TestCase):
+    def test_general_starts_with_a_read_only_language_and_manual_hint(self):
+        view = module.SettingsPages()
+        view.open_health = lambda: None
+        group = Widget()
+        # Stop after the language row, before unrelated settings construct real GTK widgets.
+        with mock.patch.object(module.Adw, "ActionRow", ActionRow), \
+                mock.patch.object(view, "preference_group", return_value=group), \
+                mock.patch.object(view, "wrap_preference_labels"), \
+                mock.patch.object(view, "button_row", side_effect=StopIteration):
+            with self.assertRaises(StopIteration):
+                view.fill_general_settings(None, None)
+        row, = group.children
+        self.assertEqual(row.get_title(), "Language and manual")
+        self.assertEqual(row.get_subtitle(),
+                         "English only. For other languages and translated manuals, install Maprisma.")
+        self.assertFalse(row.children)
+        self.assertFalse(row.signals)
+        self.assertFalse(hasattr(view, "set_language"))
+
+    def test_manual_path_ignores_translated_files_and_uses_only_english(self):
+        import tempfile
+        from isolate import desktop_in
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            desktop_in(self, root)
+            assets, data = root / "assets", root / "data"
+            assets.mkdir()
+            data.mkdir()
+            (assets / "user-manual.de.pdf").write_bytes(b"translated fixture")
+            with mock.patch.object(module, "__file__", str(root / "settings_pages.py")):
+                self.assertIsNone(module.SettingsPages.manual_path())
+                (data / "user-manual.pdf").write_bytes(b"English fixture")
+                self.assertEqual(module.SettingsPages.manual_path(), data / "user-manual.pdf")
+                (assets / "user-manual.pdf").write_bytes(b"English fixture")
+                self.assertEqual(module.SettingsPages.manual_path(), assets / "user-manual.pdf")
 
 
 if __name__ == "__main__":

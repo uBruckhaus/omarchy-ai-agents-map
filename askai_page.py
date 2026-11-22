@@ -324,8 +324,7 @@ class AskAiPage:
     def smart_facts(self, column: str, request: str, answer: str | None) -> dict:
         """What the helper is told about its column (Maprisma's smart_ask facts), from what the app knows."""
         updates = self.open_updates()
-        import i18n
-        facts = {"column": column, "request": request, "language": i18n.current(),
+        facts = {"column": column, "request": request,
                  "action_rules": ai_core.setting("action_rules"),
                  "rule_hints": ai_core.setting("action_rule_hints")}
         if answer:
@@ -524,7 +523,7 @@ class AskAiPage:
                 box.append(card)
             return
         # error
-        # The engine's own messages are English (smart_card): shown in the user's language.
+        # The engine's own messages and the interface use English.
         text(_(result.get("summary") or "The action could not be completed."), "am-problem")
         again = Gtk.Button(label=_("Try again"), halign=Gtk.Align.START)
         again.add_css_class("am-small-btn")

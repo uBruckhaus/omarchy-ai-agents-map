@@ -987,8 +987,9 @@ folders with size and file count and opens them in the file manager; agents that
 versions get a `mise prune` tip. Sizes are space on disk, each file counted once (hard links too),
 links not followed; nothing is deleted from here.
 
-The gear (Ctrl+,) opens the settings: **Language** (system or one of English, Deutsch, Français,
-Español, Italiano, Português, Nederlands, Polski), **Look** (the colours from the Omarchy theme,
+The interface and manual are English only. Install Maprisma for other languages and translated manuals.
+
+The gear (Ctrl+,) opens the settings: **Language and manual** (a read-only hint about Maprisma), **Look** (the colours from the Omarchy theme,
 or GNOME's Adwaita with the system's light/dark and accent colour), **Map animations** (agents and other programs, only my agents, off; with a moving preview), **Terminal tabs above the map**, **Corners** (like windows, rounded or square, as
 in App Manager and Theme Manager), **AI features** (its own group, headed by the at-your-own-risk note: **Daily AI checks** (off by default; uses the agent's tokens), **Agent for AI checks**), **Start local LLMs with their agents**, **Too narrow for the map** (what the header's "Maximize for more room" does: move the window to a
 free workspace, maximize it where it is, or show no hint; with an animated preview), **In the app
@@ -1054,7 +1055,7 @@ The full module map, with diagrams, is in [ARCHITECTURE.md](ARCHITECTURE.md). Th
 | `claude_sessions.py`, `herdr_state.py` | Claude Code's numbers per project and subagent; herdr's live state and pane focus |
 | `harnesses.py`, `adapter_data.py`, `adapters/`, `edition.py` | The agents as data: one `adapters/<command>.toml` per agent (plus a small hook module for five of them), its loader and schema check; what this edition may show (numbers only in this plugin) |
 | `desktop.py`, `desktop_omarchy.py`, `desktop_generic.py` | Everything desktop-specific behind one interface: Omarchy/Hyprland here; the generic one is used only outside Omarchy (the same code as the stand-alone app Asterism) |
-| `ai_core.py`, `palette.py`, `corners.py`, `pidfile.py`, `i18n.py`, `I18n.js` | Shared helpers, theme colours, corners, PID file, languages |
+| `ai_core.py`, `palette.py`, `corners.py`, `pidfile.py`, `i18n.py` | Shared helpers, theme colours, corners, PID file, English-only text API |
 | `addons.py`, `addon_store.py`, `addons_page.py`, `addons/` | Add-ons: loading and verifying (data only), switching on and off, the Add-ons page, the bundled add-ons |
 | `askai_page.py`, `smart_card.py`, `local_helper.py` | Ask AI: the page, the engine that checks an answer against the facts, the local helper |
 | `action_rules.py`, `rules_window.py` | What may be done: the rules and their window |
@@ -1063,4 +1064,4 @@ The full module map, with diagrams, is in [ARCHITECTURE.md](ARCHITECTURE.md). Th
 | `shot_save.py` | F12: save a screenshot in the pictures folder |
 | `tests/` | Unit tests (`python3 -m unittest discover -s tests`) |
 | `ARCHITECTURE.md`, `docs/architecture/` | For reviewers: processes, layers, and the function each risky operation goes through |
-| `assets/user-manual*.pdf` | The user manual in 8 languages |
+| `assets/user-manual.pdf` | The English user manual; install Maprisma for other languages and translated manuals |

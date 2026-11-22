@@ -79,10 +79,8 @@ def request_block(facts: dict) -> str:
 
 
 def language(facts: dict) -> str:
-    """The words the user reads come in their language; keys and names do not. The user's rules too."""
-    code = facts.get("language")
-    text = (f'Write question, choices, hint, summary and reason in the language with the code "{code}".'
-            if isinstance(code, str) and re.fullmatch(r"[a-z]{2}", code) else "")
+    """English interface text and the user's rules; legacy language facts are ignored."""
+    text = "Write question, choices, hint, summary and reason in English."
     rules = facts.get("action_rules")
     if isinstance(rules, list) and rules:
         text += ("\nThe user's rules for what may be done, the most specific rule decides: "
