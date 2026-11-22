@@ -26,7 +26,7 @@ WHITE = (1.0, 1.0, 1.0)
 
 CARD_DEPTH = (5.0, 6.8)          # an open card's plinth
 CARD_DEPTH_FOLDED = (3.0, 4.2)   # a folded card: only its header
-WELL_TOP = 30                    # an open card's tray starts under its header (MapView's CARD_HEAD + 4)
+WELL_TOP = 27                    # an open card's tray: just under its header's line (MapView's CARD_HEAD + 1)
 CABLE_SHADOW = (3.5, 7.5)        # where a cable's shadow falls on the floor below it
 ARC_STEP = math.pi / 16          # the walls' rounded corners: a point every 11.25°
 
@@ -51,6 +51,21 @@ def block_depth(column: int, elevated: bool = False, dimmed: bool = False) -> tu
     if elevated:
         return dx + 1.5, dy + 2.0
     return dx, dy
+
+
+def recessed(faded: bool, dim: bool, lit: bool) -> bool:
+    """A block pressed nearly flat: faded by a selection, or dimmed of itself (a finished subagent, an
+    unused MCP server) unless it is lit, as Maprisma's `!lit && (dimming || dim)`."""
+    return bool(faded or (dim and not lit))
+
+
+def cable_slot(ends) -> int:
+    """When a 3D cable is painted among the cards: ends = [(card's place in the stacking order, box folded
+    into the card's header)]. Slot 2·i is just before card i (under it), 2·i + 1 just after card i's
+    plinth (over it, under its boxes). A cable takes the later of its ends, so it lies over both cards
+    it joins (none of its length hidden before the sockets) but under any card moved over them; into a
+    folded header it goes under that card, as on the flat map."""
+    return max(2 * z + (0 if folded else 1) for z, folded in ends)
 
 
 def mix(a, b, t: float) -> tuple:
@@ -236,7 +251,8 @@ class Stage:
         matrix = cr.get_matrix()
         scale = matrix.xx
         pixels = (math.ceil(width * scale), math.ceil(height * scale))
-        if pixels[0] <= 0 or pixels[1] <= 0 or pixels[0] * pixels[1] > 64_000_000 or matrix.xy or matrix.yx:
+        if pixels[0] <= 0 or pixels[1] <= 0 or pixels[0] * pixels[1] > 64_000_000 or matrix.xy or matrix.yx \
+                or abs(matrix.xx - matrix.yy) > 1e-9:
             paint_stage(cr, width, height, pal)        # no cache for a huge or turned drawing
             return
         key = (pixels, round(scale, 4), pal)
@@ -351,17 +367,18 @@ def paint_cable(cr, trace, rgba, width: float, pal: Palette, shadow: bool = True
     if not dash:
         cr.set_line_cap(cairo.LINE_CAP_ROUND)      # a tube; a dashed or dotted line keeps the caller's caps
     cr.set_dash(list(dash))
+    dotted = bool(dash) and dash[0] < 1                        # round dots (a failed line): keep them apart
     if shadow:
         cr.save()
         cr.translate(*CABLE_SHADOW)
-        for grow, part in ((4.0, 0.35), (2.0, 0.65)):          # a soft edge without a blur filter
+        for grow, part in ((1.0, 1.0),) if dotted else ((4.0, 0.35), (2.0, 0.65)):   # soft, without a blur
             trace(cr)
-            cr.set_source_rgba(*BLACK, (0.34 if pal.dark else 0.14) * part)
+            cr.set_source_rgba(*BLACK, (0.34 if pal.dark else 0.14) * part * alpha)
             cr.set_line_width(width + grow)
             cr.stroke()
         cr.restore()
     jacket = mix(rgb, BLACK, 0.42 if pal.dark else 0.25)
-    for colour, line in ((jacket, width + 1.6), (rgb, width + 0.4)):
+    for colour, line in ((jacket, width + (0.8 if dotted else 1.6)), (rgb, width + (0.0 if dotted else 0.4))):
         trace(cr)
         cr.set_source_rgba(*colour, alpha)
         cr.set_line_width(line)
@@ -380,17 +397,17 @@ def paint_cable(cr, trace, rgba, width: float, pal: Palette, shadow: bool = True
 
 
 def paint_socket(cr, x, y, rgba, pal: Palette):
-    """Where a cable meets a box: a bevelled port in the cable's colours."""
-    rgb = tuple(rgba[:3])
+    """Where a cable meets a box: a bevelled port in the cable's colours, as opaque as its cable."""
+    rgb, alpha = tuple(rgba[:3]), rgba[3] if len(rgba) > 3 else 1.0
     cr.new_path()
     cr.arc(x + 1.0, y + 1.5, 4.2, 0, 2 * math.pi)
-    cr.set_source_rgba(*BLACK, 0.35 if pal.dark else 0.16)
+    cr.set_source_rgba(*BLACK, (0.35 if pal.dark else 0.16) * alpha)
     cr.fill()
     cr.arc(x, y, 4.0, 0, 2 * math.pi)
-    cr.set_source_rgba(*mix(rgb, BLACK, 0.42 if pal.dark else 0.25), 1.0)
+    cr.set_source_rgba(*mix(rgb, BLACK, 0.42 if pal.dark else 0.25), alpha)
     cr.fill()
     cr.arc(x, y, 2.4, 0, 2 * math.pi)
-    cr.set_source_rgba(*mix(rgb, WHITE, 0.28), 1.0)
+    cr.set_source_rgba(*mix(rgb, WHITE, 0.28), alpha + (1 - alpha) * 0.28)
     cr.fill()
 
 

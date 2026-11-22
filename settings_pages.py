@@ -1023,7 +1023,9 @@ class SettingsPages:
     def save_three_d(self, on: bool):
         """Settings › Map › 3D map layout: kept as Maprisma keeps it (flutter_map_layout's three_d)."""
         self.save_setting(flutter_map_layout={**ai_core.setting("flutter_map_layout"), "three_d": bool(on)})
-        self.side_map.set_three_d(on)
+        for view in (self.side_map, getattr(self, "sub_map", None)):   # the map and the Subagents map
+            if view is not None:
+                view.set_three_d(on)
 
     def set_look(self, look: str):
         """Settings › Look: the new colours at once (the cards, the map, the terminal's next start)."""

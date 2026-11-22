@@ -49,12 +49,13 @@ class SettingTest(unittest.TestCase):
         import settings_pages
         saved, shown = [], []
         page = types.SimpleNamespace(save_setting=lambda **v: saved.append(v),
-                                     side_map=types.SimpleNamespace(set_three_d=shown.append))
+                                     side_map=types.SimpleNamespace(set_three_d=shown.append),
+                                     sub_map=types.SimpleNamespace(set_three_d=shown.append))
         with mock.patch.object(settings_pages.ai_core, "setting",
                                lambda key: {"line_colors": {"mcp": "#ff0000"}} if key == "flutter_map_layout" else None):
             settings_pages.SettingsPages.save_three_d(page, False)
         self.assertEqual(saved, [{"flutter_map_layout": {"line_colors": {"mcp": "#ff0000"}, "three_d": False}}])
-        self.assertEqual(shown, [False])
+        self.assertEqual(shown, [False, False])          # the map and the Subagents map
 
     def test_the_map_starts_with_the_saved_choice(self):
         import ai_core
@@ -97,6 +98,18 @@ class GeometryTest(unittest.TestCase):
         # The crease sits on the bottom-right corner's arc at 45°.
         self.assertAlmostEqual(math.hypot(c0[0] - 92, c0[1] - 42), 8)
 
+    def test_cables_lie_over_both_cards_they_join(self):
+        self.assertEqual(map_3d.cable_slot([(0, False), (3, False)]), 7)     # after card 3's plinth
+        self.assertEqual(map_3d.cable_slot([(3, False), (0, False)]), 7)
+        self.assertEqual(map_3d.cable_slot([(0, False), (3, True)]), 6)      # under a folded card 3
+        self.assertEqual(map_3d.cable_slot([(4, False), (3, True)]), 9)
+
+    def test_recessed_blocks(self):
+        self.assertTrue(map_3d.recessed(True, False, False))
+        self.assertTrue(map_3d.recessed(False, True, False))      # a finished subagent, an unused server
+        self.assertFalse(map_3d.recessed(False, True, True))      # … unless it is lit
+        self.assertFalse(map_3d.recessed(False, False, False))
+
     def test_floor_grid(self):
         lines = map_3d.stage_lines(1200, 600)
         rows = [line for line in lines if line[1] == line[3]]
@@ -119,7 +132,7 @@ def alpha_at(image, x, y) -> int:
 
 class Boxes:
     """MapView's box, card and summary drawing without the widget."""
-    for name in ("draw_box", "draw_cards", "draw_summaries", "color", "palette_3d", "rounded", "rounded_top",
+    for name in ("draw_box", "draw_cards", "draw_summaries", "color", "palette_3d", "rounded", "rounded_top", "socket_covered",
                  "draw_chevron", "outside_label", "runtime_use", "model_state", "flow_marks", "set_three_d"):
         locals()[name] = M.__dict__[name]
     del name
@@ -159,13 +172,18 @@ class Boxes:
 class LookTest(unittest.TestCase):
     """The box at (40, 40) 200×66: in 3D its walls fill the gap right of and below it; flat, nothing."""
 
-    def draw(self, three_d, **node):
+    def draw(self, three_d, lit=None, **node):
         view = Boxes(three_d)
         image, cr = surface()
         box = graph.Node("agent:pi", 1, "Pi", "", "agent", **node)
         layout = map_view.PangoCairo.create_layout(cr)
-        view.draw_box(cr, layout, box, 40, 40, 200, 66, False, 1.0, None)
+        view.draw_box(cr, layout, box, 40, 40, 200, 66, False, 1.0, lit)
         return image
+
+    def test_a_dimmed_box_lies_nearly_flat_unless_lit(self):
+        full, dim, lit = self.draw(True), self.draw(True, dim=True), self.draw(True, lit={"agent:pi"}, dim=True)
+        self.assertLess(alpha_at(dim, 140, 111), alpha_at(full, 140, 111))   # walls 6.8 px deep → 3.7
+        self.assertGreater(alpha_at(lit, 140, 111), alpha_at(dim, 140, 111))
 
     def test_a_box_is_a_block_in_3d_only(self):
         flat, raised = self.draw(False), self.draw(True)
@@ -194,13 +212,44 @@ class LookTest(unittest.TestCase):
             image, cr = surface()
             view.draw_summaries(cr, map_view.PangoCairo.create_layout(cr))
             self.assertEqual(alpha_at(image, 323, 30) > 100, three_d)
+            if three_d:                                   # its face reaches its walls: no seam
+                self.assertEqual(alpha_at(image, 319, 30), 255)
+                self.assertEqual(alpha_at(image, 20, 30), 255)
+
+    def test_a_3d_card_keeps_its_plinth_face(self):
+        """No flat fill over the plinth's face and tray: below its header the card is the plinth."""
+        view = Boxes(True)
+        view.group_labels = [("agents", (20, 20, 300, 150), "Agents", "", 2, "agent")]
+        image, cr = surface()
+        view.draw_cards(cr, map_view.PangoCairo.create_layout(cr))
+        plinth, cr = surface()
+        map_3d.paint_card(cr, 20, 20, 300, 150, view.radius + 2, view.palette_3d(), False)
+        image.flush()
+        plinth.flush()
+        row = lambda img, y: bytes(img.get_data()[y * img.get_stride():(y + 1) * img.get_stride()])   # noqa: E731
+        for y in (100, 140, 168):
+            self.assertEqual(row(image, y), row(plinth, y))
+
+    def test_sockets_under_a_card_moved_over_theirs_are_hidden(self):
+        view = types.SimpleNamespace(group_labels=[("a", (0, 0, 100, 100)), ("b", (200, 0, 100, 100)),
+                                                   ("moved", (50, 0, 100, 100))])
+        covered = lambda socket, upto: M.socket_covered(view, socket, upto)   # noqa: E731
+        self.assertFalse(covered((90, 50, None, 0), 1))     # card a's socket, the cable drawn with card b
+        self.assertTrue(covered((90, 50, None, 0), 2))      # the moved card lies over it
+        self.assertFalse(covered((210, 50, None, 1), 2))    # card b's, not under the moved card
+        self.assertFalse(covered((90, 50, None, 2), 2))     # its own card
 
     def test_switching_redraws_only_on_change(self):
         view = Boxes(True)
+        view.flow_layer = types.SimpleNamespace(redrawn=0)
+        view.flow_layer.queue_draw = lambda: setattr(view.flow_layer, "redrawn", view.flow_layer.redrawn + 1)
+        view.stage = map_3d.Stage()
+        view.stage.image = object()
         view.set_three_d(True)
         self.assertEqual(view.redrawn, 0)
         view.set_three_d(False)
-        self.assertEqual((view.three_d, view.redrawn), (False, 1))
+        self.assertEqual((view.three_d, view.redrawn, view.flow_layer.redrawn), (False, 1, 1))
+        self.assertIsNone(view.stage.image)              # the floor's image is let go while flat
 
     def test_the_palette_is_worked_out_once_per_palette(self):
         view = Boxes(True)
@@ -234,6 +283,27 @@ class CableTest(unittest.TestCase):
         map_3d.paint_socket(cr, 100, 100, (0.5, 0.7, 1.0, 1.0), map_3d.palette(Boxes(True).color))
         self.assertEqual(alpha_at(image, 100, 100), 255)
         self.assertEqual(alpha_at(image, 110, 100), 0)
+        image, cr = surface()                            # as opaque as its cable
+        map_3d.paint_socket(cr, 100, 100, (0.5, 0.7, 1.0, 0.55), map_3d.palette(Boxes(True).color))
+        self.assertLess(alpha_at(image, 103, 100), 200)
+
+    def test_a_faint_cable_casts_a_faint_shadow_and_dots_stay_apart(self):
+        pal = map_3d.palette(Boxes(True).color)
+
+        def trace(cr):
+            cr.move_to(20, 50)
+            cr.line_to(380, 50)
+        strong, cr = surface()
+        map_3d.paint_cable(cr, trace, (0.5, 0.7, 1.0, 1.0), 2.0, pal)
+        faint, cr = surface()
+        map_3d.paint_cable(cr, trace, (0.5, 0.7, 1.0, 0.25), 2.0, pal)
+        self.assertLess(alpha_at(faint, 200, 58), alpha_at(strong, 200, 58))
+        dots, cr = surface()
+        cr.set_line_cap(cairo.LINE_CAP_ROUND)
+        map_3d.paint_cable(cr, trace, (1.0, 0.3, 0.3, 1.0), 3.2, pal, dash=[0.1, 5])
+        dots.flush()
+        row = [alpha_at(dots, x, 50) for x in range(100, 140)]
+        self.assertIn(0, row)                            # a gap between two dots
 
     def test_the_stage_is_kept_per_size(self):
         pal = map_3d.palette(Boxes(True).color)
@@ -247,6 +317,17 @@ class CableTest(unittest.TestCase):
         self.assertIs(stage.image, kept)
         stage.paint(cr, 150, 100, pal)
         self.assertIsNot(stage.image, kept)
+        kept = stage.image
+        stage.paint(cr, 150, 100, map_3d.palette(lambda name, a=1.0: {"bg": (1, 1, 1)}.get(name, (0, 0, 0)) + (a,)))
+        self.assertIsNot(stage.image, kept)              # a new theme
+        kept = stage.image
+        cr.scale(1.5, 1.5)
+        stage.paint(cr, 100, 66, pal)
+        self.assertIsNot(stage.image, kept)              # another zoom or display scale
+        kept = stage.image
+        cr.scale(1, 2)                                   # stretched: drawn directly, not cached
+        stage.paint(cr, 100, 33, pal)
+        self.assertIs(stage.image, kept)
 
 
 class LightsTest(unittest.TestCase):
