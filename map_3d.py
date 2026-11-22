@@ -175,6 +175,13 @@ def point_hidden(holes, px, py) -> bool:
                for shape, covers in holes)
 
 
+def top_rounded(x, y, w, h, r) -> tuple:
+    """A card's open header as a polygon: rounded at the top, square at the bottom (MapView.rounded_top)."""
+    r = max(0.0, min(r, h, w / 2))
+    return tuple(_arc(x + r, y + r, r, math.pi, 1.5 * math.pi) + _arc(x + w - r, y + r, r, -0.5 * math.pi, 0)
+                 + [(x + w, y + h), (x, y + h)])
+
+
 def block_outline(x, y, w, h, depth) -> tuple:
     """A block at (x, y) with its walls as one polygon (its face and the walls swept to the lower
     right; the rounded corners left square): what of a cable it hides, in one clip."""

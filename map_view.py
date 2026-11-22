@@ -284,6 +284,7 @@ class MapView(Gtk.DrawingArea):
             self.three_d = on
             if not on:
                 self.stage = map_3d.Stage()      # the floor's image is not kept while flat
+                self.marker_holes = {}
             self.queue_draw()
             if self.flow_layer is not None:
                 self.flow_layer.queue_draw()
@@ -1022,6 +1023,7 @@ class MapView(Gtk.DrawingArea):
     def draw_markers(self, cr, edges):
         """A "!" on every failed line (click the line for its hints), apart from each other."""
         self.marker_points = []
+        self.marker_holes = {}
         for edge, _t, mx, my in self.place_markers(edges):
             self.marker_points.append(((edge.source, edge.target), mx, my))
             self.paint_marker(cr, edge, mx, my)
@@ -2288,6 +2290,7 @@ class MapView(Gtk.DrawingArea):
         self.marker_points = []      # rebuilt every drawing: only the markers shown now take clicks
         self.marker_holes = {}       # (source, target) -> what hides parts of its "!" (clicks there miss it)
         shown_markers = []           # (edge, x, y, layer, holes)
+        taken = {key: spot[1:] for key, spot in placed.items()}   # where each "!" is or is meant to be
         for layer in sorted(set(by_layer) | set(cable_layer.values())):
             cards = by_layer.get(layer, {})
             for key in cards:
@@ -2299,7 +2302,7 @@ class MapView(Gtk.DrawingArea):
                 if key in self.collapsed:
                     hiding.append(((x - 1, y - 1, w + 2, h + 2, radius + 1), layer, None))
                     continue
-                hiding.append(((x, y, w, CARD_HEAD, radius), layer, None))
+                hiding.append((map_3d.top_rounded(x, y, w, CARD_HEAD, radius), layer, None))
                 rows = [rect for rect, item in self.missing_rects.values() if item in self.missing.get(key, [])]
                 if key in self.add_rects:
                     rows.append(self.add_rects[key][0])
@@ -2339,10 +2342,12 @@ class MapView(Gtk.DrawingArea):
                 for cable, t0, t1 in mine:   # the "!" where its cable shows, clipped as it, under the boxes
                     spot = placed.get(id(cable.edge))
                     if spot is not None and not (t0 <= spot[0] <= t1 and not map_3d.point_hidden(holes, *spot[1:])):
-                        # Its place is hidden: the first other place on its line that shows.
-                        spot = next(((t, *self.curve_point(cable.edge, t)) for t in self.MARKER_PLACES
-                                     if t0 <= t <= t1 and not map_3d.point_hidden(
-                                         holes, *self.curve_point(cable.edge, t))), None)
+                        spot = self.marker_elsewhere(cable.edge, t0, t1, holes,
+                                                     [xy for key, xy in taken.items() if key != id(cable.edge)])
+                        if spot is not None:
+                            taken[id(cable.edge)] = spot[1:]
+                        else:
+                            taken.pop(id(cable.edge), None)
                     if spot is not None:
                         self.paint_marker(cr, cable.edge, *spot[1:])
                         shown_markers.append((cable.edge, *spot[1:], layer, holes))
@@ -2363,7 +2368,16 @@ class MapView(Gtk.DrawingArea):
                 for (node_id, point), t in zip(cable.ends, (t0, t1)):
                     if node_id in self.folded or t not in (0.0, 1.0):
                         continue
+                    # A card stacked since over its box may still lie over part of the disc: cut it away.
+                    over = [((rect[0] - 1, rect[1] - 1, rect[2] + 2, rect[3] + 2, radius + 1), [])   # no seam
+                            for rect in self.cards_between(layer_of(node_id), layer, layers)
+                            if map_3d.overlaps(rect + (0,), (point[0] - 6, point[1] - 6, point[0] + 7, point[1] + 8))]
+                    if over:
+                        cr.save()
+                        map_3d.clip_hidden(cr, over)
                     map_3d.paint_socket(cr, *point, cable.rgba, pal)
+                    if over:
+                        cr.restore()
                     self.sockets.append((*point, cable.rgba, layer_of(node_id)))
         cr.set_line_cap(cairo.LINE_CAP_BUTT)
         top = max(layers.values(), default=0)
@@ -2375,8 +2389,21 @@ class MapView(Gtk.DrawingArea):
 
     def marker_hidden_at(self, key, x, y) -> bool:
         """3D: whether the "!" of this line is hidden at (x, y) (a box, header or card lies over it there)."""
-        holes = getattr(self, "marker_holes", {}).get(key)
+        holes = getattr(self, "marker_holes", {}).get(key) if self.three_d else None
         return bool(holes) and map_3d.point_hidden(holes, x, y)
+
+    def marker_elsewhere(self, edge, t0, t1, holes, others):
+        """(t, x, y): another place for a "!" whose own place is hidden, on the part of its line that
+        shows, 18 px from the other markers (as place_markers keeps them), else the one furthest from
+        them; None when none of its places shows."""
+        spots = [(t, *self.curve_point(edge, t)) for t in self.MARKER_PLACES if t0 <= t <= t1]
+        spots = [spot for spot in spots if not map_3d.point_hidden(holes, *spot[1:])]
+        if not spots:
+            return None
+
+        def room(spot):
+            return min((math.hypot(spot[1] - x, spot[2] - y) for x, y in others), default=math.inf)
+        return next((spot for spot in spots if room(spot) >= 18), max(spots, key=room))
 
     def draw_box(self, cr, layout, node, x, y, w, h, faded, alpha, lit_nodes):
         """A box as Maprisma's (map_editor.dart): a card, filled in the accent colour while it runs,

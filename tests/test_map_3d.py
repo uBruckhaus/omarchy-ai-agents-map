@@ -570,6 +570,36 @@ class WholeMapTest(unittest.TestCase):
         self.assertEqual(changed, [])
         self.assertTrue(_view.sockets)                       # still plugged in
 
+    def test_moved_markers_keep_apart(self):
+        failed = (("agent:claude", "mcp:alpha", "mcp", "error"), ("agent:claude", "mcp:beta", "mcp", "warning"))
+        view, _image = headless(True, failed, collapsed=("mcp:alpha",),                       # Codex r5
+                                moved=[("skills:~/s", (400, 240)), ("agent:pi", (650, 240))])
+        points = view.marker_points
+        self.assertEqual(len(points), 2)
+        (_a, ax, ay), (_b, bx, by) = points
+        self.assertGreaterEqual(math.hypot(ax - bx, ay - by), 18)
+
+    def test_flat_again_every_marker_takes_clicks(self):
+        moved = [("skills:~/s", (890, 260)), ("cloud:anthropic", (1000, 277))]               # agy r5
+        view, _image = headless(True, self.FAILED, moved=moved)
+        self.assertTrue(view.marker_holes)
+        view.set_three_d(False)
+        self.assertEqual(view.marker_holes, {})
+        view.cards = {}
+        redraw(view)
+        for key, mx, my in view.marker_points:
+            for dx, dy in ((0, 0), (0, 7), (7, 0), (-7, 0), (0, -7)):
+                self.assertFalse(view.marker_hidden_at(key, mx + dx, my + dy))
+        view.marker_holes = {key: [((mx - 20, my - 20, 40, 40, 0), [])] for key, mx, my in view.marker_points}
+        self.assertFalse(any(view.marker_hidden_at(key, mx, my) for key, mx, my in view.marker_points))
+
+    def test_a_socket_under_a_later_card_stays_under_it(self):
+        moved = [("skills:~/s", (782, 288)), ("cloud:anthropic", (1000, 277))]               # Codex r5
+        view, plain = headless(True, (), moved=moved)
+        _view, wired = headless(True, self.FAILED, moved=moved)
+        x, y, w, _h = self.card(view, "skills:~/s")
+        self.same(wired, plain, (x, y, w, 26), 0)
+
     def test_the_flat_map_is_drawn_as_before(self):
         _view, image = headless(False, self.EDGES)
         self.assertEqual(_view.sockets, [])
