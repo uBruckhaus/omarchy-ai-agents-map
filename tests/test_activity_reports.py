@@ -1371,6 +1371,113 @@ class RoundThreeTest(TempCase):
         self.assertLessEqual(len(live.open_files(os.getpid(), most=2)), 2)
 
 
+class RoundFourTest(TempCase):
+    def test_hostless_and_encoded_authority_urls(self):
+        self.log.directory.mkdir(parents=True)
+        topics = ["a https:///home/u/private/a.py", "b http:///home/u/private/b.py?x=1",
+                  "c https://user%40evil.com/x", "d https://user%3Apw%40host.example/y"]
+        rows = [{"version": 1, "origin": "history", "session": f"s{i}", "source_kind": "agent", "source": "claude",
+                 "topic": t, "started_at": f"2026-11-20T1{i}:00:00Z", "ended_at": f"2026-11-20T1{i}:10:00Z",
+                 "duration_ms": 0} for i, t in enumerate(topics)]
+        (self.log.directory / "2026-11-20.jsonl").write_text(jl(*rows))
+        prompts = []
+        answer = json.dumps({"title": "t", "text": "x", "topics": []})
+        reports_ctl.generate_topic_report(self.log, {"helper": "h"}, lambda p: prompts.append(p) or answer,
+                                          now=at("2026-11-20T23:00:00"))
+        for leak in ("/home/u", "private", "evil.com", "%40", "pw"):
+            self.assertNotIn(leak, prompts[0])
+        self.assertIn('"a a.py"', prompts[0])
+
+    def test_live_conversation_reads_are_limited(self):
+        db = self.tmp / "conv.db"
+        con = sqlite3.connect(db)
+        con.execute("CREATE VIEW steps AS SELECT 0 AS idx, 14 AS step_type, 3 AS status, 0 AS step_format, "
+                    "zeroblob(2000000) AS step_payload")
+        con.commit()
+        con.close()
+        import readonly_sqlite
+        seen = []
+
+        class Watched:                                 # the real snapshot, its limits looked at per query
+            def __init__(self, con):
+                self.con = con
+
+            def __getattr__(self, name):
+                return getattr(self.con, name)
+
+            def execute(self, *args):
+                seen.append(self.con.getlimit(sqlite3.SQLITE_LIMIT_LENGTH))
+                return self.con.execute(*args)
+        result = live.trajectory_activity(str(db), "s", connect=lambda path: Watched(readonly_sqlite.connect(path)))
+        self.assertEqual(result["status"], "unavailable")
+        self.assertEqual(seen, [1 << 20])
+        opened = readonly_sqlite.connect(db)
+        try:
+            live.restrict_reads(opened)
+            self.assertEqual(opened.getlimit(sqlite3.SQLITE_LIMIT_LENGTH), 1 << 20)
+        finally:
+            opened.close()
+
+    def test_replaced_database_between_opens(self):
+        root = self.tmp / "agy"
+        root.mkdir()
+        db = root / "conv.db"
+        for name in ("conv.db", "other.db"):
+            con = sqlite3.connect(root / name)
+            con.execute("CREATE TABLE steps (idx INTEGER)")
+            con.commit()
+            con.close()
+        importer = history_import.HistoryImporter(self.log, [], now=at("2026-11-20T18:00:00"))
+        importer._overall = importer._source = importer.clock()
+        real_open = os.open
+
+        def swap(name, flags, *args, **kwargs):     # the database is replaced right after it was opened
+            fd = real_open(name, flags, *args, **kwargs)
+            if name == str(db):
+                os.replace(root / "other.db", db)
+            return fd
+        with mock.patch.object(history_import.os, "open", side_effect=swap):
+            with self.assertRaises(OSError):
+                importer._open_conversation(str(db))
+
+    def test_mcp_refuses_huge_numbers_and_survives(self):
+        import io
+        import activity_mcp
+        home = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(home, ignore_errors=True))
+        with mock.patch.dict(os.environ, {"XDG_DATA_HOME": str(home)}):
+            reports_ctl.ReportsLibrary().save(DRAFT, "x")
+            for name, arguments in (("reports_get", {"id": 1 << 63}), ("reports_list", {"cursor": 1 << 64})):
+                result = activity_mcp.reply({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                             "params": {"name": name, "arguments": arguments}}, "log")["result"]
+                self.assertTrue(result["isError"])
+                self.assertIn("invalid_request", result["content"][0]["text"])
+            out = io.StringIO()
+            with mock.patch.object(activity_mcp, "reply", side_effect=[RuntimeError("boom"), {"jsonrpc": "2.0", "id": 2,
+                                                                                            "result": {}}]):
+                activity_mcp.serve("log", io.BytesIO(b'{"jsonrpc":"2.0","id":1,"method":"ping"}\n'
+                                                     b'{"jsonrpc":"2.0","id":2,"method":"ping"}\n'), out)
+            answers = [json.loads(line) for line in out.getvalue().splitlines()]
+            self.assertEqual([(a["id"], "error" in a) for a in answers], [(1, True), (2, False)])
+        with self.assertRaises(reports_ctl.ReportError):
+            reports_ctl.ReportsLibrary(self.tmp / "r").get(1 << 63)
+
+    def test_listing_marks_damaged_rows(self):
+        library = reports_ctl.ReportsLibrary(self.tmp / "reports")
+        library.save(DRAFT, "ok")
+        library.save(DRAFT, "bad")
+        con = sqlite3.connect(self.tmp / "reports/reports.db")
+        con.execute("UPDATE reports SET title=x'00ff', from_day=7 WHERE title='bad'")
+        con.commit()
+        con.close()
+        rows = library.list()["reports"]
+        self.assertEqual([(r["title"], r.get("damaged", False)) for r in rows], [("Damaged report", True), ("ok", False)])
+        json.dumps(rows)                                   # always serializable (the MCP server, the page)
+        with self.assertRaises(reports_ctl.ReportError) as caught:
+            library.get(rows[0]["id"])
+        self.assertEqual(caught.exception.code, "report_damaged")
+
+
 class SchemaTest(unittest.TestCase):
     def test_defaults(self):
         import settings_schema

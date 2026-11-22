@@ -81,6 +81,7 @@ MESSAGES = {
     "reports_db_read_only": "This library was created by a newer version of the app.",
     "report_not_found": "The report could not be found.",
     "report_damaged": "This saved report is damaged and cannot be shown.",
+    "invalid_request": "The report operation failed.",
 }
 
 
@@ -130,6 +131,21 @@ def _maybe_count(value) -> bool:
 
 def _texts(value) -> bool:
     return isinstance(value, list) and len(value) <= 2000 and all(isinstance(v, str) for v in value)
+
+
+INT64 = (1 << 63) - 1
+
+
+def listing_row(row) -> dict:
+    """One library row as the list shows it; a row whose stored values are not of their kind (a BLOB
+    title, a number for a day) is listed as damaged, and opening it says so (report_damaged)."""
+    report_id, title, saved_at, first, last, count = row
+    fine = all(isinstance(v, str) for v in (title, saved_at, first, last)) and _count(count)
+    if fine:
+        return {"id": report_id, "title": title, "saved_at": saved_at, "from_day": first, "through_day": last,
+                "topic_count": count}
+    return {"id": report_id, "title": "Damaged report", "saved_at": "", "from_day": "", "through_day": "",
+            "topic_count": 0, "damaged": True}
 
 
 def valid_topic(topic) -> bool:
@@ -362,6 +378,8 @@ class ReportsLibrary:
 
     def list(self, query: str = "", cursor: int | None = None) -> dict:
         """reports.list: 50 rows a page, newest first, searching title, note, topic names and text."""
+        if cursor is not None and (type(cursor) is not int or not 1 <= cursor <= INT64):
+            raise ReportError("invalid_request")
         needle = "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
         def run(con, version):
@@ -371,8 +389,7 @@ class ReportsLibrary:
                 "WHERE (? IS NULL OR id < ?) AND (title LIKE ? ESCAPE '\\' OR note LIKE ? ESCAPE '\\' "
                 "OR topic_names LIKE ? ESCAPE '\\' OR text LIKE ? ESCAPE '\\') ORDER BY id DESC LIMIT ?",
                 (cursor, cursor, needle, needle, needle, needle, PAGE + 1)).fetchall()
-            return {"reports": [{"id": r[0], "title": r[1], "saved_at": r[2], "from_day": r[3], "through_day": r[4],
-                                 "topic_count": r[5]} for r in rows[:PAGE]],
+            return {"reports": [listing_row(r) for r in rows[:PAGE]],
                     "next_cursor": rows[PAGE - 1][0] if len(rows) > PAGE else None,
                     "read_only": version > 1, "schema_version": version}
         return self._use(False, run, lambda: {"reports": [], "next_cursor": None, "read_only": False,
@@ -395,6 +412,8 @@ class ReportsLibrary:
 
     def get(self, report_id: int) -> dict:
         def absent():
+            raise ReportError("report_not_found")
+        if type(report_id) is not int or not 1 <= report_id <= INT64:
             raise ReportError("report_not_found")
         return self._use(False, lambda con, _v: self._get(con, report_id), absent)
 

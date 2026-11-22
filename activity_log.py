@@ -240,11 +240,13 @@ def _clean_url(raw: str, depth: int = 0) -> str:
         host = parts.hostname or ""
     except ValueError:
         return "…"
-    if parts.scheme.lower() != "http" and parts.scheme.lower() != "https":
+    if parts.scheme.lower() not in ("http", "https") or not host:
+        # https:///home/u/a.py (no host) is a local path too.
         # file://, ssh://, vscode:// and the like name places on this PC: only the last name is kept.
         name = os.path.basename(unquote(parts.path).rstrip("/"))
         return _redact(name) if name else "…"
-    if parts.username or parts.password or "@" in parts.netloc or _redact(host) != host:
+    netloc = unquote(parts.netloc)
+    if parts.username or parts.password or "@" in netloc or _redact(netloc) != netloc or _redact(host) != host:
         return "…"
     query = []
     for pair in parts.query.split("&") if parts.query else []:

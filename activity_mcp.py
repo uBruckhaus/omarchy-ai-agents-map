@@ -17,6 +17,7 @@ import json
 import sys
 
 MAX_LINE = 64 * 1024
+INT64 = (1 << 63) - 1          # SQLite's integers: a larger id or cursor is refused, never sent to it
 
 PROGRESS_TOOL = {
     "name": "report_progress", "description": "Report progress for this running agent in AI Agents Map.",
@@ -61,11 +62,11 @@ def log_call(name: str, arguments: dict) -> dict:
         if name == "reports_list":
             query, cursor = arguments.get("query", ""), arguments.get("cursor")
             if any(k not in ("query", "cursor") for k in arguments) or not isinstance(query, str) or len(query) > 200 \
-                    or (cursor is not None and (type(cursor) is not int or cursor < 1)):
+                    or (cursor is not None and (type(cursor) is not int or not 1 <= cursor <= INT64)):
                 return _text({"code": "invalid_request"}, True)
             return _text(reports_ctl.ReportsLibrary().list(query, cursor))
         report_id = arguments.get("id")
-        if set(arguments) != {"id"} or type(report_id) is not int or report_id < 1:
+        if set(arguments) != {"id"} or type(report_id) is not int or not 1 <= report_id <= INT64:
             return _text({"code": "invalid_request"}, True)
         return _text({"report": reports_ctl.ReportsLibrary().get(report_id)})
     except reports_ctl.ReportError as error:
@@ -122,10 +123,17 @@ def serve(mode: str, stdin=None, stdout=None) -> int:
                 line = stdin.readline(MAX_LINE)
             answer = {"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "Request too large"}}
         else:
+            frame = _UNREAD = object()
             try:
-                answer = reply(json.loads(line), mode)
+                frame = json.loads(line)
             except ValueError:
                 answer = {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}}
+            if frame is not _UNREAD:
+                try:
+                    answer = reply(frame, mode)
+                except Exception:              # never ends the server: this request fails, the next is answered
+                    answer = {"jsonrpc": "2.0", "id": frame.get("id") if isinstance(frame, dict) else None,
+                              "error": {"code": -32603, "message": "Internal error"}}
         if answer is not None:
             stdout.write(json.dumps(answer, ensure_ascii=False) + "\n")
             stdout.flush()

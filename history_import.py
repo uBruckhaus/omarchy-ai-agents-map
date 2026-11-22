@@ -511,7 +511,9 @@ class HistoryImporter:
             if fd is None:
                 return None
             info, now = os.fstat(fd), os.lstat(name)      # still the file at that name, unchanged
-            return (info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns, now.st_ino)
+            if (info.st_dev, info.st_ino) != (now.st_dev, now.st_ino):
+                raise OSError("history database replaced while read")
+            return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
         try:
             base_fd = own(path, False)
             wal_fd = own(path + "-wal", True)
@@ -532,6 +534,9 @@ class HistoryImporter:
             # Both files the same from before the first read to after the last: one consistent snapshot.
             if before != (stamp(base_fd, path), wal_now):
                 raise OSError("history database changed while read")
+            if os.path.lexists(path + "-journal") != (journal_fd is not None) or (
+                    journal_fd is not None and os.pread(journal_fd, 8, 0) == b"\xd9\xd5\x05\xf9\x20\xa1\x63\xd7"):
+                raise OSError("a write began while read")
         finally:
             for fd in opened:
                 os.close(fd)
@@ -548,9 +553,8 @@ class HistoryImporter:
             con.execute("PRAGMA query_only=ON")
             con.execute("PRAGMA trusted_schema=OFF")
             # Maprisma's restrictReads(): no value over 1 MiB, short SQL, few columns.
-            con.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, 1 << 20)
-            con.setlimit(sqlite3.SQLITE_LIMIT_SQL_LENGTH, 32768)
-            con.setlimit(sqlite3.SQLITE_LIMIT_COLUMN, 128)
+            import agent_activity_report
+            agent_activity_report.restrict_reads(con)
             deadline = self.clock() + self._left()
             con.set_progress_handler(lambda: int(self.clock() > deadline), 1000)
             con.execute("SELECT count(*) FROM sqlite_master").fetchone()

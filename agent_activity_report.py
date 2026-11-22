@@ -390,6 +390,15 @@ def trajectory_text(data: bytes, path) -> str:
     return re.sub("[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]", "", text).strip()[:2000]
 
 
+def restrict_reads(con) -> None:
+    """Maprisma's restrictReads(): no value over 1 MiB, short SQL, at most 128 columns (an agent's
+    database is untrusted: a view could otherwise build a huge value before any length check)."""
+    import sqlite3
+    con.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, 1 << 20)
+    con.setlimit(sqlite3.SQLITE_LIMIT_SQL_LENGTH, 32768)
+    con.setlimit(sqlite3.SQLITE_LIMIT_COLUMN, 128)
+
+
 def trajectory_activity(path: str, session_id: str, connect=None) -> dict:
     """The current turn of an Antigravity conversation database (format-0 steps only)."""
     import readonly_sqlite
@@ -397,6 +406,7 @@ def trajectory_activity(path: str, session_id: str, connect=None) -> dict:
     if con is None:
         return unavailable()
     try:
+        restrict_reads(con)
         rows = con.execute(
             "SELECT step_type, status, step_format, CASE WHEN length(step_payload) <= 65536 THEN step_payload END "
             "FROM steps WHERE idx >= (SELECT COALESCE(MAX(idx), 0) FROM steps WHERE step_type = 14) "
