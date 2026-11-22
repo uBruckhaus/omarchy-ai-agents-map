@@ -284,9 +284,13 @@ class ReportsPage:
 
     def reports_shown(self):
         """The window is shown again: the Log tab's refresh goes on where it stopped."""
-        if self.page_name() == "reports" and self.reports_tab == "log" and not getattr(self, "reports_timer", None):
+        if self.page_name() != "reports":
+            return
+        if self.reports_tab == "log" and not getattr(self, "reports_timer", None):
             self.refresh_reports_log(keep_scroll=True)
             self.reports_timer = GLib.timeout_add_seconds(REFRESH_SECONDS, self.reports_tick)
+        elif self.reports_tab == "topics" and self.reports_running is not None and not self.reports_pulse:
+            self.fill_reports_topics()            # its progress bar pulses again
 
     def reports_hidden(self):
         """The window is hidden: nothing of this page keeps running in the background but a report
@@ -522,6 +526,7 @@ class ReportsPage:
         def answered(_d, response):
             if response == "on":
                 self.save_setting(**{k: True for k in missing})
+                self.fill_log_settings()          # the switches above show what was just switched on
                 self.start_history(False)
         dialog.connect("response", answered)
         dialog.present(self.window)

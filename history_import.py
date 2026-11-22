@@ -490,34 +490,53 @@ class HistoryImporter:
         own deadline."""
         import readonly_sqlite
         import sqlite3
+        opened = []
 
-        def read(name: str, optional: bool):
+        def own(name: str, optional: bool):
             try:
                 fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
             except FileNotFoundError:
                 if optional:
-                    return b"", None
+                    return None
                 raise
+            opened.append(fd)
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
+                raise OSError("unsafe history database")
+            if info.st_size > readonly_sqlite.MAX_BYTES:
+                raise OSError("history database too large")
+            return fd
+
+        def stamp(fd, name):
+            if fd is None:
+                return None
+            info, now = os.fstat(fd), os.lstat(name)      # still the file at that name, unchanged
+            return (info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns, now.st_ino)
+        try:
+            base_fd = own(path, False)
+            wal_fd = own(path + "-wal", True)
+            journal_fd = own(path + "-journal", True)
+            if journal_fd is not None and os.pread(journal_fd, 8, 0) == b"\xd9\xd5\x05\xf9\x20\xa1\x63\xd7":
+                raise OSError("a write is under way (hot journal)")      # read again on a later import
+            before = (stamp(base_fd, path), stamp(wal_fd, path + "-wal"))
+            base = _read_all(base_fd, readonly_sqlite.MAX_BYTES + 1)
+            wal = _read_all(wal_fd, readonly_sqlite.MAX_BYTES + 1) if wal_fd is not None else b""
+            if max(len(base), len(wal)) > readonly_sqlite.MAX_BYTES:
+                raise OSError("history database too large")
             try:
-                info = os.fstat(fd)
-                if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
-                    raise OSError("unsafe history database")
-                if info.st_size > readonly_sqlite.MAX_BYTES:
-                    raise OSError("history database too large")
-                data = _read_all(fd, readonly_sqlite.MAX_BYTES + 1)
-                if len(data) > readonly_sqlite.MAX_BYTES:
-                    raise OSError("history database too large")
-                after = os.fstat(fd)
-                return data, (info.st_ino, info.st_size, info.st_mtime_ns, after.st_size, after.st_mtime_ns)
-            finally:
+                wal_now = stamp(wal_fd, path + "-wal") if wal_fd is not None else None
+                if os.path.lexists(path + "-wal") != (wal_fd is not None):
+                    raise OSError("history database changed while read")
+            except FileNotFoundError:
+                raise OSError("history database changed while read") from None
+            # Both files the same from before the first read to after the last: one consistent snapshot.
+            if before != (stamp(base_fd, path), wal_now):
+                raise OSError("history database changed while read")
+        finally:
+            for fd in opened:
                 os.close(fd)
-        base, base_stamp = read(path, False)
         if base[:16] != b"SQLite format 3\0":
             raise ValueError("not a database")
-        wal, wal_stamp = read(path + "-wal", True)
-        for stamp in (base_stamp, wal_stamp):
-            if stamp is not None and stamp[1:3] != stamp[3:5]:
-                raise OSError("history database changed while read")
         try:
             image = readonly_sqlite.committed_image(base, wal)
         except ValueError:
@@ -528,8 +547,12 @@ class HistoryImporter:
             con.execute("PRAGMA temp_store=MEMORY")
             con.execute("PRAGMA query_only=ON")
             con.execute("PRAGMA trusted_schema=OFF")
-            deadline = time.monotonic() + self._left()
-            con.set_progress_handler(lambda: int(time.monotonic() > deadline), 1000)
+            # Maprisma's restrictReads(): no value over 1 MiB, short SQL, few columns.
+            con.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, 1 << 20)
+            con.setlimit(sqlite3.SQLITE_LIMIT_SQL_LENGTH, 32768)
+            con.setlimit(sqlite3.SQLITE_LIMIT_COLUMN, 128)
+            deadline = self.clock() + self._left()
+            con.set_progress_handler(lambda: int(self.clock() > deadline), 1000)
             con.execute("SELECT count(*) FROM sqlite_master").fetchone()
         except sqlite3.DatabaseError as error:
             con.close()
@@ -611,7 +634,31 @@ def _pread_all(fd: int, size: int, offset: int) -> bytes:
     return b"".join(chunks)
 
 
+def _statx_birth(path: str) -> float | None:
+    """A file's birth time on Linux through statx(2) (Python has no os.statx yet); None when the
+    file system does not keep it."""
+    import ctypes
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        call = libc.statx
+    except (OSError, AttributeError):
+        return None
+    buffer = ctypes.create_string_buffer(256)                 # struct statx
+    at_fdcwd, nofollow, btime = -100, 0x100, 0x800
+    call.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_uint, ctypes.c_void_p)
+    if call(at_fdcwd, os.fsencode(path), nofollow, btime, buffer) != 0:
+        return None
+    mask = int.from_bytes(buffer.raw[0:4], "little")
+    if not mask & btime:
+        return None
+    seconds = int.from_bytes(buffer.raw[80:88], "little", signed=True)   # stx_btime.tv_sec
+    nanos = int.from_bytes(buffer.raw[88:92], "little")
+    return seconds + nanos / 1e9 if seconds > 0 else None
+
+
 def _birth(path: str) -> float | None:
+    """When the file was made (an Antigravity conversation's start): os.statx where Python has it,
+    else statx(2) directly, else st_birthtime."""
     statx = getattr(os, "statx", None)
     if statx is not None:
         try:
@@ -620,6 +667,9 @@ def _birth(path: str) -> float | None:
             return float(born) if born else None
         except (OSError, TypeError, ValueError):
             return None
+    born = _statx_birth(path)
+    if born is not None:
+        return born
     try:
         return getattr(os.lstat(path), "st_birthtime", None)
     except OSError:

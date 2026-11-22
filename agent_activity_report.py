@@ -114,27 +114,62 @@ def argv_of(pid: int, proc: str = "/proc") -> list[str]:
     return [a.decode("utf-8", "replace") for a in raw.split(b"\0") if a][:256]
 
 
-def own_processes(proc: str = "/proc") -> list[int]:
+PROC_VISITS, PROC_SECONDS = 100_000, 0.5     # one /proc pass: entries looked at, and its time
+
+
+def own_processes(proc: str = "/proc", budget=None) -> list[int]:
+    """This account's processes, read entry by entry (scan_budget): every entry and its owner check
+    are charged to one visit and time budget, nothing is listed whole first."""
+    import scan_budget
+    budget = budget or scan_budget.Budget(visits=PROC_VISITS, seconds=PROC_SECONDS)
     found = []
+    uid = os.getuid()
     try:
-        names = os.listdir(proc)[:100000]
+        listing = os.scandir(proc)
     except OSError:
         return found
-    uid = os.getuid()
-    for name in names:
-        if name.isdigit():
+    with listing:
+        for entry in listing:
+            if not budget.take():
+                break
+            if not entry.name.isdigit():
+                continue
             try:
-                if os.stat(f"{proc}/{name}").st_uid == uid:
-                    found.append(int(name))
+                if entry.stat(follow_symlinks=False).st_uid == uid:
+                    found.append(int(entry.name))
             except OSError:
                 pass
     return found
 
 
+def open_files(pid: int, proc: str = "/proc", most: int = 512, seconds: float = 0.1) -> list[str]:
+    """Where a process's open descriptors lead, read entry by entry (at most `most`, within `seconds`)."""
+    import scan_budget
+    budget = scan_budget.Budget(visits=most, seconds=seconds)
+    found = []
+    try:
+        listing = os.scandir(f"{proc}/{pid}/fd")
+    except OSError:
+        return found
+    with listing:
+        for entry in listing:
+            if not budget.take():
+                break
+            try:
+                found.append(os.readlink(entry.path))
+            except OSError:
+                continue
+    return found
+
+
 def descendants(pid: int, proc: str = "/proc") -> list[int]:
     """This account's processes started by it, directly or further down (one /proc pass)."""
+    import scan_budget
+    budget = scan_budget.Budget(visits=PROC_VISITS, seconds=PROC_SECONDS)   # the listing and the reads share it
     children: dict[int, list[int]] = {}
-    for other in own_processes(proc):
+    for other in own_processes(proc, budget):
+        if not budget.take():
+            break
         fields = _stat(other, proc)
         try:
             children.setdefault(int(fields[1]), []).append(other)
@@ -441,18 +476,7 @@ def live_session_file(command: str, instance: str, facts: dict, agent_pids, proc
         name = os.path.basename(path)
         return inside and (bool(UUID_DB.match(name)) if reader == "trajectory-sqlite"
                            else name.endswith(".jsonl") and not name.startswith("."))
-    candidates = set()
-    try:
-        fds = os.listdir(f"{proc}/{pid}/fd")[:512]
-    except OSError:
-        fds = []
-    for fd in fds:
-        try:
-            target = os.readlink(f"{proc}/{pid}/fd/{fd}")
-        except OSError:
-            continue
-        if matches(target):
-            candidates.add(target)
+    candidates = {target for target in open_files(pid, proc) if matches(target)}
     if not candidates and reader != "trajectory-sqlite" \
             and not any(other != pid and _cwd(other, proc) == cwd for other in agent_pids):
         since = _started(pid, proc)

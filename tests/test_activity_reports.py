@@ -412,7 +412,8 @@ class ImportTest(TempCase):
         con.close()
         os.utime(db, (self.NOW.timestamp() - 3600, self.NOW.timestamp() - 3600))
         source = {"source": "agent:agy", "name": "Antigravity", "supported": True, "form": "trajectory-sqlite", "root": str(root)}
-        result = self.importer(source).run()
+        with mock.patch.object(history_import, "_birth", return_value=self.NOW.timestamp() - 7200):
+            result = self.importer(source).run()
         self.assertEqual(result["sources"][0]["status"], "partial")
         row = self.rows("2026-11-20")[0]
         self.assertEqual((row["topic"], row["files"]), ("Refactor the parser", ["lib.rs"]))
@@ -1261,6 +1262,113 @@ class RoundTwoTest(TempCase):
         negative = jl({"type": "event_msg", "payload": {"type": "token_count", "info": {
             "total_token_usage": {"input_tokens": -5, "output_tokens": 1}}}})
         self.assertIsNone(live.usage_totals(negative, True))
+
+
+class RoundThreeTest(TempCase):
+    def test_paths_in_url_keys_and_encoded_segments(self):
+        self.log.directory.mkdir(parents=True)
+        topics = ["a https://example.com/?/home/u/private/a.py", "b https://example.com/?/home/u/private/b.py=1",
+                  "c https://example.com/?file:///home/u/private/c.py", "d https://example.com/?%2Fhome%2Fu%2Fprivate%2Fd.py",
+                  "e https://example.com/open/%2Fhome%2Fu%2Fprivate%2Fe.py"]
+        rows = [{"version": 1, "origin": "history", "session": f"s{i}", "source_kind": "agent", "source": "claude",
+                 "topic": t, "started_at": f"2026-11-20T1{i}:00:00Z", "ended_at": f"2026-11-20T1{i}:10:00Z",
+                 "duration_ms": 0} for i, t in enumerate(topics)]
+        (self.log.directory / "2026-11-20.jsonl").write_text(jl(*rows))
+        prompts = []
+        answer = json.dumps({"title": "t", "text": "x", "topics": []})
+        reports_ctl.generate_topic_report(self.log, {"helper": "h"}, lambda p: prompts.append(p) or answer,
+                                          now=at("2026-11-20T23:00:00"))
+        for leak in ("/home/u", "%2Fhome", "private"):
+            self.assertNotIn(leak, prompts[0])
+        for name in ("a.py", "b.py=1", "c.py", "d.py", "/open/e.py"):
+            self.assertIn(name, prompts[0])
+
+    def conversation(self, root: Path) -> Path:
+        root.mkdir(exist_ok=True)
+        db = root / "conv.db"
+        con = sqlite3.connect(db)
+        con.execute("CREATE TABLE steps (idx INTEGER, step_type INTEGER, status INTEGER, step_format INTEGER, step_payload BLOB)")
+        con.commit()
+        con.close()
+        return db
+
+    def importer(self, root, now="2026-11-20T18:00:00"):
+        source = {"source": "agent:agy", "name": "Antigravity", "supported": True, "form": "trajectory-sqlite",
+                  "root": str(root)}
+        return history_import.HistoryImporter(self.log, [source], now=at(now))
+
+    def test_hot_journal_and_changing_snapshot_are_unavailable(self):
+        db = self.conversation(self.tmp / "agy")
+        (self.tmp / "agy/conv.db-journal").write_bytes(b"\xd9\xd5\x05\xf9\x20\xa1\x63\xd7" + b"\0" * 100)
+        self.assertEqual(self.importer(self.tmp / "agy").run()["sources"][0]["status"], "unavailable")
+        (self.tmp / "agy/conv.db-journal").unlink()
+        real = history_import._read_all
+        calls = []
+
+        def checkpoint_between(fd, limit):           # the WAL appears after the base was read
+            data = real(fd, limit)
+            if not calls:
+                (self.tmp / "agy/conv.db-wal").write_bytes(b"")
+            calls.append(1)
+            return data
+        importer = self.importer(self.tmp / "agy")
+        importer._overall = importer._source = importer.clock()
+        with mock.patch.object(history_import, "_read_all", side_effect=checkpoint_between):
+            with self.assertRaises(OSError):
+                importer._open_conversation(str(db))
+
+    def test_conversation_limits(self):
+        db = self.conversation(self.tmp / "agy")
+        importer = self.importer(self.tmp / "agy")
+        importer._overall = importer._source = importer.clock()
+        con = importer._open_conversation(str(db))
+        try:
+            self.assertEqual(con.getlimit(sqlite3.SQLITE_LIMIT_LENGTH), 1 << 20)
+            self.assertEqual(con.getlimit(sqlite3.SQLITE_LIMIT_COLUMN), 128)
+            with self.assertRaises(sqlite3.DataError):
+                con.execute("SELECT zeroblob(2000000)").fetchone()
+        finally:
+            con.close()
+
+    def test_birth_time_and_stable_conversation_id(self):
+        db = self.conversation(self.tmp / "agy")
+        born = history_import._birth(str(db))
+        if born is not None:                                  # this file system keeps birth times
+            os.utime(db, (born + 5000, born + 5000))
+            self.assertEqual(history_import._birth(str(db)), born)      # a change never moves the start
+        start = at("2026-11-20T14:00:00").timestamp()
+        with mock.patch.object(history_import, "_birth", return_value=start):
+            t = at("2026-11-20T15:00:00").timestamp()
+            os.utime(db, (t, t))
+            first = self.importer(self.tmp / "agy").run()
+            t2 = at("2026-11-20T16:00:00").timestamp()
+            os.utime(db, (t2, t2))
+            second = self.importer(self.tmp / "agy", now="2026-11-20T19:30:00").run()
+        self.assertEqual((first["sources"][0]["added"], second["sources"][0]["added"],
+                          second["sources"][0]["updated"]), (1, 0, 1))
+        rows = [r for r in self.rows("2026-11-20") if r["origin"] == "history"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["duration_ms"], 2 * 3600 * 1000)
+
+    def test_library_refuses_a_hot_journal(self):
+        library = reports_ctl.ReportsLibrary(self.tmp / "reports")
+        library.save(DRAFT, "x")
+        (self.tmp / "reports/reports.db-journal").write_bytes(reports_ctl.HOT_JOURNAL + b"\0" * 50)
+        for call in (library.list, library.move_aside):
+            with self.assertRaises(reports_ctl.ReportError) as caught:
+                call()
+            self.assertEqual(caught.exception.code, "reports_db_unavailable")
+        self.assertTrue((self.tmp / "reports/reports.db").exists())
+
+    def test_proc_reads_are_budgeted(self):
+        import scan_budget
+        budget = scan_budget.Budget(visits=3, seconds=5)
+        self.assertLessEqual(len(live.own_processes(budget=budget)), 3)
+        self.assertTrue(budget.stopped)
+        with mock.patch.object(live.os, "listdir", side_effect=AssertionError("listed whole")):
+            live.own_processes()
+            self.assertTrue(live.open_files(os.getpid()))
+        self.assertLessEqual(len(live.open_files(os.getpid(), most=2)), 2)
 
 
 class SchemaTest(unittest.TestCase):

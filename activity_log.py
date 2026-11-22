@@ -252,13 +252,23 @@ def _clean_url(raw: str, depth: int = 0) -> str:
         name = unquote_plus(key)
         if _redact(name) != name:
             return "…"
+        short_name = _short_paths(name, depth)      # ?/home/u/a.py, ?file:///home/u/a.py=1: keys too
+        key = key if short_name == name else quote(short_name, safe="…")
         plain = unquote_plus(value)
         if _QUERY_SECRET.search(name) or _redact(plain) != plain:
             query.append(key + sep + "…")
             continue
         short = _short_paths(plain, depth)
         query.append(key + sep + (value if short == plain else quote(short, safe="…")))
-    path = "/".join("…" if _redact(unquote(s)) != unquote(s) else s for s in parts.path.split("/"))
+    segments = []
+    for segment in parts.path.split("/"):
+        plain = unquote(segment)
+        if _redact(plain) != plain:
+            segments.append("…")
+            continue
+        short = _short_paths(plain, depth)              # /open/%2Fhome%2Fu%2Fa.py: a path hidden by encoding
+        segments.append(segment if short == plain else quote(short, safe="…"))
+    path = "/".join(segments)
     fragment = _short_paths(_redact(unquote(parts.fragment)), depth) if parts.fragment else ""
     return urlunsplit((parts.scheme, parts.netloc, path, "&".join(query), fragment))
 

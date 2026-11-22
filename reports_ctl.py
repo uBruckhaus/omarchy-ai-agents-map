@@ -44,6 +44,7 @@ FIELDS = ("title", "note", "saved_at", "from_day", "through_day", "filters", "he
 COLUMNS = ("title,note,saved_at,from_day,through_day,filters_json,helper,generated_at,entry_count,"
            "total_entries,capped,topics_json,text")
 PAGE = 50
+HOT_JOURNAL = b"\xd9\xd5\x05\xf9\x20\xa1\x63\xd7"     # a rollback journal SQLite would play back
 LOCK_WAIT = 5.0
 CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 SCHEMA = """
@@ -223,7 +224,21 @@ class ReportsLibrary:
 
     def _probe(self, dir_fd: int, wal: bool) -> sqlite3.Connection:
         """A read-only look at the schema that creates no -wal or -shm: immutable without a WAL, an
-        in-memory committed image with one."""
+        in-memory committed image with one. A hot rollback journal (a write under way, or one to
+        recover) is never read past: the library is busy, not damaged."""
+        try:
+            fd = os.open(FILES[3], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=dir_fd)
+        except FileNotFoundError:
+            fd = None
+        except OSError:
+            raise ReportError("reports_db_unavailable") from None
+        if fd is not None:
+            try:
+                hot = os.pread(fd, 8, 0) == HOT_JOURNAL
+            finally:
+                os.close(fd)
+            if hot:
+                raise ReportError("reports_db_unavailable")
         if not wal:
             con = sqlite3.connect(f"file:{quote(self._path(dir_fd))}?immutable=1&mode=ro", uri=True,
                                   check_same_thread=False)
@@ -797,4 +812,3 @@ def import_error(code: str) -> str:
     return _({"log_off": "Turn on the activity log to collect entries.",
               "import_off": "Collect activity from agent history",
               "import_running": "History collection is already running."}.get(code, "Could not collect history."))
-
