@@ -2395,5 +2395,27 @@ class RoundTwentyFourTest(unittest.TestCase):
             self.assertIsNone(activity_log.sanitize_topic(text), text)
 
 
+class RoundTwentyFiveTest(unittest.TestCase):
+    """Narrow exemptions only; names from URLs never carry ":" (agy r24)."""
+
+    def test_review_examples_never_leak(self):
+        import activity_log
+        for text in ("see ftp://ex.com/a,https%252525253A/%5Calice:mysecret",
+                     "see https://ex.com/a,https%252525253A/%5Calice:mysecret",
+                     "see ftp://ex.com/a,https%252525253A\\alice:mysecret",
+                     "see ftp://ex.com/a,https:%252525255C/alice:mysecret",
+                     "connect alice:mysecret@host@sha256:abc123", "connect alice:mysecret@localhost,img:1@sha256:deadbeef",
+                     "connect alice:mysecret@sha256:not-a-digest", "connect alice::mysecret@127.0.0.1:5432",
+                     "connect alice:::mysecret@localhost", "connect ::mysecret@localhost",
+                     "connect 123456:987654321@localhost", "connect 12:34@127.0.0.1:6379"):
+            out = activity_log.sanitize_topic(text) or ""
+            self.assertNotIn("secret", out, (text, out))
+            self.assertNotIn("987654321", out, (text, out))
+            self.assertNotIn("12:34", out, (text, out))
+        for text in ("run docker image foo:latest@sha256:abc123 and test", "meeting at 10:30@office",
+                     "fix c++ std::vector@ issue"):
+            self.assertIsNotNone(activity_log.sanitize_topic(text), text)
+
+
 if __name__ == "__main__":
     unittest.main()

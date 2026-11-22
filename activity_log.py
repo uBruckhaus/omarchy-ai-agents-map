@@ -268,18 +268,25 @@ _ENCODED_AT = re.compile(r"%(?:25)*40", re.IGNORECASE)
 _ENCODED_COLON = re.compile(r"%(?:25)*3a", re.IGNORECASE)
 
 
+_DIGEST = re.compile(r"sha(?:1|256|512):[0-9a-fA-F]+[,;.)\]'\"]*")
+_SCOPE_AT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)+@(?:[A-Za-z_][A-Za-z0-9_-]*)?")
+
+
 def _userinfo(text: str) -> bool:
     """user:password@host in linear time, also :password@host (empty user) and a cut-off user:password@."""
     at = text.rfind("@")
-    if at < 2 or text[at + 1:at + 8].lower() in ("sha256:", "sha512:") or text[at + 1:at + 6].lower() == "sha1:":
-        return False                       # an image digest (img:1.2@sha256:…), not userinfo
+    if at < 2:
+        return False
+    if text.find("@") == at and _DIGEST.fullmatch(text, at + 1):
+        return False                       # an image digest (img:1.2@sha256:<hex>), not userinfo
+    if _SCOPE_AT.fullmatch(text) and text[at + 1:].lower() != "localhost":
+        return False                       # a scope operator (std::vector@, Foo::bar@deprecated)
     colon = text.find(":", 0, at)
-    while colon >= 0 and (text[colon + 1:colon + 2] == ":" or text[colon - 1:colon] == ":"):
-        colon = text.find(":", colon + 2, at)  # a scope operator (std::vector@), not user:password
     if colon < 0:
         return False
-    user = text[:colon].rsplit("/", 1)[-1]
-    if user.isdigit() and text[colon + 1:at].isdigit():
+    host = text[at + 1:]
+    if (len(text[:colon]) <= 2 and text[:colon].isdigit() and len(text[colon + 1:at]) <= 2
+            and text[colon + 1:at].isdigit() and host.isalpha() and host.lower() != "localhost"):
         return False                       # a time or ratio (10:30@office, 3:1@scale)
     return at < len(text) - 1 or colon + 1 < at
 
@@ -321,7 +328,11 @@ def _clean_url(raw: str) -> tuple[str, str]:
             return "", "…"  # a chained URL's credentials must never become the first URL's basename
         path = re.split(r"[?#]", path, maxsplit=1)[0]
         name = path.rsplit("/", 1)[-1]
-        if any(c.isspace() or c in "/\\%" for c in name) or _CONTROL.search(name):
+        # A kept name never holds ":", "@" or a fullwidth look-alike: such a "name" may be userinfo of a
+        # URL chained into this one, however it was encoded.
+        name = unicodedata.normalize("NFKC", name)
+        plain = re.sub(r"(?::\d{1,7}){1,2}$", "", name)     # file.py:10 or file.py:10:4 (line, column)
+        if any(c.isspace() or c in "/\\%:@" for c in plain) or _CONTROL.search(name):
             name = ""
         if url.scheme.lower() in ("http", "https"):
             host = _decode_url_part(url.netloc)
