@@ -117,6 +117,7 @@ from traffic_page import TrafficPage
 from smart_check_page import SmartCheckPage
 from llm_help_page import LlmHelpPage
 from first_agent_page import FirstAgentPage
+from projects_page import ProjectsPage  # the AI Project Center's Projects page (WP6)
 import guide_navigation
 from skills_page import SkillsPage
 from mcp_pages import McpPages
@@ -180,7 +181,7 @@ class AppWindow(Adw.ApplicationWindow):
 
 
 class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, ThemeCss, InstallDialog, SetupPage, AddonsPage, DetailsPages, InfoPage, McpPages, SkillsPage, ConnectPage, ConfigureMenu, TrafficPage, SubagentsPage, ModelsPage, SmartCheckPage,
-                LlmHelpPage, FirstAgentPage, Adw.Application):
+                LlmHelpPage, FirstAgentPage, ProjectsPage, Adw.Application):
     def __init__(self):
         super().__init__(application_id=desktop.app_id())
         self.window = None
@@ -211,6 +212,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
 
     def do_shutdown(self):
         guide_navigation.abandon_read(self)
+        self.shutdown_projects()             # closing stops the project agents
         cleanup_pid()
         Adw.Application.do_shutdown(self)
 
@@ -448,6 +450,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         stack.add_named(self.build_setup_page(), "setup")
         if hasattr(self, "build_addons_page"):
             stack.add_named(self.build_addons_page(), "addons")
+        stack.add_named(self.build_projects_page(), "projects")    # open_projects(); WP7 makes it a tab
         # Details and the pages that change something open right of the cards, where the map is.
         right = self.right_stack
         right.add_named(self.build_connect_page(), "connect")
