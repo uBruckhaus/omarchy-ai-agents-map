@@ -307,7 +307,8 @@ def _credential_token(token: str) -> bool:
 def _flat_separators(text: str) -> str:
     """Every encoding (any %25 depth, NFKC look-alikes, backslash) of / and : as plain / and :."""
     for _ in range(6):
-        flat = _ENCODED_COLON.sub(":", re.sub(r"%(?:25)*(?:2f|5c)", "/", text, flags=re.IGNORECASE))
+        flat = re.sub(r"%(?:25)+", "%", text)            # any %25 depth in one step, also before look-alikes
+        flat = _ENCODED_COLON.sub(":", re.sub(r"%(?:2f|5c)", "/", flat, flags=re.IGNORECASE))
         flat = unicodedata.normalize("NFKC", unquote(flat)).replace("\\", "/").replace("\uff3c", "/")
         if flat == text:
             break
