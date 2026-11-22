@@ -68,6 +68,32 @@ def spin_for(seconds):
         time.sleep(0.01)
 
 
+def walk(widget):
+    stack, found = [widget], []
+    while stack:
+        item = stack.pop()
+        found.append(item)
+        child = item.get_first_child()
+        while child is not None:
+            stack.append(child)
+            child = child.get_next_sibling()
+    if isinstance(widget, Gtk.Popover) and widget.get_child() is not None and widget.get_child() not in found:
+        found += walk(widget.get_child())
+    return found
+
+
+def children(flow):
+    count, child = 0, flow.get_first_child()
+    while child is not None:
+        count += 1
+        child = child.get_next_sibling()
+    return count
+
+
+def center_moves(center):
+    return [c for c in center.calls if c[0] == "move"]
+
+
 def labels(widget):
     found = []
     stack = [widget]
@@ -155,12 +181,37 @@ def main():
     assert "1" in labels(running_card)                       # the messages badge
     # Fix on map appears once the shell links to the map.
     host.projects_map_fix = lambda node: None
-    board.cards.clear()
+    board.cards = {pid: (child, None) for pid, (child, _sig) in board.cards.items()}
     ctrl.notify()
     spin(lambda: "Fix on map" in labels(board.root))
     # Filters narrow the cards; All clears.
     ctrl.set_filter("needs_you")
     spin(lambda: board.order == ["blocked"])
+    ctrl.set_filter(None)
+    spin(lambda: len(board.order) == 4)
+    # Resizing across every breakpoint keeps one child per card (no duplicates left behind).
+    for width in (500, 800, 1200, 650, 1200):
+        board.on_width(width)
+        spin(lambda: True, 0.05)
+        assert children(board.flow) == 4, (width, children(board.flow))
+    # The Move menu is built when it opens, from the board as it is shown then (b hidden by a filter).
+    ctrl.set_filter("drafts")
+    spin(lambda: board.order == ["draft"])
+    ctrl.set_filter(None)
+    spin(lambda: len(board.order) == 4)
+    ctrl.set_filter("needs_you")
+    spin(lambda: board.order == ["blocked"])
+    handle = [w for w in walk(board.cards["blocked"][0]) if isinstance(w, Gtk.MenuButton)
+              and w.get_tooltip_text() == "Move"][0]
+    handle.get_popover().emit("show")
+    items = {w.get_label(): w.get_sensitive() for w in walk(handle.get_popover()) if isinstance(w, Gtk.Button)}
+    assert items == {"Move up": False, "Move down": False, "Move to top": True, "Move to end": True}, items
+    assert "blocked" in board.popovers                 # its card is not drawn again meanwhile
+    handle.get_popover().emit("closed")
+    assert "blocked" not in board.popovers
+    # Dragging: no drop onto the card itself, nothing from outside the board.
+    assert board.drop_hint("blocked", True) == Gdk.DragAction(0)
+    assert board.dropped("blocked", "draft") is False and not center_moves(center)
     ctrl.set_filter(None)
     spin(lambda: len(board.order) == 4)
     # Phases: navigation only.
@@ -210,6 +261,35 @@ def main():
     assert "New project" in labels(detail.root)
     detail.title_entry.set_text("Typed")
     assert ctrl.dirty
+    # Dropdowns: a missing value is shown as itself, a disabled choice goes back and is not applied.
+    from project_detail_page import dropdown
+    picked = []
+    drop = dropdown([("a", "A", True), ("b", "B (stopped)", False)], "gone", picked.append, missing="Gone (missing)")
+    assert drop.get_selected() == 0 and drop.get_model().get_string(0) == "Gone (missing)"
+    drop.set_selected(2)
+    spin(lambda: drop.get_selected() == 0)
+    assert picked == []
+    drop.set_selected(1)
+    assert picked == ["a"]
+    # Deleting the last card: the keyboard goes to New project, not to a hidden old card.
+    ctrl.ask = lambda kind, question, answer: answer("discard" if kind == "leave" else True)
+    ctrl.back_to_board()
+    spin(lambda: not ctrl.open)
+    center.projects = []
+    ctrl.refresh()
+    spin(lambda: board.content.get_visible_child_name() == "empty" and children(board.flow) == 0)
+    ctrl.reveal_card("run")
+    ctrl.notify()
+    spin(lambda: ctrl.reveal is None)
+    assert window.get_focus() is board.empty_new, window.get_focus()
+    # Shutdown: the poll stops, no center is opened again, late answers change nothing.
+    host.shutdown_projects()
+    assert host._projects_tick_id is None and ctrl.disposed
+    try:
+        host._project_call("list", {})
+        raise AssertionError("a center after shutdown")
+    except Exception as error:
+        assert getattr(error, "code", None) == "project_center_closed", error
     print("SMOKE OK")
 
 

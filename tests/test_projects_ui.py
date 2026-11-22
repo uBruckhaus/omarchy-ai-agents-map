@@ -45,6 +45,7 @@ class FakeCenter:
     def __init__(self, projects=()):
         self.projects = [copy.deepcopy(p) for p in projects]
         self.calls = []
+        self.discovery_generation = 0
         self.fail = {}
         self.results = {}
         self.profiles = [{"id": "claude", "name": "Claude Code", "access_modes": ["read-only", "project-edit"],
@@ -246,6 +247,12 @@ class TextsTest(unittest.TestCase):
         self.assertIn("Too many projects are running now.", texts.event_text(waiting))
         self.assertIn("did not start", texts.event_text({"type": "continue_failed", "text": "project_agent_unavailable"}))
         self.assertEqual(texts.not_continued("project_message_unknown", {}), texts.not_continued(None, None))
+        self.assertEqual(texts.event_text({"type": "assignment", "text": "Claude Code: lead"}), "Claude Code: Lead agent")
+        self.assertEqual(texts.event_text({"type": "assignment_done", "text": "reviewer ended successfully."}),
+                         "Reviewer ended successfully.")
+        self.assertEqual(texts.event_text({"type": "message_delivered",
+                                           "text": "2 messages were given to Pi: implementer."}),
+                         "2 messages were given to Pi: Implementer.")
 
 
 class BoardTest(ControllerCase):
@@ -288,7 +295,7 @@ class BoardTest(ControllerCase):
         ctrl.refresh(profiles=True)
         self.assertEqual(len(self.runner.jobs), 1)
         self.runner.pop().deliver()
-        self.assertEqual(seen, [])                     # the queued read still runs
+        self.assertEqual(seen, ["first"])              # its own read ended; the queued read still runs
         self.assertEqual(len(self.runner.jobs), 1)
         self.runner.pop().deliver()
         self.assertEqual(seen, ["first", "second"])
@@ -393,6 +400,39 @@ class BoardTest(ControllerCase):
         self.runner.flush()
         self.assertEqual(ctrl.error, "Some agent processes are still stopping. Try again shortly.")
         self.assertFalse(ctrl.busy)
+
+    def test_a_failed_read_keeps_a_refused_actions_reason(self):
+        ctrl = self.make([card("a", **RUNNING)])
+        self.center.fail["pause"] = "project_changed"
+        ctrl.pause_from_board(ctrl.projects[0])
+        self.runner.pop().deliver()                    # refused
+        self.center.fail["list"] = "project_center_busy"
+        self.runner.pop().deliver()                    # its read fails too
+        self.assertTrue(ctrl.unavailable)
+        self.assertEqual(ctrl.error, "This project changed. Reload it before saving.")
+
+    def test_a_waiter_needs_one_read_after_it_at_most(self):
+        ctrl = self.make([card("a")])
+        ctrl.refresh()
+        seen = []
+        ctrl.refresh(then=lambda: seen.append("late"))   # asked while one reads
+        self.runner.pop().deliver()
+        ctrl.refresh()                                   # more asks during the follow-up
+        self.runner.pop().deliver()                      # the follow-up ends: the waiter is told
+        self.assertEqual(seen, ["late"])
+        self.assertEqual(len(self.runner.jobs), 1)       # the newest ask still runs
+        self.runner.flush()
+
+    def test_answers_after_the_page_is_gone_change_nothing(self):
+        ctrl = self.make([card("a")])
+        ctrl.refresh()
+        job = self.runner.pop()
+        self.center.projects = []
+        ctrl.dispose()
+        job.deliver()
+        self.assertEqual([p["id"] for p in ctrl.projects], ["a"])
+        ctrl.refresh()
+        self.assertEqual(self.runner.jobs, [])
 
     def test_quiet_poll_and_fast_poll(self):
         ctrl = self.make([card("a")])
@@ -694,18 +734,30 @@ class RealCenterTest(unittest.TestCase):
         self.assertEqual([p["title"] for p in ctrl.projects], ["First"])
         self.assertIsNone(ctrl.error)
 
-    def test_approve_then_a_refused_start_keeps_its_reason(self):
+    def test_a_refused_start_keeps_its_reason_then_approve(self):
         ctrl = self.ctrl
         self.create("Plan it")
         ctrl.open_card(ctrl.projects[0])
         ctrl.set_text("plan", "1. Do it.")
-        self.answers.append(True)
-        ctrl.perform("review")                       # saves the plan first, then approves
-        self.assertTrue(ctrl.approved)
-        self.assertEqual(ctrl.card_of_open["activity"], "ready_to_run")
-        ctrl.perform("run")
-        self.assertIn(ctrl.project["status"], ("failed", "ready", "running"))
+        ctrl.perform("run")                          # saves first; the core refuses an unapproved plan
+        self.assertEqual(ctrl.error, "Review and approve this plan before running.")
         self.assertFalse(ctrl.busy)
+        self.assertIn(ctrl.project["status"], ("draft", "awaiting_review"))
+        self.answers.append(True)
+        ctrl.perform("review")
+        self.assertTrue(ctrl.approved)
+        self.assertIsNone(ctrl.error)
+        self.assertEqual(ctrl.card_of_open["activity"], "ready_to_run")
+
+    def test_forced_refresh_reaches_the_center(self):
+        calls = []
+        ctrl = self.ctrl
+        real = ctrl.call
+        ctrl.call = lambda op, params: (calls.append((op, dict(params))), real(op, {} if op == "list" else params))[1]
+        ctrl.refresh(profiles=True, force=True)
+        self.assertIn(("list", {"refresh": True}), calls)
+        ctrl.refresh()
+        self.assertEqual(calls[-1], ("list", {}))
 
 
 SMOKE = ROOT / "tests" / "projects_ui_smoke.py"
@@ -722,10 +774,11 @@ class GtkBuildTest(unittest.TestCase):
             env = {k: v for k, v in os.environ.items()
                    if k not in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_CURRENT_DESKTOP", "HYPRLAND_INSTANCE_SIGNATURE",
                                 "KDE_FULL_SESSION")}
+            display = f":{40 + os.getpid() % 200}"        # its own display: parallel runs do not meet
             env.update(HOME=home, XDG_RUNTIME_DIR=str(runtime), XDG_CONFIG_HOME=f"{home}/.config",
                        XDG_STATE_HOME=f"{home}/.local/state", XDG_CACHE_HOME=f"{home}/.cache",
-                       GDK_BACKEND="broadway", BROADWAY_DISPLAY=":17", GSK_RENDERER="cairo")
-            daemon = subprocess.Popen(["gtk4-broadwayd", ":17"], env=env, stdout=subprocess.DEVNULL,
+                       GDK_BACKEND="broadway", BROADWAY_DISPLAY=display, GSK_RENDERER="cairo")
+            daemon = subprocess.Popen(["gtk4-broadwayd", display], env=env, stdout=subprocess.DEVNULL,
                                       stderr=subprocess.DEVNULL)
             try:
                 time.sleep(0.5)

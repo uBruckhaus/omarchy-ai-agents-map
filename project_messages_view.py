@@ -81,7 +81,9 @@ class MessagesView:
         self.update_buttons()
 
     def on_key(self, _controller, keyval, _keycode, state):
-        if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter) and state & Gdk.ModifierType.CONTROL_MASK:
+        mods = state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.ALT_MASK | Gdk.ModifierType.SHIFT_MASK
+                        | Gdk.ModifierType.SUPER_MASK)
+        if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter) and mods == Gdk.ModifierType.CONTROL_MASK:
             self.send(now=False)
             return True
         return False

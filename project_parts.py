@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 
-from gi.repository import Gdk, Gtk, Pango
+from gi.repository import Gdk, GLib, Gtk, Pango
 
 import ai_core
 import project_texts as texts
@@ -68,6 +68,27 @@ def apply_css(colors: dict, radius: int = 10):
                                           r=max(0, int(radius))))
     Gtk.StyleContext.add_provider_for_display(display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
     apply_css.provider = provider
+
+
+class SizeBox(Gtk.Box):
+    """A box that tells its size when it changes (the pages' breakpoints); nothing once it left its
+    window."""
+
+    def __init__(self, on_size, **kwargs):
+        super().__init__(**kwargs)
+        self.on_size = on_size
+        self.size = (0, 0)
+
+    def do_size_allocate(self, width, height, baseline):
+        Gtk.Box.do_size_allocate(self, width, height, baseline)
+        if (width, height) != self.size:
+            self.size = (width, height)
+
+            def tell():
+                if self.get_root() is not None:
+                    self.on_size(width, height)
+                return False
+            GLib.idle_add(tell)
 
 
 def _rgba(hex_code: str, alpha: float = 1.0) -> tuple:
@@ -305,6 +326,8 @@ def _member_box(member: dict, state, show_on_map) -> Gtk.Widget:
         link.add_css_class("am-project-explicit")
     row.append(link)
     target = label(config, ("am-project-small", "am-project-target"), lines=3)
+    target.set_wrap(True)
+    target.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
     target.set_valign(Gtk.Align.CENTER)
     target.set_max_width_chars(24)
     if explicit:

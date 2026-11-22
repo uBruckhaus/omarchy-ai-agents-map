@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 
-from gi.repository import Gtk
+from gi.repository import Gtk, Pango
 
 import ai_core
 import project_parts as parts
@@ -88,6 +88,9 @@ class PhasesView:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         name = parts.label(title, ("am-project-title",), lines=2)
         name.set_wrap(True)
+        name.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        name.set_max_width_chars(1)
+        name.set_hexpand(True)
         box.append(name)
         line = Gtk.Box(spacing=4)
         line.append(parts.icon(texts.bucket_icon(project.get("bucket")), 12))

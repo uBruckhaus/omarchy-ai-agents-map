@@ -234,6 +234,23 @@ def event_text(event: dict) -> str:
     """An event as the user reads it: the core's English text, its machine codes in words."""
     text = str(event.get("text") or "")
     kind = event.get("type")
+    roles = r"(lead|implementer|reviewer|setup|contributor)"
+    if kind == "assignment":
+        match = re.match(rf"^(.*): {roles}$", text)
+        if match:
+            return _("{0}: {1}").format(match.group(1), role(match.group(2)))
+    if kind == "assignment_done":
+        match = re.match(rf"^{roles} ended successfully\.$", text)
+        if match:
+            return _("{0} ended successfully.").format(role(match.group(1)))
+    if kind == "message_delivered":
+        match = re.match(rf"^Your message was given to (.*): {roles}\.$", text)
+        if match:
+            return _("Your message was given to {0}: {1}.").format(match.group(1), role(match.group(2)))
+        match = re.match(rf"^(\d+) messages were given to (.*): {roles}\.$", text)
+        if match:
+            return _("{0} messages were given to {1}: {2}.").format(match.group(1), match.group(2),
+                                                                    role(match.group(3)))
     if kind == "message_waiting":
         match = _WAITING.match(text)
         if match:

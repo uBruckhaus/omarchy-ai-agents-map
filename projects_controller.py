@@ -97,8 +97,9 @@ class ProjectsController:
         self.message_sending = None
         self.ticks = 0
         self._reading = False
-        self._read_again = self._read_again_profiles = self._read_again_adopt = False
-        self._read_waiters: list = []
+        self._read_again = self._read_again_profiles = self._read_again_adopt = self._read_again_force = False
+        self._next_waiters: list = []
+        self.disposed = False          # the page is gone: late answers change nothing
 
     # --- what the pages show -------------------------------------------------------------------------
 
@@ -223,10 +224,16 @@ class ProjectsController:
 
     # --- reads ---------------------------------------------------------------------------------------
 
+    def dispose(self):
+        """The page is gone: answers still on their way and later calls change nothing."""
+        self.disposed = True
+        self.active = False
+        self._next_waiters = []
+
     def set_active(self, active: bool):
         was, self.active = self.active, active
         if active and not was:
-            self.refresh(profiles=True)
+            self.refresh(profiles=True, force=True)     # back on the page: readiness looked at again
 
     def tick(self):
         """Every POLL_SECONDS while the app runs: every tick while something runs or stops, else about
@@ -238,17 +245,25 @@ class ProjectsController:
         if self.has_active or stopping or self.ticks >= QUIET_TICKS:
             self.refresh()
 
-    def refresh(self, profiles: bool = False, adopt: bool = False, then=None):
-        """One read at a time; a refresh asked for meanwhile runs once afterwards. `adopt`: the read
-        after a message action takes the open project even while the page is still busy with it.
-        then(): called once this read (and one queued after it) has ended."""
-        if then is not None:
-            self._read_waiters.append(then)
+    def refresh(self, profiles: bool = False, adopt: bool = False, then=None, force: bool = False):
+        """One read at a time; a refresh asked for meanwhile runs once afterwards (never lost). `adopt`:
+        the read after a message action takes the open project even while the page is still busy with
+        it. `force` (F5, Refresh, Retry): the center looks at agents and runtimes again (readiness).
+        then(): called once this read ended, or, asked while one reads, once the read after it ended
+        (one read later at most: asks during that one wait for the one after it)."""
+        if self.disposed:
+            return
         if self._reading:
+            if then is not None:
+                self._next_waiters.append(then)
             self._read_again = True
             self._read_again_profiles |= profiles
             self._read_again_adopt |= adopt
+            self._read_again_force |= force
             return
+        self._start_read(profiles, adopt, force, [then] if then is not None else [])
+
+    def _start_read(self, profiles: bool, adopt: bool, force: bool, waiters: list):
         self._reading = True
         since = {"selection": self.selection, "generation": self.view_generation, "moves": self.order_seq,
                  "marks": dict(self.mark_gen), "failures": self.quick_failures}
@@ -256,7 +271,7 @@ class ProjectsController:
         want_profiles = not self.loaded or profiles
 
         def work():
-            listed = self.call("list", {})
+            listed = self.call("list", {"refresh": True} if force else {})
             answer, profile_error = None, None
             if want_profiles:
                 try:
@@ -271,11 +286,20 @@ class ProjectsController:
                     detail_error = error
             return listed, answer, profile_error, selected, detail_error
 
-        self.run(work, lambda result, error: self._read_done(result, error, since, pid, adopt))
+        self.run(work, lambda result, error: self._read_done(result, error, since, pid, adopt, waiters))
 
-    def _read_done(self, result, error, since, pid, adopt):
+    def _reason(self, error, since) -> str:
+        """A read's failure as the message, unless a quick action failed since it began or its reason is
+        still kept: then that reason stays (the read's failure shows as "status unavailable")."""
+        if self.quick_failures != since["failures"] or self.keep_error > 0:
+            return self.quick_reason
+        return texts.failure(error)
+
+    def _read_done(self, result, error, since, pid, adopt, waiters):
+        if self.disposed:
+            return
         if error is not None:
-            self.error = texts.failure(error) if self.quick_failures == since["failures"] else self.quick_reason
+            self.error = self._reason(error, since)
             self.unavailable = True
             self.ticks = 0
         else:
@@ -306,18 +330,16 @@ class ProjectsController:
             self.loaded = True
             # A late answer about a project closed meanwhile is not shown.
             if detail_error is not None and since["selection"] == self.selection and self.open:
-                self.error = texts.failure(detail_error) if self.quick_failures == since["failures"] \
-                    else self.quick_reason
+                self.error = self._reason(detail_error, since)
             elif profile_error is not None and self.open:
                 self.error = texts.failure(profile_error)
         self._reading = False
         self.notify()
         if self._read_again:
-            again, again_adopt = self._read_again_profiles, self._read_again_adopt
-            self._read_again = self._read_again_profiles = self._read_again_adopt = False
-            self.refresh(profiles=again, adopt=again_adopt)
-            return
-        waiters, self._read_waiters = self._read_waiters, []
+            again = (self._read_again_profiles, self._read_again_adopt, self._read_again_force)
+            self._read_again = self._read_again_profiles = self._read_again_adopt = self._read_again_force = False
+            queued, self._next_waiters = self._next_waiters, []
+            self._start_read(*again, queued)
         for waiter in waiters:
             waiter()
 

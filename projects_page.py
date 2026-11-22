@@ -28,26 +28,12 @@ import project_texts as texts
 from i18n import _
 from project_detail_page import ProjectDetail
 from project_phases_page import PhasesView
+from project_supervisor import ProjectError
 from projects_controller import POLL_SECONDS, ProjectsController
 
 COLUMNS_3, COLUMNS_2 = 1100, 700       # the cards grid: 3 columns from 1100 px, 2 from 700 px, else 1
 SUMMARY_NARROW, VIEW_NAMED = 600, 1000  # New project as a symbol below 600 px; Cards | Phases named from 1000 px
 PHASES_WIDE = 6 * 170 + 7 * 8          # six readable columns
-
-
-class WidthBox(Gtk.Box):
-    """A box that tells its width when it changes (the pages' breakpoints)."""
-
-    def __init__(self, on_width, **kwargs):
-        super().__init__(**kwargs)
-        self.on_width = on_width
-        self.width = 0
-
-    def do_size_allocate(self, width, height, baseline):
-        Gtk.Box.do_size_allocate(self, width, height, baseline)
-        if width != self.width:
-            self.width = width
-            GLib.idle_add(lambda: self.on_width(width) and False)
 
 
 def worker_runner(work, done):
@@ -70,7 +56,9 @@ class ProjectsBoard:
         self.cards: dict = {}           # id -> (FlowBoxChild, signature)
         self.order: list = []
         self.dragged = None
-        self.root = WidthBox(self.on_width, orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP_TIGHT,
+        self.popovers: set = set()      # cards with an open menu: not rebuilt meanwhile
+        self.shown_summary = None
+        self.root = parts.SizeBox(lambda width, _height: self.on_width(width), orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP_TIGHT,
                              hexpand=True, vexpand=True)
         self.banner = Gtk.Box(spacing=ai_core.GAP_INLINE)
         self.banner.add_css_class("am-project-banner")
@@ -82,7 +70,7 @@ class ProjectsBoard:
         self.unavailable.append(parts.label(_("Project status unavailable")))
         retry = Gtk.Button(label=_("Retry"))
         retry.add_css_class("am-small-btn")
-        retry.connect("clicked", lambda *_a: ctrl.refresh(profiles=True))
+        retry.connect("clicked", lambda *_a: ctrl.refresh(profiles=True, force=True))
         self.unavailable.append(retry)
         self.root.append(self.unavailable)
         self.message = parts.label("", ("am-project-error",), wrap=True)
@@ -149,7 +137,9 @@ class ProjectsBoard:
         changed = self._layout_key(self.width) != self._layout_key(width)
         self.width = width
         if changed:
-            self.cards.clear()            # team strip and rail follow the width
+            # Team strip and rail follow the width: every card is drawn again (its child is kept).
+            self.cards = {pid: (child, None) for pid, (child, _sig) in self.cards.items()}
+            self.shown_summary = None
             self.render()
 
     @staticmethod
@@ -173,8 +163,10 @@ class ProjectsBoard:
         board = ctrl.agent_projects()
         shown = ctrl.shown()
         if not board and ctrl.agent is None:
+            self.drop_cards()
             self.content.set_visible_child_name("empty")
         elif not shown:
+            self.drop_cards()
             self.content.set_visible_child_name("none")
         elif ctrl.view == "phases":
             self.phases.render(shown, self.width >= PHASES_WIDE)
@@ -186,6 +178,12 @@ class ProjectsBoard:
         if ctrl.reveal is not None and not ctrl.open:
             seq = ctrl.reveal_seq
             GLib.idle_add(lambda: self.reveal(seq) and False)
+
+    def drop_cards(self):
+        for child, _sig in self.cards.values():
+            if child.get_parent() is self.flow:
+                self.flow.remove(child)
+        self.cards, self.order = {}, []
 
     def _chip(self, text: str, icon_name: str, active: bool, clicked) -> Gtk.ToggleButton:
         button = Gtk.ToggleButton(active=active, valign=Gtk.Align.CENTER)
@@ -199,8 +197,14 @@ class ProjectsBoard:
 
     def render_summary(self):
         ctrl = self.ctrl
-        parts.clear(self.chips)
         counts = ctrl.counts()
+        self.new_button.set_sensitive(not ctrl.busy and not ctrl.unavailable)
+        key = json.dumps([counts, ctrl.importance_counts(), ctrl.filter, ctrl.importance, ctrl.agent, ctrl.view,
+                          self._layout_key(self.width)], default=str)
+        if key == self.shown_summary:
+            return                        # an open menu or a focused chip stays
+        self.shown_summary = key
+        parts.clear(self.chips)
         if ctrl.agent is not None:
             chip = Gtk.Button(valign=Gtk.Align.CENTER, tooltip_text=_("Show all agents"))
             content = Gtk.Box(spacing=4)
@@ -244,7 +248,6 @@ class ProjectsBoard:
             self.new_button.set_child(content)
             self.new_button.set_tooltip_text(None)
         parts.set_accessible(self.new_button, _("New project"))
-        self.new_button.set_sensitive(not ctrl.busy and not ctrl.unavailable)
 
     def _importance_chip(self, marks: dict) -> Gtk.Widget:
         """One chip for the importance filter: its menu lists the three with their counts; chosen again
@@ -291,11 +294,14 @@ class ProjectsBoard:
             pid = str(project.get("id"))
             signature = json.dumps([project, self.ctrl.card_busy(pid), busy_state], sort_keys=True, default=str)
             held = self.cards.get(pid)
-            if held is not None and held[1] == signature:
-                continue
+            if held is not None and (held[1] == signature or pid in self.popovers or pid == self.dragged):
+                continue                  # unchanged, or its menu is open / it is being dragged
             child = held[0] if held is not None else self._new_child(pid)
+            inside = focused == pid and self.focus_inside(child)
             child.set_child(self.card(project, columns == 1))
             self.cards[pid] = (child, signature)
+            if inside:
+                child.grab_focus()            # the keyboard stays with the card
         for pid in [i for i in self.cards if i not in ids]:
             child = self.cards.pop(pid)[0]
             if child.get_parent() is self.flow:
@@ -311,11 +317,25 @@ class ProjectsBoard:
             if focused in self.cards:
                 self.cards[focused][0].grab_focus()
 
+    def focus_inside(self, child) -> bool:
+        root = child.get_root()
+        focus = root.get_focus() if root is not None else None
+        return focus is not None and focus is not child and focus.is_ancestor(child)
+
+    def menu_shown(self, pid: str, shown: bool):
+        """A card's menu opened or closed: the card is not drawn again while it is open."""
+        if shown:
+            self.popovers.add(pid)
+        else:
+            self.popovers.discard(pid)
+            GLib.idle_add(lambda: self.ctrl.notify() and False)
+
     def _new_child(self, pid: str) -> Gtk.FlowBoxChild:
         child = Gtk.FlowBoxChild()
         child.project_id = pid
         drop = Gtk.DropTarget.new(GObject.TYPE_STRING, Gdk.DragAction.MOVE)
         drop.connect("enter", lambda _t, _x, _y, pid=pid: self.drop_hint(pid, True))
+        drop.connect("motion", lambda _t, _x, _y, pid=pid: self.drop_hint(pid, True))
         drop.connect("leave", lambda _t, pid=pid: self.drop_hint(pid, False))
         drop.connect("drop", lambda _t, value, _x, _y, pid=pid: self.dropped(value, pid))
         child.add_controller(drop)
@@ -343,7 +363,11 @@ class ProjectsBoard:
         head.append(names)
         if texts.importance_of(project.get("importance")):
             on_mark = None if ctrl.unavailable or busy else (lambda code: ctrl.set_importance(pid, code))
-            head.append(parts.importance_mark(project.get("importance"), on_mark))
+            mark = parts.importance_mark(project.get("importance"), on_mark)
+            if isinstance(mark, Gtk.MenuButton):
+                mark.get_popover().connect("show", lambda *_a: self.menu_shown(pid, True))
+                mark.get_popover().connect("closed", lambda *_a: self.menu_shown(pid, False))
+            head.append(mark)
         head.append(self.move_handle(project, busy))
         box.append(head)
         line = Gtk.Box(spacing=ai_core.GAP_TIGHT)
@@ -411,17 +435,23 @@ class ProjectsBoard:
         handle.set_sensitive(not busy and not ctrl.unavailable and not ctrl.moving)
         popover = Gtk.Popover()
         menu = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        for _key, text, place in ctrl.move_options(pid):
-            item = Gtk.Button(label=text)
-            item.add_css_class("flat")
-            item.set_sensitive(place is not None)
-            if place is not None:
-                item.connect("clicked", lambda *_a, place=place: (popover.popdown(),
-                                                                   ctrl.move_from_board(pid, *place)))
-            menu.append(item)
         popover.set_child(menu)
+
+        def fill(*_a):
+            # Built when it opens, from the board as it is shown now (a filter or a new card since).
+            parts.clear(menu)
+            for key, text, place in ctrl.move_options(pid):
+                item = Gtk.Button(label=text)
+                item.add_css_class("flat")
+                item.set_sensitive(place is not None)
+                item.connect("clicked", lambda *_a, key=key: (popover.popdown(), ctrl.move_by(pid, key)))
+                menu.append(item)
+            self.menu_shown(pid, True)
+        popover.connect("show", fill)
+        popover.connect("closed", lambda *_a: self.menu_shown(pid, False))
         handle.set_popover(popover)
         source = Gtk.DragSource(actions=Gdk.DragAction.MOVE)
+        source.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)   # before the button's own click
         source.connect("prepare", lambda *_a: self.drag_start(pid))
         source.connect("drag-end", lambda *_a: self.drag_end())
         handle.add_controller(source)
@@ -452,18 +482,22 @@ class ProjectsBoard:
         return target, shown.index(source) < shown.index(target)
 
     def drop_hint(self, pid: str, on: bool):
+        """The drop place as a bar before or after the card; no move for the card itself, a card no
+        longer shown or anything not dragged from this board."""
         held = self.cards.get(pid)
         card = held[0].get_child() if held else None
-        if card is None:
-            return Gdk.DragAction.MOVE
-        card.remove_css_class("am-project-drop-before")
-        card.remove_css_class("am-project-drop-after")
         place = self.drop_place(self.dragged, pid) if on and self.dragged else None
-        if place is not None:
-            card.add_css_class("am-project-drop-after" if place[1] else "am-project-drop-before")
-        return Gdk.DragAction.MOVE
+        if card is not None:
+            card.remove_css_class("am-project-drop-before")
+            card.remove_css_class("am-project-drop-after")
+            if place is not None:
+                card.add_css_class("am-project-drop-after" if place[1] else "am-project-drop-before")
+        return Gdk.DragAction.MOVE if place is not None else Gdk.DragAction(0)
 
     def dropped(self, value, target: str) -> bool:
+        if self.dragged is None or str(value) != self.dragged:
+            self.drag_end()
+            return False                  # not a card of this board
         place = self.drop_place(str(value), target)
         self.drag_end()
         if place is None:
@@ -488,7 +522,7 @@ class ProjectsBoard:
             self.ctrl.open_card(project)
 
     def on_card_key(self, _controller, keyval, _keycode, state):
-        if not state & Gdk.ModifierType.CONTROL_MASK:
+        if state & MODIFIERS != Gdk.ModifierType.CONTROL_MASK:
             return False
         key = {Gdk.KEY_Up: "up", Gdk.KEY_Down: "down", Gdk.KEY_Home: "top", Gdk.KEY_End: "end"}.get(keyval)
         pid = self.focused_id()
@@ -504,10 +538,13 @@ class ProjectsBoard:
         pid = ctrl.reveal
         if pid is None or not ctrl.revealed(seq):
             return
-        if ctrl.view == "phases" and self.content.get_visible_child_name() == "phases":
+        if self.root.get_root() is None:
+            return                        # the page is gone
+        visible = self.content.get_visible_child_name()
+        if visible == "phases":
             if self.phases.focus(pid) or self.phases.focus_first():
                 return
-        else:
+        elif visible == "cards":
             target = self.cards.get(pid) if pid else None
             if target is None and self.order:
                 target = self.cards.get(self.order[0])
@@ -515,6 +552,10 @@ class ProjectsBoard:
                 target[0].grab_focus()
                 return
         (self.empty_new if self.content.get_visible_child_name() == "empty" else self.new_button).grab_focus()
+
+
+MODIFIERS = (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.ALT_MASK | Gdk.ModifierType.SHIFT_MASK
+             | Gdk.ModifierType.SUPER_MASK | Gdk.ModifierType.META_MASK)
 
 
 class ProjectsPage:
@@ -526,16 +567,18 @@ class ProjectsPage:
     def build_projects_page(self) -> Gtk.Widget:
         self._project_center = None
         self._project_center_lock = threading.Lock()
+        self._projects_closed = False          # shut down: no center is opened again, answers are dropped
         self._projects_render_queued = False
-        self.projects_ctrl = ProjectsController(self._project_call, worker_runner, self._project_ask,
-                                           self._projects_changed)
+        self.projects_ctrl = ProjectsController(self._project_call, self._projects_runner, self._project_ask,
+                                                self._projects_changed)
         colors = lambda: self.theme.colors        # noqa: E731  (read when drawn: follows the theme)
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         self.projects_title = Gtk.Label(label=_("Projects").upper())
         refresh = Gtk.Button(icon_name="view-refresh-symbolic", tooltip_text=_("Refresh") + " (F5)",
                              valign=Gtk.Align.CENTER)
         refresh.add_css_class("flat")
-        refresh.connect("clicked", lambda *_a: self.projects_ctrl.refresh(profiles=True))
+        refresh.connect("clicked", lambda *_a: self.projects_refresh())
+        self.projects_refresh_button = refresh
         self.projects_header = self.page_header(self.projects_title, self.close_projects,
                                                 _("Back (Backspace, Esc)"), end=(Gtk.Box(hexpand=True), refresh))
         page.append(self.projects_header)
@@ -550,7 +593,7 @@ class ProjectsPage:
         self.projects_loading_note.append(parts.icon("network-offline-symbolic"))
         self.projects_loading_note.append(parts.label(_("Project status unavailable")))
         retry = Gtk.Button(label=_("Retry"))
-        retry.connect("clicked", lambda *_a: self.projects_ctrl.refresh(profiles=True))
+        retry.connect("clicked", lambda *_a: self.projects_ctrl.refresh(profiles=True, force=True))
         self.projects_loading_note.append(retry)
         loading.append(self.projects_loading_note)
         self.projects_stack.add_named(loading, "loading")
@@ -561,10 +604,11 @@ class ProjectsPage:
         page.append(self.projects_stack)
         page.connect("map", lambda *_a: self._projects_shown(True))
         page.connect("unmap", lambda *_a: self._projects_shown(False))
-        keys = Gtk.EventControllerKey()
-        keys.connect("key-pressed", self._projects_key)
-        self.window.add_controller(keys)
-        GLib.timeout_add_seconds(POLL_SECONDS, self._projects_tick)
+        page.connect("destroy", lambda *_a: self.projects_teardown())
+        self._projects_keys = Gtk.EventControllerKey()
+        self._projects_keys.connect("key-pressed", self._projects_key)
+        self.window.add_controller(self._projects_keys)
+        self._projects_tick_id = GLib.timeout_add_seconds(POLL_SECONDS, self._projects_tick)
         self.projects_page = page
         return page
 
@@ -572,10 +616,17 @@ class ProjectsPage:
 
     def open_projects(self, agent: str | None = None, name: str = ""):
         """Show the Projects page (WP7 makes it the Projects tab); agent: the map's "Used in N
-        projects" chip for that agent command."""
+        projects" chip for that agent command (the board is shown, an open project is left first)."""
         parts.apply_css(self.theme.colors, getattr(self, "window_rounding", 10) or 10)
+        ctrl = self.projects_ctrl
         if agent is not None:
-            self.projects_ctrl.set_agent(agent, name)
+            def left(ok):
+                if ok:
+                    ctrl.set_agent(agent, name)
+            if ctrl.open:
+                ctrl.back_to_board(left)
+            else:
+                left(True)
         self.show_page("projects")
 
     def close_projects(self):
@@ -588,39 +639,83 @@ class ProjectsPage:
     def projects_prepare_leave(self, done):
         """The shell's guard before it leaves the page: done(True) to go on."""
         ctrl = self.projects_ctrl
-        if ctrl.busy and ctrl.open:
+        if ctrl.confirming or ctrl.leaving:
+            done(False)                        # its own question is open
+            return
+        if ctrl.busy:
             self.toast(_("Wait for the current step"), 4)
             done(False)
             return
         ctrl.before_leave(done)
 
+    def projects_refresh(self):
+        """Refresh and F5: the list again, agents and runtimes looked at again (not while a step runs)."""
+        if not self.projects_ctrl.busy:
+            self.projects_ctrl.refresh(profiles=True, force=True)
+
+    def projects_teardown(self):
+        """The page is gone or the app ends: the poll stops, answers on their way change nothing."""
+        tick, self._projects_tick_id = getattr(self, "_projects_tick_id", None), None
+        if tick is not None:
+            GLib.source_remove(tick)
+        keys, self._projects_keys = getattr(self, "_projects_keys", None), None
+        if keys is not None and self.window is not None:
+            self.window.remove_controller(keys)
+        if getattr(self, "projects_ctrl", None) is not None:
+            self.projects_ctrl.dispose()
+
     def shutdown_projects(self):
-        """Closing the app stops its project agents (about 10 s at most)."""
-        center = getattr(self, "_project_center", None)
+        """Closing the app stops its project agents: the center is released without waiting on the GTK
+        thread (each supervisor stops its agent's whole tree, and a later start shows the work as
+        interrupted); no center is opened again afterwards."""
+        if not hasattr(self, "_project_center_lock"):
+            return
+        with self._project_center_lock:
+            self._projects_closed = True
+            center, self._project_center = self._project_center, None
+        self.projects_teardown()
         if center is not None:
             try:
-                center.shutdown()
-            except Exception:
                 center.detach()
+            except Exception:
+                pass
 
     # --- the backend -------------------------------------------------------------------------------
 
     def _project_call(self, operation: str, params: dict) -> dict:
-        """On a worker thread: the in-process ProjectCenter, opened on first use."""
+        """On a worker thread: the in-process ProjectCenter, opened on first use (never after shutdown).
+        A list with refresh (F5) looks at agents and runtimes again (the host's discovery generation)."""
         with self._project_center_lock:
+            if self._projects_closed:
+                raise ProjectError("project_center_closed")
             if self._project_center is None:
                 import project_center
                 self._project_center = project_center.ProjectCenter(
                     on_change=lambda _pid: GLib.idle_add(self._projects_poke))
             center = self._project_center
+            if operation == "list" and params.get("refresh") is True:
+                center.discovery_generation += 1
+        if operation == "list":
+            params = {}
         return center.call(operation, params)
 
+    def _projects_runner(self, work, done):
+        """worker_runner whose answers are dropped once the page is gone."""
+        def answered(result, error):
+            if not self._projects_closed and not self.projects_ctrl.disposed:
+                done(result, error)
+        worker_runner(work, answered)
+
     def _projects_poke(self):
-        if self.projects_ctrl.active:
-            self.projects_ctrl.refresh()
+        ctrl = self.projects_ctrl
+        if not self._projects_closed and not ctrl.disposed and ctrl.active:
+            ctrl.refresh()
         return False
 
     def _project_ask(self, kind: str, question, answer):
+        def answered(value):
+            if not self.projects_ctrl.disposed:
+                answer(value)
         if kind == "leave":
             dialog = Adw.AlertDialog(heading=_("Save project changes?"))
             for response, text in (("cancel", _("Cancel")), ("discard", _("Discard")), ("save", _("Save"))):
@@ -629,7 +724,7 @@ class ProjectsPage:
             dialog.set_response_appearance("discard", Adw.ResponseAppearance.DESTRUCTIVE)
             dialog.set_default_response("save")
             dialog.set_close_response("cancel")
-            dialog.connect("response", lambda _d, response: answer(response))
+            dialog.connect("response", lambda _d, response: answered(response))
         else:
             title, body, action = question
             dialog = Adw.AlertDialog(heading=_(title), body=_(body))
@@ -639,19 +734,21 @@ class ProjectsPage:
                                            else Adw.ResponseAppearance.SUGGESTED)
             dialog.set_default_response("cancel")
             dialog.set_close_response("cancel")
-            dialog.connect("response", lambda _d, response: answer(response == "ok"))
+            dialog.connect("response", lambda _d, response: answered(response == "ok"))
         dialog.present(self.window)
 
     # --- drawing -----------------------------------------------------------------------------------
 
     def _projects_changed(self):
-        if not self._projects_render_queued:
+        if not self._projects_render_queued and not self.projects_ctrl.disposed:
             self._projects_render_queued = True
             GLib.idle_add(self._projects_render)
 
     def _projects_render(self):
         self._projects_render_queued = False
         ctrl = self.projects_ctrl
+        if ctrl.disposed or self.projects_page.get_root() is None:
+            return False
         if not ctrl.loaded:
             self.projects_stack.set_visible_child_name("loading")
             self.projects_spinner.set_visible(not ctrl.unavailable)
@@ -661,6 +758,7 @@ class ProjectsPage:
             if ctrl.open:
                 self.projects_detail.render()
             self.projects_stack.set_visible_child_name("project" if ctrl.open else "board")
+        self.projects_refresh_button.set_sensitive(not ctrl.busy)
         working = ctrl.busy and not ctrl.confirming and not ctrl.leaving
         self.projects_progress.set_visible(working)
         if working:
@@ -668,11 +766,16 @@ class ProjectsPage:
         return False
 
     def _projects_shown(self, shown: bool):
+        if self.projects_ctrl.disposed:
+            return
         self.projects_ctrl.set_active(shown)
         if shown:
             self._projects_render()
 
     def _projects_tick(self):
+        if self.projects_ctrl.disposed:
+            self._projects_tick_id = None
+            return False
         if self.projects_ctrl.busy and self.projects_progress.get_visible():
             self.projects_progress.pulse()
         self.projects_ctrl.tick()
@@ -682,10 +785,12 @@ class ProjectsPage:
         if self.page_name() != "projects":
             return False
         ctrl = self.projects_ctrl
+        if ctrl.confirming or ctrl.leaving or state & MODIFIERS:
+            return False                       # keys do nothing under its questions
         if keyval == Gdk.KEY_F5:
-            ctrl.refresh(profiles=True)
+            self.projects_refresh()
             return True
-        if keyval not in (Gdk.KEY_Escape, Gdk.KEY_BackSpace) or state & Gdk.ModifierType.CONTROL_MASK:
+        if keyval not in (Gdk.KEY_Escape, Gdk.KEY_BackSpace):
             return False
         if self.editing():
             if keyval == Gdk.KEY_BackSpace:
@@ -694,11 +799,11 @@ class ProjectsPage:
             if ctrl.open:
                 self.projects_detail.breadcrumb.grab_focus()
             return True
+        if ctrl.busy:
+            self.toast(_("Wait for the current step"), 4)
+            return True
         if ctrl.open:
-            if ctrl.busy:
-                self.toast(_("Wait for the current step"), 4)
-            else:
-                ctrl.back_to_board()
+            ctrl.back_to_board()
             return True
         self.close_projects()
         return True

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 
-from gi.repository import Gio, GLib, Gtk
+from gi.repository import Gio, GLib, Gtk, Pango
 
 import ai_core
 import project_parts as parts
@@ -20,7 +20,8 @@ from i18n import _
 from project_messages_view import MessagesView
 
 NARROW = 600          # the tabs become a list, the footer keeps one action
-GRAPH_BESIDE = 900    # the Team graph next to the form from this width, else below it
+GRAPH_BESIDE = 900
+SHORT = 460           # compact also in a window lower than this    # the Team graph next to the form from this width, else below it
 
 
 def text_view(lines: int, on_change) -> Gtk.TextView:
@@ -57,19 +58,47 @@ def segmented(choices, selected, on_choose, sensitive: bool = True) -> Gtk.Widge
     return box
 
 
-def dropdown(items, selected, on_choose, sensitive: bool = True) -> Gtk.DropDown:
-    """items: [(value, text, enabled)]; a disabled item can be shown (the chosen one that is gone)."""
-    names = Gtk.StringList.new([text for _value, text, _on in items])
-    drop = Gtk.DropDown(model=names)
+def dropdown(items, selected, on_choose, sensitive: bool = True, missing: str | None = None) -> Gtk.DropDown:
+    """items: [(value, text, enabled)]. A disabled item is shown dimmed and cannot be chosen (the
+    choice goes back); a selected value that is not among the items (a missing agent, a model not
+    chosen yet) is shown as its own disabled entry (`missing`: its text), never as the first item."""
+    items = list(items)
     values = [value for value, _text, _on in items]
-    if selected in values:
-        drop.set_selected(values.index(selected))
+    if selected not in values:
+        items.insert(0, (selected, missing if missing is not None else str(selected or "—"), False))
+        values.insert(0, selected)
+    names = Gtk.StringList.new([text for _value, text, _on in items])
+    factory = Gtk.SignalListItemFactory()
+
+    def setup(_factory, item):
+        text = Gtk.Label(xalign=0)
+        text.set_ellipsize(Pango.EllipsizeMode.END)
+        text.set_max_width_chars(28)
+        item.set_child(text)
+
+    def bind(_factory, item):
+        index = item.get_position()
+        item.get_child().set_label(item.get_item().get_string())
+        enabled = 0 <= index < len(items) and items[index][2]
+        item.get_child().set_sensitive(enabled)
+        if hasattr(item, "set_selectable"):
+            item.set_selectable(enabled)
+            item.set_activatable(enabled)
+    factory.connect("setup", setup)
+    factory.connect("bind", bind)
+    drop = Gtk.DropDown(model=names, factory=factory)
+    current = values.index(selected)
+    drop.set_selected(current)
     drop.set_sensitive(sensitive)
 
     def chosen(*_a):
         index = drop.get_selected()
-        if 0 <= index < len(items) and items[index][2] and values[index] != selected:
-            on_choose(values[index])
+        if index == current or not 0 <= index < len(items):
+            return
+        if not items[index][2]:
+            GLib.idle_add(lambda: drop.set_selected(current) and False)    # not applied: shown back
+            return
+        on_choose(values[index])
     drop.connect("notify::selected", chosen)
     return drop
 
@@ -83,7 +112,9 @@ class ProjectDetail:
         self.shown_team = None
         self.shown_card = None
         self.shown_tabs = None
-        self.root = _WidthBox(self.on_width, orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP_TIGHT,
+        self.height = 1000
+        self.shown_footer = self.shown_importance = self.shown_graph = None
+        self.root = parts.SizeBox(self.on_size, orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP_TIGHT,
                               hexpand=True, vexpand=True)
         crumb = Gtk.Box(spacing=ai_core.GAP_TIGHT)
         self.breadcrumb = Gtk.Button(label=_("Projects"), tooltip_text=_("Back to the board (Esc)"))
@@ -128,16 +159,23 @@ class ProjectDetail:
         self.footer = Gtk.Box(spacing=ai_core.GAP_INLINE)
         self.root.append(self.footer)
 
+    def on_size(self, width: int, height: int):
+        before = (self.narrow, self.width >= GRAPH_BESIDE)
+        self.width, self.height = width, height
+        if before != (self.narrow, self.width >= GRAPH_BESIDE):
+            self.shown_tabs = self.shown_card = self.shown_team = self.shown_graph = None
+            parts.clear(self.team_holder)
+            self.shown_footer = self.shown_importance = None
+            if self.ctrl.open:
+                self.render()
+
     def on_width(self, width: int):
-        changed = (width < NARROW) != (self.width < NARROW) or (width >= GRAPH_BESIDE) != (self.width >= GRAPH_BESIDE)
-        self.width = width
-        if changed:
-            self.shown_tabs = self.shown_card = self.shown_team = None
-            self.render()
+        self.on_size(width, self.height)
 
     @property
     def narrow(self) -> bool:
-        return self.width < NARROW
+        """Compact when narrow, and also when low (a wide but short window keeps room for the body)."""
+        return self.width < NARROW or self.height < SHORT
 
     def back(self):
         if self.ctrl.busy:
@@ -203,9 +241,11 @@ class ProjectDetail:
 
     def choose_folder(self):
         dialog = Gtk.FileDialog(title=_("Working folder"), modal=True)
-        current = self.ctrl.texts.get("path") or ""
+        ctrl = self.ctrl
+        current = ctrl.texts.get("path") or ""
         if current:
             dialog.set_initial_folder(Gio.File.new_for_path(current))
+        asked = (ctrl.selection, (ctrl.project or {}).get("id"))
 
         def done(source, result):
             try:
@@ -213,7 +253,10 @@ class ProjectDetail:
             except GLib.Error:
                 return
             path = folder.get_path() if folder is not None else None
-            if path:
+            # Only into the project it was chosen for, while its fields can still be edited.
+            still = (not ctrl.disposed and ctrl.open and not ctrl.busy and not ctrl.running
+                     and (ctrl.selection, (ctrl.project or {}).get("id")) == asked)
+            if path and still and self.root.get_root() is not None:
                 self.path_entry.set_text(path)
         dialog.select_folder(self.host.window, None, done)
 
@@ -304,9 +347,14 @@ class ProjectDetail:
         """The Goal tab's importance (task 095): set at once, never part of the draft; only for a saved
         project."""
         ctrl = self.ctrl
-        parts.clear(self.importance_row)
         pid = (ctrl.project or {}).get("id")
         value = (ctrl.project or {}).get("importance")
+        sensitive = not (ctrl.busy or pid in ctrl.marking or pid in ctrl.quick or ctrl.unavailable)
+        key = (pid, value, sensitive, self.narrow)
+        if key == self.shown_importance:
+            return                        # its buttons stay while the project runs
+        self.shown_importance = key
+        parts.clear(self.importance_row)
         if not isinstance(pid, str) or texts.importance_of(value) is None:
             self.importance_row.set_visible(False)
             return
@@ -316,7 +364,6 @@ class ProjectDetail:
         title = parts.label(_("Importance"))
         title.set_hexpand(not compact)
         self.importance_row.append(title)
-        sensitive = not (ctrl.busy or pid in ctrl.marking or pid in ctrl.quick or ctrl.unavailable)
         self.importance_row.append(segmented([(code, _(name)) for code, name, _icon in texts.IMPORTANCES], value,
                                              lambda code: ctrl.set_importance(pid, code), sensitive))
 
@@ -330,12 +377,33 @@ class ProjectDetail:
     def render_team(self):
         ctrl = self.ctrl
         card = ctrl.card_of_open
-        key = json.dumps([ctrl.team_version, ctrl.phase, ctrl.busy, ctrl.running, card, self.width >= GRAPH_BESIDE,
+        beside = self.width >= GRAPH_BESIDE
+        show_on_map = getattr(self.host, "projects_show_on_map", None)
+        if self.team_holder.get_first_child() is None or self.shown_team is None:
+            parts.clear(self.team_holder)
+            self.team_layout = Gtk.Box(spacing=ai_core.GAP)
+            self.team_form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True)
+            self.team_graph = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True)
+            self.team_layout.append(self.team_form)
+            self.team_layout.append(self.team_graph)
+            self.team_holder.append(self.team_layout)
+            self.shown_graph = None
+        self.team_layout.set_orientation(Gtk.Orientation.HORIZONTAL if beside else Gtk.Orientation.VERTICAL)
+        # The graph follows the card (a run moves on); the form only its own inputs, so typing in it
+        # is never interrupted by a running project's updates.
+        graph_key = json.dumps([card and {k: card.get(k) for k in ("planning", "execution", "active")},
+                                show_on_map is not None], sort_keys=True, default=str)
+        if graph_key != self.shown_graph:
+            self.shown_graph = graph_key
+            parts.clear(self.team_graph)
+            if card is not None:
+                self.team_graph.append(parts.team_graph(card, show_on_map))
+        key = json.dumps([ctrl.team_version, ctrl.phase, ctrl.busy, ctrl.running,
                           [p.get("id") for p in ctrl.profiles], ctrl.runtimes], sort_keys=True, default=str)
         if key == self.shown_team:
             return
         self.shown_team = key
-        parts.clear(self.team_holder)
+        parts.clear(self.team_form)
         form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP_TIGHT, hexpand=True)
         form.append(self.phase_selector())
         locked = ctrl.team_locked
@@ -364,17 +432,14 @@ class ProjectDetail:
         form.append(add)
         form.append(Gtk.Separator())
         form.append(parts.label(_("Cooperating agents run as separate managed sessions."), ("am-project-dim",), wrap=True))
-        if card is None:
-            self.team_holder.append(form)
-            return
-        graph = parts.team_graph(card, getattr(self.host, "projects_show_on_map", None))
-        beside = self.width >= GRAPH_BESIDE
-        layout = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL if beside else Gtk.Orientation.VERTICAL,
-                         spacing=ai_core.GAP, homogeneous=False)
-        layout.append(form)
-        graph.set_hexpand(True)
-        layout.append(graph)
-        self.team_holder.append(layout)
+        self.team_form.append(form)
+        self.guard(form)
+
+    def guard(self, widget):
+        """Fields built after the window was: paste only through the app's bounded read (TextGuard)."""
+        guard = getattr(self.host, "guard_text_fields_in", None)
+        if guard is not None:
+            guard(widget)
 
     def member(self, index: int, locked: bool) -> Gtk.Widget:
         """One member's form (Maprisma's _member): profile, role, access, instructions, local runtime and
@@ -542,6 +607,7 @@ class ProjectDetail:
         request = text_view(4, lambda text: None if self.syncing else ctrl.set_setup_request(text))
         self.request_view = request
         self.use_button = None
+        GLib.idle_add(lambda: self.guard(box) and False)
         request.set_editable(not ctrl.busy and not ctrl.running)
         request.set_tooltip_text(_("Example: use Claude with agy and Pi using llama and the optimal model for this project."))
         box.append(request)
@@ -620,9 +686,13 @@ class ProjectDetail:
 
     def render_footer(self):
         ctrl = self.ctrl
-        parts.clear(self.footer)
         actions = texts.footer_actions(ctrl.project, ctrl.texts["plan"], ctrl.dirty, ctrl.running, ctrl.approved,
                                        bool(ctrl.plan_team if ctrl.plan_team is not None else ctrl.run_team))
+        key = (tuple(actions), ctrl.busy, ctrl.dirty, self.narrow)
+        if key == self.shown_footer:
+            return                        # its buttons and its More menu stay while output comes in
+        self.shown_footer = key
+        parts.clear(self.footer)
 
         def button(text, operation, enabled=True):
             widget = Gtk.Button(label=text)
@@ -663,16 +733,3 @@ class ProjectDetail:
         popover.set_child(menu)
         more.set_popover(popover)
         self.footer.append(more)
-
-
-class _WidthBox(Gtk.Box):
-    def __init__(self, on_width, **kwargs):
-        super().__init__(**kwargs)
-        self.on_width = on_width
-        self.width = 0
-
-    def do_size_allocate(self, width, height, baseline):
-        Gtk.Box.do_size_allocate(self, width, height, baseline)
-        if width != self.width:
-            self.width = width
-            GLib.idle_add(lambda: self.on_width(width) and False)
