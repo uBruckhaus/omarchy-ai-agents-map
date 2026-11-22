@@ -348,6 +348,7 @@ def search_mcp(query: str) -> list:
     import mcp_registry
     found = mcp_advice.candidates([query])
     if found is None:
+        _check_cancel()                      # a cancelled Ask starts no registry search
         found = mcp_registry.search(query, 15)[0]
     return [{"name": s.name, "title": s.title, "description": line(s.description, 200)} for s in found[:15]]
 

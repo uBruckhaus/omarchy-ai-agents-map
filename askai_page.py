@@ -576,6 +576,7 @@ class AskAiPage:
         self.ask_reply_helper = None
         self.ask_request = ""
         self.ask_clarification = None
+        self.ask_follow_draft = ""
         self.ask_state = "idle"
 
     def ask_fresh(self):
@@ -683,6 +684,7 @@ class AskAiPage:
         self.ask_context = evidence if self.ask_reply_helper == helper.command or self.ask_share else None
         self.ask_context_helper = helper.command
         self.ask_share = False
+        self.ask_follow_draft = ""
         self.fill_ask(text)
         self.ask_now(request=text)
 
@@ -1137,6 +1139,8 @@ class AskAiPage:
         limit = smart_card.MAX_ANSWER if clarification else smart_card.MAX_REQUEST
         entry = Gtk.Entry(hexpand=True, max_length=limit,
                           placeholder_text=_("Your answer") if clarification else _("Ask a follow-up…"))
+        # What was typed survives a rebuild of the view (another helper chosen).
+        entry.set_text(getattr(self, "ask_follow_draft", "") if not clarification else "")
         self.guard_text_field(entry)
         self.escape_closes(entry)
         send = Gtk.Button(icon_name="mail-send-symbolic", tooltip_text=_("Ask"), sensitive=False)
@@ -1151,8 +1155,12 @@ class AskAiPage:
             else:
                 self.ask_follow_up(words)
 
-        entry.connect("changed", lambda e: send.set_sensitive(bool(e.get_text().strip())
-                                                              and self.current_helper() is not None))
+        def changed(e):
+            if not clarification:
+                self.ask_follow_draft = e.get_text()
+            send.set_sensitive(bool(e.get_text().strip()) and self.current_helper() is not None)
+        entry.connect("changed", changed)
+        changed(entry)
         entry.connect("activate", submit)
         send.connect("clicked", submit)
         row.append(entry)

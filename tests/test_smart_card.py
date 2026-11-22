@@ -832,6 +832,57 @@ class PageRoundTwoTest(PageBase):
             self.assertEqual(page.mcp_updates_known(), [{"name": "fetch", "current": "1.0", "latest": "1.1"}])
 
 
+class RoundThreeTest(PageBase):
+    def test_no_registry_search_after_cancel(self):
+        import threading
+        import mcp_advice
+        import mcp_registry
+        cancel = threading.Event()
+        cancel.set()
+        sc._run.cancel = cancel
+        self.addCleanup(setattr, sc._run, "cancel", None)
+        with mock.patch.object(mcp_advice, "candidates", lambda words: None), \
+                mock.patch.object(mcp_registry, "search", side_effect=AssertionError("registry searched")):
+            with self.assertRaises(sc.Cancelled):
+                sc.search_mcp("notes")
+
+    def test_a_typed_follow_up_survives_another_helper(self):
+        class Widget:
+            def __init__(self, **kw):
+                self.text, self.calls = "", {}
+
+            def __getattr__(self, name):
+                return lambda *a, **k: None
+
+            def set_text(self, text):
+                self.text = text
+                for f in self.calls.get("changed", []):
+                    f(self)
+
+            def get_text(self):
+                return self.text
+
+            def connect(self, signal, f, *a):
+                self.calls.setdefault(signal, []).append(f)
+        made = []
+
+        def entry(**kw):
+            made.append(Widget())
+            return made[-1]
+        fake = type("G", (), {"Box": Widget, "CheckButton": Widget, "Button": Widget, "Entry": staticmethod(entry),
+                              "Orientation": mock.MagicMock()})
+        page = self.page
+        page.guard_text_field = page.escape_closes = lambda e: None
+        with mock.patch.object(self.module, "Gtk", fake):
+            page.ask_response_field()
+            made[0].set_text("Why that one?")
+            page.ask_helper_box.kept["selected"] = 1            # another helper: the view is rebuilt
+            page.ask_response_field()
+        self.assertEqual(made[1].get_text(), "Why that one?")
+        page.reset_ask_exchange()
+        self.assertEqual(page.ask_follow_draft, "")
+
+
 class SuggestionsTest(unittest.TestCase):
     """My suggestions keep every group's saved suggestions; a save merges with what is stored now."""
 
