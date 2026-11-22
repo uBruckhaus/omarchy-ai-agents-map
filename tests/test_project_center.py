@@ -1239,6 +1239,13 @@ class ReviewRoundTwoTest(CenterCase):
         self.center.detach()
         self.profiles[0]["run_argv"] = [sys.executable, "-c", "pass", "{prompt}"]
         self.center = self.make(runner=None, supervisor=[sys.executable, str(script)])
+
+        def runner(argv, cwd, env, input_text, lock, may_launch):
+            def late(process):
+                wait_until(lambda: process._confirmed.done, timeout=5)   # gone before the go-ahead
+                return may_launch(process)
+            return ps.run(argv, cwd, env, input_text, lock, late, supervisor=[sys.executable, str(script)])
+        self.center._runner = runner
         item = self.approve(self.save(plan="The plan."))
         self.center.call("run", {"id": item["id"], "revision": item["revision"]})
         wait_until(lambda: self.get(item["id"])["status"] == "failed", timeout=20)
@@ -1247,6 +1254,105 @@ class ReviewRoundTwoTest(CenterCase):
         self.assertNotIn("cleanup_failed", self.types(done))
         self.assertEqual(self.center.summary()["running"], 0)
         self.center.shutdown()
+
+
+SPAWNING_SUPERVISOR = """import json, os, sys, time
+sys.stdin.buffer.readline()
+print(json.dumps({"locked": True, "start_ack": True}), flush=True)
+sys.stdin.buffer.readline()                       # the go-ahead
+if os.fork() == 0:
+    os.setsid()
+    for fd in (0, 1, 2):
+        os.close(fd)
+    with open("escaped.pid", "w") as handle:
+        handle.write(str(os.getpid()))
+    time.sleep(60)
+    os._exit(0)
+time.sleep(0.3)
+os._exit(9)                                       # dies after the spawn, before reporting it
+"""
+
+
+class ReviewRoundThreeTest(CenterCase):
+    def test_a_supervisor_dying_after_the_go_ahead_keeps_the_cleanup_unconfirmed(self):
+        script = self.root / "spawning.py"
+        script.write_text(SPAWNING_SUPERVISOR)
+        escaped = self.root / "escaped.pid"
+        process = ps.run([sys.executable, "-c", "pass"], str(self.root), dict(os.environ), None,
+                         str(self.root / "l"), lambda p: True, supervisor=[sys.executable, str(script)])
+        try:
+            wait_until(escaped.exists, timeout=10)
+            wait_until(lambda: process._confirmed.done, timeout=10)
+            self.assertFalse(process.started(0.1))
+            with self.assertRaises(ProjectError) as caught:
+                process.stop(wait=1.0)
+            self.assertEqual(caught.exception.code, "project_processes_still_running")
+        finally:
+            wait_until(lambda: escaped.read_text().strip() != "", timeout=5)
+            try:
+                os.kill(int(escaped.read_text()), 9)
+            except ProcessLookupError:
+                pass
+            process._reap(0.0)
+
+    def test_a_stop_before_the_go_ahead_withdraws_the_launch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lock = os.path.join(tmp, "run.lock")
+            open(lock, "w").close()
+            marker = os.path.join(tmp, "ran")
+
+            release = threading.Event()
+            threads = {}
+
+            def authorize(managed):
+                original = managed._reap
+
+                def held(wait):                   # the stop's own reap waits until start() decided
+                    if threading.current_thread() is threads["stop"]:
+                        release.wait(10)
+                    return original(wait)
+                managed._reap = held
+                threads["stop"] = threading.Thread(target=managed.stop, kwargs={"wait": 8})
+                threads["stop"].start()
+                # The supervisor withdrew, confirmed and its pipe ended before the go-ahead.
+                wait_until(lambda: managed._confirmed.done and not managed._input_open, timeout=10)
+                return True
+            with self.assertRaises(ProjectError) as caught:
+                ps.run([sys.executable, "-c", f"open({marker!r}, 'w')"], tmp, dict(os.environ), None, lock,
+                       authorize)
+            release.set()
+            threads["stop"].join(10)
+            self.assertEqual(caught.exception.code, "project_launch_withdrawn")
+            self.assertFalse(os.path.exists(marker))
+
+    def test_send_now_pauses_in_the_same_step_as_its_message(self):
+        item = self.started([{"agent": "fixture", "role": "lead"}, {"agent": "fixture", "role": "implementer"}])
+        original, entered, go = self.center._pause, threading.Event(), threading.Event()
+
+        def slow_pause(params, lifecycle=True):
+            if not lifecycle:
+                entered.set()
+                go.wait(5)
+            return original(params, lifecycle)
+        self.center._pause = slow_pause
+        first = {}
+        sender = threading.Thread(target=lambda: first.update(self.center.call(
+            "message", {"id": item["id"], "run_id": item["run_id"], "text": "Now one.", "mode": "now",
+                        "acknowledge_interrupted": True})))
+        sender.start()
+        entered.wait(5)
+        self.assertEqual(self.get(item["id"])["status"], "pausing")
+        self.assertCode("project_still_pausing", self.center.call, "message",
+                        {"id": item["id"], "run_id": item["run_id"], "text": "Now two.", "mode": "now",
+                         "acknowledge_interrupted": True})
+        go.set()
+        sender.join(15)
+        self.assertTrue(first["continued"], first.get("reason"))
+        wait_until(lambda: len(self.processes) == 2)
+        self.processes[1].finish("Done.")
+        wait_until(lambda: len(self.processes) == 3)
+        self.processes[2].finish("Done.")
+        self.idle()
 
 
 class SupervisorControlTest(unittest.TestCase):
