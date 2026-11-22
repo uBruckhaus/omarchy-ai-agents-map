@@ -213,6 +213,11 @@ _SECRETS = [re.compile(p, re.IGNORECASE | re.DOTALL) for p in (
 )]
 # Control and bidi characters, and lone UTF-16 surrogates ("\ud83d" from a cut emoji in an agent's
 # JSON: they cannot be written as UTF-8, shown by GTK or sent anywhere).
+# Redacted before paths are cut: PEM blocks, JWTs and key=/token=/password= assignments whose value is
+# quoted or a URL (a plain unquoted path value is left to the path rule, then redacted).
+_WHOLE_SECRETS = [_SECRETS[0], _SECRETS[1], re.compile(
+    r"""(?<![A-Za-z0-9_.-])(?:[A-Za-z_][A-Za-z0-9_.-]*)?(?:key|token|secret|password|auth|sig)["']?\s*[:=]\s*"""
+    r"""(?:"[^"]*"|'[^']*'|[A-Za-z][A-Za-z0-9+.-]*://[^\s,;]+)""", re.IGNORECASE)]
 _CONTROL = re.compile("[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069\ud800-\udfff]")
 SURROGATES = re.compile("[\ud800-\udfff]")
 
@@ -343,6 +348,10 @@ def sanitize_topic(value) -> str | None:
     # Keep encoded-separator handling outside URLs, including nested %252F / %255C.
     text = _URL_OR_ENCODED_SEP.sub(lambda m: m.group() if m.group(1) is None else
                                    ("/" if m.group(1).lower() == "2f" else "\\"), text)
+    # Whole secrets first (PEM, JWT, Bearer, key=/token=/password= assignments with quoted or URL
+    # values): cutting paths could otherwise split a quoted value and leave its rest readable.
+    for pattern in _WHOLE_SECRETS:
+        text = pattern.sub("…", text)
     text = _short_paths(text)
     text = _CONTROL.sub(" ", text)
     text = " ".join(_redact(text).split())[:120]

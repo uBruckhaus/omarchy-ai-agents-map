@@ -2069,5 +2069,24 @@ class RoundElevenTest(TempCase):
                 self.assert_topic_prompt(topic, expected)
 
 
+class SecretBeforePathTest(unittest.TestCase):
+    """A quoted or URL secret assignment is redacted whole, before paths are cut (agy round 12)."""
+
+    def test_secret_assignments_around_paths_never_leak(self):
+        import activity_log
+        for text in ('secret="my super secret https://ex.com/a"',
+                     'password="top secret value file:///home/u/a.py"',
+                     "token='alpha beta https://ex.com/x' done",
+                     'see key="https://ex.com/a my super secret value"',
+                     'see secret="file:///home/u/a.py my super secret value"',
+                     "see token=https://ex.com/MySecretValue",
+                     "see api_key=file:///home/u/MySecretValue",
+                     'secret="my super secret /home/alice/Secret/x.py" and /tmp/y.py',
+                     'see "key":"my super secret /home/u/x.py" and /tmp/y.py'):
+            out = activity_log.sanitize_topic(text) or ""
+            for word in ("super", "alpha", "beta", "MySecretValue", "top", "alice", "Secret/"):
+                self.assertNotIn(word, out, (text, out))
+
+
 if __name__ == "__main__":
     unittest.main()
