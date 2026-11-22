@@ -2303,7 +2303,7 @@ class LinearTimeTest(unittest.TestCase):
         import time
         import activity_log
         for text in ("a" * 100_000, "-" * 250_000, "key" * 30_000, "x@" * 30_000, "https://x" + "a" * 100_000,
-                     "a-a-a-" * 40_000):
+                     "a-a-a-" * 40_000, "%40" * 80_000, "a:" * 100_000, "a" * 200_000 + ":"):
             started = time.monotonic()
             activity_log.sanitize_topic(text)
             self.assertLess(time.monotonic() - started, 3.0, text[:12])
@@ -2321,6 +2321,23 @@ class LongKeyNameTest(unittest.TestCase):
             out = activity_log.sanitize_topic(text) or ""
             self.assertNotIn("mySecret", out, (text, out))
             self.assertNotIn("example.com/secret", out, (text, out))
+
+
+class RoundTwentyOneTest(unittest.TestCase):
+    """user:password@host without a valid scheme, single-word Authorization lines, chained URLs."""
+
+    def test_review_examples_never_leak(self):
+        import activity_log
+        for text in ("see https%253A%252F%252Falice:mysecret@localhost", "see https%253A%252F%252Falice:mysecret%40localhost",
+                     "see https%253A%252F%252Falice:mysecret@127.0.0.1:5432", "see https%253A//alice:mysecret@localhost",
+                     "see alice:mysecret@localhost", "see Authorization: Custom\r\n  mySecretValue123",
+                     "see Proxy-Authorization: Custom\n  mySecretValue123", "see wss://ex.com,https://alice:mysecret",
+                     "see ftp://ex.com,https://alice:mysecret", "see https://ex.com:443,https://alice:mysecret"):
+            out = activity_log.sanitize_topic(text) or ""
+            self.assertNotIn("mysecret", out.lower(), (text, out))
+            self.assertNotIn("alice", out, (text, out))
+        self.assertEqual(activity_log.sanitize_topic("mail me at bob@example.com later"), "mail me at … later")
+        self.assertEqual(activity_log.sanitize_topic("open https://ex.com:8080/a/b"), "open https://ex.com:8080/b")
 
 
 if __name__ == "__main__":

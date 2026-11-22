@@ -225,9 +225,9 @@ _WHOLE_SECRETS = [_SECRETS[0], _SECRETS[1], re.compile(
     # Known schemes may precede an unindented credential; unknown schemes require header folding.
     r"""(?<![A-Za-z0-9_.-])[A-Za-z0-9_.-]*authorization["']?\s*[:=]\s*"""
     r"(?:(?:(?:Bearer|Basic|Token|ApiKey|OAuth|Bot|Digest)\s+|"
-    rf"[A-Za-z][A-Za-z0-9+._-]*(?:[ \t]+|[ \t]*\n[ \t]+))?{_QUOTED_SECRET}[^\n]*"
+    rf"[A-Za-z][A-Za-z0-9+._-]*(?:[ \t]+|[ \t]*\r?\n[ \t]+))?{_QUOTED_SECRET}[^\n]*"
     r"|(?:(?:Bearer|Basic|Token|ApiKey|OAuth|Bot|Digest)\s+|"
-    r"[A-Za-z][A-Za-z0-9+._-]*[ \t]*\n[ \t]+)[^\n]*|[^\n]*)",
+    r"[A-Za-z][A-Za-z0-9+._-]*[ \t]*\r?\n[ \t]+)[^\n]*|[^\n]*)",
     re.IGNORECASE), re.compile(
     r"""(?<![A-Za-z0-9_.-])[A-Za-z0-9_.-]*(?:key|token|secret|password|authorization|auth|sig)["']?\s*[:=]\s*"""
     rf"(?:{_QUOTED_SECRET}|[A-Za-z][A-Za-z0-9+.-]*://\S+)", re.IGNORECASE)]
@@ -263,10 +263,31 @@ def _decode_url_part(raw: str) -> str:
     return unicodedata.normalize("NFKC", raw)
 
 
+_USERINFO = re.compile(r"(?<![^\s:@/])[^\s:@/]{1,256}:[^\s@]{0,1024}@\S")  # bounded: linear time
+
+
+def _credential_token(token: str) -> bool:
+    """A whitespace token that holds credentials: a URL with userinfo (@ raw or encoded) anywhere in
+    it, or user:password@host with or without a scheme (also after decoding)."""
+    if "@" not in token and "%" not in token and "\uff20" not in token:
+        return False
+    decoded = _decode_url_part(token)
+    if _USERINFO.search(token) or _USERINFO.search(decoded):
+        return True
+    has_url = "://" in token or "://" in decoded or "%3a" in token.lower()
+    return has_url and ("@" in token or "@" in decoded or bool(re.search(r"%(?:25)*40", token, re.IGNORECASE)))
+
+
 def _clean_url(raw: str) -> tuple[str, str]:
     """An optional HTTP(S) origin and clean basename, with credentials failing closed."""
     decoded = _decode_url_part(raw)
     if "@" in decoded or re.search(r"%(?:25)*40", raw, re.IGNORECASE):
+        return "", "…"
+    # A second URL chained into this one, or an authority with a colon that is no numeric port
+    # ("host:secret"), fails closed: the text after the scheme may be userinfo.
+    rest = decoded.split("://", 1)[1] if "://" in decoded else ""
+    authority = re.split(r"[/?#,;|&]", rest, maxsplit=1)[0]
+    if "://" in re.split(r"[?#]", rest, maxsplit=1)[0] or (":" in authority and not re.fullmatch(r"(?:[^:\[\]]+|\[[0-9A-Fa-f:.]+\])(?::\d{0,5})?", authority)):
         return "", "…"
     try:
         # Drop raw queries/fragments before decoding, including wrapped Markdown/quoted URLs.
@@ -374,10 +395,8 @@ def sanitize_topic(value) -> str | None:
     # values): cutting paths could otherwise split a quoted value and leave its rest readable.
     text = _CREDENTIAL_URL_TOKEN.sub(
         # "…/" keeps a separator, so a path continuing after the token (spaces in folders) is cut too.
-        lambda m: m.group() if "://" not in m.group() and "%3a" not in m.group().lower()
-        or "@" not in m.group() and "@" not in _decode_url_part(m.group())
-        and not re.search(r"%(?:25)*40", m.group(), re.IGNORECASE)
-        else "…/" if re.search(r"[/\\]", m.string[m.end():]) else "…",
+        lambda m: "…/" if _credential_token(m.group()) and re.search(r"[/\\]", m.string[m.end():])
+        else "…" if _credential_token(m.group()) else m.group(),
         text)
     for pattern in _WHOLE_SECRETS:
         text = pattern.sub("…", text)
