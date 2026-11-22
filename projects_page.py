@@ -134,6 +134,8 @@ class ProjectsBoard:
         return button
 
     def on_width(self, width: int):
+        if self.ctrl.disposed:
+            return
         changed = self._layout_key(self.width) != self._layout_key(width)
         self.width = width
         if changed:
@@ -184,6 +186,7 @@ class ProjectsBoard:
             if child.get_parent() is self.flow:
                 self.flow.remove(child)
         self.cards, self.order = {}, []
+        self.popovers.clear()
 
     def _chip(self, text: str, icon_name: str, active: bool, clicked) -> Gtk.ToggleButton:
         button = Gtk.ToggleButton(active=active, valign=Gtk.Align.CENTER)
@@ -303,6 +306,7 @@ class ProjectsBoard:
             if inside:
                 child.grab_focus()            # the keyboard stays with the card
         for pid in [i for i in self.cards if i not in ids]:
+            self.popovers.discard(pid)
             child = self.cards.pop(pid)[0]
             if child.get_parent() is self.flow:
                 self.flow.remove(child)
@@ -466,6 +470,8 @@ class ProjectsBoard:
         return Gdk.ContentProvider.new_for_value(pid)
 
     def drag_end(self):
+        if self.dragged is not None and not self.ctrl.disposed:
+            GLib.idle_add(lambda: self.ctrl.notify() and False)    # a card held while dragged is drawn now
         self.dragged = None
         for child, _sig in self.cards.values():
             card = child.get_child()
@@ -536,7 +542,7 @@ class ProjectsBoard:
         New project); a later ask wins."""
         ctrl = self.ctrl
         pid = ctrl.reveal
-        if pid is None or not ctrl.revealed(seq):
+        if ctrl.disposed or pid is None or not ctrl.revealed(seq):
             return
         if self.root.get_root() is None:
             return                        # the page is gone
@@ -606,6 +612,8 @@ class ProjectsPage:
         page.connect("unmap", lambda *_a: self._projects_shown(False))
         page.connect("destroy", lambda *_a: self.projects_teardown())
         self._projects_keys = Gtk.EventControllerKey()
+        # Before the fields: a read-only text box (a running project's plan) must not eat Backspace.
+        self._projects_keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
         self._projects_keys.connect("key-pressed", self._projects_key)
         self.window.add_controller(self._projects_keys)
         self._projects_tick_id = GLib.timeout_add_seconds(POLL_SECONDS, self._projects_tick)
@@ -659,8 +667,9 @@ class ProjectsPage:
         if tick is not None:
             GLib.source_remove(tick)
         keys, self._projects_keys = getattr(self, "_projects_keys", None), None
-        if keys is not None and self.window is not None:
-            self.window.remove_controller(keys)
+        owner = keys.get_widget() if keys is not None else None
+        if owner is not None:
+            owner.remove_controller(keys)
         if getattr(self, "projects_ctrl", None) is not None:
             self.projects_ctrl.dispose()
 
@@ -670,15 +679,22 @@ class ProjectsPage:
         interrupted); no center is opened again afterwards."""
         if not hasattr(self, "_project_center_lock"):
             return
-        with self._project_center_lock:
-            self._projects_closed = True
-            center, self._project_center = self._project_center, None
+        # The fence first (no answer is taken, no center is opened again), the page at once; the center
+        # is released on a worker: its locks may be held by a scan or a save for a while. The thread is
+        # not a daemon, so the process waits for it after the window is gone.
+        self._projects_closed = True
         self.projects_teardown()
-        if center is not None:
-            try:
-                center.detach()
-            except Exception:
-                pass
+
+        def release():
+            with self._project_center_lock:
+                center, self._project_center = self._project_center, None
+            if center is not None:
+                try:
+                    center.detach()
+                except Exception:
+                    pass
+        self._projects_release = threading.Thread(target=release, name="project-center-release")
+        self._projects_release.start()
 
     # --- the backend -------------------------------------------------------------------------------
 

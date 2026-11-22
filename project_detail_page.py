@@ -160,6 +160,8 @@ class ProjectDetail:
         self.root.append(self.footer)
 
     def on_size(self, width: int, height: int):
+        if self.ctrl.disposed:
+            return
         before = (self.narrow, self.width >= GRAPH_BESIDE)
         self.width, self.height = width, height
         if before != (self.narrow, self.width >= GRAPH_BESIDE):
@@ -398,11 +400,14 @@ class ProjectDetail:
             parts.clear(self.team_graph)
             if card is not None:
                 self.team_graph.append(parts.team_graph(card, show_on_map))
-        key = json.dumps([ctrl.team_version, ctrl.phase, ctrl.busy, ctrl.running,
-                          [p.get("id") for p in ctrl.profiles], ctrl.runtimes], sort_keys=True, default=str)
+        self.team_graph.set_visible(card is not None)   # a new project: the form takes the width
+        # Every profile fact the form shows (commands, permissions, options) is part of its key.
+        key = json.dumps([ctrl.team_version, ctrl.phase, ctrl.busy, ctrl.running, ctrl.profiles, ctrl.runtimes],
+                         sort_keys=True, default=str)
         if key == self.shown_team:
             return
         self.shown_team = key
+        refocus = self.focused_field()
         parts.clear(self.team_form)
         form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP_TIGHT, hexpand=True)
         form.append(self.phase_selector())
@@ -434,6 +439,32 @@ class ProjectDetail:
         form.append(parts.label(_("Cooperating agents run as separate managed sessions."), ("am-project-dim",), wrap=True))
         self.team_form.append(form)
         self.guard(form)
+        if refocus is not None:
+            self.restore_field(form, *refocus)
+
+    def focused_field(self):
+        """(key, cursor) of the Team form's entry that has the keyboard, else None."""
+        root = self.root.get_root()
+        focus = root.get_focus() if root is not None else None
+        while focus is not None and not hasattr(focus, "field_key"):
+            focus = focus.get_parent()
+        if focus is None or not focus.is_ancestor(self.team_form):
+            return None
+        return focus.field_key, focus.get_position()
+
+    @staticmethod
+    def restore_field(form, key, cursor):
+        stack = [form]
+        while stack:
+            widget = stack.pop()
+            if getattr(widget, "field_key", None) == key:
+                widget.grab_focus()
+                widget.set_position(min(cursor, len(widget.get_text())))
+                return
+            child = widget.get_first_child()
+            while child is not None:
+                stack.append(child)
+                child = child.get_next_sibling()
 
     def guard(self, widget):
         """Fields built after the window was: paste only through the app's bounded read (TextGuard)."""
@@ -475,6 +506,7 @@ class ProjectDetail:
             card.append(parts.label(_("Choose a supported access mode before saving."), ("am-project-error",), wrap=True))
         card.append(parts.label(_("Role instructions"), ("am-project-small", "am-project-dim")))
         instructions = Gtk.Entry(text=str(member.get("instructions") or ""), sensitive=not locked)
+        instructions.field_key = (ctrl.phase, index, "instructions")
         instructions.connect("changed", lambda e: ctrl.set_member(index, "instructions", e.get_text()))
         card.append(instructions)
         if profile is not None:
@@ -482,6 +514,7 @@ class ProjectDetail:
             if profile.get("model_option") is not None and member.get("runtime") is None:
                 card.append(parts.label(_("Model (optional)"), ("am-project-small", "am-project-dim")))
                 model = Gtk.Entry(text=str(member.get("model") or ""), sensitive=not locked)
+                model.field_key = (ctrl.phase, index, "model")
                 model.connect("changed", lambda e: ctrl.set_member(index, "model", e.get_text()))
                 card.append(model)
             definitions = profile.get("subagent_definitions")
@@ -607,7 +640,6 @@ class ProjectDetail:
         request = text_view(4, lambda text: None if self.syncing else ctrl.set_setup_request(text))
         self.request_view = request
         self.use_button = None
-        GLib.idle_add(lambda: self.guard(box) and False)
         request.set_editable(not ctrl.busy and not ctrl.running)
         request.set_tooltip_text(_("Example: use Claude with agy and Pi using llama and the optimal model for this project."))
         box.append(request)
@@ -681,6 +713,7 @@ class ProjectDetail:
             box.append(Gtk.Separator())
             box.append(parts.label(_("Setup helper output"), ("heading",)))
             box.append(parts.label(str(project["setup_output"]), ("monospace",), wrap=True, selectable=True))
+        self.guard(box)
 
     # --- footer --------------------------------------------------------------------------------------
 

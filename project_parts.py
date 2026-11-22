@@ -70,22 +70,47 @@ def apply_css(colors: dict, radius: int = 10):
     apply_css.provider = provider
 
 
-class SizeBox(Gtk.Box):
-    """A box that tells its size when it changes (the pages' breakpoints); nothing once it left its
-    window."""
+class SizeBox(Gtk.Widget):
+    """A vertical or horizontal box that tells its size when it changes (the pages' breakpoints).
+    A plain widget around one Gtk.Box: GTK 4 calls a widget's own size_allocate only when it has no
+    layout manager, and a Gtk.Box always has one. Nothing is told once it left its window."""
 
-    def __init__(self, on_size, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, on_size, orientation=Gtk.Orientation.VERTICAL, spacing: int = 0, hexpand: bool = False,
+                 vexpand: bool = False):
+        super().__init__(hexpand=hexpand, vexpand=vexpand)
         self.on_size = on_size
         self.size = (0, 0)
+        self.box = Gtk.Box(orientation=orientation, spacing=spacing, hexpand=hexpand, vexpand=vexpand)
+        self.box.set_parent(self)
+
+    def append(self, child):
+        self.box.append(child)
+
+    def remove(self, child):
+        self.box.remove(child)
+
+    def do_dispose(self):
+        if self.box is not None and self.box.get_parent() is self:
+            self.box.unparent()
+        self.box = None
+        Gtk.Widget.do_dispose(self)
+
+    def do_get_request_mode(self):
+        return self.box.get_request_mode() if self.box is not None else Gtk.SizeRequestMode.CONSTANT_SIZE
+
+    def do_measure(self, orientation, for_size):
+        if self.box is None:
+            return 0, 0, -1, -1
+        return self.box.measure(orientation, for_size)
 
     def do_size_allocate(self, width, height, baseline):
-        Gtk.Box.do_size_allocate(self, width, height, baseline)
+        if self.box is not None:
+            self.box.allocate(width, height, baseline, None)
         if (width, height) != self.size:
             self.size = (width, height)
 
             def tell():
-                if self.get_root() is not None:
+                if self.box is not None and self.get_root() is not None:
                     self.on_size(width, height)
                 return False
             GLib.idle_add(tell)

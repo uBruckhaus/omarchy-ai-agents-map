@@ -417,10 +417,13 @@ class ProjectsController:
 
     def set_text(self, field: str, value: str):
         """One of the four fields: only a text that differs from the adopted one counts as a change."""
+        was = self.texts.get(field, "")
         self.texts[field] = value
         if not self.dirty and value != self.adopted.get(field):
             self.dirty = True
             self.notify()
+        elif field == "plan" and bool(was.strip()) != bool(value.strip()):
+            self.notify()                 # Approve plan follows whether there is a plan
 
     def changed(self):
         """An edit outside the four fields (a member's instructions): always a change."""

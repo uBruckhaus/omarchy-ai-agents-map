@@ -499,6 +499,17 @@ class ProjectPageTest(ControllerCase):
         self.assertFalse(ctrl.open)
         self.assertEqual(self.ops("save")[-1][1]["title"], "Saved name")
 
+    def test_a_plan_typed_into_a_changed_draft_is_drawn(self):
+        ctrl = self.make([card("a")])
+        self.open(ctrl, "a")
+        ctrl.set_text("title", "Changed")
+        before = self.notes
+        ctrl.set_text("plan", "1. Do it.")
+        self.assertGreater(self.notes, before)          # Approve plan follows at once
+        before = self.notes
+        ctrl.set_text("plan", "1. Do it now.")
+        self.assertEqual(self.notes, before)            # no redraw per keystroke otherwise
+
     def test_busy_page_cannot_be_left_and_one_action_at_a_time(self):
         ctrl = self.make([card("a", status="ready", approval_valid=True)])
         self.open(ctrl, "a")

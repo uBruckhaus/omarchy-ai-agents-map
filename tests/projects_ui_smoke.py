@@ -20,11 +20,12 @@ from gi.repository import Adw, Gdk, GLib, Graphene, Gtk  # noqa: E402
 import palette  # noqa: E402
 import project_texts as texts  # noqa: E402
 from page_parts import PageParts  # noqa: E402
+from text_guard import TextGuard  # noqa: E402
 from projects_page import ProjectsPage  # noqa: E402
 from test_projects_ui import RUNNING, FakeCenter, card  # noqa: E402
 
 
-class Host(PageParts, ProjectsPage):
+class Host(PageParts, TextGuard, ProjectsPage):
     def __init__(self, window):
         self.window = window
         self.theme = SimpleNamespace(colors=dict(palette.DEFAULT_COLORS))
@@ -44,7 +45,10 @@ class Host(PageParts, ProjectsPage):
         self.view = name
 
     def editing(self):
-        return False
+        focus = self.window.get_focus()
+        if isinstance(focus, Gtk.TextView):
+            return focus.get_editable()
+        return isinstance(focus, Gtk.Editable) and focus.get_editable()
 
 
 def spin(until, seconds=5.0):
@@ -168,6 +172,10 @@ def main():
     ctrl = host.projects_ctrl
     spin(lambda: ctrl.loaded and host.projects_stack.get_visible_child_name() == "board")
     board = host.projects_board
+    # The breakpoints follow the real allocation (Broadway's screen is 1024 px wide).
+    spin(lambda: board.width == board.root.get_width() and board.width > 900)
+    assert board.flow.get_max_children_per_line() == 2
+    board = host.projects_board
     spin(lambda: len(board.order) == 4)
     shown = labels(board.root)
     for text in ("Running one", "Blocked one", "Approved · blocked", "A local runtime is stopped", "Go to Team",
@@ -246,11 +254,31 @@ def main():
     ctrl.set_tab(texts.TAB_TEAM)
     spin(lambda: "No agents in this phase yet." in labels(detail.root))
     shot(window, "team")
+    # Keys: Backspace leaves even from a read-only text box (the keys come first, CAPTURE); nothing
+    # happens under the page's own questions; Ctrl+Shift+Enter does not send.
+    assert host._projects_keys.get_propagation_phase() == Gtk.PropagationPhase.CAPTURE
+    ctrl.confirming = True
+    assert host._projects_key(None, Gdk.KEY_F5, 0, 0) is False
+    ctrl.confirming = False
+    shift_ctrl = Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK
+    assert detail.messages.on_key(None, Gdk.KEY_Return, 0, shift_ctrl) is False
+    assert board.on_card_key(None, Gdk.KEY_Up, 0, shift_ctrl) is False
+    sent = len([c for c in center.calls if c[0] == "message"])
+    assert detail.messages.on_key(None, Gdk.KEY_Return, 0, Gdk.ModifierType.CONTROL_MASK) is True
+    spin(lambda: len([c for c in center.calls if c[0] == "message"]) == sent + 1 and not ctrl.busy)
     # Narrow: tabs as a list, the footer keeps one action and More.
     detail.on_width(500)
     spin(lambda: isinstance(detail.tabs.get_first_child(), Gtk.DropDown))
     assert any(isinstance(w, Gtk.MenuButton) for w in [detail.footer.get_last_child()])
     detail.on_width(1200)
+    ctrl.set_tab(texts.TAB_PLAN)
+    spin(lambda: detail.pages.get_visible_child_name() == str(texts.TAB_PLAN))
+    assert not detail.plan_view.get_editable()                # the project runs
+    detail.plan_view.grab_focus()
+    assert host._projects_key(None, Gdk.KEY_BackSpace, 0, 0) is True
+    spin(lambda: host.projects_stack.get_visible_child_name() == "board")
+    ctrl.open_card(next(p for p in ctrl.projects if p["id"] == "run"))
+    spin(lambda: host.projects_stack.get_visible_child_name() == "project")
     # Back to the board: the card gets the keyboard.
     ctrl.back_to_board()
     spin(lambda: host.projects_stack.get_visible_child_name() == "board")
@@ -261,6 +289,33 @@ def main():
     assert "New project" in labels(detail.root)
     detail.title_entry.set_text("Typed")
     assert ctrl.dirty
+    # A plan typed into a draft that has changes already: Approve plan follows at once.
+    ctrl.set_tab(texts.TAB_PLAN)
+    spin(lambda: detail.pages.get_visible_child_name() == str(texts.TAB_PLAN))
+    approve = lambda: next(b for b in buttons(detail.footer, "Approve plan"))   # noqa: E731
+    assert not approve().get_sensitive()
+    detail.plan_view.get_buffer().set_text("1. Do it.")
+    spin(lambda: approve().get_sensitive())
+    # Team: the graph leaves the width to a new project's form; new profile facts redraw the form,
+    # the typed text and the keyboard stay; the fields are guarded.
+    ctrl.set_tab(texts.TAB_TEAM)
+    spin(lambda: detail.pages.get_visible_child_name() == str(texts.TAB_TEAM))
+    assert not detail.team_graph.get_visible()
+    entry = next(w for w in walk(detail.team_form) if getattr(w, "field_key", None) == ("run", 0, "instructions"))
+    assert entry.get_delegate()._am_guarded
+    entry.grab_focus()
+    entry.set_text("Be brief")
+    ctrl.profiles = [dict(ctrl.profiles[0], permissions="Edits files in the project only")]
+    ctrl.refresh()
+    ctrl.profiles = [dict(ctrl.profiles[0], permissions="Edits files in the project only")]
+    ctrl.notify()
+    spin(lambda: "Edits files in the project only" in labels(detail.team_form))
+    again = next(w for w in walk(detail.team_form) if getattr(w, "field_key", None) == ("run", 0, "instructions"))
+    assert again is not entry and again.get_text() == "Be brief"
+    assert window.get_focus() is again.get_delegate() or window.get_focus() is again, window.get_focus()
+    ctrl.set_tab(texts.TAB_SETUP)
+    spin(lambda: detail.pages.get_visible_child_name() == str(texts.TAB_SETUP))
+    assert detail.request_view._am_guarded
     # Dropdowns: a missing value is shown as itself, a disabled choice goes back and is not applied.
     from project_detail_page import dropdown
     picked = []
@@ -282,9 +337,27 @@ def main():
     ctrl.notify()
     spin(lambda: ctrl.reveal is None)
     assert window.get_focus() is board.empty_new, window.get_focus()
+    # A narrow, low window: the real allocation makes the board one column and the page compact.
+    narrow = Gtk.Window(default_width=520, default_height=420)
+    window.set_child(None)
+    narrow.set_child(page)
+    host.window = narrow
+    narrow.present()
+    spin(lambda: 0 < board.width < 600)
+    center.projects = [card("x")]
+    ctrl.refresh()
+    spin(lambda: board.order == ["x"])
+    assert board.flow.get_max_children_per_line() == 1
+    ctrl.open_card(ctrl.projects[0])
+    spin(lambda: host.projects_stack.get_visible_child_name() == "project")
+    spin(lambda: detail.narrow and isinstance(detail.tabs.get_first_child(), Gtk.DropDown))
+    ctrl.back_to_board()
+    spin(lambda: not ctrl.open)
     # Shutdown: the poll stops, no center is opened again, late answers change nothing.
     host.shutdown_projects()
     assert host._projects_tick_id is None and ctrl.disposed
+    host._projects_release.join(5)
+    assert not host._projects_release.is_alive() and host._project_center is None
     try:
         host._project_call("list", {})
         raise AssertionError("a center after shutdown")
