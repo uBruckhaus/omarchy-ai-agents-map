@@ -2424,5 +2424,21 @@ class ShortDigestTest(unittest.TestCase):
             self.assertIsNone(activity_log.sanitize_topic(text), text)
 
 
+class RoundTwentySixTest(unittest.TestCase):
+    """Chained URLs through any separator encoding; numeric passwords are no line numbers (agy r25)."""
+
+    def test_review_examples_never_leak(self):
+        import activity_log
+        for text in ("see ftp://ex.com/a,https%252525253A/%5Calice:123456",
+                     "see https://ex.com/a,https%252525253A/%5Calice:123456",
+                     "see ftp://ex.com/a,https%252525253A\\alice:123456", "see ftp://ex.com/a,https:%252525255C/alice:123456",
+                     "see ftp://ex.com/a,https%252525253A/%5C:123456", "see ftp://ex.com/a,https%252525253A/%5Calice:1234:5678",
+                     "see https://ex.com/a/alice:123456"):
+            out = activity_log.sanitize_topic(text) or ""
+            self.assertNotIn("123456", out, (text, out))
+            self.assertNotIn("1234:5678", out, (text, out))
+        self.assertEqual(activity_log.sanitize_topic("open vscode://file/home/u/x.py:10:4"), "open x.py:10:4")
+
+
 if __name__ == "__main__":
     unittest.main()

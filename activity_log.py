@@ -304,6 +304,17 @@ def _credential_token(token: str) -> bool:
     return has_url and ("@" in token or "@" in decoded or "@" in flat)
 
 
+def _flat_separators(text: str) -> str:
+    """Every encoding (any %25 depth, NFKC look-alikes, backslash) of / and : as plain / and :."""
+    for _ in range(6):
+        flat = _ENCODED_COLON.sub(":", re.sub(r"%(?:25)*(?:2f|5c)", "/", text, flags=re.IGNORECASE))
+        flat = unicodedata.normalize("NFKC", unquote(flat)).replace("\\", "/").replace("\uff3c", "/")
+        if flat == text:
+            break
+        text = flat
+    return text
+
+
 def _clean_url(raw: str) -> tuple[str, str]:
     """An optional HTTP(S) origin and clean basename, with credentials failing closed."""
     decoded = _decode_url_part(raw)
@@ -313,8 +324,7 @@ def _clean_url(raw: str) -> tuple[str, str]:
     # ("host:secret"), fails closed: the text after the scheme may be userinfo.
     # A chained URL hidden behind an encoded ? or # (raw, before decoding) fails closed as well.
     raw_head = re.split(r"[?#]", raw.split("://", 1)[1], maxsplit=1)[0] if "://" in raw else ""
-    raw_head = _ENCODED_COLON.sub(":", re.sub(r"%(?:25)*2f", "/", raw_head, flags=re.IGNORECASE))  # any depth
-    if "://" in raw_head or "://" in _decode_url_part(raw_head):
+    if "://" in _flat_separators(raw_head):
         return "", "…"
     rest = decoded.split("://", 1)[1] if "://" in decoded else ""
     authority = re.split(r"[/?#,;|&]", rest, maxsplit=1)[0]
@@ -331,7 +341,9 @@ def _clean_url(raw: str) -> tuple[str, str]:
         # A kept name never holds ":", "@" or a fullwidth look-alike: such a "name" may be userinfo of a
         # URL chained into this one, however it was encoded.
         name = unicodedata.normalize("NFKC", name)
-        plain = re.sub(r"(?::\d{1,7}){1,2}$", "", name)     # file.py:10 or file.py:10:4 (line, column)
+        # file.py:10 or file.py:10:4 (line, column): only after a real extension, never "user:123456".
+        line = re.fullmatch(r"([^:]*\.[A-Za-z0-9]{1,8})(?::\d{1,7}){1,2}", name)
+        plain = line.group(1) if line else name
         if any(c.isspace() or c in "/\\%:@" for c in plain) or _CONTROL.search(name):
             name = ""
         if url.scheme.lower() in ("http", "https"):
