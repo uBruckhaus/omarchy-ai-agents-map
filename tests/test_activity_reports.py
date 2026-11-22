@@ -2302,10 +2302,25 @@ class LinearTimeTest(unittest.TestCase):
     def test_long_tokens_stay_fast(self):
         import time
         import activity_log
-        for text in ("a" * 100_000, "-" * 50_000, "key" * 30_000, "x@" * 30_000, "https://x" + "a" * 100_000):
+        for text in ("a" * 100_000, "-" * 250_000, "key" * 30_000, "x@" * 30_000, "https://x" + "a" * 100_000,
+                     "a-a-a-" * 40_000):
             started = time.monotonic()
             activity_log.sanitize_topic(text)
             self.assertLess(time.monotonic() - started, 3.0, text[:12])
+
+
+class LongKeyNameTest(unittest.TestCase):
+    """Secret keys of any length are found (agy r20)."""
+
+    def test_long_dotted_and_env_keys(self):
+        import activity_log
+        for text in ("spring.security.oauth2.client.registration.google.provider.custom_secret=mySecret123",
+                     "a" * 65 + '_token="mySecret123"', "a" * 65 + "_authorization: Custom mySecret123",
+                     "a" * 65 + "_password=https://example.com/secret", "cli --password=mySecret123",
+                     ".token=mySecret123"):
+            out = activity_log.sanitize_topic(text) or ""
+            self.assertNotIn("mySecret", out, (text, out))
+            self.assertNotIn("example.com/secret", out, (text, out))
 
 
 if __name__ == "__main__":

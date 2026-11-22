@@ -209,7 +209,7 @@ _SECRETS = [re.compile(p, re.IGNORECASE | re.DOTALL) for p in (
     r"-----BEGIN [^-]{1,64}-----(?:.*?-----END [^-]{1,64}-----|.*$)",
     r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+",
     r"\b(?:Bearer|Basic)\s+[^\s,;]+",
-    r"""(?<![A-Za-z0-9_.])(?:[A-Za-z0-9_.-][A-Za-z0-9_.-]{0,63})?(?:key|token|secret|password|authorization|auth|sig)["']?\s*[:=]\s*"""
+    r"""(?<![A-Za-z0-9_.-])[A-Za-z0-9_.-]*(?:key|token|secret|password|authorization|auth|sig)["']?\s*[:=]\s*"""
     rf"(?:{_QUOTED_SECRET}|[^\s,;]+)",
     r"(?<![A-Za-z0-9+/_])(?:[A-Fa-f0-9]{32,}|[A-Za-z0-9+/]{30,}==|[A-Za-z0-9+/]{31,}=|[A-Za-z0-9+/]{32,})(?![A-Za-z0-9+/=_])",
     r"(?<![A-Za-z0-9.!#$%&*+/=?^_{}|~-])[A-Za-z0-9.!#$%&*+/=?^_{}|~-]{1,64}@[A-Za-z0-9.-]{1,253}\.[A-Za-z]{2,}\b",
@@ -223,13 +223,13 @@ _WHOLE_SECRETS = [_SECRETS[0], _SECRETS[1], re.compile(
     # end of its line goes, whatever the scheme, quoting or URL (no path rule needed after it).
     # The value may start on the next line (YAML, pretty JSON, folded headers) or be a multi-line quote.
     # Known schemes may precede an unindented credential; unknown schemes require header folding.
-    r"""(?<![A-Za-z0-9_.])(?:[A-Za-z0-9_-][A-Za-z0-9_.-]{0,63})?authorization["']?\s*[:=]\s*"""
+    r"""(?<![A-Za-z0-9_.-])[A-Za-z0-9_.-]*authorization["']?\s*[:=]\s*"""
     r"(?:(?:(?:Bearer|Basic|Token|ApiKey|OAuth|Bot|Digest)\s+|"
     rf"[A-Za-z][A-Za-z0-9+._-]*(?:[ \t]+|[ \t]*\n[ \t]+))?{_QUOTED_SECRET}[^\n]*"
     r"|(?:(?:Bearer|Basic|Token|ApiKey|OAuth|Bot|Digest)\s+|"
     r"[A-Za-z][A-Za-z0-9+._-]*[ \t]*\n[ \t]+)[^\n]*|[^\n]*)",
     re.IGNORECASE), re.compile(
-    r"""(?<![A-Za-z0-9_.])(?:[A-Za-z0-9_.-][A-Za-z0-9_.-]{0,63})?(?:key|token|secret|password|authorization|auth|sig)["']?\s*[:=]\s*"""
+    r"""(?<![A-Za-z0-9_.-])[A-Za-z0-9_.-]*(?:key|token|secret|password|authorization|auth|sig)["']?\s*[:=]\s*"""
     rf"(?:{_QUOTED_SECRET}|[A-Za-z][A-Za-z0-9+.-]*://\S+)", re.IGNORECASE)]
 # A whitespace token holding a URL together with userinfo (@ or an encoded @, raw or double-encoded)
 # fails closed as a whole, wherever the scheme starts inside it.
