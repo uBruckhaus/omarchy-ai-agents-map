@@ -98,12 +98,6 @@ class GeometryTest(unittest.TestCase):
         # The crease sits on the bottom-right corner's arc at 45°.
         self.assertAlmostEqual(math.hypot(c0[0] - 92, c0[1] - 42), 8)
 
-    def test_cables_lie_over_both_cards_they_join(self):
-        self.assertEqual(map_3d.cable_slot([(0, False), (3, False)]), 7)     # after card 3's plinth
-        self.assertEqual(map_3d.cable_slot([(3, False), (0, False)]), 7)
-        self.assertEqual(map_3d.cable_slot([(0, False), (3, True)]), 6)      # under a folded card 3
-        self.assertEqual(map_3d.cable_slot([(4, False), (3, True)]), 9)
-
     def test_recessed_blocks(self):
         self.assertTrue(map_3d.recessed(True, False, False))
         self.assertTrue(map_3d.recessed(False, True, False))      # a finished subagent, an unused server
@@ -132,7 +126,7 @@ def alpha_at(image, x, y) -> int:
 
 class Boxes:
     """MapView's box, card and summary drawing without the widget."""
-    for name in ("draw_box", "draw_cards", "draw_summaries", "color", "palette_3d", "rounded", "rounded_top", "socket_covered",
+    for name in ("draw_box", "draw_cards", "draw_summaries", "color", "palette_3d", "rounded", "rounded_top",
                  "draw_chevron", "outside_label", "runtime_use", "model_state", "flow_marks", "set_three_d"):
         locals()[name] = M.__dict__[name]
     del name
@@ -229,15 +223,6 @@ class LookTest(unittest.TestCase):
         row = lambda img, y: bytes(img.get_data()[y * img.get_stride():(y + 1) * img.get_stride()])   # noqa: E731
         for y in (100, 140, 168):
             self.assertEqual(row(image, y), row(plinth, y))
-
-    def test_sockets_under_a_card_moved_over_theirs_are_hidden(self):
-        view = types.SimpleNamespace(group_labels=[("a", (0, 0, 100, 100)), ("b", (200, 0, 100, 100)),
-                                                   ("moved", (50, 0, 100, 100))])
-        covered = lambda socket, upto: M.socket_covered(view, socket, upto)   # noqa: E731
-        self.assertFalse(covered((90, 50, None, 0), 1))     # card a's socket, the cable drawn with card b
-        self.assertTrue(covered((90, 50, None, 0), 2))      # the moved card lies over it
-        self.assertFalse(covered((210, 50, None, 1), 2))    # card b's, not under the moved card
-        self.assertFalse(covered((90, 50, None, 2), 2))     # its own card
 
     def test_switching_redraws_only_on_change(self):
         view = Boxes(True)
@@ -343,6 +328,116 @@ class LightsTest(unittest.TestCase):
         image, cr = surface()
         map_view.draw_marks(cr, raised)
         self.assertGreater(max(image.get_data()[3::4]), 200)
+
+
+class Headless(M):
+    """The real MapView, built and drawn without a display (its GTK widget calls are no-ops)."""
+    __gtype_name__ = "AamHeadlessMapView3d"
+
+    def connect(self, *_a):
+        pass
+
+    def set_hexpand(self, *_a):
+        pass
+
+    set_vexpand = add_controller = set_content_height = set_content_width = set_hexpand
+
+    def get_content_width(self):
+        return 1300
+
+    def get_width(self):
+        return 1300
+
+    def get_ancestor(self, *_a):
+        return None
+
+    def get_parent(self):
+        return None
+
+    def queue_draw(self):
+        self.texture = None
+
+
+def headless(three_d=True, edges=(), collapsed=(), moved=None):
+    """A drawn map: MCP servers, skills, two agents, a provider; the given edges; folded and moved cards."""
+    init = gi.repository.Gtk.DrawingArea.__init__
+    gi.repository.Gtk.DrawingArea.__init__ = lambda self, *a, **k: None
+    try:
+        view = Headless.__new__(Headless)
+        M.__init__(view)
+    finally:
+        gi.repository.Gtk.DrawingArea.__init__ = init
+    g = graph.Graph()
+    for node in (graph.Node("agent:claude", 1, "Claude", "", "agent"), graph.Node("agent:pi", 1, "Pi", "", "agent"),
+                 graph.Node("mcp:alpha", 0, "alpha", "", "mcp"), graph.Node("mcp:beta", 0, "beta", "", "mcp"),
+                 graph.Node("skills:~/s", 0, "~/s", "", "skills"),
+                 graph.Node("cloud:anthropic", 2, "Anthropic", "", "cloud")):
+        g.add(node)
+    for source, target, kind in edges:
+        g.link(source, target, kind)
+    view.set_palette(COLORS, 6)
+    view.set_graph(g, ["", "", "", ""])
+    view.set_three_d(three_d)
+    view.collapsed = {view.group_key(n) for n in g.nodes if n.id in collapsed}
+    if moved:
+        node_id, place = moved
+        view.cards = {view.group_key(next(n for n in g.nodes if n.id == node_id)): list(place)}
+    image = cairo.ImageSurface(cairo.FORMAT_ARGB32, 1300, 600)
+    view.on_draw(view, cairo.Context(image), 1300, 600)
+    image.flush()
+    return view, image
+
+
+def pixels(image, rect, inset=6):
+    x, y, w, h = (round(v) for v in rect)
+    data, stride = image.get_data(), image.get_stride()
+    return [bytes(data[row * stride + (x + inset) * 4:row * stride + (x + w - inset) * 4])
+            for row in range(y + inset, y + h - inset)]
+
+
+class WholeMapTest(unittest.TestCase):
+    """MapView.on_draw as a whole, headless: what lies over a cable stays clean, and 3D moves no click area."""
+
+    EDGES = (("agent:claude", "mcp:alpha", "mcp"), ("agent:pi", "skills:~/s", "skills"),
+             ("agent:claude", "cloud:anthropic", "uses"), ("agent:pi", "mcp:beta", "mcp"))
+
+    def test_3d_keeps_every_click_area(self):
+        for collapsed in ((), ("mcp:alpha",)):
+            flat, _image = headless(False, self.EDGES, collapsed)
+            raised, _image = headless(True, self.EDGES, collapsed)
+            for name in ("boxes", "card_rects", "summaries", "menu_rects", "details_rects", "filter_rects",
+                         "pin_rects", "group_labels"):
+                self.assertEqual(getattr(flat, name), getattr(raised, name), name)
+
+    def test_no_cable_inside_a_folded_header(self):
+        view, plain = headless(True, (), ("mcp:alpha",))
+        key = view.group_key(next(n for n in view.graph.nodes if n.id == "mcp:alpha"))
+        _view, wired = headless(True, self.EDGES, ("mcp:alpha",))
+        self.assertEqual(pixels(wired, view.card_rects[key], 1), pixels(plain, view.card_rects[key], 1))
+
+    def test_no_cable_over_a_card_moved_onto_its_end(self):
+        """The skills card moved over the MCP servers: their cables stay under it, its box stays clean."""
+        moved = ("skills:~/s", (0, 230))
+        view, plain = headless(True, (), moved=moved)
+        _view, wired = headless(True, self.EDGES, moved=moved)
+        self.assertEqual(pixels(wired, view.boxes["skills:~/s"]), pixels(plain, view.boxes["skills:~/s"]))
+        key = view.group_key(next(n for n in view.graph.nodes if n.id == "skills:~/s"))
+        x, y, w, h = view.card_rects[key]
+        self.assertEqual(pixels(wired, (x, y, w, 26), 2), pixels(plain, (x, y, w, 26), 2))   # its header
+
+    def test_no_cable_over_a_lower_box(self):
+        """A cable to a moved card is painted late: it still never crosses a box under it."""
+        moved = ("cloud:anthropic", (700, 330))
+        view, plain = headless(True, (), moved=moved)
+        _view, wired = headless(True, self.EDGES, moved=moved)
+        for node_id in ("agent:claude", "agent:pi"):
+            x, y, w, h = view.boxes[node_id]
+            shown = (x, y, min(w, 700 - x), h)            # the part the moved card does not lie over
+            self.assertEqual(pixels(wired, shown), pixels(plain, shown), node_id)
+
+    def test_the_flat_map_is_drawn_as_before(self):
+        _view, image = headless(False, self.EDGES)
+        self.assertEqual(_view.sockets, [])
 
 
 if __name__ == "__main__":

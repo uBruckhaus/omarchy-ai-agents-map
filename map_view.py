@@ -286,13 +286,6 @@ class MapView(Gtk.DrawingArea):
             if self.flow_layer is not None:
                 self.flow_layer.queue_draw()
 
-    def socket_covered(self, socket, upto: int) -> bool:
-        """A 3D socket (x, y, rgba, its card's place) under a card stacked over its own one (a card moved
-        onto another), counting the cards up to place `upto`."""
-        sx, sy, _rgba, own = socket
-        return any(own < k <= upto and cx <= sx <= cx + cw and cy <= sy <= cy + ch
-                   for k, (_key, (cx, cy, cw, ch), *_rest) in enumerate(self.group_labels))
-
     def palette_3d(self):
         """map_3d's colours of this palette, worked out once per palette (None: the flat map)."""
         if not self.three_d:
@@ -1011,8 +1004,9 @@ class MapView(Gtk.DrawingArea):
             cr.set_source_rgba(*self.color("bg", 0.9 * alpha))
             cr.fill()
 
-    def draw_markers(self, cr, edges):
-        """A "!" on every failed line (click the line for its hints), apart from each other."""
+    def draw_markers(self, cr, edges, only=None):
+        """A "!" on every failed line (click the line for its hints), apart from each other. `only`: paint
+        just these edges' (3D paints each with its cable), all placed as one."""
         placed = []
         self.marker_points = []
         for edge in sorted(edges, key=lambda e: e.failed != "error"):     # errors first: they keep the middle
@@ -1022,6 +1016,8 @@ class MapView(Gtk.DrawingArea):
                     break
             placed.append((mx, my))
             self.marker_points.append(((edge.source, edge.target), mx, my))
+            if only is not None and not any(edge is e for e in only):
+                continue
             color = "red" if edge.failed == "error" else "yellow"
             cr.arc(mx, my, 7.5, 0, 2 * math.pi)
             cr.set_source_rgba(*self.color("bg"))
@@ -2101,11 +2097,7 @@ class MapView(Gtk.DrawingArea):
         if pal is not None:
             self.stage.paint(cr, width, height, pal)
         self.sockets = []
-        # The cards' stacking order (a card moved by hand lies over the others). In 3D every cable is
-        # painted in it, over the plinths it joins and under their boxes (map_3d.cable_slot).
-        z = {key: i for i, (key, *_rest) in enumerate(self.group_labels)}
-        card_of = {n.id: self.group_key(n) for n in self.graph.nodes if n.id in self.boxes}
-        cables = {}                  # slot -> [(trace, rgba, width, shadow, dash, round caps, sockets)]
+        cables = []                  # 3D: the cables, painted with the cards (draw_3d)
 
         # Edges first, under the boxes; the active paths last, on top.
         active_edges, _active_models = self.active_now(lit_edges)
@@ -2163,15 +2155,12 @@ class MapView(Gtk.DrawingArea):
                 cr.move_to(x1, y1)
                 cr.curve_to(x1 + bend, y1, x2 - bend, y2, x2, y2)
             if pal is not None:
-                # A floating cable, painted later in its cards' order; faded ones lie flat (no shadow, no
-                # sockets), as Maprisma's; a box folded into its card's header gets no socket.
+                # A floating cable, painted later with its cards (draw_3d); faded ones lie flat (no
+                # shadow, no sockets), as Maprisma's.
                 part = lit_edges is None or index in lit_edges
-                ends = [(z.get(card_of[node_id], -1), node_id in self.folded, point)
-                        for node_id, point in ((edge.source, (x1, y1)), (edge.target, (x2, y2)))]
-                sockets = [point + (line_rgba, zi) for zi, folded, point in ends if not folded] \
-                    if part and line_rgba[3] > 0.3 else []
-                cables.setdefault(map_3d.cable_slot([(zi, folded) for zi, folded, _p in ends]), []).append(
-                    (trace, line_rgba, line_w, part, dash, bool(edge.failed), sockets))
+                cables.append(map_3d.Cable(edge, trace, line_rgba, line_w, part, dash, bool(edge.failed),
+                                           ((edge.source, (x1, y1)), (edge.target, (x2, y2))),
+                                           part and line_rgba[3] > 0.3))
             else:
                 cr.set_source_rgba(*line_rgba)
                 cr.set_line_width(line_w)
@@ -2209,47 +2198,117 @@ class MapView(Gtk.DrawingArea):
         self.update_rects = {}
         self.draw_summaries(cr, layout)
 
-        def paint_cables(slot, sockets_too=True):
-            """The 3D cables of this slot; their sockets now or (sockets_too off) kept for later."""
-            later = []
-            for trace, rgba_, width_, shadow, dash, failed, sockets in cables.pop(slot, ()):
-                cr.set_line_cap(cairo.LINE_CAP_ROUND if failed else cairo.LINE_CAP_BUTT)
-                map_3d.paint_cable(cr, trace, rgba_, width_, pal, shadow=shadow, dash=dash)
-                later += sockets
-            later = [s for s in later if not self.socket_covered(s, slot // 2)]
-            for sx, sy, rgba_, _z in later if sockets_too else ():
-                map_3d.paint_socket(cr, sx, sy, rgba_, pal)
-            self.sockets += later
-            return later
-
-        # Each card with its boxes, one card after the other: a card moved by hand lies over the others.
-        by_card = {}
-        for node in sorted(self.graph.nodes, key=lambda n: z.get(self.group_key(n), -1)):
-            if node.id in self.boxes:
-                by_card.setdefault(self.group_key(node), []).append(node)
-        for key, nodes in by_card.items():
-            i = z.get(key, -1)
-            paint_cables(2 * i)                # cables ending in this card's folded header: under it
-            self.draw_cards(cr, layout, key)
-            self.draw_add_card(cr, layout, key)
-            sockets = paint_cables(2 * i + 1, sockets_too=False)   # over its plinth, under its boxes
-            for node in nodes:
-                if node.id in self.folded:
-                    continue                   # its card is collapsed: only the header shows
-                x, y, w, h = self.boxes[node.id]
-                faded = lit_nodes is not None and node.id not in lit_nodes
-                alpha = 0.3 if faded else (0.55 if node.dim or node.status == "missing" else 1.0)   # Maprisma: 30 %
-                self.draw_box(cr, layout, node, x, y, w, h, faded, alpha, lit_nodes)
-            for sx, sy, rgba_, _z in sockets:  # over the boxes' edges: where each cable plugs in
-                map_3d.paint_socket(cr, sx, sy, rgba_, pal)
-        for slot in sorted(cables):
-            paint_cables(slot)
-        cr.set_line_cap(cairo.LINE_CAP_BUTT)
         if pal is not None:
-            self.draw_markers(cr, markers)     # the "!" over the cables
+            self.draw_3d(cr, layout, pal, cables, markers, lit_nodes)
+        else:
+            # Each card with its boxes, one card after the other: a card moved by hand lies over the others.
+            z = {key: i for i, (key, *_rest) in enumerate(self.group_labels)}
+            cards_drawn = set()
+            for node in sorted(self.graph.nodes, key=lambda n: z.get(self.group_key(n), -1)):
+                if node.id not in self.boxes:
+                    continue
+                key = self.group_key(node)
+                if key not in cards_drawn:
+                    cards_drawn.add(key)
+                    self.draw_cards(cr, layout, key)
+                    self.draw_add_card(cr, layout, key)
+                if node.id in self.folded:
+                    continue                       # its card is collapsed: only the header shows
+                self.draw_node(cr, layout, node, lit_nodes)
         self.draw_agent_links(cr)                 # over the agents' card: an agent using another one
         self.draw_hooks(cr)                       # over the boxes: a hook is never half hidden
         self.draw_link(cr)
+
+    def draw_node(self, cr, layout, node, lit_nodes):
+        x, y, w, h = self.boxes[node.id]
+        faded = lit_nodes is not None and node.id not in lit_nodes
+        alpha = 0.3 if faded else (0.55 if node.dim or node.status == "missing" else 1.0)   # Maprisma: 30 %
+        self.draw_box(cr, layout, node, x, y, w, h, faded, alpha, lit_nodes)
+
+    def card_layers(self) -> dict:
+        """3D: card key -> its layer. The cards in their columns never overlap: one layer (0); each card
+        moved by hand is a layer of its own over them, the latest moved on top."""
+        moved = [key for key, *_rest in self.group_labels if key in self.cards]
+        return {key: moved.index(key) + 1 if key in moved else 0 for key, *_rest in self.group_labels}
+
+    def covering(self, point, own: int, upto: int, layers: dict) -> list:
+        """The rectangles of the cards in layers above `own`, up to `upto`, that lie over `point`."""
+        px, py = point
+        return [rect for key, rect, *_rest in self.group_labels
+                if own < layers.get(key, 0) <= upto
+                and rect[0] <= px <= rect[0] + rect[2] and rect[1] <= py <= rect[1] + rect[3]]
+
+    def draw_3d(self, cr, layout, pal, cables, markers, lit_nodes):
+        """The 3D map's cards, cables and boxes, layer by layer (card_layers), as Maprisma paints them:
+        the plinths, the cables over them, the boxes over the cables, then the sockets. A cable goes with
+        the higher layer of its two ends and is clipped out of what lies over it there: folded headers
+        (as on the flat map, its end stays under the header), the boxes and moved cards of lower layers,
+        and a card lying over its other end."""
+        layers = self.card_layers()
+        card_of = {n.id: self.group_key(n) for n in self.graph.nodes if n.id in self.boxes}
+        by_layer = {}                # layer -> {card key: [nodes]} in the cards' order
+        z = {key: i for i, (key, *_rest) in enumerate(self.group_labels)}
+        for node in sorted(self.graph.nodes, key=lambda n: z.get(self.group_key(n), -1)):
+            if node.id in self.boxes:
+                key = card_of[node.id]
+                by_layer.setdefault(layers.get(key, 0), {}).setdefault(key, []).append(node)
+        radius = self.radius + 2
+        # A folded header hides its cables' ends, as on the flat map (a pixel more: no antialiased seam).
+        folded_cards = [(x - 1, y - 1, w + 2, h + 2, radius + 1)
+                        for key, (x, y, w, h), *_rest in self.group_labels if key in self.collapsed]
+
+        def layer_of(node_id):
+            return layers.get(card_of.get(node_id), 0)
+        cable_layer = {id(c): max(layer_of(node_id) for node_id, _p in c.ends) for c in cables}
+        failed = {id(edge) for edge in markers}
+        under = []                   # holes for the next layers' cables: lower boxes and moved cards
+        for layer in sorted(set(by_layer) | set(cable_layer.values())):
+            cards = by_layer.get(layer, {})
+            for key in cards:
+                self.draw_cards(cr, layout, key)
+                self.draw_add_card(cr, layout, key)
+            mine = [c for c in cables if cable_layer[id(c)] == layer]
+            cr.save()
+            # A lower box under a card moved over it is hidden: a cable may cross that card there.
+            map_3d.clip_out(cr, folded_cards + [hole for hole, centre, own in under
+                                                if not self.covering(centre, own, layer, layers)])
+            for cable in mine:
+                extra = [(*rect, radius) for node_id, point in cable.ends if layer_of(node_id) < layer
+                         for rect in self.covering(point, layer_of(node_id), layer, layers)]
+                if extra:
+                    cr.save()
+                    map_3d.clip_out(cr, extra)
+                cr.set_line_cap(cairo.LINE_CAP_ROUND if cable.failed else cairo.LINE_CAP_BUTT)
+                map_3d.paint_cable(cr, cable.trace, cable.rgba, cable.width, pal, shadow=cable.shadow,
+                                   dash=cable.dash)
+                if extra:
+                    cr.restore()
+            cr.restore()
+            cr.set_line_cap(cairo.LINE_CAP_BUTT)
+            shown = [c.edge for c in mine if id(c.edge) in failed]
+            if shown:
+                self.draw_markers(cr, markers, only=shown)     # the "!" over its cable, under the boxes
+            for nodes in cards.values():
+                for node in nodes:
+                    if node.id in self.folded:
+                        continue           # its card is collapsed: only the header shows
+                    self.draw_node(cr, layout, node, lit_nodes)
+                    x, y, w, h = self.boxes[node.id]
+                    centre = (x + w / 2, y + h / 2)
+                    under += [((x, y, w, h, self.radius), centre, layer),    # its face and walls
+                              ((x + map_3d.WALL_ROOM[0], y + map_3d.WALL_ROOM[1], w, h, self.radius), centre, layer)]
+            for key, (x, y, w, h), *_rest in self.group_labels:
+                if layers.get(key, 0) == layer and layer > 0:
+                    under.append(((x, y, w, h, radius), (x + w / 2, y + h / 2), layer))
+            for cable in mine:               # where each cable plugs into a box, unless a card lies over it
+                if not cable.sockets:
+                    continue
+                for node_id, point in cable.ends:
+                    if node_id in self.folded or self.covering(point, layer_of(node_id), layer, layers):
+                        continue
+                    map_3d.paint_socket(cr, *point, cable.rgba, pal)
+                    self.sockets.append((*point, cable.rgba, layer_of(node_id)))
+        cr.set_line_cap(cairo.LINE_CAP_BUTT)
 
     def draw_box(self, cr, layout, node, x, y, w, h, faded, alpha, lit_nodes):
         """A box as Maprisma's (map_editor.dart): a card, filled in the accent colour while it runs,

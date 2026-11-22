@@ -27,6 +27,7 @@ WHITE = (1.0, 1.0, 1.0)
 CARD_DEPTH = (5.0, 6.8)          # an open card's plinth
 CARD_DEPTH_FOLDED = (3.0, 4.2)   # a folded card: only its header
 WELL_TOP = 27                    # an open card's tray: just under its header's line (MapView's CARD_HEAD + 1)
+WALL_ROOM = (6.7, 8.8)           # the deepest a block's walls reach (Agents, lifted): what covers a cable
 CABLE_SHADOW = (3.5, 7.5)        # where a cable's shadow falls on the floor below it
 ARC_STEP = math.pi / 16          # the walls' rounded corners: a point every 11.25°
 
@@ -59,13 +60,36 @@ def recessed(faded: bool, dim: bool, lit: bool) -> bool:
     return bool(faded or (dim and not lit))
 
 
-def cable_slot(ends) -> int:
-    """When a 3D cable is painted among the cards: ends = [(card's place in the stacking order, box folded
-    into the card's header)]. Slot 2·i is just before card i (under it), 2·i + 1 just after card i's
-    plinth (over it, under its boxes). A cable takes the later of its ends, so it lies over both cards
-    it joins (none of its length hidden before the sockets) but under any card moved over them; into a
-    folded header it goes under that card, as on the flat map."""
-    return max(2 * z + (0 if folded else 1) for z, folded in ends)
+@dataclass(frozen=True)
+class Cable:
+    """A 3D cable waiting to be painted with its cards (MapView.draw_3d): its edge, trace(cr), colour,
+    width, whether it casts a shadow, its dash, round caps (a failed line's dots), its two ends
+    ((node id, (x, y)) each) and whether it gets sockets."""
+    edge: object
+    trace: object
+    rgba: tuple
+    width: float
+    shadow: bool
+    dash: list
+    failed: bool
+    ends: tuple
+    sockets: bool
+
+
+def clip_out(cr, holes):
+    """Clip away each (x, y, w, h, radius) from what is painted next (within cr.save/restore). One clip
+    per hole: their intersection, so overlapping holes stay out too."""
+    import cairo
+    if not holes:
+        return
+    rule = cr.get_fill_rule()
+    cr.set_fill_rule(cairo.FILL_RULE_EVEN_ODD)
+    for x, y, w, h, r in holes:
+        cr.new_path()
+        cr.rectangle(-1e6, -1e6, 3e6, 3e6)
+        rounded(cr, x, y, w, h, r)
+        cr.clip()
+    cr.set_fill_rule(rule)
 
 
 def mix(a, b, t: float) -> tuple:
