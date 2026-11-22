@@ -203,11 +203,14 @@ def history_session(value: str) -> str:
 
 _URL = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://\S+")  # also glued to a prefix ("1.https://…")
 _PROVIDER = re.compile(r"\b(?:sk-|gh[pousr]_|github_pat_|glpat-|AIza|AKIA|ASIA|xox[baprs]-|hf_|npm_|pypi-)[A-Za-z0-9_+=/.-]+")
+# Escapes consume the following character (including newlines), never a closing quote of their own.
+_QUOTED_SECRET = r"""(?:"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*')"""
 _SECRETS = [re.compile(p, re.IGNORECASE | re.DOTALL) for p in (
     r"-----BEGIN [^-]{1,64}-----(?:.*?-----END [^-]{1,64}-----|.*$)",
     r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+",
     r"\b(?:Bearer|Basic)\s+[^\s,;]+",
-    r"""(?<![A-Za-z0-9_.])(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*)?(?:key|token|secret|password|authorization|auth|sig)["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)""",
+    r"""(?<![A-Za-z0-9_.])(?:[A-Za-z0-9_.-][A-Za-z0-9_.-]*)?(?:key|token|secret|password|authorization|auth|sig)["']?\s*[:=]\s*"""
+    rf"(?:{_QUOTED_SECRET}|[^\s,;]+)",
     r"(?<![A-Za-z0-9+/_])(?:[A-Fa-f0-9]{32,}|[A-Za-z0-9+/]{30,}==|[A-Za-z0-9+/]{31,}=|[A-Za-z0-9+/]{32,})(?![A-Za-z0-9+/=_])",
     r"(?<![A-Za-z0-9.!#$%&*+/=?^_{}|~-])[A-Za-z0-9.!#$%&*+/=?^_{}|~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b",
 )]
@@ -219,11 +222,15 @@ _WHOLE_SECRETS = [_SECRETS[0], _SECRETS[1], re.compile(
     # HTTP Authorization headers (also Proxy-/X-Authorization): everything after the header to the
     # end of its line goes, whatever the scheme, quoting or URL (no path rule needed after it).
     # The value may start on the next line (YAML, pretty JSON, folded headers) or be a multi-line quote.
+    # Known schemes may precede an unindented credential; unknown schemes require header folding.
     r"""(?<![A-Za-z0-9_.])(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*)?authorization["']?\s*[:=]\s*"""
-    r"""(?:(?:[A-Za-z][A-Za-z0-9+._-]*[ \t]+)?(?:"[^"]*"|'[^']*')[^\n]*|[^\n]*)""",
+    r"(?:(?:(?:Bearer|Basic|Token|ApiKey|OAuth|Bot|Digest)\s+|"
+    rf"[A-Za-z][A-Za-z0-9+._-]*(?:[ \t]+|[ \t]*\n[ \t]+))?{_QUOTED_SECRET}[^\n]*"
+    r"|(?:(?:Bearer|Basic|Token|ApiKey|OAuth|Bot|Digest)\s+|"
+    r"[A-Za-z][A-Za-z0-9+._-]*[ \t]*\n[ \t]+)[^\n]*|[^\n]*)",
     re.IGNORECASE), re.compile(
-    r"""(?<![A-Za-z0-9_.])(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*)?(?:key|token|secret|password|authorization|auth|sig)["']?\s*[:=]\s*"""
-    r"""(?:"[^"]*"|'[^']*'|[A-Za-z][A-Za-z0-9+.-]*://\S+)""", re.IGNORECASE)]
+    r"""(?<![A-Za-z0-9_.])(?:[A-Za-z0-9_.-][A-Za-z0-9_.-]*)?(?:key|token|secret|password|authorization|auth|sig)["']?\s*[:=]\s*"""
+    rf"(?:{_QUOTED_SECRET}|[A-Za-z][A-Za-z0-9+.-]*://\S+)", re.IGNORECASE)]
 # A whitespace token holding a URL together with userinfo (@ or an encoded @, raw or double-encoded)
 # fails closed as a whole, wherever the scheme starts inside it.
 _CREDENTIAL_URL_TOKEN = re.compile(r"\S*[A-Za-z][A-Za-z0-9+.-]*://\S*", re.IGNORECASE)
@@ -265,6 +272,8 @@ def _clean_url(raw: str) -> tuple[str, str]:
         # Drop raw queries/fragments before decoding, including wrapped Markdown/quoted URLs.
         url = urlsplit(raw.rstrip("'\"`)]},>"))
         path = _decode_url_part(url.path).replace("\\", "/")
+        if "://" in url.path or "://" in path:
+            return "", "…"  # a chained URL's credentials must never become the first URL's basename
         path = re.split(r"[?#]", path, maxsplit=1)[0]
         name = path.rsplit("/", 1)[-1]
         if any(c.isspace() or c in "/\\%" for c in name) or _CONTROL.search(name):
@@ -287,7 +296,7 @@ def _clean_url(raw: str) -> tuple[str, str]:
         return "", "…"
 
 
-_ENCODED_SEP = re.compile(r"%(?:25)*(2[Ff]|5[Cc])")
+_ENCODED_SEP = re.compile(r"%(?:25)*(2[Ff]|5[Cc]|[Ee][Ff]%(?:25)*[Bb][Cc]%(?:25)*8[Ff])")
 # The URL alternative consumes the entire raw token before encoded separators can match in it.
 _URL_OR_ENCODED_SEP = re.compile(_URL.pattern + "|" + _ENCODED_SEP.pattern)
 _PATH_SEPARATOR = re.compile(r"[/\\]")
@@ -360,8 +369,8 @@ def sanitize_topic(value) -> str | None:
     text = unicodedata.normalize("NFKC", value[:256 * 1024])
     # Keep encoded-separator handling outside URLs, including nested %252F / %255C.
     text = _URL_OR_ENCODED_SEP.sub(lambda m: m.group() if m.group(1) is None else
-                                   ("/" if m.group(1).lower() == "2f" else "\\"), text)
-    # Whole secrets first (PEM, JWT, Bearer, key=/token=/password= assignments with quoted or URL
+                                   ("\\" if m.group(1).lower() == "5c" else "/"), text)
+    # Whole secrets first (PEM, JWT, Authorization, key=/token=/password= assignments with quoted or URL
     # values): cutting paths could otherwise split a quoted value and leave its rest readable.
     text = _CREDENTIAL_URL_TOKEN.sub(
         # "…/" keeps a separator, so a path continuing after the token (spaces in folders) is cut too.
@@ -510,12 +519,13 @@ class ActivityLog:
         at, self.hidden_at = self.hidden_at, None
         if at is None:
             return []
-        self.last_seen = None                 # the hidden time is no gap to close again
         completed = []
         for source, (start, cwd, usage) in list(self.active.items()):
             if start < at:
                 del self.active[source]
                 completed.append(self._live_row(source, start, cwd, usage, usage_for, at))
+        if not self.active:
+            self.last_seen = None             # no surviving span needs the unobserved-gap cutoff
         return completed
 
     def end_open(self, at: dt.datetime, usage_for=None):

@@ -170,7 +170,6 @@ class ReportsPage:
         self.reports_local_topics = {}        # entry id -> topic the local LLM gave (Topic summaries by local LLM)
         self.reports_classifying = False
         self.reports_classify_after = 0.0
-        self.reports_log_deferred = None
         self.reports_confirming = False
         self.reports_saving = False
         self.reports_library_loading = False
@@ -633,9 +632,8 @@ class ReportsPage:
         self.history_status(parts["history"])
         area = parts["entries"]
         if keep_scroll and area.get_first_child() is not None and self.log_busy(area):
-            self.reports_log_deferred = report       # shown on the next refresh once nothing is selected
+            # A later refresh reads the current report once nothing is selected.
             return
-        self.reports_log_deferred = None
         box = self.reports_boxes["log"]
         scroller = box.get_parent().get_parent() if box.get_parent() is not None else None
         adjustment = scroller.get_vadjustment() if isinstance(scroller, Gtk.ScrolledWindow) else None

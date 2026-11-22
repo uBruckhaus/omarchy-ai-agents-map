@@ -1831,8 +1831,9 @@ class RoundNineTest(TempCase):
             encoded = quote(path, safe="")
             for raw, expected in ((f"https://e.com/?{encoded}=1", "https://e.com"),
                                   (f"https://e.com/?f={encoded}", "https://e.com"),
-                                  # Encoded directory whitespace stays inside the URL; its name is clean.
-                                  (f"https://e.com/open/{encoded}", "https://e.com/x.py")):
+                                  # Directory whitespace stays inside the URL; nested URLs fail closed.
+                                  (f"https://e.com/open/{encoded}",
+                                   "…" if "://" in path else "https://e.com/x.py")):
                 with self.subTest(url=raw):
                     self.assert_private_topic_prompt("see " + raw, "see " + expected)
 
@@ -2193,6 +2194,106 @@ class RoundSeventeenTest(unittest.TestCase):
             out = activity_log.sanitize_topic(text) or ""
             self.assertNotIn("mySecret", out, (text, out))
             self.assertNotIn("Value", out, (text, out))
+
+
+class RoundEighteenTest(unittest.TestCase):
+    """Chained URLs, escaped secret quotes and folded Authorization values (agy r18)."""
+
+    def assert_topic_prompt(self, topic, expected):
+        row = {"version": 1, "origin": "history", "session": "s", "source_kind": "agent", "source": "claude",
+               "topic": topic, "started_at": "2026-11-20T10:00:00Z", "ended_at": "2026-11-20T10:10:00Z",
+               "duration_ms": 0}
+        self.assertEqual(activity_log.sanitize_topic(topic), expected)
+        self.assertEqual(list(activity_log.clean_rows(jl(row)))[0]["topic"], expected)
+        log = activity_log.ActivityLog(setting=settings())
+        # Only the filesystem reader is replaced: row validation and prompt generation run normally.
+        with mock.patch.object(log, "retained_rows", side_effect=lambda *_: (
+                (dt.date(2026, 11, 20), clean) for clean in activity_log.clean_rows(jl(row)))):
+            prompts = []
+            answer = json.dumps({"title": "t", "text": "x", "topics": []})
+            reports_ctl.generate_topic_report(log, {"helper": "h"}, lambda p: prompts.append(p) or answer,
+                                              now=at("2026-11-20T12:00:00"))
+        self.assertEqual(len(prompts), 1)
+        entries = json.loads(prompts[0].split("<untrusted-entries>\n", 1)[1].split("\n</untrusted-entries>", 1)[0])
+        self.assertEqual([entry["topic"] for entry in entries], [expected])
+
+    def test_chained_url_review_examples_fail_closed(self):
+        for topic in ("see https://ex.com/a,https://alice:mysecret",
+                      "see https://ex.com/a;https://alice:mysecret",
+                      "see (https://ex.com/a/b),https://alice:mysecret",
+                      "see https://ex.com/a/https://alice:mysecret",
+                      "see https://ex.com/a,https%3A%2F%2Falice:mysecret"):
+            with self.subTest(topic=topic):
+                self.assert_topic_prompt(topic, "see …")
+        for separator in (",", ";", "/"):
+            for scheme in ("https://", "https%3A%2F%2F", "https%253A%252F%252F"):
+                with self.subTest(separator=separator, scheme=scheme):
+                    self.assert_topic_prompt(f"see https://ex.com/a{separator}{scheme}alice:mysecret", "see …")
+        self.assert_topic_prompt("read https://ex.com/docs/guide.html", "read https://ex.com/guide.html")
+
+    def test_escaped_quote_review_examples_never_leak(self):
+        for topic, expected in (
+                (r'{"token": "a\"mySecretValue123"}', '{"…}'),
+                (r'{"password": "foo\"mySecretValue123"}', '{"…}'),
+                (r'api_key="abc\"mySecretValue123"', "…"),
+                (r"token='it\'sMySecretValue123'", "…"),
+                ('Authorization: "a\\"\nmySecretValue123"', "…"),
+                (r'Authorization: "a\"\nmySecretValue123"', "…")):
+            with self.subTest(topic=topic):
+                self.assert_topic_prompt(topic, expected)
+        self.assert_topic_prompt(r'{"token": "abc\\"} keep this', '{"…} keep this')
+        self.assert_topic_prompt(r"token='abc\\' keep this", "… keep this")
+
+    def test_each_assignment_pattern_consumes_escaped_quotes(self):
+        # Both stages must handle escapes, even when the earlier whole-secret pass masks a defect.
+        for pattern in (activity_log._SECRETS[3], activity_log._WHOLE_SECRETS[3]):
+            for value in (r'"a\"mySecretValue123"', r"'it\'sMySecretValue123'",
+                          '"a\\\nmySecretValue123"'):
+                with self.subTest(pattern=pattern.pattern, value=value):
+                    self.assertEqual(pattern.sub("…", "token=" + value + " keep this"), "… keep this")
+            self.assertEqual(pattern.sub("…", r'token="abc\\" keep this'), "… keep this")
+
+    def test_multiline_authorization_review_examples_never_leak(self):
+        for topic, expected in (
+                ("see Authorization: Bearer\nmySecretValue123", "see …"),
+                ("see Authorization: Basic\ndXNlcjpwYXNz", "see …"),
+                ("see Authorization: Token\nmySecretValue123", "see …"),
+                ("Authorization:\n  Bearer\n  mySecretValue123", "…")):
+            with self.subTest(topic=topic):
+                self.assert_topic_prompt(topic, expected)
+        for scheme in ("Bearer", "Basic", "Token", "ApiKey", "OAuth", "Bot", "Digest", "Custom"):
+            for value in ("mySecretValue123", r'"a\"mySecretValue123"', '"a\\"\nmySecretValue123"'):
+                topic = f"see Authorization: {scheme}\n  {value}\nkeep this"
+                with self.subTest(scheme=scheme, value=value):
+                    self.assert_topic_prompt(topic, "see … keep this")
+        self.assert_topic_prompt("Authorization: mySecretValue123\nkeep this", "… keep this")
+
+    def test_leading_dot_secret_keys_never_leak(self):
+        for key in (".token", ".password", ".api_key"):
+            with self.subTest(key=key):
+                self.assert_topic_prompt(f"set {key}=mySecretValue123", "set …")
+                self.assert_topic_prompt(f'set {key}="mySecret Value"', "set …")
+
+    def test_encoded_fullwidth_paths_outside_urls_are_shortened(self):
+        for separator in ("%EF%BC%8F", "%ef%bc%8f", "%25EF%25BC%258F"):
+            with self.subTest(separator=separator):
+                self.assert_topic_prompt(f"open {separator}home{separator}alice{separator}Private{separator}x.py",
+                                         "open x.py")
+
+    def test_pause_preserves_gap_detection_for_surviving_spans(self):
+        for delay in (0, 1):  # a span starting at or after the pause cutoff survives its finalizer
+            with self.subTest(delay=delay), tempfile.TemporaryDirectory() as directory:
+                log = activity_log.ActivityLog(Path(directory) / "log", setting=settings())
+                t0 = at("2026-11-20T10:00:00")
+                start = t0 + dt.timedelta(seconds=delay)
+                log.observe({"agent:claude"}, now=start)
+                log.observe({"agent:claude"}, now=start + dt.timedelta(seconds=2))
+                log.pause(t0)
+                log.resume()
+                with mock.patch.object(activity_log, "private_dir", side_effect=PermissionError):
+                    log.observe(set(), now=t0 + dt.timedelta(hours=3))
+                self.assertEqual([row["duration_ms"] for row in log.pending], [2000])
+                self.assertEqual(log.active, {})
 
 
 if __name__ == "__main__":
