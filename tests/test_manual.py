@@ -1,11 +1,11 @@
+import shutil
+import subprocess
 import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-
-LANGUAGES = ("en",)
 
 
 class ManualTest(unittest.TestCase):
@@ -16,15 +16,29 @@ class ManualTest(unittest.TestCase):
     def test_manual_present_and_scannable(self):
         folder = next((f for f in (ROOT / "assets", ROOT / "data") if (f / "user-manual.pdf").is_file()), None)
         self.assertIsNotNone(folder, "no user-manual.pdf in assets/ or data/")
-        for lang in LANGUAGES:
-            path = folder / ("user-manual.pdf" if lang == "en" else f"user-manual.{lang}.pdf")
-            with self.subTest(lang=lang):
-                self.assertTrue(path.is_file(), f"no {path.name}")
-                data = path.read_bytes()
-                self.assertTrue(data.startswith(b"%PDF-"))
-                self.assertGreater(len(data), 512 * 1024)
-                self.assertIn(b"\0", data[:4096])
-                self.assertEqual(path.stat().st_mode & 0o777, 0o644)
+        path = folder / "user-manual.pdf"
+        data = path.read_bytes()
+        self.assertTrue(data.startswith(b"%PDF-"))
+        self.assertGreater(len(data), 512 * 1024)
+        self.assertIn(b"\0", data[:4096])
+        self.assertEqual(path.stat().st_mode & 0o777, 0o644)
+
+    def test_no_translated_manuals_remain(self):
+        for folder in (ROOT / "assets", ROOT / "data"):
+            with self.subTest(folder=folder):
+                self.assertEqual(list(folder.glob("user-manual.*.pdf")), [])
+        self.assertEqual(list((ROOT / "docs/manual").glob("manual.*.html")), [])
+
+    @unittest.skipUnless(shutil.which("pdftotext"), "pdftotext is not available")
+    def test_bundled_pdf_documents_english_only_settings(self):
+        result = subprocess.run(["pdftotext", str(ROOT / "assets/user-manual.pdf"), "-"],
+                                check=True, capture_output=True, text=True, timeout=30)
+        # pdftotext breaks table cells over lines: compare with whitespace joined.
+        text = " ".join(result.stdout.split())
+        self.assertTrue("Language and manual" in text,
+                        "bundled PDF is missing the English-only settings hint")
+        self.assertFalse("in your language" in text,
+                         "bundled PDF still describes translated manuals")
 
 
 class EnglishManualBuildTest(unittest.TestCase):

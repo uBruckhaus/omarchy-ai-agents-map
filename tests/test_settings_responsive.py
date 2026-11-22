@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")

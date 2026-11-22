@@ -968,7 +968,7 @@ the backup and Undo), and the agent is told the same context. A context you set 
 - The PID file lives in `$XDG_RUNTIME_DIR` (or a private 0700 fallback); the popup is only signalled
   after full process identity checks (uid, interpreter, exact script path, kernel start time).
 
-## Languages and settings
+## Language and settings
 
 **?** (F1), left of the gear, opens **Help**: **Open user manual** (the PDF manual of this version,
 `assets/user-manual.pdf`, opened in the desktop's PDF viewer through GTK's file launcher), an animation of setting up by drawing (an agent, a
