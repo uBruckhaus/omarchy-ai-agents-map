@@ -855,6 +855,111 @@ class ReviewRound2Test(unittest.TestCase):
         app.stop_provider_config_dictation.assert_called_once_with()
 
 
+class ReviewRound4Test(unittest.TestCase):
+    """The fourth review round of WP7 (Codex and agy)."""
+
+    def setUp(self):
+        self.saved = {}
+        patched_settings(self, self.saved)
+
+    def test_closing_never_quits_while_a_project_runs(self):
+        """Codex r4 #1: a project started since the last summary still keeps the program running."""
+        for active, quits in ((True, False), (False, True)):
+            app = SimpleNamespace(window=SimpleNamespace(get_width=lambda: 0, get_height=lambda: 0, hide=mock.Mock()),
+                                  stop_gpu_poll=lambda: None, map_view=SimpleNamespace(set_shift=lambda _h: None),
+                                  page_name=lambda: "main", sessions={}, jobs=SimpleNamespace(active=lambda: []),
+                                  quit=mock.Mock(), project_summary={"connected": True, "running": 0},
+                                  projects_ctrl=SimpleNamespace(disposed=False, has_active=active))
+            with mock.patch.object(ai_popup.desktop, "stays_in_background", return_value=False), \
+                    mock.patch.object(ai_popup.guide_navigation, "abandon_read", lambda _a: None), \
+                    mock.patch.object(ai_popup.ai_core, "setting", return_value=None):
+                ai_popup.AgentsMap.hide_window(app)
+            self.assertEqual(app.quit.called, quits)
+
+    def test_newest_map_request_wins(self):
+        """Codex r4 #2: a tab refresh still reading when Show on map asks again does not win."""
+        host = Host(page="projects")
+        host.main_tab = "projects"
+        host.tab_decided = True
+        host.map_stale = True
+        workers = []
+        with mock.patch.object(main_tabs.threading, "Thread",
+                               side_effect=lambda target, args=(), **_k: SimpleNamespace(
+                                   start=lambda: workers.append(target))):
+            host.refresh_project_summary = lambda then=None: None
+            host.select_tab("map")                     # the older read (the tab)
+            host.select_tab("projects")
+            host.fresh_facts = ([SimpleNamespace(command="claude", name="Claude Code", installed=True)], None, {})
+            host.show_on_map_link("claude")            # the newer read (the link)
+            old, new = workers
+            old()                                      # the older one ends first: dropped
+            self.assertEqual([c for c in host.calls if c[0] == "refresh_map"], [])
+            new()
+        self.assertEqual([c for c in host.calls if c[0] == "refresh_map"], [("refresh_map", "fresh")])
+        self.assertEqual(host.side_map.focused, "agent:claude")
+
+    def test_failed_map_read_stays_off_the_gtk_thread(self):
+        """Codex r4 #3: a failed read keeps the map stale, says so and retries on a worker."""
+        host = Host(page="projects")
+        host.main_tab = "projects"
+        retries = []
+
+        def broken():
+            raise OSError("no /proc")
+        host.read_map_facts = broken
+        with mock.patch.object(main_tabs.GLib, "timeout_add_seconds", lambda _s, fn, *a: retries.append(fn) or 1):
+            host.show_on_map_link("claude")
+        self.assertNotIn(("refresh_map",), host.calls)          # no synchronous scan
+        self.assertTrue(host.map_stale)
+        self.assertIn("could not be read", host.toasts[-1])
+        host.read_map_facts = lambda: Host.fresh_facts
+        retries[0]()                                            # the retry: on a worker, then drawn
+        self.assertIn(("refresh_map", "fresh"), host.calls)
+
+    def test_refocus_refreshes_the_board_once(self):
+        """Codex r4 #4: back in front, the next project list looks at agents and runtimes again."""
+        host = Host(page="projects")
+        host._projects_closed = False
+        host.projects_ctrl.refresh = mock.Mock()
+        host.projects_refocused()
+        host.projects_ctrl.refresh.assert_called_once_with()
+        import projects_page
+        import threading
+        center = SimpleNamespace(bump_discovery=mock.Mock(), call=lambda op, params: {"projects": []})
+        host._project_center, host._project_center_lock = center, threading.Lock()
+        projects_page.ProjectsPage._project_call(host, "list", {})
+        projects_page.ProjectsPage._project_call(host, "list", {})
+        center.bump_discovery.assert_called_once_with()          # consumed once
+
+    def test_summary_poll_follows_the_window(self):
+        """Codex r4 nit: the counts are read every 10 s while shown, not while hidden, again on reopen."""
+        host = Host()
+        host._projects_closed = False
+        timers, removed = [], []
+        with mock.patch.object(main_tabs.GLib, "timeout_add_seconds",
+                               lambda secs, fn, *a: timers.append((secs, fn)) or len(timers)), \
+                mock.patch.object(main_tabs.GLib, "source_remove", removed.append):
+            host.start_summary_poll()
+            host.start_summary_poll()                  # once only
+            host.stop_summary_poll()                   # hidden
+            host.start_summary_poll()                  # shown again
+        self.assertEqual(([t[0] for t in timers], removed), ([main_tabs.SUMMARY_SECONDS] * 2, [1]))
+        host.refresh_project_summary = mock.Mock()
+        self.assertTrue(timers[1][1]())                # a tick reads the counts
+        host.refresh_project_summary.assert_called_once_with()
+
+    def test_map_chosen_before_the_start_decision_is_drawn(self):
+        """agy r4 #1: AI Map, Ask AI or Problems chosen while the summary decides draws the waiting map."""
+        for choose in (lambda h: h.select_tab("map"), lambda h: h.to_map_first(lambda: None)):
+            host = Host()
+            host.tab_decided = False
+            host.map_stale = True
+            host.refresh_project_summary = lambda then=None: None
+            choose(host)
+            self.assertIn(("refresh_map", "fresh"), host.calls)
+            self.assertFalse(host.map_stale)
+
+
 class ActivityAndConfigTest(unittest.TestCase):
     def test_progress_line(self):
         self.assertEqual(terminal_pane.progress_text({"done": 2, "total": 5, "step": "Tests", "note": None}),

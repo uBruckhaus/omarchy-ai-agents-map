@@ -246,8 +246,8 @@ class MainTabs:
         """The deferred map drawn again from facts read on a worker (agents, local LLMs, details: file
         and session scans stay off the GTK thread); a newer read or the Projects tab drops the answer."""
         self.map_stale = False
-        self._map_read_seq += 1
-        seq = self._map_read_seq
+        self._map_read_seq += 1                # one sequence for this and the map links' reads: the
+        seq = self._map_read_seq               # newest request wins, an older answer is dropped
         generation = getattr(self, "map_generation", 0)
 
         def work():
@@ -264,7 +264,7 @@ class MainTabs:
             if generation != getattr(self, "map_generation", 0):
                 return False                   # collected and drawn since (a connection made…): newer
             if facts is None:
-                self.map_stale = True
+                self.map_read_failed()
                 return False
             try:
                 self.refresh_map(facts=facts)
@@ -272,6 +272,18 @@ class MainTabs:
                 self.map_stale = True
             return False
         threading.Thread(target=work, name="map-read", daemon=True).start()
+
+    def map_read_failed(self):
+        """A background read of the map failed: the map stays as it was (stale), a note says so, and the
+        next read is tried on a worker again in a few seconds — never a scan on the GTK thread."""
+        self.map_stale = True
+        self.toast(_("The AI Map could not be read again. It is tried again in a moment."), 5)
+
+        def again():
+            if self.map_stale and not self.map_work_waits() and self.window_shown():
+                self.refresh_map_async()
+            return False
+        GLib.timeout_add_seconds(5, again)
 
     def save_tab(self, tab: str):
         if ai_core.setting("main_tab") != tab:
@@ -283,6 +295,8 @@ class MainTabs:
     def set_main_tab(self, tab: str):
         """The tab in view changed (chosen, or a page of the other tab opened)."""
         if tab == self.main_tab:
+            if tab == "map" and self.map_stale and self.tab_decided:
+                self.refresh_map_async()       # chosen before the start decision drew it (agy r4)
             return
         if tab == "map" and getattr(self, "projects_ctrl", None) is not None and not self.projects_ctrl.disposed:
             self.projects_ctrl.reset_board_choices()
@@ -417,6 +431,8 @@ class MainTabs:
             if not ok:
                 return
             self.tab_decided = True
+            if self.main_tab == "map" and self.map_stale:
+                self.refresh_map_async()       # the map waited for the start decision: draw it now
             if self.main_tab != "map":
                 self.set_main_tab("map")
                 self.save_tab("map")
@@ -537,6 +553,8 @@ class MainTabs:
             self.forget_map_mark()
             self._reveal_seq += 1
             seq = self._reveal_seq
+            self._map_read_seq += 1            # newer than a tab refresh still reading
+            request = self._map_read_seq
             self.tab_decided = True
             self.map_stale = False             # drawn below from the fresh facts
             self.set_main_tab("map")
@@ -557,16 +575,34 @@ class MainTabs:
             def read(facts):
                 if seq != self._reveal_seq or self.main_tab != "map" or not self.window_shown():
                     return False
+                if request != self._map_read_seq:
+                    return False                   # a newer read of the map was asked for since
+                if facts is None:
+                    self.map_read_failed()         # stale, a note, a retry on a worker: no GTK scan
+                    return False
                 if generation == getattr(self, "map_generation", 0):   # else drawn from newer facts already
                     try:
-                        self.refresh_map(facts=facts) if facts is not None else self.refresh_map()
+                        self.refresh_map(facts=facts)
                     except Exception:
-                        pass
+                        self.map_stale = True
                 # After the map has been laid out once more (its boxes are placed while it is drawn).
                 self._reveal_wait = GLib.timeout_add(120, lambda: (self.finish_reveal(node_id, seq), False)[1])
                 return False
             threading.Thread(target=work, name="map-reveal", daemon=True).start()
         self.leave_pages(left)
+
+    def projects_refocused(self):
+        """The window came back to the front (Maprisma: the first list after a refocus forces a fresh
+        discovery): one pending refresh, consumed by the next project list; the board reads now when
+        it is shown."""
+        if getattr(self, "_projects_closed", True):
+            return
+        self.projects_refocus = True
+        ctrl = getattr(self, "projects_ctrl", None)
+        if ctrl is not None and not ctrl.disposed and self.page_name() == "projects":
+            ctrl.refresh()
+
+    projects_refocus = False
 
     def window_shown(self) -> bool:
         window = getattr(self, "window", None)

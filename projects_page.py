@@ -723,7 +723,10 @@ class ProjectsPage:
                 self._project_center = project_center.ProjectCenter(
                     on_change=lambda _pid: GLib.idle_add(self._projects_poke))
             center = self._project_center
-        if operation == "list" and params.get("refresh") is True:
+        refocused = operation == "list" and getattr(self, "projects_refocus", False)
+        if refocused:
+            self.projects_refocus = False       # consumed once (the window came back to the front)
+        if operation == "list" and (params.get("refresh") is True or refocused):
             bump = getattr(center, "bump_discovery", None)
             if bump is not None:
                 bump()                         # F5: under the center's own lock

@@ -393,9 +393,14 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         # A click on the bar icon can take the focus just before the toggle arrives: remember
         # when the window was last in front, so that click still hides it.
         self.left_front = 0.0
-        window.connect("notify::is-active", lambda w, _p: not w.is_active()
-                       and setattr(self, "left_front", time.monotonic()))
+        window.connect("notify::is-active", lambda w, _p: self.on_active_changed(w.is_active()))
         self.window = window
+
+    def on_active_changed(self, active: bool):
+        if not active:
+            self.left_front = time.monotonic()
+        elif hasattr(self, "projects_refocused"):
+            self.projects_refocused()            # back in front: the board looks at agents and LLMs again
 
     def build_window(self):
         if self.window is None:
@@ -4977,8 +4982,10 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         guide_navigation.abandon_read(self)
         self.window.hide()
         counts = main_tabs.tab_counts(getattr(self, "project_summary", None))
+        ctrl = getattr(self, "projects_ctrl", None)
+        projects_active = counts["running"] > 0 or (ctrl is not None and not ctrl.disposed and ctrl.has_active)
         busy = any(pane.running for pane in self.sessions.values()) or bool(self.jobs.active()) \
-            or counts["running"] > 0       # project agents run on with the window closed
+            or projects_active             # project agents run on with the window closed (never quit then)
         if not desktop.stays_in_background() and not busy:
             self.quit()             # other desktops: closing quits, unless agents or downloads still run here
 
