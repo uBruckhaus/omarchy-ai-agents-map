@@ -343,9 +343,13 @@ class ImportTest(TempCase):
         again = self.importer({"source": "agent:claude", "name": "Claude Code", "supported": True,
                                "form": "claude-files", "root": str(self.tmp / "claude/projects")}).run()
         self.assertEqual((again["added"], again["updated"]), (0, 0))
-        written = {p.relative_to(self.tmp).parts[:2] for p in self.tmp.rglob("*") if p.is_file()
-                   and p.stat().st_mtime > time.time() - 60 and "ai-log" in p.parts}
-        self.assertEqual(written, {("data", "ai-log")})
+        before = {p: p.stat().st_mtime_ns for p in self.tmp.rglob("*") if p.is_file()}
+        self.importer({"source": "agent:claude", "name": "Claude Code", "supported": True,
+                       "form": "claude-files", "root": str(self.tmp / "claude/projects")}).run()
+        after = {p: p.stat().st_mtime_ns for p in self.tmp.rglob("*") if p.is_file()}
+        changed = {p for p in after if before.get(p) != after[p]}
+        self.assertTrue(changed)                                 # the import state at least
+        self.assertTrue(all(self.log.directory in p.parents for p in changed), changed)
 
     def test_topics_off_gives_heuristic(self):
         self.settings["ai_activity_import_topics"] = False
@@ -1006,7 +1010,7 @@ class RoundOneTest(TempCase):
     def test_proc_reads_are_bounded_and_own(self):
         self.assertTrue(live.argv_of(os.getpid()))
         self.assertTrue(live.comm(os.getpid()))
-        if os.getuid() != 0:
+        if os.stat("/proc/1").st_uid != os.getuid():
             self.assertEqual(live.argv_of(1), [])         # another account's process
             self.assertEqual(live.comm(1), "")
         with mock.patch("builtins.open", mock.mock_open(read_data=b"x" * 10)) as opened, \
@@ -1079,6 +1083,184 @@ class RoundOneTest(TempCase):
         view.choose("9:9")
         self.assertIsNone(view.accept(asked, {"status": "x"}))   # another instance chosen meanwhile
         self.assertFalse(view.loading)
+
+
+class RoundTwoTest(TempCase):
+    def test_paths_inside_urls_never_reach_the_helper(self):
+        self.log.directory.mkdir(parents=True)
+        row = {"version": 1, "origin": "history", "session": "s", "source_kind": "agent", "source": "claude",
+               "topic": "see https://example.com/preview?file=/home/u/private/a.py#/home/u/private/b.py "
+                        "and https://e.com/?u=file:///home/u/private/c.py&page=2",
+               "started_at": "2026-11-20T10:00:00Z", "ended_at": "2026-11-20T10:10:00Z", "duration_ms": 0}
+        (self.log.directory / "2026-11-20.jsonl").write_text(jl(row))
+        prompts = []
+        answer = json.dumps({"title": "t", "text": "x", "topics": []})
+        reports_ctl.generate_topic_report(self.log, {"helper": "h"}, lambda p: prompts.append(p) or answer,
+                                          now=at("2026-11-20T12:00:00"))
+        self.assertNotIn("/home/u", prompts[0])
+        self.assertNotIn("%2Fhome", prompts[0])
+        self.assertIn("file=a.py", prompts[0])
+        self.assertIn("page=2", prompts[0])
+
+    def test_older_addons_keep_the_session_facts(self):
+        import dataclasses
+        import harnesses
+        own = next(h for h in harnesses.built_in_adapters() if h.command == "codex")
+        old = dataclasses.replace(own, activity_reader="", activity_dir="", extra_dir_option="")
+        filled = harnesses._with_newer_facts(old)
+        self.assertEqual((filled.activity_reader, filled.activity_dir, filled.extra_dir_option),
+                         (own.activity_reader, own.activity_dir, own.extra_dir_option))
+
+    def test_progress_rechecks_the_owner_before_writing(self):
+        runtime = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(runtime, ignore_errors=True))
+        me, parent = os.getpid(), os.getppid()
+        lines = iter([[parent], []])                       # the parent left the caller's line meanwhile
+        with mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": str(runtime)}), \
+                mock.patch.object(live, "_ancestors", side_effect=lambda pid, proc="/proc": next(lines)):
+            self.assertFalse(live.report_progress({"step": "x", "done": 0, "total": 1}, [parent], caller=me))
+        self.assertFalse((runtime / "ai-agents-map/progress").exists() and any((runtime / "ai-agents-map/progress").iterdir()))
+        with self.assertRaises(ValueError):
+            live.report_progress({"step": "\x07\x08", "done": 0, "total": 1}, [me])
+
+    def test_reads_never_create_the_library(self):
+        library = reports_ctl.ReportsLibrary(self.tmp / "none")
+        self.assertEqual(library.list()["reports"], [])
+        with self.assertRaises(reports_ctl.ReportError) as caught:
+            library.get(1)
+        self.assertEqual(caught.exception.code, "report_not_found")
+        self.assertFalse((self.tmp / "none").exists())
+        (self.tmp / "empty").mkdir(mode=0o700)
+        empty = reports_ctl.ReportsLibrary(self.tmp / "empty")
+        self.assertEqual(empty.list()["reports"], [])
+        self.assertEqual(list((self.tmp / "empty").iterdir()), [])
+        empty.save(DRAFT, "x")
+        files = sorted(p.name for p in (self.tmp / "empty").iterdir())
+        empty.list()
+        empty.get(1)
+        self.assertEqual(sorted(p.name for p in (self.tmp / "empty").iterdir()), files)
+        self.assertEqual(activity_log.ActivityLog(self.tmp / "nolog", setting=self.settings).report({"cursor": None})
+                         ["entries"], [])
+        for bad in (False, "", [], -1):
+            with self.assertRaises(ValueError):
+                self.log.report({"cursor": bad})
+
+    def test_every_rendered_field_is_checked(self):
+        library = reports_ctl.ReportsLibrary(self.tmp / "reports")
+        library.save(DRAFT, "ok")
+        library.save(DRAFT, "bad")
+        con = sqlite3.connect(self.tmp / "reports/reports.db")
+        con.execute("""UPDATE reports SET topics_json='[{"name":"n","summary":"s"}]' WHERE title='bad'""")
+        con.commit()
+        con.close()
+        with self.assertRaises(reports_ctl.ReportError) as caught:
+            library.get(2)
+        self.assertEqual(caught.exception.code, "report_damaged")
+        self.assertEqual(library.get(1)["title"], "ok")
+        con = sqlite3.connect(self.tmp / "reports/reports.db")
+        con.execute("UPDATE reports SET topics_json='{bad' WHERE title='bad'")
+        con.commit()
+        con.close()
+        listed = library.list()["reports"]                    # one damaged row never hides the others
+        self.assertEqual([(r["title"], r["topic_count"]) for r in listed], [("bad", 0), ("ok", 1)])
+        self.assertEqual(reports_ctl._code(sqlite3.OperationalError("malformed JSON")), "reports_db_unavailable")
+
+    def test_hard_links_sidecar_links_and_move_aside(self):
+        library = reports_ctl.ReportsLibrary(self.tmp / "reports")
+        library.save(DRAFT, "x")
+        folder = self.tmp / "reports"
+        os.link(folder / "reports.db", self.tmp / "second-name")
+        with self.assertRaises(reports_ctl.ReportError):
+            library.list()
+        os.unlink(self.tmp / "second-name")
+        (self.tmp / "elsewhere").write_bytes(b"")
+        os.symlink(self.tmp / "elsewhere", folder / "reports.db-shm")
+        with self.assertRaises(reports_ctl.ReportError):
+            library.list()
+        os.unlink(folder / "reports.db-shm")
+        (folder / "reports.db").write_bytes(b"garbage" * 300)
+        (folder / "reports.db-journal").write_bytes(b"j")
+        moved = library.move_aside()
+        suffix = moved.split("reports.db", 1)[1]
+        self.assertTrue((folder / ("reports.db-journal" + suffix)).exists())
+        self.assertFalse((folder / "reports.db-journal").exists())
+
+    def test_local_classification_asks_eight_and_says_when_it_failed(self):
+        import ai_core
+        rows = [{"id": f"r{i}", "topic": None, "project": "app", "files": []} for i in range(12)]
+        asked = []
+
+        def run(argv, **kw):
+            asked.append(json.loads(kw["stdin"].decode().split("\n", 1)[1]))
+            return b'["testing", null, "editing", "testing", "testing", "testing", "testing", "testing"]', True
+        with mock.patch.object(ai_core, "setting", side_effect=lambda k: k == "ai_activity_local_topics"), \
+                mock.patch("local_helper.advise_argv", return_value=(["helper"], "text")):
+            answers = reports_ctl.classify_entries(rows, object(), run=run)
+            self.assertEqual(len(asked[0]), 8)
+            self.assertEqual(set(answers), {f"r{i}" for i in range(8)})
+            self.assertIsNone(answers["r1"])
+            self.assertIsNone(reports_ctl.classify_entries(rows, object(), run=lambda a, **k: (b"", False)))
+            self.assertIsNone(reports_ctl.classify_entries(rows, object(), run=lambda a, **k: (b'["x"]', True)))
+        with mock.patch.object(ai_core, "read_bounded_output", return_value=(b"[]", True)) as bounded, \
+                mock.patch.dict(os.environ, {}, clear=False):
+            reports_ctl._isolated_run(["x"], timeout=1)
+        kwargs = bounded.call_args.kwargs
+        self.assertEqual(kwargs["env"]["AI_AGENTS_MAP_NO_PROVIDERS"], "1")
+        self.assertTrue(kwargs["cwd"])
+
+    def test_page_remembers_only_answers(self):
+        import reports_page
+        page = reports_page.ReportsPage()
+        page.reports_local_topics, page.reports_classifying, page.reports_classify_after = {}, False, 0.0
+        page.local_ai_helper = lambda: object()
+        page.history_changed = mock.Mock()
+        report = {"entries": [{"id": f"r{i}", "topic": None, "project": "app", "files": []} for i in range(12)]}
+        results = iter([{"r0": "testing", "r1": None}, None])
+        with mock.patch.object(reports_page.ai_core, "setting", side_effect=lambda k: k == "ai_activity_local_topics"), \
+                mock.patch.object(reports_page.reports_ctl, "classify_entries", side_effect=lambda *a: next(results)), \
+                mock.patch.object(reports_page.GLib, "idle_add", side_effect=lambda f, *a: f(*a)), \
+                mock.patch.object(reports_page.threading, "Thread",
+                                  side_effect=lambda target, daemon: mock.Mock(start=target)):
+            page.local_topics(report)
+            self.assertEqual(page.reports_local_topics, {"r0": "testing", "r1": None})
+            page.local_topics(report)                           # r2.. asked next; the LLM fails this time
+            self.assertEqual(set(page.reports_local_topics), {"r0", "r1"})
+            self.assertGreater(page.reports_classify_after, 0)
+            page.local_topics(report)                           # backing off: not asked again now
+        self.assertEqual(report["entries"][0]["topic"], "testing")
+
+    def test_antigravity_statuses(self):
+        root = self.tmp / "agy"
+        root.mkdir()
+        (root / "a.db").write_bytes(b"SQLite format 3\0" + b"\xff" * 200)        # a header, then nonsense
+        source = {"source": "agent:agy", "name": "Antigravity", "supported": True, "form": "trajectory-sqlite",
+                  "root": str(root)}
+        importer = history_import.HistoryImporter(self.log, [source], now=at("2026-11-20T18:00:00"))
+        self.assertEqual(importer.run()["sources"][0]["status"], "corrupt")
+        (root / "a.db").unlink()
+        con = sqlite3.connect(root / "b.db")
+        con.execute("CREATE TABLE steps (idx INTEGER, step_type INTEGER, status INTEGER, step_format INTEGER, step_payload BLOB)")
+        con.commit()
+        con.close()
+        with mock.patch.object(history_import.HistoryImporter, "_open_conversation",
+                               side_effect=history_import._OutOfTime()):
+            result = history_import.HistoryImporter(self.log, [source], now=at("2026-11-20T18:00:00")).run()
+        self.assertEqual(result["sources"][0]["status"], "partial")
+        os.chmod(root / "b.db", 0)
+        if os.getuid() != 0:
+            result = history_import.HistoryImporter(self.log, [source], now=at("2026-11-20T18:00:00")).run()
+            self.assertEqual(result["sources"][0]["status"], "unavailable")
+
+    def test_usage_needs_exactly_one_live_instance(self):
+        with mock.patch.object(live, "alive", side_effect=lambda p, proc="/proc": p != 2):
+            with mock.patch.object(live, "instance_id", return_value=None):
+                self.assertIsNone(live.session_usage("codex", [1, 2, 3]))      # two still run: no attribution
+        big = jl({"type": "assistant", "message": {"id": "m", "usage": {"input_tokens": 3, "output_tokens": 1},
+                                                   "content": "x" * (200 * 1024)}})
+        self.assertEqual(live.usage_totals(big, False)["input"], 3)
+        negative = jl({"type": "event_msg", "payload": {"type": "token_count", "info": {
+            "total_token_usage": {"input_tokens": -5, "output_tokens": 1}}}})
+        self.assertIsNone(live.usage_totals(negative, True))
 
 
 class SchemaTest(unittest.TestCase):

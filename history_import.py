@@ -88,6 +88,10 @@ def epoch(value) -> float | None:
     return None
 
 
+class _OutOfTime(Exception):
+    """This agent's or the import's time ran out while a database was read: partial, not damaged."""
+
+
 class _Span:
     def __init__(self, start: dt.datetime, leading_partial: bool = False):
         self.start = self.end = start
@@ -208,6 +212,9 @@ class HistoryImporter:
                 self.validate()
                 try:
                     parsed = self._trajectory(path) if form == "trajectory-sqlite" else self._json(path, form)
+                except _OutOfTime:
+                    self._raise(result, "partial")
+                    break
                 except ValueError:
                     self._raise(result, "corrupt")
                     continue
@@ -472,17 +479,71 @@ class HistoryImporter:
 
     # -- Antigravity conversations ----------------------------------------------------------------
 
-    def _trajectory(self, path: str) -> _Parsed | None:
-        import agent_activity_report
+    def _left(self) -> float:
+        now = self.clock()
+        return max(0.0, min(TOTAL_SECONDS - (now - self._overall), SOURCE_SECONDS - (now - self._source)))
+
+    def _open_conversation(self, path: str):
+        """An in-memory snapshot of a conversation database and its WAL (never an SQLite connection to
+        the agent's own files). OSError: missing, not this account's, too large or changing while read
+        (unavailable); ValueError: not a sound database (corrupt). Its queries stop at this import's
+        own deadline."""
         import readonly_sqlite
-        with open(path, "rb", opener=lambda p, f: os.open(p, f | os.O_NOFOLLOW | os.O_NONBLOCK)) as handle:
-            if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode) or os.fstat(handle.fileno()).st_uid != os.getuid():
-                raise OSError("unsafe history database")
-            if handle.read(16) != b"SQLite format 3\0":
-                raise ValueError("not a database")
-        con = readonly_sqlite.connect(Path(path))
-        if con is None:
-            return None
+        import sqlite3
+
+        def read(name: str, optional: bool):
+            try:
+                fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+            except FileNotFoundError:
+                if optional:
+                    return b"", None
+                raise
+            try:
+                info = os.fstat(fd)
+                if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
+                    raise OSError("unsafe history database")
+                if info.st_size > readonly_sqlite.MAX_BYTES:
+                    raise OSError("history database too large")
+                data = _read_all(fd, readonly_sqlite.MAX_BYTES + 1)
+                if len(data) > readonly_sqlite.MAX_BYTES:
+                    raise OSError("history database too large")
+                after = os.fstat(fd)
+                return data, (info.st_ino, info.st_size, info.st_mtime_ns, after.st_size, after.st_mtime_ns)
+            finally:
+                os.close(fd)
+        base, base_stamp = read(path, False)
+        if base[:16] != b"SQLite format 3\0":
+            raise ValueError("not a database")
+        wal, wal_stamp = read(path + "-wal", True)
+        for stamp in (base_stamp, wal_stamp):
+            if stamp is not None and stamp[1:3] != stamp[3:5]:
+                raise OSError("history database changed while read")
+        try:
+            image = readonly_sqlite.committed_image(base, wal)
+        except ValueError:
+            raise ValueError("damaged database") from None
+        con = sqlite3.connect(":memory:")
+        try:
+            con.deserialize(image)
+            con.execute("PRAGMA temp_store=MEMORY")
+            con.execute("PRAGMA query_only=ON")
+            con.execute("PRAGMA trusted_schema=OFF")
+            deadline = time.monotonic() + self._left()
+            con.set_progress_handler(lambda: int(time.monotonic() > deadline), 1000)
+            con.execute("SELECT count(*) FROM sqlite_master").fetchone()
+        except sqlite3.DatabaseError as error:
+            con.close()
+            if "interrupt" in str(error).lower():
+                raise _OutOfTime() from None
+            raise ValueError("damaged database") from None
+        return con
+
+    def _trajectory(self, path: str) -> _Parsed | None:
+        """One span per conversation (no times inside): corrupt, unavailable and an interrupted
+        (out of time) read are told apart; the last gives what was read so far, partial."""
+        import sqlite3
+        import agent_activity_report
+        con = self._open_conversation(path)
         try:
             info = os.lstat(path)
             modified = info.st_mtime
@@ -517,7 +578,11 @@ class HistoryImporter:
                                 span.edits.append(target)
                     except ValueError:
                         pass
-            except Exception as error:     # sqlite3.DatabaseError: not the schema it should have
+            except sqlite3.OperationalError as error:
+                if "interrupt" in str(error).lower():
+                    return parsed                 # out of time: what was read, already marked partial
+                raise ValueError("unreadable conversation") from error
+            except sqlite3.DatabaseError as error:  # not the schema it should have, or damaged pages
                 raise ValueError("unreadable conversation") from error
             return parsed
         finally:

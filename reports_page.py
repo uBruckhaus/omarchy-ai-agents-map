@@ -20,6 +20,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import threading
+import time
 from pathlib import Path
 
 from gi.repository import Adw, Gdk, GLib, Gtk
@@ -34,6 +35,8 @@ from i18n import _
 TABS = (("log", "Log"), ("topics", "Topic reports"), ("library", "Library"))
 KEEP_CHOICES = (1, 2, 7, 30, 90, 365)
 REFRESH_SECONDS = 30
+LOCAL_TOPICS_KEPT = 500        # entries whose local-LLM topic is remembered
+CLASSIFY_BACKOFF = 300         # seconds before the local LLM is asked again after it did not answer
 
 
 def keep_choices(current: int) -> list[int]:
@@ -166,6 +169,8 @@ class ReportsPage:
         self.reports_pulse = None
         self.reports_local_topics = {}        # entry id -> topic the local LLM gave (Topic summaries by local LLM)
         self.reports_classifying = False
+        self.reports_classify_after = 0.0
+        self.reports_log_deferred = None
         self.reports_confirming = False
         self.reports_saving = False
         self.reports_library_loading = False
@@ -209,8 +214,12 @@ class ReportsPage:
         if self.page_name() != "reports":
             self.reports_return = self.view if self.page_name() in ai_core.VIEWS else "main"
         self.show_page("reports")
-        self.reports_tab_buttons.get(tab, self.reports_tab_buttons["log"]).set_active(True)
-        self.show_reports_tab(tab if tab in dict(TABS) else "log")
+        key = tab if tab in dict(TABS) else "log"
+        button = self.reports_tab_buttons[key]
+        if button.get_active():
+            self.show_reports_tab(key)        # already that tab: show it again (toggled does not fire)
+        else:
+            button.set_active(True)           # toggled shows it, once
 
     def close_reports(self):
         """Back, Esc: a report being generated asks first whether to cancel it."""
@@ -247,6 +256,7 @@ class ReportsPage:
         self.reports_stack.set_visible_child_name(key)
         self.stop_reports_timer()
         if key == "log":
+            self.fill_log_settings()          # values changed in Settings meanwhile
             self.refresh_reports_log()
             self.reports_timer = GLib.timeout_add_seconds(REFRESH_SECONDS, self.reports_tick)
         elif key == "topics":
@@ -271,6 +281,12 @@ class ReportsPage:
             if source:
                 GLib.source_remove(source)
                 setattr(self, name, None)
+
+    def reports_shown(self):
+        """The window is shown again: the Log tab's refresh goes on where it stopped."""
+        if self.page_name() == "reports" and self.reports_tab == "log" and not getattr(self, "reports_timer", None):
+            self.refresh_reports_log(keep_scroll=True)
+            self.reports_timer = GLib.timeout_add_seconds(REFRESH_SECONDS, self.reports_tick)
 
     def reports_hidden(self):
         """The window is hidden: nothing of this page keeps running in the background but a report
@@ -307,6 +323,9 @@ class ReportsPage:
 
         def again():
             if self.reports_tab == "log":
+                switch = getattr(self, "reports_topic_switch", None)
+                if switch is not None:            # the controls stay; only what depends on them changes
+                    switch.set_sensitive(ai_core.setting("ai_activity_import") is True)
                 self.refresh_reports_log()
             elif self.reports_tab == "topics":
                 self.load_report_helpers()      # online helpers on or off: the list and the choice follow
@@ -467,8 +486,8 @@ class ReportsPage:
         self.report_row(body, _("Keep log for (days)"), drop)
         importing = ai_core.setting("ai_activity_import") is True
         self.report_switch(body, _("Collect activity from agent history"), "ai_activity_import")
-        self.report_switch(body, _("Use the agent's request as topic"), "ai_activity_import_topics",
-                           sensitive=importing)
+        self.reports_topic_switch = self.report_switch(body, _("Use the agent's request as topic"),
+                                                       "ai_activity_import_topics", sensitive=importing)
         ready = self.local_ai_helper() is not None
         self.report_switch(body, _("Topic summaries by local LLM"), "ai_activity_local_topics",
                            "" if ready else _("No report helper is available."), sensitive=ready)
@@ -534,7 +553,7 @@ class ReportsPage:
     def refresh_reports_log(self, keep_scroll: bool = False):
         """Read the log on a worker (up to the retention's day files), then show it."""
         store = self.activity_store()
-        if self.reports_boxes["log"].get_first_child() is None:
+        if self.log_parts()["entries"].get_first_child() is None:
             self.render_reports_log(None, keep_scroll, loading=store.enabled)
         if not store.enabled:
             self.reports_requests["log"] = self.reports_requests.get("log", 0) + 1     # drop a read under way
@@ -553,20 +572,59 @@ class ReportsPage:
             self.render_reports_log(report, keep_scroll)
         self.reports_worker("log", lambda: store.report(params), done)
 
+    def log_parts(self):
+        """The Log tab's three parts, made once: its settings (kept while the tab is shown, so a switch
+        keeps the keyboard), Collect history, and the entries (the only part a refresh replaces)."""
+        parts = getattr(self, "reports_log_parts", None)
+        if parts is None:
+            box = self.reports_boxes["log"]
+            self.clear_box(box)
+            parts = self.reports_log_parts = {k: Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
+                                              for k in ("settings", "history", "entries")}
+            for part in parts.values():
+                box.append(part)
+        return parts
+
+    def fill_log_settings(self):
+        part = self.log_parts()["settings"]
+        self.clear_box(part)
+        self.reports_settings_card(part)
+
+    def log_busy(self, area) -> bool:
+        """Text selected in the entries: a timed refresh waits until it is not (as Maprisma's does)."""
+        stack = [area]
+        while stack:
+            widget = stack.pop()
+            if isinstance(widget, Gtk.Label) and widget.get_selectable() and widget.get_selection_bounds()[0]:
+                return True
+            child = widget.get_first_child()
+            while child is not None:
+                stack.append(child)
+                child = child.get_next_sibling()
+        return False
+
     def render_reports_log(self, report: dict | None, keep_scroll: bool = False, loading: bool = False):
+        parts = self.log_parts()
+        if parts["settings"].get_first_child() is None:
+            self.fill_log_settings()
+        self.clear_box(parts["history"])
+        self.history_status(parts["history"])
+        area = parts["entries"]
+        if keep_scroll and area.get_first_child() is not None and self.log_busy(area):
+            self.reports_log_deferred = report       # shown on the next refresh once nothing is selected
+            return
+        self.reports_log_deferred = None
         box = self.reports_boxes["log"]
         scroller = box.get_parent().get_parent() if box.get_parent() is not None else None
         adjustment = scroller.get_vadjustment() if isinstance(scroller, Gtk.ScrolledWindow) else None
         position = adjustment.get_value() if adjustment is not None and keep_scroll else 0
-        self.clear_box(box)
-        self.reports_settings_card(box)
-        self.history_status(box)
+        self.clear_box(area)
         if not self.activity_store().enabled:
-            self.card_text(box, _("Turn on the activity log to collect entries."))
+            self.card_text(area, _("Turn on the activity log to collect entries."))
         elif loading:
-            box.append(Gtk.Spinner(spinning=True, halign=Gtk.Align.START))
+            area.append(Gtk.Spinner(spinning=True, halign=Gtk.Align.START))
         else:
-            self.log_pane(box, report)
+            self.log_pane(area, report)
         if adjustment is not None and keep_scroll:
             GLib.idle_add(lambda: adjustment.set_value(position) or False)
         self.fill_reports_footer()
@@ -576,29 +634,38 @@ class ReportsPage:
         classified in the background (reports_ctl.classify_topics), then the tab is shown again."""
         known = self.reports_local_topics
         for row in report["entries"]:
-            if row["id"] in known and (row["topic"] is None or row["topic"] in activity_log.HEURISTIC):
+            if known.get(row["id"]) and (row["topic"] is None or row["topic"] in activity_log.HEURISTIC):
                 row["topic"] = known[row["id"]]
-        if ai_core.setting("ai_activity_local_topics") is not True or self.reports_classifying:
+        if ai_core.setting("ai_activity_local_topics") is not True or self.reports_classifying \
+                or time.monotonic() < self.reports_classify_after:
             return
         candidate = self.local_ai_helper()
-        fresh = [dict(r) for r in report["entries"] if r["id"] not in known]
+        fresh = [dict(r) for r in reports_ctl.topic_candidates(report["entries"]) if r["id"] not in known][:8]
         if candidate is None or not fresh:
             return
         self.reports_classifying = True
 
-        def apply(rows):
-            for row in rows:                  # the window's thread only: the page reads `known` there
-                known[row["id"]] = row["topic"]
-            self.reports_classifying = False
-            self.history_changed()
+        def apply(answers):
+            self.reports_classifying = False      # the window's thread only: the page reads `known` there
+            if answers is None:                   # the local LLM did not answer: try again in a while
+                self.reports_classify_after = time.monotonic() + CLASSIFY_BACKOFF
+                return False
+            changed = False
+            for entry_id, topic in answers.items():   # only what it answered for is remembered
+                known[entry_id] = topic
+                changed = changed or topic is not None
+            while len(known) > LOCAL_TOPICS_KEPT:
+                del known[next(iter(known))]
+            if changed:
+                self.history_changed()
             return False
 
         def work():
             try:
-                rows = reports_ctl.classify_topics({"entries": fresh}, candidate)["entries"]
+                answers = reports_ctl.classify_entries(fresh, candidate)
             except Exception:
-                rows = fresh
-            GLib.idle_add(apply, rows)
+                answers = None
+            GLib.idle_add(apply, answers)
         threading.Thread(target=work, daemon=True).start()
 
     def log_pane(self, box, report: dict | None):
@@ -933,7 +1000,7 @@ class ReportsPage:
             if not self.library_failed(result):
                 self.reports_opened, self.reports_library_error = result, None
             self.fill_reports_library()
-        self.reports_worker("library", lambda: reports_ctl.ReportsLibrary().get(report_id), done)
+        self.reports_worker("library_open", lambda: reports_ctl.ReportsLibrary().get(report_id), done)
 
     def delete_saved_report(self, report_id: int):
         dialog = Adw.AlertDialog(heading=_("Delete this report?"),
@@ -943,13 +1010,15 @@ class ReportsPage:
         dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
 
         def done(result):
-            if not self.library_failed(result):
-                self.reports_opened = None
+            if self.library_failed(result):
+                self.fill_reports_library()       # the error stays in view
+                return
+            self.reports_opened = None
             self.load_reports_library()
 
         def answered(_d, response):
             if response == "delete":
-                self.reports_worker("library", lambda: reports_ctl.ReportsLibrary().delete(report_id), done)
+                self.reports_worker("library_write", lambda: reports_ctl.ReportsLibrary().delete(report_id), done)
         dialog.connect("response", answered)
         dialog.present(self.window)
 
@@ -981,18 +1050,34 @@ class ReportsPage:
                                                     2000, multiline=True)
             except ValueError:
                 return
-            self.reports_worker("library", lambda: reports_ctl.ReportsLibrary().update(
+            self.reports_worker("library_write", lambda: reports_ctl.ReportsLibrary().update(
                 report["id"], title=new_title, note=new_note), done)
         dialog.connect("response", answered)
         dialog.present(self.window)
 
     def move_library_aside(self):
+        """Move aside and start new, after asking: the damaged file is renamed, never deleted."""
+        dialog = Adw.AlertDialog(heading=_("Move the damaged library aside?"),
+                                 body=_("Its files are renamed and kept, and an empty library is started. "
+                                        "Reports saved in it no longer appear here."))
+        dialog.add_response("back", _("Back"))
+        dialog.add_response("move", _("Move aside and start new"))
+        dialog.set_response_appearance("move", Adw.ResponseAppearance.DESTRUCTIVE)
+
         def done(result):
-            if not self.library_failed(result):
-                self.reports_library_error = None
-                self.show_notice(_("The damaged library was moved to {0}.").format(result))
+            if self.library_failed(result):
+                self.fill_reports_library()
+                return
+            self.reports_library_error = None
+            self.reports_opened = None
+            self.show_notice(_("The damaged library was moved to {0}.").format(result))
             self.load_reports_library()
-        self.reports_worker("library", lambda: reports_ctl.ReportsLibrary().move_aside(), done)
+
+        def answered(_d, response):
+            if response == "move":
+                self.reports_worker("library_write", lambda: reports_ctl.ReportsLibrary().move_aside(), done)
+        dialog.connect("response", answered)
+        dialog.present(self.window)
 
     # --- the footer --------------------------------------------------------------------------------
 

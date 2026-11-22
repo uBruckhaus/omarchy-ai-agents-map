@@ -223,8 +223,17 @@ def _redact(text: str) -> str:
     return text
 
 
-def _clean_url(raw: str) -> str:
-    """A URL kept with its secrets taken out (no user info, no secret-named query values)."""
+def _short_paths(text: str, depth: int = 0) -> str:
+    """Paths in text cut to their names, and URLs inside it cleaned the same way (one level deep)."""
+    if depth < 2:
+        text = _URL.sub(lambda m: _clean_url(m.group(0), depth + 1), text)
+    return _PATH.sub(lambda m: m.group(1) + os.path.basename(m.group(2).rstrip("/")), text)
+
+
+def _clean_url(raw: str, depth: int = 0) -> str:
+    """A URL kept with its secrets taken out (no user info, no secret-named query values) and no
+    local paths in its query or fragment (?file=/home/u/a.py keeps a.py)."""
+    from urllib.parse import quote
     from urllib.parse import unquote, unquote_plus, urlsplit, urlunsplit
     try:
         parts = urlsplit(raw)
@@ -244,9 +253,13 @@ def _clean_url(raw: str) -> str:
         if _redact(name) != name:
             return "…"
         plain = unquote_plus(value)
-        query.append(key + sep + ("…" if _QUERY_SECRET.search(name) or _redact(plain) != plain else value))
+        if _QUERY_SECRET.search(name) or _redact(plain) != plain:
+            query.append(key + sep + "…")
+            continue
+        short = _short_paths(plain, depth)
+        query.append(key + sep + (value if short == plain else quote(short, safe="…")))
     path = "/".join("…" if _redact(unquote(s)) != unquote(s) else s for s in parts.path.split("/"))
-    fragment = _redact(unquote(parts.fragment)) if parts.fragment else ""
+    fragment = _short_paths(_redact(unquote(parts.fragment)), depth) if parts.fragment else ""
     return urlunsplit((parts.scheme, parts.netloc, path, "&".join(query), fragment))
 
 
@@ -264,7 +277,7 @@ def sanitize_topic(value) -> str | None:
         return f"⟦url{len(urls) - 1}⟧"
     text = _URL.sub(keep, text)
     text = _redact(text)
-    text = _PATH.sub(lambda m: m.group(1) + os.path.basename(m.group(2).rstrip("/")), text)
+    text = _short_paths(text, 2)
 
     def back(match):
         index = int(match.group(1))
@@ -640,7 +653,8 @@ class ActivityLog:
         """activitylog.report: one page of entries (100) and totals by agent, project, day and week."""
         params = params or {}
         today, keep, first, last = self.range(params, now=now)
-        cursor = params.get("cursor") or 0
+        cursor = params.get("cursor")
+        cursor = 0 if cursor is None else cursor
         if type(cursor) is not int or cursor < 0:
             raise ValueError("Invalid activity range")
         page, totals = [], {"by_source": {}, "by_project": {}, "by_day": {}, "by_week": {}}

@@ -460,13 +460,15 @@ def live_session_file(command: str, instance: str, facts: dict, agent_pids, proc
             today = (now or dt.datetime.now()).astimezone()
             folders = [os.path.join(root, f"{d:%Y}", f"{d:%m}", f"{d:%d}")
                        for d in (today, today - dt.timedelta(days=1))] if rollout else [folder]
+            import scan_budget
+            budget = scan_budget.Budget(visits=512, seconds=0.25)     # read entry by entry, never listed whole
             for where in folders:
                 try:
-                    names = sorted(os.listdir(where))[:128]
+                    paths = budget.entries(Path(where), 128)
                 except OSError:
                     continue
-                for name in names:
-                    path = os.path.join(where, name)
+                for entry in paths:
+                    path = str(entry)
                     if not matches(path) or not own_file(path):
                         continue
                     head = (read_part(path, 8192, tail=False) or b"").decode("utf-8", "replace")
@@ -513,6 +515,7 @@ def live_session_activity(command: str, instance: str, facts: dict, agent_pids, 
 
 # --- token usage of a live instance (the activity log's live rows) ---------------------------------
 
+USAGE_LINE = 4 << 20         # a session line with a large edit still carries its turn's usage
 USAGE_MAX = 8 << 20          # a larger session file gives no usage (unknown), never a partial sum
 
 
@@ -520,7 +523,7 @@ def session_usage(command: str, pids, proc: str = "/proc", cache: dict | None = 
     """{session, model, input, output}: the token totals of the one running instance's own session file
     (instance-checked as for What is it doing?), or None. Read whole up to 8 MiB, numbers and model names
     only; a file unchanged since the last look (cache) is not read again."""
-    pids = [p for p in list(pids)[:2] if alive(p, proc)]
+    pids = [p for p in list(pids)[:32] if alive(p, proc)]
     if len(pids) != 1:
         return None
     ident = instance_id(pids[0], proc)
@@ -555,7 +558,7 @@ def usage_totals(text: str, rollout: bool) -> dict | None:
     """Input and output tokens of a session (Codex: its last running total; else each message once)."""
     models, seen, last = set(), {}, None
     for line in text.splitlines():
-        if len(line) > MAX_LINE or '"usage"' not in line and "token_count" not in line and '"model"' not in line:
+        if len(line) > USAGE_LINE or '"usage"' not in line and "token_count" not in line and '"model"' not in line:
             continue
         try:
             row = json.loads(line)
@@ -570,7 +573,8 @@ def usage_totals(text: str, rollout: bool) -> dict | None:
                 models.add(payload["model"])
             info = payload.get("info") if payload.get("type") == "token_count" else None
             total = info.get("total_token_usage") if isinstance(info, dict) else None
-            if isinstance(total, dict) and type(total.get("input_tokens")) is int and type(total.get("output_tokens")) is int:
+            if isinstance(total, dict) and type(total.get("input_tokens")) is int and type(total.get("output_tokens")) is int \
+                    and total["input_tokens"] >= 0 and total["output_tokens"] >= 0:
                 last = (total["input_tokens"], total["output_tokens"])
             continue
         usage = message.get("usage")
@@ -660,14 +664,20 @@ def report_progress(arguments: dict, agent_pids, caller: int | None = None, proc
             or done < 0 or total < 1 or total > 1_000_000 or done > total \
             or (note is not None and (not isinstance(note, str) or len(note) > 1000)):
         raise ValueError("Invalid progress arguments")
+    label = _clean(step)
+    if not label:
+        raise ValueError("Invalid progress step")
     caller = os.getpid() if caller is None else caller
     owner = next((p for p in [caller] + _ancestors(caller, proc) if p in set(agent_pids)), None)
     folder = progress_dir()
     if owner is None or folder is None:
         return False
     start = start_ticks(owner, proc)
-    label = _clean(step)
-    if start is None or not alive(owner, proc) or not label:
+    if start is None or not alive(owner, proc):
+        return False
+    # Right before writing: the owner is still a parent of the caller and still the same process (a
+    # number reused meanwhile would have another start time or no longer be in the caller's line).
+    if owner not in [caller] + _ancestors(caller, proc) or start_ticks(owner, proc) != start:
         return False
     import ai_core
     try:
@@ -815,7 +825,7 @@ def agent_activity_report(command: str, selected: str | None, agent_pids, window
     helpers = []
     for other in descendants(pid, proc)[:32]:
         started = _started(other, proc)
-        if started < since:
+        if started <= 0 or started < since:
             continue
         helpers.append({"pid": other, "label": meta_text(_helper_label(argv_of(other, proc), comm(other, proc)), 80),
                         "elapsed_ms": max(0, int((now.timestamp() - started) * 1000))})
