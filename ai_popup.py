@@ -211,6 +211,10 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         self.selection = []        # node ids selected on the map
         self.split = False         # the window is wide enough for the whole map
         self.sessions = {}           # agent command -> terminal_pane.TerminalPane (an agent started here)
+        self.agent_infos = {}        # agent command -> its details (plan, limits): batteries, costs, notifications
+        self.agent_batteries = {}
+        self.limits_seeded = False   # agent_infos read once (by the map, or on a start on Projects)
+        self.map_generation = 0      # every collect and map drawing: an older background read is dropped
         # Downloads and installs run on as background jobs when their page is left (jobs.py).
         self.jobs = jobs.Jobs(lambda job: GLib.idle_add(self.job_changed, job))
         self.job_rows = {}           # job id -> (row, detail label, progress bar)
@@ -1363,6 +1367,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         # On the Projects tab only what does not belong to the map: which agents run and work (the
         # terminals, closing) and the opt-in activity log; GPU, usage box, subagents and the rest wait.
         light = getattr(self, "main_tab", "map") == "projects" or not getattr(self, "tab_decided", True)
+        seed = light and not getattr(self, "limits_seeded", True)
         logging = ai_core.setting("ai_activity_log") is True
 
         def work():
@@ -1444,14 +1449,21 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             # and daily-cost notifications (small files, only the agents whose record changed).
             try:
                 records = agent_details.usage_stamps()
-                renewed = {c: agent_details.details_for(c)
-                           for c in agent_details.renewed_records(getattr(self, "usage_stamps", None), records, commands)}
+                if seed:
+                    # A start on Projects: every agent's plan and limits once, off the GTK thread and
+                    # without drawing the map, so red limits and daily costs are watched from the start.
+                    renewed = {c: agent_details.details_for(c) for c in commands}
+                else:
+                    renewed = {c: agent_details.details_for(c) for c in
+                               agent_details.renewed_records(getattr(self, "usage_stamps", None), records, commands)}
             except Exception:
                 records, renewed = None, {}
-            GLib.idle_add(light_done, running, working, records, renewed)
+            GLib.idle_add(light_done, running, working, records, renewed, seed)
 
-        def light_done(running, working, records=None, renewed=None):
+        def light_done(running, working, records=None, renewed=None, seeded=False):
             self.gpu_reading = False
+            if seeded and records is not None:
+                self.limits_seeded = True
             self.limits_maintenance(records, renewed)
             if working != self.working_agents:
                 self.working_agents = set(working)
@@ -1506,9 +1518,10 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             self.usage_stamps = records
         if renewed:
             infos = getattr(self, "agent_infos", None)
+            if not isinstance(infos, dict):
+                infos = self.agent_infos = {}        # kept, also before the map was ever drawn
             for command, info in renewed.items():
-                if isinstance(infos, dict):
-                    infos[command] = info
+                infos[command] = info
                 self.set_agent_battery(command, info.limits, show=False)
             self.show_batteries()
             self.update_costs(force=True)
@@ -1593,6 +1606,7 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
 
     def collect(self):
         """Everything both views show (file system and /proc only, ~0.1 s)."""
+        self.map_generation = getattr(self, "map_generation", 0) + 1   # a background read is older now
         self.agent_list = agents.list_agents()
         self.inventory = inventory.collect(self.agent_list)
         try:
@@ -2981,8 +2995,14 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         """On a worker: what the map shows, read afresh (agents, local LLMs, each agent's details) for
         refresh_map(facts=…) on the GTK thread (Show on map / Fix on map)."""
         found = agents.list_agents()
-        return found, inventory.collect(found), {a.command: agent_details.details_for(a.command)
-                                                 for a in found if a.installed}
+        runtimes = inventory.collect(found)
+        commands = [a.command for a in found if a.installed]
+        try:
+            stamp = (inventory.models_stamp(runtimes.runtimes), agents.install_stamp(),
+                     agent_details.setup_stamp(commands))
+        except Exception:
+            stamp = None
+        return found, runtimes, {c: agent_details.details_for(c) for c in commands}, stamp
 
     def refresh_map(self, facts=None):
         if facts is None and (getattr(self, "main_tab", "map") == "projects"
@@ -2992,8 +3012,12 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             self.map_stale = True
             self.projects_map_changed()
             return
+        self.map_generation = getattr(self, "map_generation", 0) + 1   # newer than any read on its way
+        self.limits_seeded = True
         if facts is not None:
-            self.agent_list, self.inventory, details = facts
+            self.agent_list, self.inventory, details = facts[:3]
+            if len(facts) > 3:
+                self.models_stamp = facts[3]          # read with them: the next poll sees no change
             self.configured_now = None
         else:
             details = {a.command: agent_details.details_for(a.command) for a in self.agent_list if a.installed}
@@ -4620,11 +4644,13 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             return focus.get_editable()
         return isinstance(focus, Gtk.Editable) and focus.get_editable()
 
-    def in_search_field(self) -> bool:
-        """A search field has the keyboard: its own Esc clears it (Find in Settings)."""
+    def in_search_field(self):
+        """The search field (Find in Settings, Reports › Library, Add-ons, Add MCP server, Models) that
+        has the keyboard, else None."""
         focus = self.window.get_focus()
-        return focus is not None and (isinstance(focus, Gtk.SearchEntry)
-                                      or focus.get_ancestor(Gtk.SearchEntry) is not None)
+        if focus is None:
+            return None
+        return focus if isinstance(focus, Gtk.SearchEntry) else focus.get_ancestor(Gtk.SearchEntry)
 
     def on_key_released(self, _controller, keyval, _keycode, _state):
         if keyval in (Gdk.KEY_Shift_L, Gdk.KEY_Shift_R):
@@ -4672,8 +4698,12 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
             back = self.back_actions().get(page)
             if back is not None:
                 if self.editing():
-                    if keyval == Gdk.KEY_Escape and page != "askai" and not self.in_search_field():
-                        self.window.set_focus(None)   # Esc first leaves the field; the next goes back
+                    if keyval == Gdk.KEY_Escape and page != "askai":
+                        search = self.in_search_field()
+                        if search is not None and search.get_text():
+                            search.set_text("")       # a search field: Esc clears its search first
+                        else:
+                            self.window.set_focus(None)   # then leaves the field; the next Esc goes back
                         return True
                     return False
                 back()

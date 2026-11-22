@@ -372,14 +372,6 @@ class SettingsPages:
         target = pages.get(self.SECTION_OF.get(english, "")) if pages else None
         (target or box).append(group)
 
-    def settings_find_escape(self, entry):
-        """Esc in Find in Settings: a search is cleared first, an empty field gives up the keyboard (the
-        next Esc leaves Settings)."""
-        if entry.get_text():
-            entry.set_text("")
-        else:
-            self.window.set_focus(None)
-
     def build_settings_sections(self, box):
         """Persistent search/content, with a compact selector or a scrolling sidebar."""
         was_compact = getattr(self, "settings_compact", None)
@@ -398,7 +390,6 @@ class SettingsPages:
         box.append(self.settings_compact_selector)
         self.settings_find = Gtk.SearchEntry(placeholder_text=_("Find in Settings"))
         self.settings_find.connect("notify::text", lambda *_: self.find_in_settings())
-        self.settings_find.connect("stop-search", lambda entry: self.settings_find_escape(entry))
         box.append(self.settings_find)
         layout = Gtk.Box(spacing=18, vexpand=True)
         self.settings_layout = layout

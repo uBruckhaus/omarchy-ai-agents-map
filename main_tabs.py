@@ -248,6 +248,7 @@ class MainTabs:
         self.map_stale = False
         self._map_read_seq += 1
         seq = self._map_read_seq
+        generation = getattr(self, "map_generation", 0)
 
         def work():
             try:
@@ -260,6 +261,8 @@ class MainTabs:
             if seq != self._map_read_seq or self.map_work_waits():
                 self.map_stale = self.map_stale or self.map_work_waits()
                 return False
+            if generation != getattr(self, "map_generation", 0):
+                return False                   # collected and drawn since (a connection made…): newer
             if facts is None:
                 self.map_stale = True
                 return False
@@ -541,6 +544,7 @@ class MainTabs:
             self.return_page = None
             self.show_view("main", save=False)
             self.focus_tab("map")
+            generation = getattr(self, "map_generation", 0)
 
             def work():
                 # Fresh facts, read off the GTK thread: an agent removed meanwhile is not revealed.
@@ -553,10 +557,11 @@ class MainTabs:
             def read(facts):
                 if seq != self._reveal_seq or self.main_tab != "map" or not self.window_shown():
                     return False
-                try:
-                    self.refresh_map(facts=facts) if facts is not None else self.refresh_map()
-                except Exception:
-                    pass
+                if generation == getattr(self, "map_generation", 0):   # else drawn from newer facts already
+                    try:
+                        self.refresh_map(facts=facts) if facts is not None else self.refresh_map()
+                    except Exception:
+                        pass
                 # After the map has been laid out once more (its boxes are placed while it is drawn).
                 self._reveal_wait = GLib.timeout_add(120, lambda: (self.finish_reveal(node_id, seq), False)[1])
                 return False

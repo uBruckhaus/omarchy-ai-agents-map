@@ -672,17 +672,23 @@ class AskAiPage:
                 progress(N_("Checking…"))
                 facts = provider_config.collect(rt)
                 model = provider_config.select_model(facts, candidate.get("model"))
-                if cancel.is_set():
-                    return
-                progress(N_("Ask AI"))
-                focus = " ".join(filter(None, [request, candidate.get("focus")]))[:500]
-                answer = provider_config.ask(helper, facts, model, candidate["profile"], focus)
             except Exception as error:
                 # Facts that do not fit (a model of another scope, a provider gone): not offered, so its
                 # Review cannot open an empty page.
                 dropped.append((candidate, smart_card.line(str(error)) or smart_card.NOT_POSSIBLE))
                 continue
             candidate["model"] = candidate["action"]["model"] = model
+            if cancel.is_set():
+                return
+            try:
+                progress(N_("Ask AI"))
+                focus = " ".join(filter(None, [request, candidate.get("focus")]))[:500]
+                answer = provider_config.ask(helper, facts, model, candidate["profile"], focus)
+            except Exception as error:
+                # No usable values: the proposal stays, and Open Configuration shows the page with its
+                # own recommendations (the manual's promise); the reason says why.
+                candidate["reason"] = smart_card.line(str(error)) or ""
+                continue
             candidate["prefill"] = candidate["action"]["prefill"] = answer
             candidate["reason"] = answer.get("summary", "")
             if not result.get("summary"):

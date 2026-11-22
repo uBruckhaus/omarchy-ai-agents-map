@@ -306,6 +306,7 @@ def provider_config_answer(answer: dict, facts: dict) -> dict:
     if found is None or profile not in CONFIG_PROFILES or (
             model is not None and (not isinstance(model, str)
                                    or (model == "*" and scope not in ("default", "global"))
+                                   or (model != "*" and scope == "global")
                                    or (model != "*" and model not in (found.get("models") or [])))):
         raise SmartError(N_("This provider configuration is unavailable"))
     focus = line(answer.get("focus"), 500)

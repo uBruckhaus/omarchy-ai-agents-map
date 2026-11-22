@@ -139,10 +139,24 @@ class ProviderConfigPage:
             if isinstance(found, Exception):
                 self.note_card(self.provider_config_body, 'error', str(found))
             else:
-                self.provider_config_draft = Draft(found, model, profile)
-                if prefill is not None:
+                proposal = prefill
+                try:
+                    self.provider_config_draft = Draft(found, model, profile)
+                except ValueError:
+                    # The proposed model is gone (Ask AI's proposal is older than this PC's facts): the
+                    # page opens on the provider's own choice, without the stale values.
                     try:
-                        self.provider_config_draft.fill_proposal(prefill)
+                        self.provider_config_draft = Draft(found, None, profile)
+                    except ValueError as error:
+                        self.note_card(self.provider_config_body, 'error', str(error))
+                        return False
+                    if proposal is not None:
+                        self.show_error(_('The proposed model is no longer available. Choose a model and '
+                                          'ask again.'))
+                    proposal = None
+                if proposal is not None:
+                    try:
+                        self.provider_config_draft.fill_proposal(proposal)
                     except ValueError as error:
                         self.show_error(str(error))
                 self.render_provider_config()

@@ -430,7 +430,7 @@ class KeysTest(unittest.TestCase):
                               close=mock.Mock(), set_selection=mock.Mock(), editing=lambda: False,
                               back_actions=lambda: {}, map_view=SimpleNamespace(set_shift=lambda _h: None),
                               window=SimpleNamespace(set_focus=mock.Mock(), get_visible_dialog=lambda: None),
-                              after_leaving=mock.Mock(), in_search_field=lambda: False)
+                              after_leaving=mock.Mock(), in_search_field=lambda: None)
         app.dialog_open = lambda: ai_popup.AgentsMap.dialog_open(app)
         return app
 
@@ -462,8 +462,6 @@ class KeysTest(unittest.TestCase):
         app.window.set_focus.assert_called_once_with(None)
         back.assert_not_called()
         self.assertFalse(ai_popup.AgentsMap.on_key(app, None, Gdk.KEY_BackSpace, 0, 0))   # the field's
-        app.in_search_field = lambda: True           # Find in Settings clears itself
-        self.assertFalse(ai_popup.AgentsMap.on_key(app, None, Gdk.KEY_Escape, 0, 0))
         app.editing = lambda: False
         self.assertTrue(ai_popup.AgentsMap.on_key(app, None, Gdk.KEY_Escape, 0, 0))
         back.assert_called_once_with()
@@ -525,7 +523,7 @@ class KeysTest(unittest.TestCase):
         panes = [SimpleNamespace(running=True, agent=SimpleNamespace(name="Pi"), stop=mock.Mock()) for _ in running]
         app = SimpleNamespace(booting=False, page_name=lambda: "projects", sessions=dict(enumerate(panes)),
                               hide_window=mock.Mock(), projects_ctrl=ctrl, toast=mock.Mock(), departing=False,
-                              ask_close=mock.Mock(), dialog_open=lambda: False)
+                              ask_close=mock.Mock(), dialog_open=lambda: False, window=None)
         app.close = lambda: ai_popup.AgentsMap.close(app)
         return app, ctrl, asked
 
@@ -549,9 +547,26 @@ class KeysTest(unittest.TestCase):
         app.hide_window.assert_not_called()
         self.assertEqual(ctrl.texts["title"], "Edited")
         app, ctrl, _asked = self.closing_app("discard", running=[1])
-        ai_popup.AgentsMap.close(app)
-        app.close_asked = True                                   # ask_close's Keep running
-        ai_popup.AgentsMap.close(app)
+        dialogs = []
+
+        class Dialog:
+            def __init__(self, **_k):
+                self.handlers = []
+                dialogs.append(self)
+
+            def __getattr__(self, _name):
+                return lambda *a, **k: None
+
+            def connect(self, _signal, handler):
+                self.handlers.append(handler)
+        app.ask_close = lambda running: ai_popup.AgentsMap.ask_close(app, running)
+        with mock.patch.object(ai_popup.Adw, "AlertDialog", Dialog):
+            ai_popup.AgentsMap.close(app)
+            dialogs[0].handlers[0](dialogs[0], "cancel")       # Cancel: nothing discarded, window stays
+            self.assertEqual((ctrl.texts["title"], app.close_commit), ("Edited", None))
+            app.hide_window.assert_not_called()
+            ai_popup.AgentsMap.close(app)
+            dialogs[1].handlers[0](dialogs[1], "keep")         # Keep running: closes, now discarded
         app.hide_window.assert_called_once_with()
         self.assertEqual(ctrl.texts["title"], "Old")
 
@@ -622,6 +637,48 @@ class ReviewRound2Test(unittest.TestCase):
         host.apply_start_tab("map")
         self.assertIn(("refresh_map", "fresh"), host.calls)
 
+    def light_app(self, seeded):
+        app = SimpleNamespace(gpu_reading=False, inventory=SimpleNamespace(runtimes=[]), main_tab="projects",
+                              tab_decided=True, installed_commands=lambda: ["claude", "pi"],
+                              running_now=lambda pids: {}, working_now=lambda *a: set(),
+                              observe_activity=mock.Mock(), working_agents=set(), running={},
+                              update_terminal_tabs=mock.Mock(), limits_seeded=seeded, agent_infos={},
+                              agent_batteries={}, side_map=SimpleNamespace(set_batteries=lambda b: None),
+                              warn_red=mock.Mock(), costs_busy=False)
+        for name in ("limits_maintenance", "set_agent_battery", "show_batteries", "update_costs",
+                     "batteries_past_reset"):
+            setattr(app, name, getattr(ai_popup.AgentsMap, name).__get__(app))
+        return app
+
+    def test_start_on_projects_watches_limits_and_costs(self):
+        """Codex r3 #1 / agy r3 #1: started on Projects (no map drawn), the first poll reads every agent's
+        limits on its worker; a red limit is noticed and paying agents are known for the daily cost."""
+        import datetime as dt
+        import agent_details
+        red = agent_details.Details(limits=[agent_details.Limit("5h", 0.97, dt.datetime.now(dt.timezone.utc)
+                                                                + dt.timedelta(hours=1))])
+        paying = agent_details.Details()
+        details = {"claude": red, "pi": paying}
+        import settings_schema
+        self.saved.update({key: setting.default for key, setting in settings_schema.SCHEMA.items()})
+        app = self.light_app(seeded=False)
+        threads = []
+        with mock.patch.object(ai_popup.threading, "Thread",
+                               side_effect=lambda target, **_k: SimpleNamespace(start=lambda: threads.append(target))), \
+                mock.patch.object(ai_popup.GLib, "idle_add", lambda fn, *a: fn(*a)), \
+                mock.patch.object(ai_popup.agent_details, "usage_stamps", return_value={"claude": 1}), \
+                mock.patch.object(ai_popup.agent_details, "details_for", side_effect=lambda c: details[c]), \
+                mock.patch.object(ai_popup.agent_status, "pays_per_token", side_effect=lambda c, i: c == "pi"), \
+                mock.patch.object(ai_popup.gpu_usage, "snapshot") as snapshot:
+            ai_popup.AgentsMap.poll_gpu(app)
+            threads.pop(0)()                           # the poll's worker
+        self.assertEqual(set(app.agent_infos), {"claude", "pi"})
+        self.assertTrue(app.limits_seeded)
+        self.assertIn("agent:claude", app.agent_batteries)
+        self.assertEqual(app.warn_red.call_args[0][1], "claude")   # the red limit is notified at once
+        self.assertTrue(threads)                       # the daily-cost look started (paying agent pi)
+        snapshot.assert_not_called()
+
     def test_light_poll_keeps_the_limit_notifications(self):
         """Codex r2 #4: on Projects the poll stays light but renewed limits and costs are still checked."""
         app = SimpleNamespace(gpu_reading=False, inventory=SimpleNamespace(runtimes=[]), main_tab="projects",
@@ -668,17 +725,103 @@ class ReviewRound2Test(unittest.TestCase):
         hide = source[source.index("    def hide_window(self):"):source.index("\ndef main():")]
         self.assertIn("self.close_commit = None", hide)
 
-    def test_find_in_settings_escape(self):
-        """agy r2 #3: Esc in Find in Settings clears a search, then gives up the keyboard."""
-        entry = SimpleNamespace(text="map")
-        entry.get_text = lambda: entry.text
-        entry.set_text = lambda t: setattr(entry, "text", t)
-        app = SimpleNamespace(window=SimpleNamespace(set_focus=mock.Mock()))
-        settings_pages.SettingsPages.settings_find_escape(app, entry)
-        self.assertEqual(entry.text, "")
-        app.window.set_focus.assert_not_called()
-        settings_pages.SettingsPages.settings_find_escape(app, entry)
-        app.window.set_focus.assert_called_once_with(None)
+    def test_search_fields_escape(self):
+        """agy r2 #3 / r3 #2: Esc in any search field (Settings, Reports › Library, Add-ons, Add MCP
+        server, Models) clears a search first, then gives up the keyboard, then goes back."""
+        for page in ("settings", "reports", "addons", "addmcp", "models"):
+            entry = SimpleNamespace(text="map")
+            entry.get_text = lambda e=entry: e.text
+            entry.set_text = lambda t, e=entry: setattr(e, "text", t)
+            back = mock.Mock()
+            app = KeysTest.app(None, page=page)
+            app.back_actions = lambda b=back, p=page: {p: b}
+            app.editing = lambda: True
+            app.in_search_field = lambda e=entry: e
+            self.assertTrue(ai_popup.AgentsMap.on_key(app, None, Gdk.KEY_Escape, 0, 0))
+            self.assertEqual(entry.text, "")
+            app.window.set_focus.assert_not_called()
+            self.assertTrue(ai_popup.AgentsMap.on_key(app, None, Gdk.KEY_Escape, 0, 0))
+            app.window.set_focus.assert_called_once_with(None)
+            back.assert_not_called()
+
+    def test_old_map_read_does_not_overwrite_newer_facts(self):
+        """Codex r3 #2: a background read that ends after a newer collect and drawing is dropped."""
+        host = Host(page="projects")
+        host.main_tab = "projects"
+        host.tab_decided = True
+        host.map_stale = True
+        workers = []
+        with mock.patch.object(main_tabs.threading, "Thread",
+                               side_effect=lambda target, args=(), **_k: SimpleNamespace(
+                                   start=lambda: workers.append(target))):
+            host.refresh_project_summary = lambda then=None: None
+            host.select_tab("map")                     # the deferred map: a read starts
+            host.map_generation = getattr(host, "map_generation", 0) + 1   # a connection made: collected anew
+            workers.pop()()                            # the old read ends now
+        self.assertNotIn(("refresh_map", "fresh"), host.calls)
+
+    def test_stale_proposal_model_opens_the_page_with_a_note(self):
+        """Codex r3 #3: Review configuration whose model went away: the page opens on a model that
+        exists, with a message, instead of staying empty."""
+        import provider_config_page
+        page = provider_config_page.ProviderConfigPage
+        calls = []
+        app = SimpleNamespace(provider_config_busy=False, provider_config_cancel_timer=lambda: None,
+                              provider_config_body=SimpleNamespace(set_sensitive=lambda v: None),
+                              provider_config_progress=SimpleNamespace(set_visible=lambda v: None),
+                              page_name=lambda: "main", provider_config_generation=0, show_page=lambda n: None,
+                              clear_box=lambda b: None, card_text=lambda *a: None,
+                              note_card=lambda *a: calls.append(("note",) + a[1:]),
+                              show_error=lambda text: calls.append(("error", text)),
+                              render_provider_config=lambda: calls.append(("render",)))
+
+        def draft(facts, model=None, profile="balanced"):
+            if model == "gone":
+                raise ValueError("Choose an available model")
+            return SimpleNamespace(model=model or "kept", fill_proposal=mock.Mock())
+        with mock.patch.object(provider_config_page, "Draft", side_effect=draft), \
+                mock.patch.object(provider_config_page.config, "collect", return_value={}), \
+                mock.patch.object(provider_config_page.threading, "Thread",
+                                  side_effect=lambda target, **_k: SimpleNamespace(start=target)), \
+                mock.patch.object(provider_config_page.GLib, "idle_add", lambda fn, *a: fn(*a)):
+            page.open_provider_config(app, SimpleNamespace(key="lmstudio"), "gone", "fast", prefill={"values": {}})
+        self.assertEqual(app.provider_config_draft.model, "kept")
+        app.provider_config_draft.fill_proposal.assert_not_called()
+        self.assertIn(("render",), calls)
+        self.assertTrue(any(c[0] == "error" for c in calls))
+
+    def test_unusable_answer_keeps_open_configuration(self):
+        """agy r3 #3: no usable values: the proposal stays, Review is Open Configuration (the manual)."""
+        import askai_page
+        import provider_config
+        app = SimpleNamespace(inventory=SimpleNamespace(runtimes=[SimpleNamespace(key="llamacpp", installed=True)]))
+        result = {"status": "proposal", "candidates": [
+            {"kind": "provider_config", "key": "llamacpp", "profile": "fast", "model": None,
+             "action": {"kind": "provider_config", "key": "llamacpp", "model": None}}]}
+        with mock.patch.object(provider_config, "collect", return_value={}), \
+                mock.patch.object(provider_config, "select_model", return_value="*"), \
+                mock.patch.object(provider_config, "ask", side_effect=ValueError("Invalid configuration answer")), \
+                mock.patch("action_rules.allows", return_value=True):
+            askai_page.AskAiPage.ask_provider_values(app, None, result, "q", lambda _t: None,
+                                                     SimpleNamespace(is_set=lambda: False))
+        candidate = result["candidates"][0]
+        self.assertEqual((result["status"], candidate["model"], askai_page.review_label(candidate)),
+                         ("proposal", "*", "Open Configuration"))
+        facts = {"providers": [{"key": "ollama", "name": "Ollama", "configurable": True, "models": ["qwen"],
+                                "config_scope": "global"}]}
+        with self.assertRaises(smart_card.SmartError):        # global settings: no single model
+            smart_card.providers_answer({"action": "provider_config", "provider": "ollama", "model": "qwen"}, facts)
+
+    def test_map_facts_carry_their_stamp(self):
+        """agy r3 #4: a drawing from worker facts takes their models_stamp (no second scan on the next poll)."""
+        app = SimpleNamespace(main_tab="map", tab_decided=True)
+        with mock.patch.object(ai_popup.agents, "list_agents", return_value=[]), \
+                mock.patch.object(ai_popup.inventory, "collect", return_value=SimpleNamespace(runtimes=[])), \
+                mock.patch.object(ai_popup.inventory, "models_stamp", return_value="m"), \
+                mock.patch.object(ai_popup.agents, "install_stamp", return_value="i"), \
+                mock.patch.object(ai_popup.agent_details, "setup_stamp", return_value="s"):
+            facts = ai_popup.AgentsMap.read_map_facts()
+        self.assertEqual(facts[3], ("m", "i", "s"))
 
     def test_all_models_only_where_the_scope_allows(self):
         """Codex r2 #1: "*" for a per-model provider is refused; invalid candidates are not offered."""
