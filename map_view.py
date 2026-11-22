@@ -2247,14 +2247,12 @@ class MapView(Gtk.DrawingArea):
         return {key: moved.index(key) + 1 if key in moved else 0 for key, *_rest in self.group_labels}
 
     def covering(self, point, own: int, upto: int, layers: dict) -> list:
-        """The rectangles of the cards in layers above `own`, up to `upto`, that lie over `point`."""
-        px, py = point
-        return [rect for rect in self.cards_between(own, upto, layers)
-                if rect[0] <= px <= rect[0] + rect[2] and rect[1] <= py <= rect[1] + rect[3]]
+        """The cards (with their plinths' walls) in layers above `own`, up to `upto`, over `point`."""
+        return [shape for shape in self.cards_between(own, upto, layers) if map_3d.in_area(shape, *point)]
 
     def cards_between(self, own: int, upto: int, layers: dict) -> list:
-        """The rectangles of the cards in layers above `own`, up to `upto`."""
-        return [rect for key, rect, *_rest in self.group_labels if own < layers.get(key, 0) <= upto]
+        """The cards in layers above `own`, up to `upto`, each with its plinth's walls (card_outlines)."""
+        return self.card_outlines(own, upto, layers)
 
     def draw_3d(self, cr, layout, pal, cables, markers, lit_nodes):
         """The 3D map's cards, cables and boxes, layer by layer (card_layers), as Maprisma paints them:
@@ -2308,11 +2306,16 @@ class MapView(Gtk.DrawingArea):
                     rows.append(self.add_rects[key][0])
                 hiding += [((*rect, self.radius), layer, None) for rect in rows]
             mine = []                # (cable, from t, to t) of this layer, the part to paint
+            under_ends = {}          # cable -> the cards over its ends (its caps stay under them too)
             for cable in (c for c in cables if cable_layer[id(c)] == layer):
                 ends = [self.covering(point, layer_of(node_id), layer, layers) for node_id, point in cable.ends]
                 t0, t1 = map_3d.uncovered_span(cable.points, ends[0], ends[1])
                 if t0 < t1:
                     mine.append((cable, t0, t1))
+                    # A card over one end only: its caps and dots stay under it too (trimming leaves a cap).
+                    (_a, start), (_b, end) = cable.ends
+                    under_ends[id(cable)] = ([c for c in ends[0] if not map_3d.in_area(c, *end)]
+                                             + [c for c in ends[1] if not map_3d.in_area(c, *start)])
             if mine:
                 # Where a cable plugs into a lower box, its wall does not hide it (the socket is on it).
                 plugs = {}
@@ -2335,9 +2338,14 @@ class MapView(Gtk.DrawingArea):
                     def trace(cr, p=points):
                         cr.move_to(p[0], p[1])
                         cr.curve_to(*p[2:])
+                    if under_ends[id(cable)]:
+                        cr.save()
+                        map_3d.clip_hidden(cr, [(shape, []) for shape in under_ends[id(cable)]])
                     cr.set_line_cap(cairo.LINE_CAP_ROUND if cable.failed else cairo.LINE_CAP_BUTT)
                     map_3d.paint_cable(cr, trace, cable.rgba, cable.width, pal, shadow=cable.shadow,
                                        dash=cable.dash)
+                    if under_ends[id(cable)]:
+                        cr.restore()
                 cr.set_line_cap(cairo.LINE_CAP_BUTT)
                 for cable, t0, t1 in mine:   # the "!" where its cable shows, clipped as it, under the boxes
                     spot = placed.get(id(cable.edge))
@@ -2369,9 +2377,8 @@ class MapView(Gtk.DrawingArea):
                     if node_id in self.folded or t not in (0.0, 1.0):
                         continue
                     # A card stacked since over its box may still lie over part of the disc: cut it away.
-                    over = [((rect[0] - 1, rect[1] - 1, rect[2] + 2, rect[3] + 2, radius + 1), [])   # no seam
-                            for rect in self.cards_between(layer_of(node_id), layer, layers)
-                            if map_3d.overlaps(rect + (0,), (point[0] - 6, point[1] - 6, point[0] + 7, point[1] + 8))]
+                    over = [(shape, []) for shape in self.card_outlines(layer_of(node_id), layer, layers, 1)
+                            if map_3d.overlaps(shape, (point[0] - 6, point[1] - 6, point[0] + 7, point[1] + 8))]
                     if over:
                         cr.save()
                         map_3d.clip_hidden(cr, over)
@@ -2382,10 +2389,25 @@ class MapView(Gtk.DrawingArea):
         cr.set_line_cap(cairo.LINE_CAP_BUTT)
         top = max(layers.values(), default=0)
         for edge, mx, my, layer, holes in shown_markers:   # a card moved over a "!" later hides it too
-            later = [((*rect, radius), []) for rect in self.cards_between(layer, top, layers)]
-            if not map_3d.point_hidden(later, mx, my):
+            hidden = holes + [(shape, []) for shape in self.card_outlines(layer, top, layers)]
+            ring = [(mx, my)] + [(mx + 7 * math.cos(a * math.pi / 4), my + 7 * math.sin(a * math.pi / 4))
+                                 for a in range(8)]
+            if not all(map_3d.point_hidden(hidden, *xy) for xy in ring):      # some of it shows: clicks there
                 self.marker_points.append(((edge.source, edge.target), mx, my))
-                self.marker_holes[(edge.source, edge.target)] = holes + later
+                self.marker_holes[(edge.source, edge.target)] = hidden
+
+    def card_outlines(self, own: int, upto: int, layers: dict, grow: float = 0) -> list:
+        """The cards in layers above `own`, up to `upto`, each with its plinth's walls as one polygon
+        (`grow` px larger: no antialiased seam)."""
+        moving = self.link.get("card") if self.link and self.link.get("drawing") else None
+        outlines = []
+        for key, (x, y, w, h), *_rest in self.group_labels:
+            if own < layers.get(key, 0) <= upto:
+                dx, dy = map_3d.CARD_DEPTH_FOLDED if key in self.collapsed else map_3d.CARD_DEPTH
+                if key == moving:
+                    dx, dy = dx + 1.5, dy + 2.0
+                outlines.append(map_3d.block_outline(x - grow, y - grow, w + 2 * grow, h + 2 * grow, (dx, dy)))
+        return outlines
 
     def marker_hidden_at(self, key, x, y) -> bool:
         """3D: whether the "!" of this line is hidden at (x, y) (a box, header or card lies over it there)."""

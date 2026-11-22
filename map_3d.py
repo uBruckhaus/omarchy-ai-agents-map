@@ -104,11 +104,11 @@ def sub_bezier(points, t0: float, t1: float) -> tuple:
 
 def uncovered_span(points, start_covers, end_covers, steps: int = 64) -> tuple:
     """(t0, t1): the part of a curve that is not still under the cards lying over its start or its end
-    (rectangles): from where it comes out from under them at its start to where it goes under at its
+    (rectangles or polygons): from where it comes out from under them at its start to where it goes under at its
     end. t0 >= t1: none of it shows."""
     def inside(t, covers):
         x, y = bezier_point(points, t)
-        return any(cx <= x <= cx + cw and cy <= y <= cy + ch for cx, cy, cw, ch in covers)
+        return any(in_area(cover, x, y) for cover in covers)
     def crossing(covers, start, step):
         """From `start` towards the other end: the first t outside the covers, refined by bisection
         to well under a pixel (a coarse step would stop the cable short of the card's edge)."""
@@ -168,10 +168,17 @@ def in_shape(shape, px, py) -> bool:
     return inside
 
 
+def in_area(area, px, py) -> bool:
+    """(px, py) in an (x, y, w, h) rectangle, a hiding shape or a polygon."""
+    if not is_polygon(area) and len(area) == 4:
+        x, y, w, h = area
+        return x <= px <= x + w and y <= py <= y + h
+    return in_shape(area, px, py)
+
+
 def point_hidden(holes, px, py) -> bool:
     """Whether (px, py) is cut away by clip_hidden(holes)."""
-    return any(in_shape(shape, px, py) and not any(cx <= px <= cx + cw and cy <= py <= cy + ch
-                                                   for cx, cy, cw, ch in covers)
+    return any(in_shape(shape, px, py) and not any(in_area(cover, px, py) for cover in covers)
                for shape, covers in holes)
 
 
@@ -230,8 +237,18 @@ def clip_hidden(cr, holes):
             cr.close_path()
         else:
             _rounded_reverse(cr, *shape)
-        for cx, cy, cw, ch in covers:
-            cr.rectangle(cx, cy, cw, ch)
+        for cover in covers:                 # the plane's way round: +1
+            if is_polygon(cover):
+                points = list(cover)
+                area = sum(ax * by - bx * ay for (ax, ay), (bx, by) in zip(points, points[1:] + points[:1]))
+                if area < 0:
+                    points.reverse()
+                cr.move_to(*points[0])
+                for point in points[1:]:
+                    cr.line_to(*point)
+                cr.close_path()
+            else:
+                cr.rectangle(*cover[:4])
         cr.clip()
     cr.set_fill_rule(rule)
 

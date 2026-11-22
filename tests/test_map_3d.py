@@ -600,6 +600,22 @@ class WholeMapTest(unittest.TestCase):
         x, y, w, _h = self.card(view, "skills:~/s")
         self.same(wired, plain, (x, y, w, 26), 0)
 
+    def test_a_marker_partly_under_a_later_card_takes_clicks_where_it_shows(self):
+        view, _image = headless(True, self.FAILED, moved=("skills:~/s", (900, 310)))          # Codex r6
+        key = ("agent:claude", "cloud:anthropic")
+        self.assertEqual([k for k, *_xy in view.marker_points], [key])
+        (_key, mx, my), = view.marker_points
+        self.assertFalse(view.marker_hidden_at(key, 898, 326))          # the ring left of the card
+        self.assertTrue(view.marker_hidden_at(key, 905, 326))           # under the card
+
+    def test_a_socket_stays_under_a_later_cards_walls(self):
+        moved = [("skills:~/s", (501, 288)), ("cloud:anthropic", (1000, 277))]               # Codex r6
+        view, plain = headless(True, (), moved=moved)
+        _view, wired = headless(True, self.FAILED, moved=moved)
+        x, y, w, h = self.card(view, "skills:~/s")
+        walls = (x + w, y, 6, h + 7)                                     # the right wall and beyond
+        self.same(wired, plain, walls, 0)
+
     def test_the_flat_map_is_drawn_as_before(self):
         _view, image = headless(False, self.EDGES)
         self.assertEqual(_view.sockets, [])
