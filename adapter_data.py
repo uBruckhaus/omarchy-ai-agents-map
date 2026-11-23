@@ -89,7 +89,7 @@ SUBAGENTS = {"format": STR, "path": STR}
 # really has, the options that pick a model / provider / native subagents, and those subagents.
 PROJECT = {"setup": STRS, "plan": STRS, "run": STRS, "permissions": STR, "access_modes": STRS,
            "model_option": STR, "provider_option": STR, "native_subagents": BOOL, "subagent_option": STR,
-           "subagent_definitions": TABLE}
+           "subagent_definitions": TABLE, "env": TABLE}
 PROJECT_SUBAGENT = {"description": STR, "prompt": STR, "tools": STRS}
 PROJECT_ACCESS = ("read-only", "project-edit")
 # Its plan's limits where no Omarchy collector is: asked of the agent's own program (argv: plain words,
@@ -183,6 +183,24 @@ def _check(table: dict, allowed: dict, where: str, required: tuple = ()) -> None
             raise AdapterError(f"{where}: “{key}” is missing")
 
 
+# [project.env.<plan|run|setup>]: fixed variables for that phase's process only. Only audited names
+# (project_center._valid_env checks the same list at every dispatch, with the values each may take): a
+# variable such as NODE_OPTIONS or PYTHONPATH would load code into the agent. GOOSE_MODE: goose's approval
+# mode, which has no flag (goose.toml).
+PROJECT_ENV_NAMES = {"GOOSE_MODE": ("auto", "approve", "smart_approve", "chat")}
+
+
+def check_project_env(env, name: str) -> None:
+    if not isinstance(env, dict):
+        raise AdapterError(f"{name}: project.env must be a table")
+    for phase, values in env.items():
+        if phase not in ("plan", "run", "setup") or not isinstance(values, dict):
+            raise AdapterError(f"{name}: project.env.{phase} must be a table (plan, run or setup)")
+        for key, value in values.items():
+            if value not in PROJECT_ENV_NAMES.get(key, ()):
+                raise AdapterError(f"{name}: invalid project.env.{phase} variable “{key}”")
+
+
 def _check_project(project: dict, command: str, name: str) -> None:
     _check(project, PROJECT, f"{name}: project")
     for key in ("setup", "plan", "run"):
@@ -206,6 +224,7 @@ def _check_project(project: dict, command: str, name: str) -> None:
                ("description", "prompt"))
     if project.get("subagent_definitions") and not (project.get("native_subagents") and project.get("subagent_option")):
         raise AdapterError(f"{name}: project.subagent_definitions need native_subagents and subagent_option")
+    check_project_env(project.get("env", {}), name)
 
 
 def check(data: dict, name: str) -> None:

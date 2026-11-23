@@ -211,6 +211,26 @@ class CheckTest(unittest.TestCase):
         data["security"]["settings"][0]["choices"][0]["risk"] = 7
         self.refused(data, "0 (safe) to 3 (high)")
 
+    def test_project_env_takes_plan_run_setup_tables_of_safe_variables(self):
+        """[project.env] (Maprisma's adapters_test): only audited names, each with its own values."""
+        def with_env(env) -> dict:
+            data = self.claude()
+            data["project"]["env"] = env
+            return data
+        harness = adapter_data.harness(with_env({"plan": {"GOOSE_MODE": "auto"}, "run": {"GOOSE_MODE": "auto"}}),
+                                       "test.toml")
+        self.assertEqual(json.loads(harness.project)["env"]["run"], {"GOOSE_MODE": "auto"})
+        for bad in ({"review": {"A": "b"}}, {"plan": "A=b"}, {"plan": {"LD_PRELOAD": "/x.so"}},
+                    {"plan": {"XDG_CONFIG_HOME": "/x"}}, {"plan": {"HOME": "/x"}}, {"plan": {"lower": "x"}},
+                    {"plan": {"A": 1}}, {"plan": {"GOOSE_MODE": "yolo"}}, "GOOSE_MODE=auto"):
+            with self.subTest(env=bad):
+                self.refused(with_env(bad), "project.env")
+
+    def test_goose_project_env_is_auto_in_every_phase(self):
+        data = tomllib.loads((adapter_data.ADAPTERS / "goose.toml").read_text())
+        self.assertEqual(data["project"]["env"], {phase: {"GOOSE_MODE": "auto"} for phase in ("setup", "plan", "run")})
+        self.assertEqual(data["project"]["access_modes"], ["read-only"])
+
     def test_every_adapter_file_loads(self):
         for path in sorted(adapter_data.ADAPTERS.glob("*.toml")):
             with self.subTest(file=path.name):

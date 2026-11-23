@@ -49,3 +49,9 @@ reader = "dsh"
 
 [models]                               # its online models on the map: "provider/model" (its hooks)
 hook = true
+
+
+# No [project] (dsh 0.2.1-rc.2, reviewed 2026-11-23): no permission flags; DSH_PERMISSION_MODE only sets
+# the inferred default preset, and a defaultPreset the user saved wins over it for every fresh session
+# (dsh-permission-presets/lib/index.js: pinInitialPermission, defaultSettings). Its sandbox covers file
+# effects only (dsh-bash-sandbox README, "Known Limitations"): commands keep network access.

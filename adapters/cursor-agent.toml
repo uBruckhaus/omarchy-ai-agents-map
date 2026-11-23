@@ -99,3 +99,11 @@ title = "Never allowed"
 
 [details]                              # its model (the agent's card)
 reader = "cursor"
+
+
+# No [project] (Cursor CLI 2026.11.22-e9042b2, reviewed 2026-11-23): print mode only rejects what needs
+# approval while the user's approvalMode is "allowlist"; with "unrestricted" it approves everything
+# (run-agent: wantsAutoRun = force || approvalMode == "unrestricted"), and no flag forces it back.
+# Allow-listed shell commands also run outside the sandbox, and --trust (required headless in an
+# untrusted folder) permanently writes .workspace-trusted. Sources: cursor-agent --help, its bundled
+# dist-package/7000.index.js, https://cursor.com/docs/agent/security/run-modes

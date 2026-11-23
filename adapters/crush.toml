@@ -42,3 +42,7 @@ per_token = true                       # API keys only (its flat-rate models rep
 [[access.logins]]
 label = "Inside Crush (it asks for a key)"
 argv = ["crush"]
+
+# No [project]: crush run (v0.102.0, internal/cmd/run.go) auto-approves every permission request of
+# its session, and no flag limits its tools (bash, edit, fetch, MCP), so it cannot be fenced to
+# read-only or to project edits.

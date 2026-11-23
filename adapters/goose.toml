@@ -53,3 +53,31 @@ argv = ["goose", "configure"]
 
 [details]                              # its model and providers (the agent's card)
 reader = "goose"
+
+# AI Project Center: session-only permission scope; never changes global settings.
+# From documentation, not checked against an installed binary (goose v1.60.2):
+# https://github.com/aaif-goose/goose/blob/main/documentation/docs/guides/goose-cli-commands.md (run: -t,
+# -q, --no-session, --with-builtin, --provider, --model), .../guides/managing-tools/goose-permissions.md,
+# and source crates/goose-cli/src/cli.rs + session/builder.rs at v1.60.2 (`--no-profile` loads none of
+# the configured extensions or project plugin MCP servers, only the ones named on the command line).
+# Goose has no sandbox, so this profile is read-only: its one tool is the built-in "analyze" extension
+# (tree-sitter structure, signatures and call graphs; no file contents, no edits, no shell), which takes
+# absolute paths too. GOOSE_MODE=auto for this process only: with the user's "approve" mode a headless
+# run aborts at the first tool call (session/mod.rs), "chat" has no tools. Setup has no extension at all.
+[project]
+setup = ["goose", "run", "--no-profile", "--no-session", "-q", "-t", "{prompt}"]
+plan = ["goose", "run", "--no-profile", "--with-builtin", "analyze", "--no-session", "-q", "-t", "{prompt}"]
+run = ["goose", "run", "--no-profile", "--with-builtin", "analyze", "--no-session", "-q", "-t", "{prompt}"]
+permissions = "Planning, review and execution only see code structure (files, signatures, call graphs) through goose's built-in analyze tool; it cannot read whole files, edit or run commands, but it is not fenced to the project folder. Goose has no filesystem sandbox; its other extensions and MCP servers are not loaded in this managed profile."
+access_modes = ["read-only"]
+model_option = "--model"
+provider_option = "--provider"
+
+[project.env.setup]
+GOOSE_MODE = "auto"
+
+[project.env.plan]
+GOOSE_MODE = "auto"
+
+[project.env.run]
+GOOSE_MODE = "auto"

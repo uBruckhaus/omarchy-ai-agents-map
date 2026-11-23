@@ -31,3 +31,9 @@ key = "mcp_servers"
 how = "An API key from console.x.ai"
 login = "grok"
 env = ["XAI_API_KEY"]
+
+# No [project] (AI Project Center) yet: grok is only a lazy mise entry here (not installed), and its docs
+# leave open which tools dontAsk still allows, the tool names for --allow, how headless -p handles approval
+# prompts and how to switch off MCP and hooks. Candidates once checked against grok --help:
+# --sandbox read-only|strict, --permission-mode dontAsk, --allow, --tools, --no-subagents, -m.
+# Source: https://docs.x.ai/build/cli/reference, https://docs.x.ai/build/features/sandbox

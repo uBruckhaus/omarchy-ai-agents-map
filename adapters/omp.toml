@@ -45,3 +45,10 @@ dir = "~/.omp/agent"
 [tools]                                # the tools it is given
 file = "~/.omp/agent/settings.json"
 key = "defaultTools"
+
+
+# No [project] (omp 19.1.1, reviewed 2026-11-23): it has no filesystem sandbox and no switch for MCP
+# (servers from ~/.omp/agent/mcp.json and the project's .mcp.json start at launch); user
+# tools.approval allow rules override --approval-mode always-ask ("honored in every approval mode");
+# and its read tool also fetches http(s) URLs at read tier. Not even a read-only profile is fenced.
+# Sources: omp --help, https://omp.sh/docs/cli, https://omp.sh/docs/approvals

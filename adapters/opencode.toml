@@ -61,3 +61,9 @@ hook = true
 [ask]                                  # one prompt, one answer (the first-agent guide's test)
 argv = ["opencode", "run", "{prompt}"]
 note = "tools are not switched off, but it asks before using one (no --auto); the test's question needs none"
+
+# No [project] (AI Project Center): no argv-only way to fence it. Every built-in agent, plan and explore
+# included, allows shell commands (base policy allows "*"; plan only denies edits), permissions come only
+# from config files or OPENCODE_CONFIG_CONTENT, and the project's own opencode.json, plugins and MCP
+# servers load. Source: opencode v2.4.1 run --help and its built-in agent definitions,
+# https://opencode.ai/docs/permissions.md, https://opencode.ai/docs/agents.md

@@ -45,3 +45,11 @@ note = "Choose “Sign in with Google” when it asks."
 var = "GEMINI_API_KEY"
 url = "https://aistudio.google.com/apikey"
 env_file = "~/.gemini/.env"
+
+
+# No [project] (gemini-cli v0.70.0 from documentation, reviewed 2026-11-23): headless "deny" for edits
+# and shell is a default-tier policy (1.010) that user policies (4.x, incl. saved "Always Allow") and
+# trusted workspace policies (3.x) outrank, so planning is not reliably read-only; plan mode switches to
+# YOLO when it ends headless; auto_edit also allows web_fetch. Sources:
+# https://github.com/google-gemini/gemini-cli/blob/v0.70.0/packages/core/src/policy/policies/write.toml,
+# .../policies/read-only.toml, docs/cli/plan-mode.md
