@@ -292,6 +292,38 @@ class UnitsTest(unittest.TestCase):
         self.assertIn(self.PID, self.sync({self.PID: DAILY}))
 
 
+    def test_a_timer_that_cannot_be_stopped_keeps_its_files_and_is_said(self):
+        """Codex 2.1.0 r1: a failed disable --now was ignored, so clear could report success with a
+        timer still active. Now it is reported and its files stay for the next try; a timer that is
+        not active any more (disable failed, is-active says no) is removed."""
+        timer = self.dir / f"ai-agents-map-schedule-{self.PID}.timer"
+        self.sync({self.PID: DAILY})
+        self.ctl.fail.add("disable")                              # still active: is-active succeeds
+        failures = su.remove_all(directory=self.dir, run=self.ctl)
+        self.assertIn(self.PID, failures)
+        self.assertTrue(timer.exists() and su.managed(timer))
+        self.assertIn(["systemctl", "--user", "is-active", "--quiet", timer.name], self.ctl.calls)
+        self.ctl.fail.add("is-active")                            # not active (or no manager): removed
+        self.assertEqual(su.remove_all(directory=self.dir, run=self.ctl), {})
+        self.assertEqual(list(self.dir.iterdir()), [])
+
+    def test_a_failed_reload_after_removing_is_said(self):
+        self.sync({self.PID: DAILY})
+        self.ctl.fail.add("daemon-reload")
+        self.assertIn(self.PID, su.remove_all(directory=self.dir, run=self.ctl))
+
+    def test_clear_reports_a_timer_left_running(self):
+        class Center:
+            def schedules(self):
+                return {}
+
+            def shutdown(self):
+                pass
+        with mock.patch("sys.stderr") as err:
+            self.assertEqual(ps.clear(open_store=Center, remove_all=lambda: {self.PID: "Failed"}), 1)
+        self.assertIn(self.PID, "".join(str(c.args[0]) for c in err.write.call_args_list))
+
+
 class ScheduleCenterCase(tpc.CenterCase):
     """The real center on a temporary folder with the fixture agent; a recording schedules hook."""
 
@@ -604,6 +636,60 @@ class QueueTest(QueueCase):
         self.assertEqual(served[big], "invalid")
         self.assertEqual(served[link], "invalid")                 # a link is not followed
         self.assertNotIn("notanonce", served)
+
+    def test_a_request_is_never_seen_half_written(self):
+        """Codex 2.1.0 r1: the .req file appeared before its JSON was written, so an owner claiming it
+        then read nothing and the occurrence was lost. Now it appears only complete (requests and
+        answers alike), also when the system writes it in pieces."""
+        real_write, seen = os.write, []
+
+        def one_byte(fd, data):
+            seen.append(sorted(p.name for p in self.queue.iterdir() if not p.name.endswith(".tmp")))
+            return real_write(fd, bytes(data[:1]))
+        with mock.patch.object(sh.os, "write", side_effect=one_byte):
+            nonce = sh.submit(self.PID, self.queue)
+        self.assertGreater(len(seen), 10)
+        self.assertTrue(all(names == [] for names in seen))           # nothing visible while writing
+        self.assertEqual(sorted(p.name for p in self.queue.iterdir()), [f"{nonce}.req"])
+        self.assertEqual(os.stat(self.queue / f"{nonce}.req").st_mode & 0o777, 0o600)
+        with mock.patch.object(ps, "trigger", return_value="started"):
+            self.assertEqual(sh.serve(lambda: "call", lambda *a: None, self.queue), [(nonce, "started")])
+        self.assertEqual(sh.answer(nonce, self.queue), "started")
+
+    def test_a_short_write_leaves_nothing(self):
+        with mock.patch.object(sh.os, "write", return_value=0):
+            with self.assertRaises(OSError):
+                sh.submit(self.PID, self.queue)
+        self.assertEqual(list(self.queue.iterdir()), [])
+
+    def test_an_existing_name_is_not_replaced_and_leftovers_go(self):
+        fd = sh._open_queue(self.queue)
+        try:
+            sh._create(fd, "a" * 32 + ".ans", {"outcome": "started"})
+            with self.assertRaises(FileExistsError):
+                sh._create(fd, "a" * 32 + ".ans", {"outcome": "failed"})
+            leftover = self.queue / ("b" * 32 + ".req.0011223344556677.tmp")
+            leftover.write_text("{")
+            old = time.time() - sh.LEFTOVER_AGE - 60
+            os.utime(leftover, (old, old))
+            sh._clean(fd, time.time())
+        finally:
+            os.close(fd)
+        self.assertFalse(leftover.exists())
+        self.assertEqual(sh.answer("a" * 32, self.queue), "started")
+
+    def test_the_queue_listing_is_bounded(self):
+        sh._open_queue(self.queue)
+        for index in range(60):
+            (self.queue / f"junk{index}").write_text("")
+        nonce = sh.submit(self.PID, self.queue)
+        with mock.patch.object(sh, "MAX_LISTED", 10):
+            fd = sh._open_queue(self.queue)
+            try:
+                self.assertLessEqual(len(sh._requests(fd)), 1)
+            finally:
+                os.close(fd)
+        self.assertTrue(sh.pending(nonce, self.queue))
 
     def test_a_queue_others_can_enter_is_refused(self):
         self.queue.mkdir(mode=0o700)

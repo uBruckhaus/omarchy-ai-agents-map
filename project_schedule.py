@@ -377,6 +377,8 @@ def clear(open_store=None, remove_all=None) -> int:
         finally:
             center.shutdown()
     failures = remove_all()
+    for project_id, why in sorted((failures or {}).items()):
+        print(f"The timer of project {project_id} could not be removed: {why}", file=sys.stderr)
     if kept:
         print("The project list is in use (AI Agents Map runs): the timers were removed, the projects keep "
               "their schedule.", file=sys.stderr)

@@ -42,6 +42,7 @@ from pathlib import Path
 QUEUE_NAME = "ai-agents-map-schedule"
 MAX_REQUEST = 1024
 MAX_REQUESTS = 16                 # served per look; the rest at the next one
+MAX_LISTED = 1000                 # folder entries looked at per look
 REQUEST_AGE = 180.0               # seconds a request may wait before it counts as stale
 APP_GRACE = 15.0                  # the app looks at the queue every 2 s
 JOB_DEADLINE = 120.0              # nobody claimed and the store stayed busy: the occurrence is skipped
@@ -81,11 +82,26 @@ def _open_queue(directory: Path | None = None) -> int:
 
 
 def _create(fd: int, name: str, body: dict) -> None:
-    out = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=fd)
+    """`name` appears only complete: the JSON goes into a new private file (never through a link),
+    every byte written, then it is renamed to `name` (a reader never sees a half-written request or
+    answer). An existing `name` is not replaced (FileExistsError)."""
+    data = json.dumps(body).encode("ascii")
+    temporary = f"{name}.{secrets.token_hex(8)}.tmp"
+    out = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600,
+                  dir_fd=fd)
     try:
-        os.write(out, json.dumps(body).encode("ascii"))
+        try:
+            view = memoryview(data)
+            while view:
+                written = os.write(out, view)
+                if written <= 0:
+                    raise OSError(errno.EIO, "short write")
+                view = view[written:]
+        finally:
+            os.close(out)
+        os.link(temporary, name, src_dir_fd=fd, dst_dir_fd=fd, follow_symlinks=False)
     finally:
-        os.close(out)
+        _unlink(fd, temporary)
 
 
 def _read(fd: int, name: str) -> dict | None:
@@ -185,7 +201,7 @@ def serve(open_call, notify, directory: Path | None = None, now=time.time) -> li
     except OSError:
         return []
     try:
-        names = sorted(name for name in os.listdir(fd) if name.endswith(".req") and _NONCE.fullmatch(name[:-4]))
+        names = sorted(_requests(fd))
         _clean(fd, now())
         if not names:
             return []
@@ -218,6 +234,20 @@ def serve(open_call, notify, directory: Path | None = None, now=time.time) -> li
         os.close(fd)
 
 
+def _requests(fd: int) -> list:
+    """The waiting requests' names, at most MAX_LISTED looked at (the folder is private, but a
+    runaway writer of this account must not make every look allocate without limit)."""
+    found = []
+    with os.scandir(fd) as entries:
+        for count, entry in enumerate(entries):
+            if count >= MAX_LISTED:
+                break
+            name = entry.name
+            if name.endswith(".req") and _NONCE.fullmatch(name[:-4]):
+                found.append(name)
+    return found
+
+
 def _outcome(request, at: float) -> str | None:
     """Why a claimed request is not run (None: run it)."""
     if not isinstance(request, dict) or set(request) != {"project", "at"} \
@@ -232,11 +262,12 @@ def _outcome(request, at: float) -> str | None:
 def _clean(fd: int, at: float) -> None:
     """Answers nobody read and claims a host left behind when it died."""
     try:
-        names = os.listdir(fd)[:1000]
+        with os.scandir(fd) as entries:
+            names = [entry.name for _count, entry in zip(range(MAX_LISTED), entries)]
     except OSError:
         return
     for name in names:
-        if name.endswith((".ans", ".claimed")) or (name.endswith(".req") and _NONCE.fullmatch(name[:-4])):
+        if name.endswith((".ans", ".claimed", ".tmp")) or (name.endswith(".req") and _NONCE.fullmatch(name[:-4])):
             try:
                 info = os.stat(name, dir_fd=fd, follow_symlinks=False)
             except OSError:
