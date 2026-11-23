@@ -3232,7 +3232,10 @@ class MapView(Gtk.DrawingArea):
 
     def draw_battery(self, cr, node_id, right, y, h, faded) -> int:
         """A small battery ending at `right`: filled to what is left of the tightest limit, green,
-        yellow or red at the levels of Settings › Costs. Returns the room it takes."""
+        yellow or red at the levels of Settings › Costs. Returns the room it takes. A local LLM's
+        free GPU memory is a memory chip in the same colours instead (as Maprisma's)."""
+        if node_id.startswith("runtime:"):
+            return self.draw_memory_chip(cr, node_id, right, y, h, faded)
         left, colour, _tip = self.batteries[node_id]
         bw, bh = 20, 10
         bx, by = right - bw - 5, y + (h - bh) / 2
@@ -3248,6 +3251,16 @@ class MapView(Gtk.DrawingArea):
         cr.rectangle(bx + 2, by + 2, max(1.5, (bw - 4) * left), bh - 4)
         cr.fill()
         return bw + 9
+
+    def draw_memory_chip(self, cr, node_id, right, y, h, faded) -> int:
+        """A running local LLM's free GPU memory: a small memory chip ending at `right`, green,
+        yellow or red as a battery would be (its tooltip says how much is free). Returns its room."""
+        _left, colour, _tip = self.batteries[node_id]
+        cx, cy = right - CHIP_SIZE / 2 - CHIP_PIN - 5, y + h / 2
+        room = CHIP_SIZE + 2 * CHIP_PIN + 4
+        self.battery_rects[node_id] = (cx - room / 2, cy - room / 2, room, room)
+        paint_memory_chip(cr, cx, cy, self.color(colour, 0.4 if faded else 1.0))
+        return room + 3
 
     def draw_cost(self, cr, layout, node_id, right, y, h, faded) -> int:
         """Today's cost ending at `right` ("$3.40 today"), small, in its colour against a day's limit (as
@@ -3621,6 +3634,36 @@ def draw_marks(cr, marks):
             cr.set_source_rgba(*rgba_)
             cr.arc(x, y, radius, 0, 2 * math.pi)
             cr.fill()
+
+
+CHIP_SIZE, CHIP_PIN = 12, 2.5
+
+
+def paint_memory_chip(cr, cx: float, cy: float, rgba) -> None:
+    """A memory chip centred on (cx, cy) in `rgba`: a local LLM's free GPU memory (on the map's box
+    and on Setup's card), as Maprisma's chip, in a battery's colours."""
+    size, pin = CHIP_SIZE, CHIP_PIN
+    x0, y0 = cx - size / 2, cy - size / 2
+    cr.set_source_rgba(*rgba)
+    cr.set_line_width(1.5)
+    r = 2
+    cr.new_sub_path()
+    cr.arc(x0 + size - r - 0.75, y0 + r + 0.75, r, -math.pi / 2, 0)
+    cr.arc(x0 + size - r - 0.75, y0 + size - r - 0.75, r, 0, math.pi / 2)
+    cr.arc(x0 + r + 0.75, y0 + size - r - 0.75, r, math.pi / 2, math.pi)
+    cr.arc(x0 + r + 0.75, y0 + r + 0.75, r, math.pi, 3 * math.pi / 2)
+    cr.close_path()
+    cr.stroke()
+    cr.rectangle(cx - 2.5, cy - 2.5, 5, 5)                 # the die
+    cr.fill()
+    cr.set_line_width(1.2)
+    for i in (0.28, 0.5, 0.72):                            # three pins on each side
+        p = i * size
+        for ax, ay, bx, by in ((x0 + p, y0, x0 + p, y0 - pin), (x0 + p, y0 + size, x0 + p, y0 + size + pin),
+                               (x0, y0 + p, x0 - pin, y0 + p), (x0 + size, y0 + p, x0 + size + pin, y0 + p)):
+            cr.move_to(ax, ay)
+            cr.line_to(bx, by)
+    cr.stroke()
 
 
 def draw_glyphs(cr, glyphs, font, gap: float):

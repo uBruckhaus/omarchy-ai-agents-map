@@ -1814,7 +1814,8 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         extra = [f"{round(usage.temp)} °C" if usage.temp else "", f"{round(usage.power)} W" if usage.power else ""]
         self.gpu_activity_side.set_label("  ·  ".join(e for e in extra if e))
         self.side_map.set_usage(usage)
-        # Running local LLMs: the GPU memory still free as a battery (on the map's box and on Setup's card).
+        # Running local LLMs: the GPU memory still free, a memory chip in a battery's colours (on the
+        # map's box and on Setup's card).
         free = max(0, usage.vram_total - usage.vram_used)
         self.gpu_batteries = {f"runtime:{key}": level for key, use in usage.runtimes.items() if use.running
                               for level in [agent_details.gpu_battery(free, usage.vram_total, use.vram)] if level}

@@ -42,14 +42,16 @@ The header has two tabs, **Projects** (Ctrl+1) and **AI Map** (Ctrl+2), then the
 Ctrl+,) and refresh (F5). The window opens on the tab used last (the first time on Projects when a
 project exists). The window is a normal app window; as an overlay inside it, pages such as connecting,
 installing or a terminal open in a centred frame over the dimmed map (Esc or Back closes them); Esc on
-the AI Map or the Projects board with nothing open closes the window.
+the AI Map or the Projects board with nothing open closes the window. **Settings › Keyboard shortcuts**
+lists every key that works inside the window, each with what it does.
 
 ## Projects, Reports and the links between the tabs
 
 The same features as Maprisma 2.x, inside the plugin:
 
 - **Projects** (the AI Project Center): a board of your projects (filters with counts, Cards | Phases,
-  manual order and High/Medium/Low importance) and a project page with Goal, Plan, Team (with a graph of
+  your own order by dragging a card onto another, with separators showing where it can go, or
+  Ctrl+↑/↓/Home/End, and High/Medium/Low importance) and a project page with Goal, Plan, Team (with a graph of
   who works with which provider), Activity (messages to a running team: **Send** / **Send now**) and
   Setup. A team of your installed agents plans and runs the work step by step; every launch is checked
   against Settings › Rules, agents run under a supervisor that stops their whole process tree, and an
@@ -320,7 +322,8 @@ again. This works with the window closed and after a reboot.
 
 Above the map, **GPU memory** (in use, free, split into local LLMs, desktop & apps and free) and
 **GPU activity** (load, temperature, power; green while a model is generating) show the same as LLM
-Monitor. Each local LLM's box shows how much GPU memory it holds, and loaded models get a green dot.
+Monitor. Each local LLM's box shows how much GPU memory it holds, a running one a memory chip in green,
+yellow or red for the GPU memory still free (its tooltip says how much), and loaded models get a green dot.
 
 ## Adding MCP servers and skills
 

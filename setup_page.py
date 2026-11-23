@@ -885,8 +885,8 @@ class SetupPage:
         return found
 
     def battery_badge(self, node_id: str) -> Gtk.Widget | None:
-        """An online agent's limits, or a running local LLM's free GPU memory, as a small battery
-        (the map's box has the same)."""
+        """An online agent's limits as a small battery, or a running local LLM's free GPU memory as a
+        memory chip (the map's box has the same)."""
         level = getattr(self, "batteries", {}).get(node_id) if node_id else None
         if level is None:
             cost = getattr(self, "agent_costs", {}).get(node_id) if node_id else None
@@ -899,7 +899,9 @@ class SetupPage:
                              else GLib.markup_escape_text(cost[0]))
             label.set_tooltip_text(cost[1])
             return label
-        from ui_helpers import Battery
+        from ui_helpers import Battery, MemoryChip
+        if node_id.startswith("runtime:"):
+            return MemoryChip(self.side_map.color, *level)    # free GPU memory: a chip, as on the map
         return Battery(self.side_map.color, *level)
 
     def problem_badge(self, node_id: str) -> Gtk.Widget | None:

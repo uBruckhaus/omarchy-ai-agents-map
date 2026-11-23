@@ -311,6 +311,7 @@ class SettingsPages:
                                 self.open_my_setup)
         for addon_id, builder in self.addon_hooks("settings"):
             addon_api.call(addon_id, builder, addon_api.UI(self, addon_id), right)
+        self.fill_shortcut_settings(right)
         group = self.preference_group(right, _("About"))
         self.button_row(group, _("About {0}").format(desktop.app_name()),
                         _("Version, author, license and the project on GitHub."), _("About"), self.show_about)
@@ -351,6 +352,56 @@ class SettingsPages:
             website=url, issue_url=url + "/issues")
         about.present(self.window)
 
+    # Settings › Keyboard shortcuts: the keys that work inside the window, each with what it does
+    # (the handlers: ai_popup.on_key, projects_page.on_card_key, askai_page, terminal_pane).
+    SHORTCUTS = (
+        (N_("Window"), (
+            ("Ctrl+1", N_("Projects tab")),
+            ("Ctrl+2", N_("AI Map tab")),
+            ("Ctrl+,", N_("Open Settings")),
+            ("F1", N_("Open Help (on Reports: how reporting works)")),
+            ("F5", N_("Read the setup again (Refresh)")),
+            ("F12", N_("Save a picture of this window (it can be turned off under General)")),
+            ("Esc", N_("Leave a page; on the map, first clear the selection, then close the window")),
+            ("Backspace", N_("Back a page, when no text field is being edited")),
+        )),
+        (N_("AI Map"), (
+            ("Ctrl++", N_("Zoom in")),
+            ("Ctrl+−", N_("Zoom out")),
+            ("Ctrl+0", N_("Back to 100 %")),
+            ("Shift+click", N_("Add a box to the selection")),
+        )),
+        (N_("Projects"), (
+            ("Ctrl+↑ / Ctrl+↓", N_("Move the card that has the keyboard one place")),
+            ("Ctrl+Home / Ctrl+End", N_("Move it to the top or the end of the board")),
+        )),
+        (N_("Ask AI"), (
+            ("Enter", N_("Send the question")),
+            ("Ctrl+Enter", N_("A new line in the question")),
+        )),
+        (N_("Terminal"), (
+            ("Ctrl+Shift+C", N_("Copy the selection")),
+            ("Ctrl+Shift+V", N_("Paste")),
+            ("Shift+Insert", N_("Paste the text selected elsewhere")),
+        )),
+    )
+
+    def fill_shortcut_settings(self, box):
+        """Settings › Keyboard shortcuts: one group per part of the window, each key with what it does."""
+        group = self.preference_group(box, _("Keyboard shortcuts"))
+        group.set_description(_("The keys that work inside the window. Every other key in a terminal goes "
+                                "to the agent. The shortcut that opens the window is set in Omarchy."))
+        for title, keys in self.SHORTCUTS:
+            group = self.preference_group(box, _(title))
+            for combo, what in keys:
+                row = Adw.ActionRow(title=_(what), use_markup=False)
+                row.set_title_lines(0)
+                key = Gtk.Label(label=combo, valign=Gtk.Align.CENTER, selectable=False)
+                key.add_css_class("monospace")
+                key.add_css_class("dim-label")
+                row.add_suffix(key)
+                group.add(row)
+
     def preference_group(self, box, title: str) -> Adw.PreferencesGroup:
         group = Adw.PreferencesGroup(title=GLib.markup_escape_text(title))
         self.place_group(box, group, title)
@@ -359,11 +410,13 @@ class SettingsPages:
     # Maprisma's Settings: sections on the left (settings_view.dart), each group in its section.
     SECTIONS = (("general", N_("General")), ("appearance", N_("Appearance")), ("map", N_("Map")),
                 ("agents", N_("Agents")), ("llms", N_("Local LLMs")), ("addons", N_("Add-ons")),
-                ("about", N_("About")))
+                ("shortcuts", N_("Keyboard shortcuts")), ("about", N_("About")))
     SECTION_OF = {N_("General"): "general", N_("Omarchy app"): "general", N_("Appearance"): "appearance", N_("AI features"): "agents",
                   N_("Usage statistics box"): "map", N_("Map"): "map", N_("AI activity log"): "map",
                   N_("Subagents"): "agents",
-                  N_("Costs"): "agents", N_("Models"): "llms", N_("Add-ons"): "addons", N_("About"): "about"}
+                  N_("Costs"): "agents", N_("Models"): "llms", N_("Add-ons"): "addons", N_("About"): "about",
+                  N_("Keyboard shortcuts"): "shortcuts", N_("Window"): "shortcuts", N_("AI Map"): "shortcuts",
+                  N_("Projects"): "shortcuts", N_("Ask AI"): "shortcuts", N_("Terminal"): "shortcuts"}
 
     def place_group(self, box, group, title: str):
         """A group into its section's page (by its English title), else where it was asked for."""

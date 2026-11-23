@@ -8,7 +8,7 @@ from gi.repository import Gdk, Gtk
 import icons
 from glyphs import GLYPHS, MCP_GLYPHS, MCP_GROUP_GLYPHS, RUN_GLYPHS, glyph  # noqa: F401  (shared)
 from i18n import _
-from map_view import MapView
+from map_view import CHIP_PIN, CHIP_SIZE, MapView, paint_memory_chip
 from gi.repository import Pango, PangoCairo  # noqa: E402  (map_view asked for PangoCairo's version)
 
 
@@ -249,6 +249,24 @@ class TokenChart(Gtk.DrawingArea):
                 tooltip.set_text(f"{day.strftime('%a %d.%m.')} · " + _("{0} tokens").format(f"{tokens:,}".replace(",", " ")))
                 return True
         return False
+
+
+class MemoryChip(Gtk.DrawingArea):
+    """A running local LLM's free GPU memory, as on its box on the map (MapView.draw_memory_chip):
+    a memory chip, green, yellow or red as a battery would be; the tooltip says how much is free."""
+
+    def __init__(self, colors, _left: float, colour: str, tip: str):
+        super().__init__()
+        self.colors, self.colour = colors, colour
+        side = int(CHIP_SIZE + 2 * CHIP_PIN + 2)
+        self.set_content_width(side)
+        self.set_content_height(side)
+        self.set_valign(Gtk.Align.CENTER)
+        self.set_tooltip_text(tip)
+        self.set_draw_func(self.on_draw)
+
+    def on_draw(self, _area, cr, width, height):
+        paint_memory_chip(cr, width / 2, height / 2, self.colors(self.colour))
 
 
 class Battery(Gtk.DrawingArea):

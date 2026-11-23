@@ -199,6 +199,12 @@
   lie over the tab they were opened from and go back to it. Ask AI and the problems list work on the map: from
   Projects they switch to the AI Map first. Switching to the AI Map clears the board's filters, the agent chip
   and the Cards | Phases choice.</p>
+  <p>The board keeps your order. Drag a card onto another card to put it there: you can take it anywhere on the
+  card with the mouse (with a touchscreen, by its grip ⠿, so a swipe still scrolls the board). While it is
+  dragged, the other cards show a faint line at every place it can go and a strong one where it would go now;
+  the card itself fades until you let go. <kbd>Ctrl</kbd>+<kbd>↑</kbd> and <kbd>Ctrl</kbd>+<kbd>↓</kbd> move
+  the card that has the keyboard one place, <kbd>Ctrl</kbd>+<kbd>Home</kbd> and <kbd>Ctrl</kbd>+<kbd>End</kbd>
+  to the top or the end of the board.</p>
   <p><kbd>Esc</kbd> first leaves a text field (a search field is cleared first), then goes back from a page
   (an open project back to its board). Ask AI is the exception: <kbd>Esc</kbd> in its question field closes
   Ask AI at once, and your question stays.
@@ -248,7 +254,7 @@
     <li>An agent's details show <b>Additional usage</b> under its plan: whether it can cost extra money beyond the plan's limits. Claude Code tells this on your PC (and the page to change it); for other agents the app says it does not know, so check with the provider.</li>
     <li>A small battery on an online agent's card shows what is left of its limits (a session, a week):
       the tightest one counts, yellow at a quarter or less, red under a tenth; hover it for each limit
-      and when it resets. On a running local LLM's card the battery is the GPU memory still free, with
+      and when it resets. On a running local LLM's card a memory chip shows the GPU memory still free, in
       the same colours; hover it for how much that local LLM uses.</li>
     <li>The refresh symbol (<kbd>F5</kbd>) in the header row looks again at what is installed,
       set up and signed in, and runs the checks of a start again (new apps, add-ons, updates, open problems).</li>
@@ -341,7 +347,10 @@
       <kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>−</kbd> / <kbd>0</kbd>.</li>
     <li>The boxes sit in one card per category (agents, online providers, local LLMs, a card per
       model folder, MCP servers, skills). Drag a card by its header to change the order in its column, and
-      a box inside its card to change the order.</li>
+      a box inside its card to change the order: while it is dragged, a faint line marks every place in its
+      card it can go and a strong one where it goes. A box never leaves its own card; let go over another
+      card and it stays where it was (from an agent to a provider, MCP server or skill a line is drawn
+      instead: that connects them).</li>
     <li><b>Click a card's header</b> to fold the card to its header (<b>▸</b> at the header's right) and
       again to open it (<b>▾</b>). The lines of a folded card's boxes end at its header, so you still see
       what is joined to it (the arrows between agents hide while the agents' card is folded). Opening a card moves the cards below it in its column down.</li>
@@ -930,7 +939,8 @@
 <p>When an agent's details open and Omarchy collects that agent's usage (plan, limits and when they reset), the app asks Omarchy for fresh figures in the background if the last ones are older than ten minutes or older than the agent's last sign-in, then shows them; at most once every ten minutes per agent. Settings › <b>Corners</b> sets the corners of the window's cards, dialogs and the map's boxes: <b>Like windows</b> follows Hyprland's window rounding (with the number of pixels shown), <b>Slightly rounded (6 px)</b>, <b>Rounded (12 px)</b> or <b>Square</b>. Every control follows in three sizes: buttons, drop-downs, fields and chips at most 8 px, check boxes and progress bars at most 4 px.</p>
 
 <h2 id="settings-list">Settings</h2>
-  <p>The gear (<kbd>Ctrl</kbd>+<kbd>,</kbd>) opens Settings; <kbd>Backspace</kbd> or <kbd>Esc</kbd> returns to the page it was opened from (the Projects tab, Reports, the AI Map or a page on it). The sections are General, Appearance, Map, Agents, Local LLMs, Add-ons and About. <b>Find in Settings</b> searches every section.</p>
+  <p>The gear (<kbd>Ctrl</kbd>+<kbd>,</kbd>) opens Settings; <kbd>Backspace</kbd> or <kbd>Esc</kbd> returns to the page it was opened from (the Projects tab, Reports, the AI Map or a page on it). The sections are General, Appearance, Map, Agents, Local LLMs, Add-ons, Keyboard shortcuts and About. <b>Find in Settings</b> searches every section.</p>
+  <p><b>Keyboard shortcuts</b> lists every key that works inside the window, grouped as Window, AI Map, Projects, Ask AI and Terminal, each with what it does. In a terminal every other key goes to the agent; the shortcut that opens the window is set in Omarchy.</p>
   <p>In a narrow window or with larger text, choose a section above the search field. Wide windows have a scrolling section list beside the settings. Resizing keeps the section, search and keyboard focus. Search shows matching sections together without selecting one; choosing a section clears the search.</p>
   <table>
     <thead><tr><th>Setting</th><th>What it does</th></tr></thead>

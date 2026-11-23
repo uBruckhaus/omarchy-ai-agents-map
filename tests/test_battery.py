@@ -87,5 +87,44 @@ class BatteryTest(unittest.TestCase):
         self.assertEqual(tip.splitlines(), ["GPU memory: 4.0 of 16.0 GB free", "This local LLM uses 9.0 GB"])
 
 
+class MemoryChipTest(unittest.TestCase):
+    """A running local LLM's free GPU memory is a memory chip (as Maprisma's), an online agent's
+    limits stay a battery; both keep their tooltip area."""
+
+    def box(self):
+        import cairo
+        import map_view
+
+        class Box:
+            draw_battery = map_view.MapView.draw_battery
+            draw_memory_chip = map_view.MapView.draw_memory_chip
+
+            def __init__(self):
+                self.batteries = {"runtime:llamacpp": (0.6, "green", "GPU memory: 9.6 of 16.0 GB free"),
+                                  "agent:claude": (0.4, "yellow", "Weekly: 40 % left")}
+                self.battery_rects, self.painted = {}, []
+
+            def color(self, name, alpha=1.0):
+                self.painted.append(name)
+                return (0.2, 0.8, 0.4, alpha)
+
+        surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, 300, 40)
+        return Box(), cairo.Context(surface), surface
+
+    def test_a_local_llm_gets_a_chip_an_agent_a_battery(self):
+        import map_view
+        box, cr, surface = self.box()
+        chip = box.draw_battery(cr, "runtime:llamacpp", 280, 10, 20, False)
+        self.assertEqual(chip, map_view.CHIP_SIZE + 2 * map_view.CHIP_PIN + 7)
+        self.assertEqual(box.painted, ["green"])                    # the chip only: no battery frame ("fg")
+        self.assertIn("runtime:llamacpp", box.battery_rects)       # its tooltip still shows
+        box.painted.clear()
+        battery = box.draw_battery(cr, "agent:claude", 200, 10, 20, False)
+        self.assertEqual(battery, 29)
+        self.assertEqual(box.painted, ["fg", "yellow"])            # frame and charge
+        self.assertIn("agent:claude", box.battery_rects)
+        surface.finish()
+
+
 if __name__ == "__main__":
     unittest.main()
