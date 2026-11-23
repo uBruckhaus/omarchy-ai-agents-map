@@ -14,8 +14,8 @@ Rules:
 - Nothing of the project goes into a unit but its id (32 hex digits, checked again here): no title,
   no folder. ExecStart= is /usr/bin/python3 -I <plugin>/project_schedule.py run <id>, and the plugin
   folder must be plain (UNIT_SAFE): no spaces, %, quotes, $, backslashes, ; or control characters.
-- systemctl --user only as argv lists (daemon-reload, enable --now, restart, disable --now, and
-  is-active when a disable failed: a timer still active keeps its files and is reported), each
+- systemctl --user only as argv lists (daemon-reload, enable --now, restart, disable --now; a timer
+  whose disable --now fails keeps its files and is reported, the next sync tries again), each
   bounded by ai_core.read_bounded_output (own process group, output cap, deadline).
 - An end date that has passed counts as off: its timer goes.
 """
@@ -191,8 +191,8 @@ def sync(schedules: dict, directory: Path | None = None, today: dt.date | None =
         timer, service = directory / timer_name(pid), directory / service_name(pid)
         if managed(timer):
             ok, said = systemctl("disable", "--now", timer.name, run=run)
-            if not ok and systemctl("is-active", "--quiet", timer.name, run=run)[0]:
-                # Still running: its files stay, so the next sync (or clear) tries again.
+            if not ok:
+                # Not known to be stopped: its files stay, so the next sync (or clear) tries again.
                 failures[pid] = said or "systemctl could not stop the timer"
                 continue
         gone = [_remove(timer), _remove(service)]

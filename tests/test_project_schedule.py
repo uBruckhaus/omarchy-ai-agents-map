@@ -293,17 +293,18 @@ class UnitsTest(unittest.TestCase):
 
 
     def test_a_timer_that_cannot_be_stopped_keeps_its_files_and_is_said(self):
-        """Codex 2.1.0 r1: a failed disable --now was ignored, so clear could report success with a
-        timer still active. Now it is reported and its files stay for the next try; a timer that is
-        not active any more (disable failed, is-active says no) is removed."""
+        """Codex 2.1.0 r1/r2: a failed disable --now was ignored, so clear could report success with a
+        timer still active. Now any failed disable keeps the files and is reported; the next sync
+        tries again and removes them once systemctl succeeds."""
         timer = self.dir / f"ai-agents-map-schedule-{self.PID}.timer"
         self.sync({self.PID: DAILY})
-        self.ctl.fail.add("disable")                              # still active: is-active succeeds
-        failures = su.remove_all(directory=self.dir, run=self.ctl)
-        self.assertIn(self.PID, failures)
-        self.assertTrue(timer.exists() and su.managed(timer))
-        self.assertIn(["systemctl", "--user", "is-active", "--quiet", timer.name], self.ctl.calls)
-        self.ctl.fail.add("is-active")                            # not active (or no manager): removed
+        self.ctl.fail.add("disable")
+        for _attempt in range(2):
+            failures = su.remove_all(directory=self.dir, run=self.ctl)
+            self.assertIn(self.PID, failures)
+            self.assertTrue(timer.exists() and su.managed(timer))
+        self.assertNotIn("is-active", sum(self.ctl.calls, []))
+        self.ctl.fail.discard("disable")
         self.assertEqual(su.remove_all(directory=self.dir, run=self.ctl), {})
         self.assertEqual(list(self.dir.iterdir()), [])
 
@@ -678,18 +679,30 @@ class QueueTest(QueueCase):
         self.assertFalse(leftover.exists())
         self.assertEqual(sh.answer("a" * 32, self.queue), "started")
 
-    def test_the_queue_listing_is_bounded(self):
+    def test_many_other_files_neither_hide_a_request_nor_stall_the_check(self):
+        """Codex 2.1.0 r1/r2: the listing is gone through one entry at a time (bounded memory), a
+        request behind many other files is still served, and the main loop's check stops early."""
         sh._open_queue(self.queue)
-        for index in range(60):
-            (self.queue / f"junk{index}").write_text("")
-        nonce = sh.submit(self.PID, self.queue)
-        with mock.patch.object(sh, "MAX_LISTED", 10):
-            fd = sh._open_queue(self.queue)
-            try:
-                self.assertLessEqual(len(sh._requests(fd)), 1)
-            finally:
-                os.close(fd)
-        self.assertTrue(sh.pending(nonce, self.queue))
+        for index in range(300):                                 # before and after it, whatever the
+            (self.queue / f"junk{index:04d}").write_text("")     # file system's listing order
+            if index == 150:
+                nonce = sh.submit(self.PID, self.queue)
+        with mock.patch.object(sh, "MAX_LISTED", 10), mock.patch.object(sh.os, "scandir", wraps=os.scandir):
+            self.assertTrue(sh.waiting(self.queue))               # more than it looks at: a worker looks
+            with mock.patch.object(ps, "trigger", return_value="started"):
+                served = sh.serve(lambda: "call", lambda *a: None, self.queue)
+        self.assertEqual(served, [(nonce, "started")])
+        for index in range(sh.MAX_REQUESTS + 3):                  # more than one pass's worth
+            sh.submit(self.PID, self.queue)
+        with mock.patch.object(ps, "trigger", return_value="started"):
+            first = sh.serve(lambda: "call", lambda *a: None, self.queue)
+            second = sh.serve(lambda: "call", lambda *a: None, self.queue)
+        self.assertEqual((len(first), len(second)), (sh.MAX_REQUESTS, 3))
+        for path in self.queue.glob("junk*"):
+            path.unlink()
+        for path in self.queue.glob("*.ans"):
+            path.unlink()
+        self.assertFalse(sh.waiting(self.queue))
 
     def test_a_queue_others_can_enter_is_refused(self):
         self.queue.mkdir(mode=0o700)

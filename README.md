@@ -900,11 +900,11 @@ the backup and Undo), and the agent is told the same context. A context you set 
   <project id>` (`Type=oneshot`; the plugin folder must be a plain path, no spaces, `%`, quotes, `$`,
   backslashes, `;` or control characters; nothing of the project but its 32-hex-digit id goes into a
   unit, never its title or folder). `systemctl --user daemon-reload`, `enable --now`, `restart` and
-  `disable --now` of those timers only (and `is-active --quiet` when a `disable` failed), as argv
-  lists through `ai_core.read_bounded_output` (30 s each). Turning a schedule off, an end date that
-  has passed, deleting the project, or `project_schedule.py clear` stops and removes its units; a
-  timer that cannot be stopped keeps its files and is reported (`clear` names it and exits with 1),
-  and the next change or start tries again. When a timer fires, the program
+  `disable --now` of those timers only, as argv lists through `ai_core.read_bounded_output` (30 s
+  each). Turning a schedule off, an end date that has passed, deleting the project, or
+  `project_schedule.py clear` stops and removes its units; a timer whose `disable --now` fails keeps
+  its files and is reported (`clear` names it and exits with 1), and the next change or start tries
+  again. When a timer fires, the program
   (`schedule_handover.job`) puts a request (only the project id and a time) into a private 0700
   folder in `$XDG_RUNTIME_DIR` (written to a new 0600 file first and then linked under its name, so
   it is never seen half-written); whoever holds the project store (the app, or an earlier timer's

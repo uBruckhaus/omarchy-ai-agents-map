@@ -42,7 +42,7 @@ from pathlib import Path
 QUEUE_NAME = "ai-agents-map-schedule"
 MAX_REQUEST = 1024
 MAX_REQUESTS = 16                 # served per look; the rest at the next one
-MAX_LISTED = 1000                 # folder entries looked at per look
+MAX_LISTED = 1000                 # entries the app's main-loop check looks at (then: let a worker look)
 REQUEST_AGE = 180.0               # seconds a request may wait before it counts as stale
 APP_GRACE = 15.0                  # the app looks at the queue every 2 s
 JOB_DEADLINE = 120.0              # nobody claimed and the store stayed busy: the occurrence is skipped
@@ -179,13 +179,18 @@ def answer(nonce: str, directory: Path | None = None) -> str | None:
 
 
 def waiting(directory: Path | None = None) -> bool:
-    """A request waits (cheap: the app asks every two seconds)."""
+    """A request waits (cheap: the app asks every two seconds on its main loop). At most MAX_LISTED
+    entries are looked at; a folder with more counts as "something waits", so serve() (on a worker)
+    goes through all of it."""
     try:
         directory = directory or queue_dir()
         if directory is None:
             return False
         with os.scandir(directory) as entries:
-            return any(entry.name.endswith(".req") for entry in entries)
+            for count, entry in enumerate(entries):
+                if count >= MAX_LISTED or entry.name.endswith(".req"):
+                    return True
+            return False
     except OSError:
         return False
 
@@ -235,16 +240,17 @@ def serve(open_call, notify, directory: Path | None = None, now=time.time) -> li
 
 
 def _requests(fd: int) -> list:
-    """The waiting requests' names, at most MAX_LISTED looked at (the folder is private, but a
-    runaway writer of this account must not make every look allocate without limit)."""
+    """The names of up to MAX_REQUESTS waiting requests. The whole folder is gone through one entry
+    at a time (nothing else is kept), so no number of other files in front of a request hides it,
+    and memory stays bounded; the requests served are gone the next time, so the rest follow."""
     found = []
     with os.scandir(fd) as entries:
-        for count, entry in enumerate(entries):
-            if count >= MAX_LISTED:
-                break
+        for entry in entries:
             name = entry.name
             if name.endswith(".req") and _NONCE.fullmatch(name[:-4]):
                 found.append(name)
+                if len(found) >= MAX_REQUESTS:
+                    break
     return found
 
 
@@ -262,18 +268,20 @@ def _outcome(request, at: float) -> str | None:
 def _clean(fd: int, at: float) -> None:
     """Answers nobody read and claims a host left behind when it died."""
     try:
-        with os.scandir(fd) as entries:
-            names = [entry.name for _count, entry in zip(range(MAX_LISTED), entries)]
+        with os.scandir(fd) as entries:          # one entry at a time over the whole folder
+            for entry in entries:
+                name = entry.name
+                if not (name.endswith((".ans", ".claimed", ".tmp"))
+                        or (name.endswith(".req") and _NONCE.fullmatch(name[:-4]))):
+                    continue
+                try:
+                    info = entry.stat(follow_symlinks=False)
+                except OSError:
+                    continue
+                if at - info.st_mtime > (LEFTOVER_AGE if not name.endswith(".req") else REQUEST_AGE * 2):
+                    _unlink(fd, name)
     except OSError:
         return
-    for name in names:
-        if name.endswith((".ans", ".claimed", ".tmp")) or (name.endswith(".req") and _NONCE.fullmatch(name[:-4])):
-            try:
-                info = os.stat(name, dir_fd=fd, follow_symlinks=False)
-            except OSError:
-                continue
-            if at - info.st_mtime > (LEFTOVER_AGE if not name.endswith(".req") else REQUEST_AGE * 2):
-                _unlink(fd, name)
 
 
 # --- the app ----------------------------------------------------------------------------------------
