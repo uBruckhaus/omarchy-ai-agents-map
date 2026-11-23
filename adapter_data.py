@@ -193,6 +193,7 @@ PROJECT_ENV_NAMES = {
     "COPILOT_ALLOW_ALL": ("false",),
     "COPILOT_ASSISTED_APPROVAL": ("false",),
     "GITHUB_COPILOT_PROMPT_MODE_EXTENSIONS": ("false",),
+    "COPILOT_AUTO_UPDATE": ("false",),
 }
 
 
