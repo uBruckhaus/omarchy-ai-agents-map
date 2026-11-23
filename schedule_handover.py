@@ -201,9 +201,10 @@ def waiting(directory: Path | None = None, whole: bool = False) -> bool:
 
 # --- the owner's side --------------------------------------------------------------------------------
 
-def serve(open_call, notify, directory: Path | None = None, now=time.time) -> list:
+def serve(open_call, notify, directory: Path | None = None, now=time.time, first: str | None = None) -> list:
     """Claims and runs the waiting requests; [(nonce, outcome)]. `open_call()` gives the store owner's
-    ProjectCenter.call; when it cannot (the store is someone else's), nothing is claimed."""
+    ProjectCenter.call; when it cannot (the store is someone else's), nothing is claimed. `first`: a
+    nonce served before any other (the headless host's own request, however many others wait)."""
     import project_schedule
     try:
         fd = _open_queue(directory)
@@ -211,6 +212,14 @@ def serve(open_call, notify, directory: Path | None = None, now=time.time) -> li
         return []
     try:
         names = sorted(_requests(fd))
+        if first is not None and _NONCE.fullmatch(first):
+            own = f"{first}.req"
+            try:
+                os.stat(own, dir_fd=fd, follow_symlinks=False)
+            except OSError:
+                pass                           # withdrawn or claimed already
+            else:
+                names = [own] + [name for name in names if name != own]
         _clean(fd, now())
         if not names:
             return []
@@ -399,7 +408,7 @@ def host(center, notify, directory: Path | None = None, clock=time.monotonic, sl
     reconcile = None
     try:
         while True:
-            for served, result in serve(lambda: center.call, notify, directory):
+            for served, result in serve(lambda: center.call, notify, directory, first=nonce):
                 if served == nonce:
                     outcome = result
                     answer(nonce, directory)          # its own answer: nobody else reads it

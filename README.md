@@ -911,8 +911,9 @@ the backup and Undo), and the agent is told the same context. A context you set 
   `project_schedule.py clear` stops and removes its units; a timer whose `disable --now` fails keeps
   its files and is reported (`clear` names it and exits with 1), and the next change or start tries
   again. `clear` refuses (exit 1, nothing changed) while another program holds the project store,
-  since that owner would put its timers back; otherwise it tries every step whatever failed before it
-  (each schedule off, then every unit removed), names each failure, reads the unit folder again afterwards and exits with 1 when any step
+  since that owner would put its timers back; otherwise, while it holds the store, it tries every step
+  whatever failed before it (each schedule off, then every unit removed) and only then lets the store
+  go, so no other program can set a schedule in between, names each failure, reads the unit folder again afterwards and exits with 1 when any step
   failed, any unit of the plugin is left or the folder cannot be read. When a timer fires, the program
   (`schedule_handover.job`) puts a request (only the project id and a time) into a private 0700
   folder in `$XDG_RUNTIME_DIR`, or, when that is missing or unsafe, a private 0700 folder of yours

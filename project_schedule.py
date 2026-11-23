@@ -362,13 +362,21 @@ def clear(open_store=None, remove_all=None) -> int:
     """Every schedule off and every timer of the plugin gone (before removing the plugin). Best effort
     over everything: each step is tried whatever failed before it, every failure is said, and the exit
     status is 1 if any step failed or a timer of ours is still there (remove_all reads the folder
-    again). While another program holds the store (the app, or a timer's run), nothing is touched and
-    the exit status is 1: that owner would put its timers back."""
+    again). The timers are removed while clear still holds the store, and only then is it let go.
+    While another program holds the store (the app, or a timer's run), nothing is touched and the exit
+    status is 1: that owner would put its timers back."""
     import project_center
     import schedule_units
     from project_supervisor import ProjectError
     remove_all = remove_all or schedule_units.remove_all
     problems: list[str] = []
+    failures: dict = {}
+
+    def remove() -> None:
+        try:
+            failures.update(remove_all() or {})
+        except Exception as error:
+            failures["all"] = _text_of(error)
     try:
         center = (open_store or project_center.ProjectCenter)()
     except ProjectError as error:
@@ -377,29 +385,30 @@ def clear(open_store=None, remove_all=None) -> int:
                   "the timers back: nothing was changed. Close AI Agents Map, wait for scheduled runs to end, "
                   "and run clear again.", file=sys.stderr)
             return 1
-        else:
-            problems.append(f"The project list could not be opened: {_text_of(error)}")
+        problems.append(f"The project list could not be opened: {_text_of(error)}")
+        remove()
     except Exception as error:
         problems.append(f"The project list could not be opened: {_text_of(error)}")
+        remove()
     else:
+        # The timers go while clear still holds the store: no other program can open it and set a
+        # schedule in between, so nothing it wants is removed behind its back.
         try:
-            for project_id in center.schedules():
-                try:
-                    center.call("set_schedule", {"id": project_id, "schedule": None})
-                except Exception as error:
-                    problems.append(f"The schedule of project {project_id} could not be turned off: "
-                                    f"{_text_of(error)}")
-        except Exception as error:
-            problems.append(f"The schedules could not be read: {_text_of(error)}")
+            try:
+                for project_id in center.schedules():
+                    try:
+                        center.call("set_schedule", {"id": project_id, "schedule": None})
+                    except Exception as error:
+                        problems.append(f"The schedule of project {project_id} could not be turned off: "
+                                        f"{_text_of(error)}")
+            except Exception as error:
+                problems.append(f"The schedules could not be read: {_text_of(error)}")
+            remove()
         finally:
             try:
                 center.shutdown()
             except Exception as error:
                 problems.append(f"The project list could not be closed: {_text_of(error)}")
-    try:
-        failures = remove_all() or {}
-    except Exception as error:
-        failures = {"all": _text_of(error)}
     for project_id, why in sorted(failures.items()):
         print(f"The timer of project {project_id} could not be removed: {why}", file=sys.stderr)
     for problem in problems:

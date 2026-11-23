@@ -443,6 +443,23 @@ class UnitsTest(unittest.TestCase):
             self.assertEqual(ps.clear(open_store=Center, remove_all=mock.Mock(side_effect=OSError("x"))), 1)
         self.assertEqual(removed, [1, 2])
 
+    def test_clear_removes_the_timers_before_it_lets_the_store_go(self):
+        """Codex 2.1.6 r7: clear shut the store down before remove_all, so an app opened in between
+        could set a schedule whose timer clear then removed (exit 0). Now the timers go first."""
+        order = []
+
+        class Center:
+            def schedules(self):
+                return {"a" * 32: DAILY}
+
+            def call(self, op, params):
+                order.append(op)
+
+            def shutdown(self):
+                order.append("shutdown")
+        self.assertEqual(ps.clear(open_store=Center, remove_all=lambda: order.append("remove_all") or {}), 0)
+        self.assertEqual(order, ["set_schedule", "remove_all", "shutdown"])
+
     def test_clear_reports_a_timer_left_running(self):
         class Center:
             def schedules(self):
@@ -771,6 +788,19 @@ class QueueTest(QueueCase):
         self.assertEqual(sh.answer(nonce, self.queue), "started")
         self.assertIsNone(sh.answer(nonce, self.queue))      # read once
         self.assertFalse(sh.withdraw(nonce, self.queue))
+
+    def test_the_hosts_own_request_is_served_first_however_many_wait(self):
+        """Codex 2.1.6 r7 (Low): serve() took the first MAX_REQUESTS found, so with a backlog the host's
+        own request could wait for a later pass (or go stale). `first` puts it in front."""
+        others = [sh.submit("f" * 32, self.queue) for _ in range(sh.MAX_REQUESTS + 4)]
+        own = sh.submit(self.PID, self.queue)
+        with mock.patch.object(ps, "trigger", return_value="started"):
+            served = sh.serve(lambda: "the call", lambda *a: None, self.queue, first=own)
+        self.assertEqual(served[0], (own, "started"))
+        self.assertEqual(len(served), sh.MAX_REQUESTS)
+        self.assertTrue(any(sh.pending(nonce, self.queue) for nonce in others))
+        with mock.patch.object(ps, "trigger", return_value="started"):   # gone already: no harm
+            self.assertNotIn(own, [n for n, _o in sh.serve(lambda: "c", lambda *a: None, self.queue, first=own)])
 
     def test_not_the_owner_claims_nothing(self):
         nonce = sh.submit(self.PID, self.queue)
