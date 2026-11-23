@@ -395,7 +395,14 @@ def main():
     owner.set_visible(False)
     spin(lambda: folder_picker._open is None)
     assert chosen == []
-    owner.destroy()
+    owner.present()
+    second = folder_picker.choose_folder(owner, "Working folder", "/", chosen.append)
+    assert second is not first
+    owner.destroy()                                   # destroyed without hiding first
+    spin(lambda: folder_picker._open is None)
+    third = folder_picker.choose_folder(None, "Working folder", "/", chosen.append)
+    third.destroy()                                   # gone without an answer: the next one opens
+    assert folder_picker._open is None and chosen == []
     print("SMOKE OK")
 
 

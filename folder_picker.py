@@ -145,13 +145,23 @@ def choose_folder(parent, title: str, initial, done):
                 pass
     watched = []
 
-    def close(answer_path):
+    def forget():
+        """The dialog is gone: no longer the open one, its window no longer watched."""
         global _open
+        if _open is dialog:
+            _open = None
+        while watched:
+            widget, handler = watched.pop()
+            try:
+                if widget.handler_is_connected(handler):
+                    widget.disconnect(handler)
+            except (RuntimeError, TypeError):   # a window being disposed
+                pass
+
+    def close(answer_path):
         if _open is not dialog:
             return
-        _open = None
-        for widget, handler in watched:
-            widget.disconnect(handler)
+        forget()
         dialog.destroy()
         if answer_path:
             done(answer_path)
@@ -165,9 +175,12 @@ def choose_folder(parent, title: str, initial, done):
             path = chosen.get_path() if chosen is not None else None
         close(path)
     dialog.connect("response", response)
+    # Destroyed or hidden without an answer (GTK sends "destroy" only once the last reference goes).
+    for signal in ("unmap", "destroy"):
+        dialog.connect(signal, lambda *_a: forget())
     if parent is not None:
-        for signal in ("hide", "destroy"):
-            watched.append((parent, parent.connect(signal, lambda *_a: close(None))))
+        # Unmapped: hidden (the bar toggle) or destroyed; the dialog closes without an answer.
+        watched.append((parent, parent.connect("unmap", lambda *_a: close(None))))
     _open = dialog
     dialog.present()
     return dialog
