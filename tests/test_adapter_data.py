@@ -229,10 +229,17 @@ class CheckTest(unittest.TestCase):
     def test_copilot_project_env_turns_off_what_the_user_could_switch_on(self):
         data = tomllib.loads((adapter_data.ADAPTERS / "copilot.toml").read_text())
         off = {"COPILOT_ALLOW_ALL": "false", "COPILOT_ASSISTED_APPROVAL": "false",
-               "GITHUB_COPILOT_PROMPT_MODE_EXTENSIONS": "false", "COPILOT_AUTO_UPDATE": "false"}
+               "GITHUB_COPILOT_PROMPT_MODE_EXTENSIONS": "false", "GITHUB_COPILOT_PROMPT_MODE_REPO_HOOKS": "false",
+               "GITHUB_COPILOT_PROMPT_MODE_WORKSPACE_MCP": "false", "COPILOT_AUTO_UPDATE": "false"}
         self.assertEqual(data["project"]["env"], {"plan": off, "run": off})
         with self.assertRaises(adapter_data.AdapterError):
             adapter_data.check_project_env({"plan": {"COPILOT_ALLOW_ALL": "true"}}, "x")
+        for name in ("COPILOT_AUTO_UPDATE", "GITHUB_COPILOT_PROMPT_MODE_REPO_HOOKS", "GITHUB_COPILOT_PROMPT_MODE_WORKSPACE_MCP"):
+            with self.subTest(name=name), self.assertRaises(adapter_data.AdapterError):
+                adapter_data.check_project_env({"plan": {name: "true"}}, "x")
+        import ai_core
+        self.assertTrue(ai_core.is_agent_session_var("CLAUDE_RELAUNCH_SESSION_ADD_DIRS"))
+        self.assertTrue(ai_core.is_agent_session_var("CLAUDE_BG_SESSION_PERMISSION_RULES"))
 
     def test_goose_project_env_has_tools_only_where_it_works(self):
         data = tomllib.loads((adapter_data.ADAPTERS / "goose.toml").read_text())

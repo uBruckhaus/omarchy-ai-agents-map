@@ -82,17 +82,22 @@ permissions = "Planning and review only read and search project files. Execution
 model_option = "--model"
 
 # The user's own environment could switch these on: COPILOT_ALLOW_ALL=true trusts the folder (its
-# hooks, MCP servers, skills, plugins), the next two let extensions load or a judge approve in -p, and
+# hooks, MCP servers, skills, plugins), the PROMPT_MODE_* opt-ins load the folder's extensions, repo
+# hooks or workspace MCP in -p (cli-main.js 1.0.114, changelog), ASSISTED_APPROVAL lets a judge approve, and
 # COPILOT_AUTO_UPDATE=false also stops the plugin updates --no-auto-update leaves on.
 # Source: `copilot help environment`, `copilot help extensions` (1.0.114).
 [project.env.plan]
 COPILOT_ALLOW_ALL = "false"
 COPILOT_ASSISTED_APPROVAL = "false"
 GITHUB_COPILOT_PROMPT_MODE_EXTENSIONS = "false"
+GITHUB_COPILOT_PROMPT_MODE_REPO_HOOKS = "false"
+GITHUB_COPILOT_PROMPT_MODE_WORKSPACE_MCP = "false"
 COPILOT_AUTO_UPDATE = "false"
 
 [project.env.run]
 COPILOT_ALLOW_ALL = "false"
 COPILOT_ASSISTED_APPROVAL = "false"
 GITHUB_COPILOT_PROMPT_MODE_EXTENSIONS = "false"
+GITHUB_COPILOT_PROMPT_MODE_REPO_HOOKS = "false"
+GITHUB_COPILOT_PROMPT_MODE_WORKSPACE_MCP = "false"
 COPILOT_AUTO_UPDATE = "false"

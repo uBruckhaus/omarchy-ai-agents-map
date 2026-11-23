@@ -36,7 +36,9 @@ AGENT_SESSION_EXACT = {"CLAUDECODE", "CLAUDE_PID", "CLAUDE_EFFORT", "AI_AGENTS_M
                        "CODEX_THREAD_ID", "CODEX_SANDBOX", "CODEX_CI", "OPENCODE", "OPENCODE_PID",
                        "OPENCODE_CLIENT", "OPENCODE_SERVER", "PI_CODING_AGENT", "GEMINI_CLI", "QWEN_CODE",
                        "CRUSH", "GOOSE_TERMINAL", "AMP_CURRENT_THREAD_ID", "COPILOT_CLI", "CURSOR_AGENT"}
-AGENT_SESSION_PREFIXES = ("CLAUDE_CODE_",)
+# CLAUDE_RELAUNCH_* / CLAUDE_BG_*: what Claude Code hands a relaunched or background session (e.g.
+# CLAUDE_RELAUNCH_SESSION_ADD_DIRS adds folders even under --restricted).
+AGENT_SESSION_PREFIXES = ("CLAUDE_CODE_", "CLAUDE_RELAUNCH_", "CLAUDE_BG_")
 
 
 def is_agent_session_var(name: str) -> bool:
