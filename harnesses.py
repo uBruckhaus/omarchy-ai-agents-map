@@ -372,7 +372,8 @@ def _extended(harness: Harness) -> Harness:
 NEWER_FACTS = ("home", "activity", "details", "program_dir", "web_search", "chat_app", "herdr", "logout",
                "start", "research", "rewrite", "task", "closed", "advise", "models", "tools_setting", "sandbox_setting",
                "asks_setting", "replies", "subagents", "sessions", "install_marks", "plan_limits",
-               "activity_reader", "activity_dir", "extra_dir_option")
+               "activity_reader", "activity_dir", "extra_dir_option",
+               "project")              # the AI Project Center's commands: without them Projects had no agent
 
 
 def _with_newer_facts(harness: Harness) -> Harness:

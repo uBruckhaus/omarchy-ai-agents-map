@@ -89,6 +89,35 @@ class FactsTest(unittest.TestCase):
                          ("~/.claude", ("claude", "auth", "logout"), "sandbox.enabled"))
         self.assertIs(harnesses._with_newer_facts(claude), claude)
 
+    def test_the_bundled_agent_add_ons_bring_the_project_commands(self):
+        """2.1.0: the signed agent add-ons predate [project]; switched on, they hid the built-in
+        adapters, so every agent was "not available" on the Projects tab. The app's own adapter gives
+        the project commands to an add-on that has none, and only to one that has none."""
+        import shutil
+        if not shutil.which("ssh-keygen"):
+            self.skipTest("needs OpenSSH's ssh-keygen")
+        import addon_api
+        import addons
+        import project_center
+        hooks = addon_api.Hooks()
+        own = {h.command: h for h in harnesses.built_in_adapters() if h.project}
+        self.assertTrue({"claude", "codex", "pi", "agy"} <= set(own))
+        try:
+            loaded = addons.load_all({f"agent-{c}" for c in own}, hooks=hooks)
+            self.assertTrue({a.id for a in loaded if a.state == "loaded"} >= {f"agent-{c}" for c in own})
+            for command, mine in own.items():
+                with self.subTest(agent=command):
+                    self.assertEqual(harnesses.get(command).project, mine.project)
+            supported = {p["id"] for p in project_center.default_agent_profiles()
+                         if p.get("project_supported") is not False and p.get("installed") is not False}
+            self.assertEqual(supported, supported & set(own))        # only agents with a [project] table
+        finally:
+            addons.load_all(set(), dirs=(), hooks=hooks)        # back to the built-in tables
+        import dataclasses
+        claude = own["claude"]
+        theirs = dataclasses.replace(claude, project='{"plan": ["claude", "{prompt}"]}')
+        self.assertEqual(harnesses._with_newer_facts(theirs).project, theirs.project)   # an add-on's own stays
+
     def test_an_older_text_look_up_gives_way_to_one_that_says_its_tokens(self):
         import dataclasses
         claude = next(h for h in harnesses.built_in_adapters() if h.command == "claude")
