@@ -60,6 +60,12 @@ The same features as Maprisma 2.x, inside the plugin:
   the window is closed) are not part of the plugin: they are in
   [Maprisma](https://github.com/maprisma/maprisma), the desktop app AI Agents Map is based on, and the
   project's Goal tab links there.
+  Agents that can join a team: Claude Code, Codex, Antigravity, Pi, GitHub Copilot (planning reads,
+  execution edits project files; shell, web and memory off) and Goose (read-only, code structure only).
+  Their commands are reviewed profiles in `adapters/*.toml` (`[project]`); agents whose permissions
+  cannot be fenced in from the command line (Cursor, Oh My Pi, Gemini CLI, DeepSeek Harness, Crush,
+  OpenCode, Hermes, OpenClaw) have none. The shield beside a team member's agent shows what it can and
+  cannot do in this project.
 - **Links between the tabs**: an agent's box on the map shows **Used in N projects** (opens the board
   with that agent's chip); **Show on map** in a project's Team graph and **Fix on map** on a problem
   switch to the AI Map, scroll to the box and mark it for a few seconds.
