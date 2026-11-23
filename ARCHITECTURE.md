@@ -63,7 +63,8 @@ that layer and on the change layer.** The pages above them call into these.
 | Change another program's settings | `connect.apply`, `connect.undo` | backup + `manifest.json` (0600) first, atomic write (temp, fsync, rename), owner-only mode kept, new files 0600; Undo leaves a file alone that was changed again since |
 | Claude Code's MCP list | `mcp_ctl._claude_json_change` → `connect.apply` | `~/.claude.json` edited as one planned change, refused if Claude wrote it in the meantime; deliberately **not** `claude mcp add-json`, whose argv (keys in env, headers, URL) other accounts could read in `/proc/<pid>/cmdline` |
 | Commands in a terminal the user watches | `desktop_omarchy.run_in_terminal` / `run_steps_in_terminal` | every word shlex-quoted; `sudo` only for system-package installs, password typed in that terminal (`install_dialog`) |
-| systemd user units | `provider_watch` (`systemctl --user`), `install_ctl` (units it writes) | only units it installed or that start a local LLM; unit paths refuse `%`, quotes, `$`, backslashes, control characters |
+| systemd user units | `provider_watch` (`systemctl --user`), `install_ctl` (units it writes), `schedule_units.sync` (scheduled projects) | only units it installed or that start a local LLM; unit paths refuse `%`, quotes, `$`, backslashes, control characters; schedule timers only with the `# Managed by AI Agents Map` first line (never replaced or removed without it), `OnCalendar=` from `project_schedule.on_calendar` (numbers and day names), the project's 32-hex id the only project datum in a unit, systemctl through `ai_core.read_bounded_output` |
+| Scheduled project runs | timer → `project_schedule.py run <id>` → `schedule_handover.job` → the store's owner (`serve`, claim by rename) → `project_schedule.trigger` → `ProjectCenter.call("run", {scheduled: True})` | the same launch path, approval check, Rules and supervisor as a manual Run; requests in a private 0700 queue in `$XDG_RUNTIME_DIR` (own regular files, ≤ 1 KiB, 3-minute age limit); only the store lock's holder claims; nothing is signalled (the PID file only decides a 15 s wait for the app); without an owner the job holds the store headless until no project works |
 | Local LLM APIs on 127.0.0.1 | `netfetch.fetch(local=True)` after `loopback.require_own_listener` | only listeners owned by this user (`/proc/net/tcp` uid column) |
 | AI Project Center agents (plan, run, team setup) | `project_center.ProjectCenter` → `project_supervisor.run` | argv only from the adapter's `[project]` table (`adapter_data._check_project`: the agent's own command, `{prompt}` one word, no `--`), the prompt one word below 120 KiB or on stdin; agent-session variables removed (`agent_environment`); Settings › Rules asked before every assignment; a subreaper supervisor per assignment holds the project's run lock until its whole tree is gone (pidfd + start time before each signal); output kept to 64 KiB; the store (`ai-project-center/projects.json`, 0600, ≤ 16 MiB, at most 64 projects) is written atomically before any start, and a failed write stops all work |
 | Credentials | `agent_status.credentials_present` | checks only whether a credential file **exists**; credential files are never opened |
@@ -90,6 +91,7 @@ For a complete audit, these are all the `subprocess` / `exec` calls outside `tes
 | `desktop_omarchy.py` `open_terminal`, `run_in_terminal`, `run_steps_in_terminal`, focus helpers | the terminal launcher (argv; the command line inside it is shlex-quoted), `hyprctl dispatch`, `omarchy-agent-usage-update <agent>` |
 | `desktop_generic.py` | the same for other desktops (used only outside Omarchy) |
 | `provider_watch.py` | `systemctl --user …`, `lms server start/stop` |
+| `project_schedule.py` `notify`, `schedule_units.py` `systemctl` | `notify-send` for a skipped scheduled run, `systemctl --user` for the schedule timers (both through `ai_core.read_bounded_output`) |
 | `project_supervisor.py` `SupervisedProcess.start`, `supervise` | AI Project Center: the supervisor (`python3 -I project_supervisor.py supervise`, own session, reaped through `process_group.end_child`), and inside it the agent's project command (adapter `[project]` argv, no shell) |
 
 ## Changes: plan, preview, backup, Undo
@@ -141,6 +143,9 @@ where it asks before each step. Daily AI checks are off by default.
 - `test_tab_links`: the header tabs, Ctrl+1/2, the start tab, the departure guards, Esc, and the links
   between the Projects tab and the AI Map; `test_project_center`, `test_projects_ui`,
   `test_provider_config`, `test_activity_reports`, `test_map_3d` for the parity packages
+- `test_project_schedule`: recurrences and DST (cross-checked with `systemd-analyze`), the store field,
+  scheduled runs and their skips, unit files (marker, links, hostile titles), the request queue and
+  the hand-over (stale and hostile requests, a busy store, two triggers at once)
 
 ## Where the code comes from
 
