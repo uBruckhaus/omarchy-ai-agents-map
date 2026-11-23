@@ -36,6 +36,7 @@ PYTHON = "/usr/bin/python3"
 HERE = Path(__file__).resolve().parent
 SYSTEMCTL_TIMEOUT = 30.0
 MAX_UNIT_BYTES = 64 * 1024
+MAX_PRESENT = 10_000             # project ids with unit files looked at per sync
 UNIT_SAFE = re.compile(r"/[A-Za-z0-9._/+-]+")
 _NAME = re.compile(PREFIX + r"([0-9a-f]{32})\.(timer|service)")
 _ID = re.compile(r"[0-9a-f]{32}")
@@ -150,12 +151,21 @@ def _remove(path: Path) -> bool:
 
 
 def _present(directory: Path) -> set:
-    """Project ids that have one of our unit files (by name; the marker is checked before a change)."""
+    """Project ids that have one of our unit files (by name; the marker is checked before a change).
+    The folder is read one entry at a time and at most MAX_PRESENT ids are kept, so a huge
+    systemd/user folder costs time, never memory."""
+    found = set()
     try:
-        names = os.listdir(directory)
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                match = _NAME.fullmatch(entry.name)
+                if match:
+                    found.add(match.group(1))
+                    if len(found) >= MAX_PRESENT:
+                        break
     except OSError:
-        return set()
-    return {match.group(1) for name in names[:100_000] if (match := _NAME.fullmatch(name))}
+        pass
+    return found
 
 
 # --- systemctl ---------------------------------------------------------------------------------------

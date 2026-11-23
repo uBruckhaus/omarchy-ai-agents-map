@@ -308,6 +308,19 @@ class UnitsTest(unittest.TestCase):
         self.assertEqual(su.remove_all(directory=self.dir, run=self.ctl), {})
         self.assertEqual(list(self.dir.iterdir()), [])
 
+    def test_the_unit_folder_is_read_one_entry_at_a_time(self):
+        """Codex 2.1.2 r3: _present listed the whole systemd/user folder at once. Now it streams it and
+        keeps at most MAX_PRESENT ids, and other files cost no memory."""
+        self.sync({self.PID: DAILY})
+        for index in range(200):
+            (self.dir / f"other-{index}.service").write_text("")
+        with mock.patch.object(su.os, "listdir", side_effect=AssertionError("listdir")):
+            self.assertEqual(su._present(self.dir), {self.PID})
+            for index in range(5):
+                (self.dir / f"ai-agents-map-schedule-{index:032x}.timer").write_text("x")
+            with mock.patch.object(su, "MAX_PRESENT", 3):
+                self.assertEqual(len(su._present(self.dir)), 3)
+
     def test_a_failed_reload_after_removing_is_said(self):
         self.sync({self.PID: DAILY})
         self.ctl.fail.add("daemon-reload")
@@ -698,6 +711,7 @@ class QueueTest(QueueCase):
             first = sh.serve(lambda: "call", lambda *a: None, self.queue)
             second = sh.serve(lambda: "call", lambda *a: None, self.queue)
         self.assertEqual((len(first), len(second)), (sh.MAX_REQUESTS, 3))
+        self.assertFalse(sh.waiting(self.queue, whole=True))      # the host: only real requests count
         for path in self.queue.glob("junk*"):
             path.unlink()
         for path in self.queue.glob("*.ans"):

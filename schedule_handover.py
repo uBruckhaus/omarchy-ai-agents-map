@@ -178,17 +178,20 @@ def answer(nonce: str, directory: Path | None = None) -> str | None:
         os.close(fd)
 
 
-def waiting(directory: Path | None = None) -> bool:
+def waiting(directory: Path | None = None, whole: bool = False) -> bool:
     """A request waits (cheap: the app asks every two seconds on its main loop). At most MAX_LISTED
     entries are looked at; a folder with more counts as "something waits", so serve() (on a worker)
-    goes through all of it."""
+    goes through all of it. whole (the headless host, not on a main loop): the whole folder, one
+    entry at a time, so other files never keep it holding the store."""
+    limit = None if whole else MAX_LISTED
     try:
         directory = directory or queue_dir()
         if directory is None:
             return False
         with os.scandir(directory) as entries:
             for count, entry in enumerate(entries):
-                if count >= MAX_LISTED or entry.name.endswith(".req"):
+                if (limit is not None and count >= limit) \
+                        or (entry.name.endswith(".req") and _NONCE.fullmatch(entry.name[:-4])):
                     return True
             return False
     except OSError:
@@ -392,7 +395,7 @@ def host(center, notify, directory: Path | None = None, clock=time.monotonic, sl
                 if served == nonce:
                     outcome = result
                     answer(nonce, directory)          # its own answer: nobody else reads it
-            if stop.is_set() or (not center.working() and not waiting(directory)):
+            if stop.is_set() or (not center.working() and not waiting(directory, whole=True)):
                 break
             stop.wait(HOST_LOOK)
     finally:
