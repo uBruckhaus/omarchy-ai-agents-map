@@ -35,20 +35,25 @@ Operations (params → result):
                 stage, activity, second, bucket, approval_valid, needs_reconciliation,
                 processes_stopping, messages_queued, issues[{code,target,node?,fix}],
                 planning[assignment], execution[assignment], active{phase,position,state}|None,
-                setup_agent{agent,name}|None, setup_error, last_event
+                setup_agent{agent,name}|None, setup_error, last_event, schedule|None, next_run|None
                 assignment: phase, position, agent, name, role, model?, provider?, runtime?, issues
   get           {id}                              → {project: view}
                 view: the stored record + approval_valid, processes_stopping, messages,
-                messages_queued
+                messages_queued, schedule (None: off), next_run (ISO time with offset, or None)
   save          {id?, revision?, title, brief, path, team, plan_team?, setup_requests?, plan}
                                                   → {project}   (no id: create; on top of the board)
   move          {id, before|None}                 → {order: [ids]}   (no revision, no content change)
   set_importance {id, importance: high|medium|low} → {project}
+  set_schedule  {id, schedule: {..}|None}         → {project, timer_error}  (project_schedule.check;
+                                                     no revision, allowed while it works; the timers follow)
+  schedule_note {id, reason, text}                → {project, repeated}  (a skipped occurrence's event;
+                                                     the same note again only moves its time)
   delete        {id, revision}                    → {deleted: True}  (the folder stays)
   review        {id, revision, approved: bool}    → {project}
   setup         {id, revision, request, agent?, target: plan|run} → {project}   (drafts a proposal)
   setup_apply   {id, revision}                    → {project}
-  plan / run    {id, revision}                    → {project}
+  plan / run    {id, revision, scheduled? (run)}  → {project}   (scheduled: a timer's occurrence, which
+                                                     may also start again from Completed)
   continue      {id, revision, acknowledge_interrupted?} → {project}
   pause         {id, run_id?}                     → {project}   (waits for the confirmed stop)
   message       {id, run_id, text, mode: queue|now, acknowledge_interrupted (now only)}
@@ -65,6 +70,7 @@ project_runtime_model_unavailable, project_model_unsupported, project_subagents_
 project_plan_not_approved, project_review_changes_first, project_not_paused, project_not_running,
 project_prompt_too_large, project_empty_plan, project_plan_too_large, project_setup_*,
 project_message_* (invalid, empty, too_long, unknown, delivered, pending, not_continued),
+project_not_scheduled, project_schedule_unavailable,
 project_messages_full, project_launch_withdrawn, project_discovery_unstable, project_processes_still_running,
 project_supervisor_unavailable, project_operation_unknown, rule_refused, invalid.
 
@@ -73,6 +79,11 @@ attempt (a full store then accepts only deletions); agents run under project_sup
 subreaper, no shell, argv words only, the prompt one word of its own below MAX_ARG_STRLEN or on
 stdin, output bounded to 64 KiB); the agent environment has no agent-session or AI Agents Map
 variables; Settings › Rules (action_rules "start agents <id>") is asked again at each assignment.
+
+Schedules (project_schedule.py): a project may carry a recurrence; `schedules` (optional, the app and
+the timer's program pass schedule_units.sync) is called with {project id: schedule} after the store was
+read and after every set_schedule or delete, outside the center's lock, so the systemd user timers
+follow the store. Without it (tests, other hosts) no timer is touched.
 """
 
 from __future__ import annotations
@@ -91,6 +102,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
+import project_schedule
 import project_supervisor
 from project_stage import BUCKETS, ProjectFacts, ProjectState, project_state
 from project_supervisor import ProjectError
@@ -130,7 +142,10 @@ _LAUNCH_FACTS = ("stdin", "access_modes", "permissions", "model_option", "provid
                  "native_subagents")
 _APPROVAL_MATTERS = {"ready", "paused", "interrupted", "failed"}
 _LAUNCH_OPERATIONS = {"plan", "review", "run", "continue", "setup", "setup_apply"}
-_DISPLAY_OPERATIONS = {"list", "summary", "get", "save", "set_importance", "message_drop"}
+_DISPLAY_OPERATIONS = {"list", "summary", "get", "save", "set_importance", "set_schedule", "schedule_note",
+                       "message_drop"}
+_NOTE_REASONS = frozenset(project_schedule.REASONS)
+_SCHEDULE_SYNCED = {"set_schedule", "delete"}
 # Maprisma's own process variables have no meaning here; ours (AI Agents Map's) are removed instead.
 _OWN_VARIABLES = {"AI_AGENTS_MAP_NO_PROVIDERS"}
 
@@ -294,7 +309,8 @@ class ProjectCenter:
                  authorize: Callable[[str], None] | None = None, supervisor: list | None = None,
                  store_limit: int = MAX_STORE, prompt_limit: int = MAX_PROMPT_BYTES,
                  writer: Callable[[Path, bytes], None] | None = None, clock: Callable[[], float] | None = None,
-                 on_change: Callable[[str], None] | None = None):
+                 on_change: Callable[[str], None] | None = None,
+                 schedules: Callable[[dict], dict] | None = None):
         if data_directory is None:
             import identity
             data_directory = identity.config_dir()
@@ -305,6 +321,8 @@ class ProjectCenter:
         self.store_limit = store_limit
         self.prompt_limit = prompt_limit
         self.on_change = on_change
+        self._schedules = schedules
+        self._sync_lock = threading.Lock()
         self._supervisor = supervisor
         self._runner = runner or self._supervised
         self._writer = writer
@@ -344,6 +362,7 @@ class ProjectCenter:
             os.close(self._directory_fd)
             self._directory_fd = None
             raise
+        self.sync_schedules()      # timers left by a deleted project or an older store follow the store
 
     # --- small helpers -------------------------------------------------------------------------------
 
@@ -543,6 +562,12 @@ class ProjectCenter:
             item.setdefault("importance", "medium")      # a store from before task 095: Medium
             if item["importance"] not in IMPORTANCES:
                 raise ValueError("importance")
+            if "schedule" in item:                       # a store from before schedules: none
+                schedule = project_schedule.check(item["schedule"])
+                if schedule != item["schedule"]:
+                    raise ValueError("schedule")         # only the canonical form is ever written
+                if schedule is None:
+                    item.pop("schedule")
             ranked = "board_rank" in item
             rank = item.pop("board_rank", None)
             if ranked and (not _int(rank) or rank < 0):
@@ -727,7 +752,14 @@ class ProjectCenter:
         view["processes_stopping"] = item["id"] not in self._active and self._run_held(item["id"])
         view.setdefault("messages", [])
         view["messages_queued"] = len(self._queued(item))
+        view["schedule"] = _copy(item["schedule"]) if item.get("schedule") else None
+        view["next_run"] = self._next_run(item)
         return view
+
+    def _next_run(self, item: dict) -> str | None:
+        moment = project_schedule.next_run(item.get("schedule"),
+                                           datetime.fromtimestamp(self._clock(), timezone.utc))
+        return moment.isoformat(timespec="minutes") if moment is not None else None
 
     @staticmethod
     def _queued(item: dict) -> list:
@@ -985,6 +1017,75 @@ class ProjectCenter:
             self._projects[item["id"]] = item
             self._changed(item["id"])
         return {"project": self._view(item)}
+
+    def _set_schedule(self, params: dict) -> dict:
+        """A project's recurrence (project_schedule.check), or None for off. Like the importance it is
+        no content: no revision check or bump, allowed while it works; the timers follow in call()."""
+        if any(key not in ("id", "schedule") for key in params) or "schedule" not in params:
+            raise InvalidRequest("Invalid schedule")
+        try:
+            schedule = project_schedule.check(params["schedule"])
+        except ValueError:
+            raise InvalidRequest("Invalid schedule") from None
+        item = self._project(params)
+        if schedule is not None and self._schedules is not None:
+            import schedule_units
+            if not schedule_units.installable():
+                raise ProjectError("project_schedule_unavailable")
+        if item.get("schedule") != schedule:
+            if schedule is None:
+                item.pop("schedule", None)
+            else:
+                item["schedule"] = schedule
+            self._event(item, "schedule", "Schedule turned off." if schedule is None
+                        else f"Schedule set: {project_schedule.recurrence_text(schedule)}.")
+            self._persist({**self._projects, item["id"]: item})
+            self._projects[item["id"]] = item
+            self._changed(item["id"])
+        return {"project": self._view(item), "timer_error": None}
+
+    def _schedule_note(self, params: dict) -> dict:
+        """A scheduled occurrence that did not run, as an event (no revision: a project open for
+        editing is not "changed" by it). The same note right after itself only takes the new time,
+        so an hourly schedule does not push the project's history out."""
+        if any(key not in ("id", "reason", "text") for key in params) or params.get("reason") not in _NOTE_REASONS:
+            raise InvalidRequest("Invalid schedule note")
+        text = _CONTROL.sub(" ", _text(params.get("text"), 1000, required=True))
+        item = self._project(params)
+        kind = f"schedule_{params['reason']}"
+        last = item["events"][-1] if item["events"] else None
+        repeated = isinstance(last, dict) and last.get("type") == kind and last.get("text") == text
+        if repeated:
+            item["events"] = [*item["events"][:-1], {**last, "at": _now()}]
+        else:
+            self._event(item, kind, text)
+        self._persist({**self._projects, item["id"]: item})
+        self._projects[item["id"]] = item
+        self._changed(item["id"])
+        return {"project": self._view(item), "repeated": repeated}
+
+    def schedules(self) -> dict:
+        """{project id: schedule} of the scheduled projects (a copy)."""
+        with self._lock:
+            return {pid: _copy(item["schedule"]) for pid, item in self._projects.items() if item.get("schedule")}
+
+    def sync_schedules(self) -> dict:
+        """The timers follow the store (schedules hook; {} without one): {project id: why it failed}.
+        Never under the center's lock (systemctl may take seconds); one sync at a time, in order."""
+        if self._schedules is None:
+            return {}
+        with self._sync_lock:
+            wanted = self.schedules()
+            try:
+                return dict(self._schedules(wanted) or {})
+            except Exception as error:      # a timer that cannot be written never breaks the store
+                return {pid: str(error) or "failed" for pid in wanted}
+
+    def working(self) -> bool:
+        """An attempt runs, or a supervisor still owns processes of a project (the headless host
+        waits for this to end before it lets the store go)."""
+        with self._lock:
+            return bool(self._active) or any(self._run_held(pid) for pid in self._projects)
 
     def _delete(self, params: dict) -> dict:
         item = self._project(params, revision=True)
@@ -1285,7 +1386,15 @@ class ProjectCenter:
         phase = "planning" if operation == "plan" else item["phase"] if continuing else "running"
         if continuing and item["status"] not in _STOPPED_CHECKPOINT:
             raise ProjectError("project_not_paused")
-        if not continuing and operation == "run" and item["status"] != "ready":
+        scheduled = params.get("scheduled", False)
+        if not isinstance(scheduled, bool) or (scheduled and operation != "run"):
+            raise InvalidRequest("Invalid run request")
+        if scheduled and not item.get("schedule"):
+            raise ProjectError("project_not_scheduled")
+        # A schedule's next occurrence starts again from Completed with the same approved plan and team;
+        # a stopped run (paused, interrupted, failed) is never restarted by a timer.
+        startable = ("ready", "completed") if scheduled else ("ready",)
+        if not continuing and operation == "run" and item["status"] not in startable:
             raise ProjectError("project_plan_not_approved")
         if phase == "running" and item["needs_reconciliation"] is True \
                 and params.get("acknowledge_interrupted") is not True:
@@ -1319,7 +1428,8 @@ class ProjectCenter:
         item["run_id"] = _new_id()
         self._event(item, "continued" if continuing else "started",
                     "Continuing from the saved handoff in a new agent session." if continuing
-                    else "Generating a plan." if phase == "planning" else "Executing the approved plan.")
+                    else "Generating a plan." if phase == "planning"
+                    else "Scheduled run: executing the approved plan." if scheduled else "Executing the approved plan.")
         lock = self._run_lock(item["id"])
         self._put(item)                    # intent reaches durable storage before any process exists
         self._advance_lifecycle(item["id"])
@@ -2161,7 +2271,9 @@ class ProjectCenter:
                                 "name": ((display[2].get(setup_agent) or {}).get("name") if display else None)
                                 or setup_agent} if isinstance(setup_agent, str) else None,
                 "setup_error": item.get("setup_error"),
-                "last_event": dict(events[-1]) if events else None}
+                "last_event": dict(events[-1]) if events else None,
+                "schedule": _copy(item["schedule"]) if item.get("schedule") else None,
+                "next_run": self._next_run(item)}
 
     def _list(self) -> dict:
         derived = {pid: self._derive(item) for pid, item in self._projects.items()}
@@ -2210,6 +2322,14 @@ class ProjectCenter:
 
     def call(self, operation: str, params: dict | None = None) -> dict:
         """One operation (see the module docstring). Blocking; never on the GTK main thread."""
+        result = self._call(operation, params)
+        if operation in _SCHEDULE_SYNCED:
+            failures = self.sync_schedules()     # after the lock is let go: systemctl takes its time
+            if operation == "set_schedule" and isinstance(params, dict):
+                result["timer_error"] = failures.get(params.get("id"))
+        return result
+
+    def _call(self, operation: str, params: dict | None) -> dict:
         params = {} if params is None else params
         if not isinstance(params, dict):
             raise InvalidRequest("Invalid request")
@@ -2237,6 +2357,7 @@ class ProjectCenter:
             if operation == "get":
                 return {"project": self._view(self._project(params))}
             handler = {"save": self._save, "move": self._move, "set_importance": self._set_importance,
+                       "set_schedule": self._set_schedule, "schedule_note": self._schedule_note,
                        "delete": self._delete, "review": self._review, "setup": self._setup,
                        "setup_apply": self._apply_setup, "message_drop": self._drop_message,
                        "plan": lambda p: self._launch(p, "plan"), "run": lambda p: self._launch(p, "run"),
