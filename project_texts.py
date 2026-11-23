@@ -483,3 +483,59 @@ def primary_action(actions: list, dirty: bool):
             if action[1] == operation and action[2]:
                 return action
     return None
+
+
+# --- what a chosen agent can and cannot do (the team member's shield symbol) ---------------------
+
+ABILITIES_NAME = "What this agent can and cannot do"
+ABILITIES_NONE = "Choose an agent to see what it can do."
+
+
+def agent_abilities(profile: dict, access: str) -> dict:
+    """Maprisma's AgentAbilities.of (project_agent_hint.dart): from the facts of the agent's managed
+    profile (adapters' [project]) what it can and cannot do in a project. can/cannot: translated
+    lines; here: what this member does in this team; details: the profile's permissions sentence.
+    How it reads (all files, or only code structure like goose) is in that sentence; the lists only
+    name what differs by profile."""
+    can, cannot = [], []
+
+    def add(yes: bool, text: str):
+        (can if yes else cannot).append(_(text))
+
+    def option(value) -> bool:
+        return isinstance(value, str) and value.startswith("--")
+    modes = profile.get("access_modes")
+    modes = list(modes) if isinstance(modes, list) else ["read-only", "project-edit"]
+    # Only a member whose access is really project-edit edits (a stale or unknown value is refused by
+    # the core, so it is not editing either).
+    editing = "project-edit" in modes and access == "project-edit"
+    if "project-edit" not in modes:
+        cannot.append(_("Edit project files"))
+    elif not editing:
+        cannot.append(_("Edit project files (read-only in this team)"))   # the profile could, this member does not
+    else:
+        can.append(_("Edit project files"))
+    # The same conditions the core checks before it starts the agent.
+    model = option(profile.get("model_option"))
+    add(model, "Choose a model")
+    add(model and option(profile.get("provider_option")), "Use a local LLM from the map")
+    definitions = profile.get("subagent_definitions")
+    add(profile.get("native_subagents") is True and option(profile.get("subagent_option"))
+        and isinstance(definitions, dict) and bool(definitions), "Use native subagents")
+    setup = profile.get("setup_argv")
+    add(isinstance(setup, list) and bool(setup), "Propose a team")
+    details = str(profile.get("permissions") or "").strip()
+    return {"can": can, "cannot": cannot,
+            "here": _("In this team: edits project files") if editing else _("In this team: read-only"),
+            "details": _(details) if details else ""}
+
+
+def abilities_text(profile: dict | None, access: str) -> str:
+    """The hint's whole text: the member's part in the team, ✓ and ✗ lines, the profile's sentence."""
+    if profile is None:
+        return _(ABILITIES_NONE)
+    found = agent_abilities(profile, access)
+    lines = [found["here"], "", *(f"✓ {c}" for c in found["can"]), *(f"✗ {c}" for c in found["cannot"])]
+    if found["details"]:
+        lines += ["", found["details"]]
+    return "\n".join(lines)

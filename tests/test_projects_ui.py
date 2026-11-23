@@ -13,6 +13,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -190,6 +191,55 @@ class TextsTest(unittest.TestCase):
         self.assertEqual(texts.issue_fix_label("map"), "Fix on map")
         project = {"issues": [runtime], "execution": [{"issues": [runtime, {"code": "no_lead"}]}]}
         self.assertEqual([i["code"] for i in texts.collect_issues(project)], ["runtime_stopped", "no_lead"])
+
+    def test_a_read_only_profile_cannot_edit_choose_a_provider_or_set_up(self):
+        found = texts.agent_abilities({"access_modes": ["read-only"], "model_option": "--model",
+                                       "permissions": "Reads only."}, "read-only")
+        self.assertEqual(found["can"], ["Choose a model"])
+        self.assertEqual(found["cannot"], ["Edit project files", "Use a local LLM from the map",
+                                           "Use native subagents", "Propose a team"])
+        self.assertEqual(found["here"], "In this team: read-only")
+        text = texts.abilities_text({"access_modes": ["read-only"], "permissions": "Reads only."}, "read-only")
+        self.assertIn("✗ Edit project files", text)
+        self.assertTrue(text.endswith("\n\nReads only."))
+
+    def test_a_full_profile_can_do_everything_it_declares(self):
+        found = texts.agent_abilities({"model_option": "--model", "provider_option": "--provider",
+                                       "native_subagents": True, "subagent_option": "--agents",
+                                       "subagent_definitions": {"reviewer": {"description": "Review"}},
+                                       "setup_argv": ["x", "{prompt}"]}, "project-edit")
+        self.assertEqual(found["cannot"], [])
+        self.assertIn("Edit project files", found["can"])
+        self.assertEqual(found["here"], "In this team: edits project files")
+
+    def test_a_read_only_member_of_an_editing_profile_cannot_edit_here(self):
+        found = texts.agent_abilities({"model_option": "--model"}, "read-only")
+        self.assertNotIn("Edit project files", found["can"])
+        self.assertIn("Edit project files (read-only in this team)", found["cannot"])
+        self.assertEqual(found["here"], "In this team: read-only")
+
+    def test_a_read_only_profile_never_says_it_edits_even_with_a_stale_access(self):
+        found = texts.agent_abilities({"access_modes": ["read-only"]}, "project-edit")
+        self.assertEqual(found["here"], "In this team: read-only")
+        self.assertIn("Edit project files", found["cannot"])
+
+    def test_an_unknown_access_value_is_not_editing(self):
+        found = texts.agent_abilities({}, "full-access")
+        self.assertEqual(found["here"], "In this team: read-only")
+        self.assertNotIn("Edit project files", found["can"])
+        self.assertIn("Edit project files (read-only in this team)", found["cannot"])
+
+    def test_ability_claims_follow_what_the_core_would_start(self):
+        found = texts.agent_abilities({"provider_option": "--provider", "native_subagents": True,
+                                       "subagent_definitions": {}, "setup_argv": [], "model_option": ""},
+                                      "project-edit")
+        for text in ("Choose a model", "Use a local LLM from the map", "Use native subagents", "Propose a team"):
+            self.assertIn(text, found["cannot"])
+
+    def test_the_profile_sentence_is_translated_and_none_chosen_says_so(self):
+        with mock.patch.object(texts, "_", side_effect=lambda s: "Liest." if s == "Reads." else s):
+            self.assertEqual(texts.agent_abilities({"permissions": "Reads."}, "read-only")["details"], "Liest.")
+        self.assertEqual(texts.abilities_text(None, "read-only"), "Choose an agent to see what it can do.")
 
     def test_team_nodes_keep_the_marked_member(self):
         team = [{"agent": f"a{i}", "name": f"Agent {i}", "role": "implementer"} for i in range(6)]

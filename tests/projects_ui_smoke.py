@@ -355,6 +355,15 @@ def main():
     again = next(w for w in walk(detail.team_form) if getattr(w, "field_key", None) == ("run", 0, "instructions"))
     assert again is not entry and again.get_text() == "Be brief"
     assert window.get_focus() is again.get_delegate() or window.get_focus() is again, window.get_focus()
+    # The shield beside the agent: what it can and cannot do, on hover and in a popover.
+    hint = next(w for w in walk(detail.team_form) if hasattr(w, "agent_hint"))
+    assert hint.get_tooltip_text() == hint.agent_hint
+    assert hint.agent_hint.startswith("In this team: edits project files"), hint.agent_hint
+    assert "✓ Propose a team" in hint.agent_hint and hint.agent_hint.endswith("Edits files in the project only")
+    hint.popup()
+    spin(lambda: hint.get_popover().get_visible())
+    assert hint.get_popover().get_child().get_label() == hint.agent_hint
+    hint.popdown()
     ctrl.set_tab(texts.TAB_SETUP)
     spin(lambda: detail.pages.get_visible_child_name() == str(texts.TAB_SETUP))
     assert detail.request_view._am_guarded

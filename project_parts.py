@@ -163,6 +163,8 @@ FALLBACKS = {
     "avatar-default-symbolic": ("avatar-default-symbolic", "user-info-symbolic", "system-users-symbolic"),
     "list-drag-handle-symbolic": ("list-drag-handle-symbolic", "open-menu-symbolic"),
     "find-location-symbolic": ("find-location-symbolic", "mark-location-symbolic", "edit-find-symbolic"),
+    # The agent's abilities (Maprisma's shield_outlined).
+    "security-high-symbolic": ("security-high-symbolic", "channel-secure-symbolic", "dialog-information-symbolic"),
 }
 
 
@@ -430,6 +432,29 @@ def importance_mark(code: str, on_change=None) -> Gtk.Widget:
         choice.connect("toggled", chosen)
         menu.append(choice)
     popover.set_child(menu)
+    button.set_popover(popover)
+    return button
+
+
+def ability_hint(profile: dict | None, access: str) -> Gtk.Widget:
+    """The shield beside a team member's agent (Maprisma's AgentAbilityHint): what the chosen agent can
+    and cannot do here, as its tooltip on hover and in a popover on click, Enter or Space; a screen
+    reader gets its name and the whole hint."""
+    message = texts.abilities_text(profile, access)
+    button = Gtk.MenuButton(valign=Gtk.Align.CENTER, tooltip_text=message)
+    button.set_child(icon("security-high-symbolic"))
+    button.add_css_class("flat")
+    button.agent_hint = message                 # for the build test
+    set_accessible(button, _(texts.ABILITIES_NAME))
+    button.update_property([Gtk.AccessibleProperty.DESCRIPTION], [message])
+    popover = Gtk.Popover()
+    text = label(message, wrap=True)
+    text.set_max_width_chars(52)
+    text.set_margin_start(6)
+    text.set_margin_end(6)
+    text.set_margin_top(4)
+    text.set_margin_bottom(4)
+    popover.set_child(text)
     button.set_popover(popover)
     return button
 

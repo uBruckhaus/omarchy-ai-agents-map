@@ -507,8 +507,11 @@ class ProjectDetail:
             line.append(name)
             line.append(widget)
             card.append(line)
-        row(_("Agent profile"), dropdown([(p.get("id"), str(p.get("name") or p.get("id")), True) for p in ctrl.profiles],
-                                         member.get("agent"), lambda v: ctrl.set_member(index, "agent", v), not locked))
+        agent = Gtk.Box(spacing=ai_core.GAP_INLINE)
+        agent.append(dropdown([(p.get("id"), str(p.get("name") or p.get("id")), True) for p in ctrl.profiles],
+                              member.get("agent"), lambda v: ctrl.set_member(index, "agent", v), not locked))
+        agent.append(parts.ability_hint(profile, access))     # what the chosen agent can and cannot do here
+        row(_("Agent profile"), agent)
         row(_("Role"), dropdown([(r, texts.role(r, planning=plan), True) for r in ("lead", "implementer", "reviewer")],
                                 member.get("role"), lambda v: ctrl.set_member(index, "role", v), not locked))
         choices = ([(access, _("{0} (unavailable for this profile)").format(access_label(access)), False)]
