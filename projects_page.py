@@ -3,10 +3,9 @@ Maprisma's ai_project_center.dart and project_board.dart, tasks 082, 086, 088, 0
 
 The board shows the projects as cards in the user's order: the summary row filters them (Running,
 Attention, Needs you, Ready, Drafts, Agents finished, All, Importance, the agent chip from the map),
-switches Cards | Phases and starts a New project; each card shows its stage rail, activity (with a
-clock and the next run when it is scheduled), team, problems and last event with the quick actions
-Open, Review plan, Pause / Retry pause and the trash symbol, its importance mark
-and its Move handle (drag onto another card, the Move menu, or
+switches Cards | Phases and starts a New project; each card shows its stage rail, activity, team,
+problems and last event with the quick actions Open, Review plan, Pause / Retry pause and the trash
+symbol, its importance mark and its Move handle (drag onto another card, the Move menu, or
 Ctrl+Up / Down / Home / End). A card opens the project page (project_detail_page.py) over the board,
 which stays where it was. The state and every action live in projects_controller.py; this module
 draws it and wires GTK to it. ProjectCenter calls run on worker threads (they can block for about
@@ -14,12 +13,7 @@ draws it and wires GTK to it. ProjectCenter calls run on worker threads (they ca
 
 Entry points for the shell (WP7 wires the header tabs): open_projects(agent=None), close_projects(),
 projects_prepare_leave(done), shutdown_projects(); projects_map_fix / projects_show_on_map are the
-links to the AI Map (None: the links are not offered).
-
-Scheduled runs (project_schedule.py, schedule_handover.py): every SCHEDULE_LOOK seconds, while the app
-lives (window shown or hidden), the queue of timer requests is looked at; a waiting one opens the
-center (as a first use would) and runs through it, so a timer fires into the window the user sees.
-The center the app opens keeps the systemd timers in step with the store (schedule_units.sync)."""
+links to the AI Map (None: the links are not offered)."""
 
 from __future__ import annotations
 
@@ -41,7 +35,6 @@ from projects_controller import POLL_SECONDS, ProjectsController
 COLUMNS_3, COLUMNS_2 = 1100, 700       # the cards grid: 3 columns from 1100 px, 2 from 700 px, else 1
 SUMMARY_NARROW, VIEW_NAMED = 600, 1000  # New project as a symbol below 600 px; Cards | Phases named from 1000 px
 PHASES_WIDE = 6 * 170 + 7 * 8          # six readable columns
-SCHEDULE_LOOK = 2                      # seconds between looks at the timers' queue (schedule_handover)
 
 
 def worker_runner(work, done):
@@ -409,14 +402,6 @@ class ProjectsBoard:
         line.append(parts.icon(texts.bucket_icon(project.get("bucket")), 14))
         line.append(parts.label(texts.activity(project.get("activity")), ()))
         line.get_last_child().set_hexpand(True)
-        scheduled = texts.schedule_next(project)
-        if scheduled:
-            # A scheduled project: a small clock with its next run (the Phases view leaves it out).
-            clock = Gtk.Box(spacing=2, tooltip_text=_("Next scheduled run"))
-            clock.append(parts.icon(texts.SCHEDULE_ICON, 12))
-            clock.append(parts.label(scheduled, ("am-project-small", "am-project-dim")))
-            parts.set_accessible(clock, _("Next scheduled run: {0}").format(scheduled))
-            line.append(clock)
         queued = project.get("messages_queued")
         if type(queued) is int and queued > 0:
             line.append(parts.messages_badge(queued))
@@ -670,8 +655,6 @@ class ProjectsPage:
         self._projects_keys.connect("key-pressed", self._projects_key)
         self.window.add_controller(self._projects_keys)
         self._projects_tick_id = GLib.timeout_add_seconds(POLL_SECONDS, self._projects_tick)
-        self._schedule_serving = False
-        self._schedule_tick_id = GLib.timeout_add_seconds(SCHEDULE_LOOK, self._schedule_look)
         self.projects_page = page
         return page
 
@@ -718,11 +701,9 @@ class ProjectsPage:
 
     def projects_teardown(self):
         """The page is gone or the app ends: the poll stops, answers on their way change nothing."""
-        for name in ("_projects_tick_id", "_schedule_tick_id"):
-            tick = getattr(self, name, None)
-            setattr(self, name, None)
-            if tick is not None:
-                GLib.source_remove(tick)
+        tick, self._projects_tick_id = getattr(self, "_projects_tick_id", None), None
+        if tick is not None:
+            GLib.source_remove(tick)
         keys, self._projects_keys = getattr(self, "_projects_keys", None), None
         owner = keys.get_widget() if keys is not None else None
         if owner is not None:
@@ -755,48 +736,17 @@ class ProjectsPage:
 
     # --- the backend -------------------------------------------------------------------------------
 
-    def _project_center_open(self):
-        """On a worker thread: the in-process ProjectCenter, opened on first use (never after shutdown);
-        its systemd timers follow its schedules (schedule_units.sync). The reconciliation at open runs on a
-        thread of its own afterwards, so slow systemctl calls never hold up a timer's waiting request
-        (serve first, reconcile after)."""
+    def _project_call(self, operation: str, params: dict) -> dict:
+        """On a worker thread: the in-process ProjectCenter, opened on first use (never after shutdown).
+        A list with refresh (F5) looks at agents and runtimes again (the host's discovery generation)."""
         with self._project_center_lock:
             if self._projects_closed:
                 raise ProjectError("project_center_closed")
             if self._project_center is None:
                 import project_center
-                import schedule_units
-                center = project_center.ProjectCenter(
-                    on_change=lambda _pid: GLib.idle_add(self._projects_poke), schedules=schedule_units.sync,
-                    sync_at_open=False)
-                self._project_center = center
-                threading.Thread(target=center.sync_schedules, daemon=True, name="schedule-reconcile").start()
-            return self._project_center
-
-    def _schedule_look(self):
-        """A timer's request waits: it is served on a worker through the center (opened if need be).
-        When another program holds the store, nothing is claimed: that program serves it."""
-        if self._projects_closed:
-            self._schedule_tick_id = None
-            return False
-        import schedule_handover
-        if self._schedule_serving or not schedule_handover.waiting():
-            return True
-        self._schedule_serving = True
-
-        def work():
-            import project_schedule
-            return schedule_handover.serve(lambda: self._project_center_open().call, project_schedule.notify)
-
-        def done(_result, _error):
-            self._schedule_serving = False
-        worker_runner(work, done)
-        return True
-
-    def _project_call(self, operation: str, params: dict) -> dict:
-        """On a worker thread: ProjectCenter.call on the center of _project_center_open.
-        A list with refresh (F5) looks at agents and runtimes again (the host's discovery generation)."""
-        center = ProjectsPage._project_center_open(self)     # also for hosts that borrow only this method
+                self._project_center = project_center.ProjectCenter(
+                    on_change=lambda _pid: GLib.idle_add(self._projects_poke))
+            center = self._project_center
         refocused = operation == "list" and getattr(self, "projects_refocus", False)
         if refocused:
             self.projects_refocus = False       # consumed once (the window came back to the front)

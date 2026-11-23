@@ -83,11 +83,6 @@ class FakeCenter:
             item = next(p for p in self.projects if p["id"] == params["id"])
             item["importance"] = params["importance"]
             return {"project": self.view(params["id"])}
-        if operation == "set_schedule":
-            item = next(p for p in self.projects if p["id"] == params["id"])
-            item["schedule"] = copy.deepcopy(params["schedule"])
-            item["next_run"] = "2030-01-01T05:00+01:00" if params["schedule"] else None
-            return {"project": self.view(params["id"]), "timer_error": None}
         if operation == "delete":
             self.projects = [p for p in self.projects if p["id"] != params["id"]]
             return {"deleted": True}

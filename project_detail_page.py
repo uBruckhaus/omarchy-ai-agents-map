@@ -5,15 +5,10 @@ The breadcrumb "Projects › <title>" leads back to the board (unsaved changes a
 large stage rail, the tabs Goal, Plan, Team (with the team graph), Activity (the message box, the
 agents' output, the saved handoff and the events) and Setup (a team in plain language), and a footer
 with the actions for the project's state (narrow: the main one, the others under More). The state
-lives in projects_controller.ProjectsController; this module draws it.
-
-The Goal tab also holds the project's Schedule (project_schedule.py): a recurrence, a time and an
-optional end, with the saved schedule's line ("Every day at 05:00 · next run Tue 05:00"). Like the
-importance it is no part of the project's draft: its own small form, saved with Save schedule."""
+lives in projects_controller.ProjectsController; this module draws it."""
 
 from __future__ import annotations
 
-import datetime as dt
 import json
 
 from gi.repository import Gio, GLib, Gtk, Pango
@@ -21,7 +16,6 @@ from gi.repository import Gio, GLib, Gtk, Pango
 import ai_core
 import folder_picker
 import project_parts as parts
-import project_schedule
 import project_texts as texts
 from i18n import _
 from project_messages_view import MessagesView
@@ -123,10 +117,6 @@ class ProjectDetail:
         self.shown_tabs = None
         self.height = 1000
         self.shown_footer = self.shown_importance = self.shown_graph = None
-        self.shown_schedule = None
-        self.schedule_pid = None
-        self.schedule_draft = None        # the Schedule form's values while they differ from the saved ones
-        self.schedule_button = None
         self.root = parts.SizeBox(self.on_size, orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP_TIGHT,
                               hexpand=True, vexpand=True)
         crumb = Gtk.Box(spacing=ai_core.GAP_TIGHT)
@@ -183,7 +173,7 @@ class ProjectDetail:
         if before != (self.narrow, self.width >= GRAPH_BESIDE):
             self.shown_tabs = self.shown_card = self.shown_team = self.shown_graph = None
             parts.clear(self.team_holder)
-            self.shown_footer = self.shown_importance = self.shown_schedule = None
+            self.shown_footer = self.shown_importance = None
             if self.ctrl.open:
                 self.render()
 
@@ -226,8 +216,6 @@ class ProjectDetail:
         box.append(self.folder_button)
         self.importance_row = Gtk.Box(spacing=ai_core.GAP_INLINE)
         box.append(self.importance_row)
-        self.schedule_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP_TIGHT)
-        box.append(self.schedule_box)
         return box
 
     def build_plan(self) -> Gtk.Widget:
@@ -310,7 +298,6 @@ class ProjectDetail:
         for view in (self.brief_view, self.plan_view):
             view.set_editable(editable)
         self.render_importance()
-        self.render_schedule()
         self.approved_note.set_label(_("This plan version is approved.") if ctrl.approved
                                      else _("Review this plan and the team before execution."))
         self.render_team()
@@ -386,245 +373,6 @@ class ProjectDetail:
         self.importance_row.append(title)
         self.importance_row.append(segmented([(code, _(name)) for code, name, _icon in texts.IMPORTANCES], value,
                                              lambda code: ctrl.set_importance(pid, code), sensitive))
-
-    # --- schedule ------------------------------------------------------------------------------------
-
-    @staticmethod
-    def schedule_form(saved) -> dict:
-        """Every field of the Schedule form, from a saved schedule (None: off with today's defaults)."""
-        form = {"kind": "off", "time": "09:00", "days": list(project_schedule.DAYS[:5]),
-                "day_week": project_schedule.DAYS[dt.date.today().weekday()], "every": 6, "day_month": 1,
-                "until": None}
-        if isinstance(saved, dict):
-            form.update(kind=saved.get("kind", "off"), time=saved.get("time", "09:00"), until=saved.get("until"))
-            if saved.get("kind") == "weekdays":
-                form["days"] = list(saved.get("days") or [])
-            elif saved.get("kind") == "weekly":
-                form["day_week"] = saved.get("day")
-            elif saved.get("kind") == "hours":
-                form["every"] = saved.get("every", 6)
-            elif saved.get("kind") == "monthly":
-                form["day_month"] = saved.get("day", 1)
-        return form
-
-    @staticmethod
-    def schedule_value(form: dict):
-        """The schedule the form describes (project_schedule.check), None for off; ValueError when it
-        cannot be one (no weekday chosen)."""
-        kind = form["kind"]
-        if kind == "off":
-            return None
-        value = {"kind": kind, "time": form["time"]}
-        if kind == "weekdays":
-            value["days"] = list(form["days"])
-        elif kind == "weekly":
-            value["day"] = form["day_week"]
-        elif kind == "hours":
-            value["every"] = form["every"]
-        elif kind == "monthly":
-            value["day"] = form["day_month"]
-        if form.get("until"):
-            value["until"] = form["until"]
-        return project_schedule.check(value)
-
-    def render_schedule(self):
-        """The Goal tab's Schedule: only for a saved project; allowed while it runs (no draft of it). The
-        form is built again only when its rows change, so a time being typed keeps its focus."""
-        ctrl = self.ctrl
-        project = ctrl.project or {}
-        pid = project.get("id")
-        saved = project.get("schedule") if isinstance(project.get("schedule"), dict) else None
-        if pid != self.schedule_pid:
-            self.schedule_pid, self.schedule_draft = pid, None
-        form = self.schedule_draft if self.schedule_draft is not None else self.schedule_form(saved)
-        sensitive = not (ctrl.busy or ctrl.unavailable or pid in ctrl.scheduling)
-        key = json.dumps([pid, saved, project.get("next_run"), sensitive, self.narrow, form["kind"],
-                          form["until"], self.schedule_draft is None], sort_keys=True, default=str)
-        if key == self.shown_schedule:
-            self.update_schedule_button()
-            return
-        self.shown_schedule = key
-        parts.clear(self.schedule_box)
-        self.schedule_button = None
-        if not isinstance(pid, str):
-            self.schedule_box.set_visible(False)
-            return
-        self.schedule_box.set_visible(True)
-        self.schedule_box.append(parts.label(_("Schedule"), ("am-section-heading",)))
-        line = Gtk.Box(spacing=ai_core.GAP_INLINE)
-        line.append(parts.icon(texts.SCHEDULE_ICON, 14))
-        self.schedule_line = parts.label(texts.schedule_summary(project), (), wrap=True)
-        line.append(self.schedule_line)
-        self.schedule_box.append(line)
-        self.schedule_box.append(self.schedule_rows(form, sensitive))
-        self.schedule_box.append(parts.label(
-            _("A scheduled run executes the approved plan with its team, also while AI Agents Map is closed "
-              "(a systemd user timer; a time missed while the computer was off runs once after the next "
-              "login). It is skipped, with a notification, when the plan or team changed since approval."),
-            ("am-project-small", "am-project-dim"), wrap=True))
-        buttons = Gtk.Box(spacing=ai_core.GAP_INLINE)
-        self.schedule_note = parts.label("", ("am-project-small", "am-project-error"))
-        self.schedule_note.set_hexpand(True)
-        buttons.append(self.schedule_note)
-        self.schedule_button = Gtk.Button(label=_("Save schedule"))
-        self.schedule_button.add_css_class("am-small-btn")
-        self.schedule_button.connect("clicked", lambda *_a: self.save_schedule())
-        self.schedule_sensitive = sensitive
-        buttons.append(self.schedule_button)
-        self.schedule_box.append(buttons)
-        self.update_schedule_button()
-
-    def schedule_rows(self, form: dict, sensitive: bool) -> Gtk.Widget:
-        compact = self.narrow
-        rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP_TIGHT)
-
-        def row(title: str, *controls):
-            line = Gtk.Box(orientation=Gtk.Orientation.VERTICAL if compact else Gtk.Orientation.HORIZONTAL,
-                           spacing=ai_core.GAP_INLINE)
-            heading = parts.label(title)
-            heading.set_hexpand(not compact)
-            line.append(heading)
-            holder = Gtk.Box(spacing=ai_core.GAP_INLINE)
-            for control in controls:
-                holder.append(control)
-            line.append(holder)
-            rows.append(line)
-        kinds = [(code, _(name), True) for code, name in texts.SCHEDULE_KINDS]
-        row(_("Repeat"), dropdown(kinds, form["kind"], lambda code: self.schedule_edit(kind=code, rebuild=True),
-                                  sensitive))
-        if form["kind"] == "off":
-            return rows
-        row(_("First run of the day") if form["kind"] == "hours" else _("At"), self.time_picker(form, sensitive))
-        if form["kind"] == "weekdays":
-            row(_("On"), self.weekday_toggles(form, sensitive))
-        elif form["kind"] == "weekly":
-            days = [(code, _(name), True) for code, name in zip(project_schedule.DAYS, project_schedule.DAY_NAMES)]
-            row(_("On"), dropdown(days, form["day_week"], lambda code: self.schedule_edit(day_week=code), sensitive))
-        elif form["kind"] == "hours":
-            every = [(n, _("Every hour") if n == 1 else _("Every {0} hours").format(n), True)
-                     for n in project_schedule.EVERY_HOURS]
-            row(_("How often"), dropdown(every, form["every"], lambda n: self.schedule_edit(every=n), sensitive))
-        elif form["kind"] == "monthly":
-            days = [(n, str(n), True) for n in range(1, 32)] + [("last", _("Last day"), True)]
-            row(_("On day"), dropdown(days, form["day_month"], lambda n: self.schedule_edit(day_month=n), sensitive))
-        ends = [("never", _("Never"), True), ("date", _("After a date"), True)]
-        controls = [dropdown(ends, "date" if form["until"] else "never", lambda code: self.schedule_edit(
-            until=(dt.date.today() + dt.timedelta(days=30)).isoformat() if code == "date" else None, rebuild=True),
-            sensitive)]
-        if form["until"]:
-            controls.append(self.until_picker(form, sensitive))
-        row(_("Ends"), *controls)
-        return rows
-
-    def time_picker(self, form: dict, sensitive: bool) -> Gtk.Widget:
-        """Hours and minutes as two wrapping spin buttons, always shown with two digits."""
-        hour, minute = (int(part) for part in form["time"].split(":"))
-        box = Gtk.Box(spacing=2)
-        spins = []
-        for value, top, name in ((hour, 23, _("Hour")), (minute, 59, _("Minute"))):
-            spin = Gtk.SpinButton.new_with_range(0, top, 1)
-            spin.set_wrap(True)
-            spin.set_numeric(True)
-            spin.set_value(value)
-            spin.set_width_chars(2)
-            spin.set_sensitive(sensitive)
-            parts.set_accessible(spin, name)
-            spin.connect("output", lambda s: s.set_text(f"{int(s.get_value()):02d}") or True)
-            spins.append(spin)
-        box.append(spins[0])
-        box.append(Gtk.Label(label=":"))
-        box.append(spins[1])
-
-        def changed(*_a):
-            self.schedule_edit(time=f"{int(spins[0].get_value()):02d}:{int(spins[1].get_value()):02d}")
-        for spin in spins:
-            spin.connect("value-changed", changed)
-        self.schedule_spins = spins
-        return box
-
-    def weekday_toggles(self, form: dict, sensitive: bool) -> Gtk.Widget:
-        """Mon … Sun, any number of them (at least one before it can be saved)."""
-        box = Gtk.Box()
-        box.add_css_class("am-segmented")
-        chosen = set(form["days"])
-
-        def toggled(button, code):
-            current = self.schedule_draft if self.schedule_draft is not None else form
-            days = set(current["days"])
-            (days.add if button.get_active() else days.discard)(code)
-            self.schedule_edit(days=[day for day in project_schedule.DAYS if day in days])
-        for code in project_schedule.DAYS:
-            button = Gtk.ToggleButton(label=_(code.capitalize()), active=code in chosen)
-            button.add_css_class("am-segment")
-            button.add_css_class("flat")
-            button.set_sensitive(sensitive)
-            button.connect("toggled", toggled, code)
-            box.append(button)
-        return box
-
-    def until_picker(self, form: dict, sensitive: bool) -> Gtk.Widget:
-        """The last day it may run: a calendar in a popover (today at the earliest)."""
-        day = project_schedule.until_date(form["until"])
-        button = Gtk.MenuButton(label=f"{day.day} {day.strftime('%b')} {day.year}")
-        button.add_css_class("am-small-btn")
-        button.set_sensitive(sensitive)
-        pop = Gtk.Popover()
-        calendar = Gtk.Calendar()
-        calendar.select_day(GLib.DateTime.new_local(day.year, day.month, day.day, 0, 0, 0))
-
-        def picked(cal):
-            date = cal.get_date()
-            chosen = max(dt.date(date.get_year(), date.get_month(), date.get_day_of_month()), dt.date.today())
-            pop.popdown()
-            self.schedule_edit(until=chosen.isoformat(), rebuild=True)
-        calendar.connect("day-selected", picked)
-        pop.set_child(calendar)
-        button.set_popover(pop)
-        return button
-
-    def schedule_edit(self, rebuild: bool = False, **values):
-        """A field of the Schedule form changed: the draft takes it; `rebuild` (another recurrence, an
-        end date) builds the rows again, after the signal that asked for it has ended."""
-        saved = (self.ctrl.project or {}).get("schedule")
-        form = dict(self.schedule_draft if self.schedule_draft is not None else self.schedule_form(saved))
-        form.update(values)
-        self.schedule_draft = form
-        if rebuild:
-            GLib.idle_add(lambda: (self.render_schedule() if self.ctrl.open and not self.ctrl.disposed else None)
-                          and False)
-        else:
-            self.update_schedule_button()
-
-    def update_schedule_button(self):
-        """Save schedule: only while the form differs from the saved schedule and can be one."""
-        button = self.schedule_button
-        if button is None:
-            return
-        saved = (self.ctrl.project or {}).get("schedule") or None
-        note = ""
-        try:
-            differs = self.schedule_draft is not None and self.schedule_value(self.schedule_draft) != saved
-        except ValueError:
-            differs, note = False, _("Choose at least one day.")
-        self.schedule_note.set_label(note)
-        button.set_sensitive(differs and self.schedule_sensitive)
-
-    def save_schedule(self):
-        pid = (self.ctrl.project or {}).get("id")
-        if not isinstance(pid, str) or self.schedule_draft is None:
-            return
-        try:
-            value = self.schedule_value(self.schedule_draft)
-        except ValueError:
-            return
-
-        def done(ok):
-            if ok and self.schedule_pid == pid:
-                self.schedule_draft = None
-            self.shown_schedule = None
-            if self.ctrl.open and not self.ctrl.disposed:
-                self.render_schedule()
-        self.ctrl.set_schedule(pid, value, done)
 
     # --- team ----------------------------------------------------------------------------------------
 

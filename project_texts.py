@@ -109,11 +109,7 @@ _FAILURES = (
     (("project_center_closed",), "The Project Center is closing."),
     (("project_message_not_continued",), "The project could not continue at once."),
     (("project_limit",), "There are 64 projects already. Delete one before you create another."),
-    (("project_center_busy",), "A scheduled run or another AI Agents Map holds the project list. It shows here "
-                               "again when that run has ended."),
-    (("project_not_scheduled",), "This project has no schedule."),
-    (("project_schedule_unavailable",),
-     "Schedules need a plugin folder without spaces or special characters in its path."),
+    (("project_center_busy",), "Another AI Agents Map already holds the project list."),
     (("project_store_unavailable", "project_store_full", "project_store_corrupt"),
      "The saved project store is unavailable. Check the saved state before continuing."),
 )
@@ -135,39 +131,6 @@ SKIPPED_PLAN = ("No separate plan: work directly from the goal. Inspect the proj
 APPROVE_QUESTION = ("Approve this plan?",
                     "Review the plan, team, working folder and permissions before approving. Approval applies "
                     "to this saved plan version.", "Approve plan")
-
-
-# A project's schedule (project_schedule.KINDS): the Goal tab's choices, Off first.
-SCHEDULE_KINDS = (("off", "Off"), ("daily", "Every day"), ("weekdays", "On chosen weekdays"),
-                  ("weekly", "Once a week"), ("hours", "Every few hours"), ("monthly", "Once a month"))
-SCHEDULE_ICON = "alarm-symbolic"
-
-
-def schedule_summary(project) -> str:
-    """The Goal tab's line: "Every day at 05:00 · next run Tue 05:00"."""
-    import project_schedule
-    view = project if isinstance(project, dict) else {}
-    try:
-        return _(project_schedule.summary(view.get("schedule"), view.get("next_run")))
-    except (KeyError, TypeError, ValueError, AttributeError):
-        return _("Not scheduled")
-
-
-def schedule_next(project) -> str | None:
-    """The board card's clock: the next run ("Tue 05:00"), "Ended", or None without a schedule."""
-    import project_schedule
-    view = project if isinstance(project, dict) else {}
-    if not isinstance(view.get("schedule"), dict):
-        return None
-    moment = project_schedule.parse_moment(view.get("next_run"))
-    if moment is None:
-        return _("Schedule ended")
-    now = dt.datetime.now().astimezone()
-    return project_schedule.moment_text(moment.astimezone(now.tzinfo), now)
-
-
-def schedule_timer_failure(reason) -> str:
-    return _("The schedule is saved, but its timer could not be set up: {0}").format(str(reason)[:200])
 
 
 def activity(code) -> str:

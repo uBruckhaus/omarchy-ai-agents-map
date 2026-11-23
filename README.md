@@ -56,19 +56,6 @@ The same features as Maprisma 2.x, inside the plugin:
   Setup. A team of your installed agents plans and runs the work step by step; every launch is checked
   against Settings › Rules, agents run under a supervisor that stops their whole process tree, and an
   open project with unsaved changes asks before you leave it (another tab, a header action, closing).
-- **Scheduled runs** (a project's Goal tab › **Schedule**): run a project's approved plan again and
-  again, for example "check my emails every day at 05:00". **Repeat**: every day, on chosen weekdays,
-  once a week, every 1, 2, 3, 4, 6, 8 or 12 hours, or once a month (a day 1 to 31 or the last day;
-  months without that day are skipped), at a time you pick, optionally until a date. The line above
-  the form says it in words with the next run ("Every day at 05:00 · next run Tue 05:00"), and the
-  card on the board shows a small clock with the next run. A scheduled run goes exactly the way of
-  **Run project**: the approved plan and team, Settings › Rules at each assignment, the supervisor. It
-  also runs while AI Agents Map is closed (a systemd user timer, see Privacy and capabilities); a time
-  missed while the computer was off runs once after the next login. It does not run, and a desktop
-  notification says why (also written to the project's Activity), when the plan or team changed
-  since approval, the last run stopped or left changes to review, or another project works in the
-  same folder; an occurrence while the project still runs is skipped and noted. After a finished
-  scheduled run the next one starts again from the same approval.
 - **Links between the tabs**: an agent's box on the map shows **Used in N projects** (opens the board
   with that agent's chip); **Show on map** in a project's Team graph and **Fix on map** on a problem
   switch to the AI Map, scroll to the box and mark it for a few seconds.
@@ -889,42 +876,7 @@ the backup and Undo), and the agent is told the same context. A context you set 
   replaced, written as a new 0600 file with `mkstemp` and moved over the old one, never through a
   link). The key never goes into an argv, a log, a backup or AI Agents Map's own settings.
 - **Starts**: `systemctl --user` start/stop/enable/disable/daemon-reload for the services it
-  installed or that start a local LLM (service-management); **scheduled projects** (service-management,
-  only for a project you gave a Schedule): one timer and one service per project,
-  `~/.config/systemd/user/ai-agents-map-schedule-<project id>.timer` and `.service`, written by
-  `schedule_units.sync` (called by `project_center.ProjectCenter` after `set_schedule` or a deletion,
-  and once after the store is opened: the app starts that sync on a thread of its own right after
-  opening, so serving a waiting request never waits for it; a timer's program opens the store without
-  it and starts it only after it has served its own request). Only the store's owner syncs: closing
-  or releasing the store waits for a sync that is going on, and no sync starts after it. Each sync makes the timers match the store, not only what changed: it
-  writes what differs and asks systemd (`systemctl --user show`) about every other wanted timer, and
-  one it does not confirm as enabled and active (a failed or incomplete answer counts as not
-  confirmed) is enabled and started again, so a start that failed once is retried by the next sync. Each file starts with `# Managed by AI Agents Map`; a file of that
-  name without it, or a link in its place, is never replaced or removed. The timer has
-  `OnCalendar=` built from the schedule's numbers and day names only (`project_schedule.on_calendar`)
-  and `Persistent=true`; the service runs `/usr/bin/python3 -I <plugin>/project_schedule.py run
-  <project id>` (`Type=oneshot`; the plugin folder must be a plain path, no spaces, `%`, quotes, `$`,
-  backslashes, `;` or control characters; nothing of the project but its 32-hex-digit id goes into a
-  unit, never its title or folder). `systemctl --user daemon-reload`, `enable --now`, `restart`,
-  `disable --now` and `show` of those timers only, as argv lists through `ai_core.read_bounded_output` (30 s
-  each). Turning a schedule off, an end date that has passed, deleting the project, or
-  `project_schedule.py clear` stops and removes its units; a timer whose `disable --now` fails keeps
-  its files and is reported (`clear` names it and exits with 1), and the next change or start tries
-  again. `clear` refuses (exit 1, nothing changed) while another program holds the project store,
-  since that owner would put its timers back; otherwise, while it holds the store, it tries every step
-  whatever failed before it (each schedule off, then every unit removed) and only then lets the store
-  go, so no other program can set a schedule in between, names each failure, reads the unit folder again afterwards and exits with 1 when any step
-  failed, any unit of the plugin is left or the folder cannot be read. When a timer fires, the program
-  (`schedule_handover.job`) puts a request (only the project id and a time) into a private 0700
-  folder in `$XDG_RUNTIME_DIR`, or, when that is missing or unsafe, a private 0700 folder of yours
-  under `/tmp` (`/tmp/ai-agents-map-<uid>`, the PID file's fallback) (written to a new 0600 file first and then linked under its name, so
-  it is never seen half-written); whoever holds the project store (the app, or an earlier timer's
-  program) claims it by an atomic rename and runs it through `ProjectCenter.call("run", …)`; when
-  nobody holds the store, the program opens it itself, starts the run, waits under the supervisor
-  until no project works any more and lets the store go. Nothing is signalled; the app's PID file
-  (checked like the toggle checks it) only decides whether to wait 15 s for the app first. A request
-  older than 3 minutes is dropped, not run late; skipped occurrences send `notify-send` (argv, 5 s,
-  plain text); the installers' `curl`, `tar` (a release
+  installed or that start a local LLM (service-management); the installers' `curl`, `tar` (a release
   archive is read through twice first: at most 20 GB unpacked by the sizes its entries declare,
   which is what `tar` writes, and 200 000 entries; no absolute or `..` names, no links leading out
   of its folder, nothing written below one of the archive's own symbolic links, no link target that
@@ -1089,15 +1041,11 @@ systemctl --user disable --now ai-agents-map-providers.service
 rm ~/.config/systemd/user/ai-agents-map-providers.service && systemctl --user daemon-reload
 ```
 
-Scheduled projects have systemd user timers: turn their schedules off first, or remove every timer
-of the plugin with its own command (from the plugin's folder under `~/.config/omarchy/plugins/`;
-it turns the schedules off in the project list and removes the timers; while AI Agents Map or a
-scheduled run holds the project list it changes nothing and exits with 1, so close the app first),
-or by hand:
+Versions 2.1.0 to 2.1.4 (installed from GitHub, never released on the marketplace) could run
+projects on a schedule with systemd user timers. This version has no scheduled runs. If you used
+them, remove the timers they left:
 
 ```sh
-python3 -I <plugin folder>/project_schedule.py clear
-# or
 systemctl --user disable --now 'ai-agents-map-schedule-*.timer'
 rm ~/.config/systemd/user/ai-agents-map-schedule-*.{timer,service} && systemctl --user daemon-reload
 ```
@@ -1127,7 +1075,6 @@ The full module map, with diagrams, is in [ARCHITECTURE.md](ARCHITECTURE.md). Th
 | `main_tabs.py` | The header tabs Projects / AI Map, the departure guards and the links between the tabs |
 | `projects_page.py`, `projects_controller.py`, `project_detail_page.py`, `project_phases_page.py`, `project_messages_view.py`, `project_parts.py`, `project_texts.py` | The Projects tab: board, Phases, project page, messages |
 | `project_center.py`, `project_stage.py`, `project_supervisor.py` | The AI Project Center core: store, stages, issues, the agents' supervisor |
-| `project_schedule.py`, `schedule_units.py`, `schedule_handover.py` | Scheduled runs: the recurrence and one occurrence (and the timers' program), the systemd user timers, the hand-over to whoever holds the project store |
 | `reports_page.py`, `reports_ctl.py`, `activity_log.py`, `history_import.py`, `agent_activity_report.py`, `agent_activity_dialog.py`, `activity_mcp.py` | Reports, the activity log, Collect history, What is it doing? and the progress MCP server |
 | `provider_config.py`, `provider_config_page.py`, `provider_*.py` | Configure for this PC: hardware facts, recommendations, files, preview and Undo |
 | `map_3d.py` | The 3D look of the map |

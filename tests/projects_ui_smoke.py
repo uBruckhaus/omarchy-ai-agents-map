@@ -145,10 +145,6 @@ def shot(window, name):
         window.get_renderer().render_texture(node, None).save_to_png(os.path.join(folder, f"{name}.png"))
 
 
-def detail_ready(host):
-    return host.projects_detail.ctrl.project is not None
-
-
 def main():
     Adw.init()
     window = Gtk.Window(default_width=1200, default_height=800)
@@ -158,9 +154,6 @@ def main():
                 {"id": "m0", "at": "2026-11-22T09:00:00Z", "mode": "queue", "text": "Earlier", "state": "delivered",
                  "run_id": "run-1", "delivered_at": "2026-11-22T09:05:00Z",
                  "delivered_to": {"phase": "execution", "position": 0, "agent": "claude", "role": "lead"}}]
-    import datetime as dt
-    next_five = (dt.datetime.now().astimezone() + dt.timedelta(days=1)).replace(hour=5, minute=0, second=0,
-                                                                               microsecond=0)
     center = FakeCenter([
         card("run", title="Running one", messages_queued=1, messages=messages, **RUNNING),
         card("blocked", title="Blocked one", status="ready", stage="ready", activity="approved_blocked",
@@ -169,8 +162,7 @@ def main():
         card("draft", title="A draft", last_event={"at": "2026-11-22T08:00:00Z", "type": "saved",
                                                    "text": "Project created."}),
         card("done", title="Finished", status="completed", stage="finished", activity="agents_finished",
-             bucket="finished", importance="low", schedule={"kind": "daily", "time": "05:00"},
-             next_run=next_five.isoformat(timespec="minutes")),
+             bucket="finished", importance="low"),
     ])
     page = host.build_projects_page()
     host._project_center = center            # no real center: the fake answers
@@ -190,9 +182,6 @@ def main():
                  "All 4", "Running 1", "Needs you 1", "Agents finished 1", "Pause", "Open", "High", "Low"):
         assert text in shown, (text, shown)
     shot(window, "board")
-    # A scheduled project's card: a small clock with its next run (none on the others).
-    assert next_five.strftime("%a 05:00") in labels(board.cards["done"][0]), labels(board.cards["done"][0])
-    assert next_five.strftime("%a 05:00") not in labels(board.cards["draft"][0])
     # The trash symbol is off while agents work, on for a draft.
     running_card = board.cards["run"][0]
     assert not buttons(running_card, "Delete project")[0].get_sensitive()
@@ -275,56 +264,8 @@ def main():
     shot(window, "phases")
     board.on_width(500)
     spin(lambda: board.phases.cards and "Goal" in labels(board.phases.root))
-    assert next_five.strftime("%a 05:00") not in labels(board.phases.root)     # the Phases view is unchanged
     ctrl.set_view("cards")
     board.on_width(1200)
-    # The scheduled project's Goal tab: its line, the form, Save schedule only once the form differs.
-    ctrl.open_card(next(p for p in ctrl.projects if p["id"] == "done"))
-    spin(lambda: host.projects_stack.get_visible_child_name() == "project" and detail_ready(host))
-    detail = host.projects_detail
-    ctrl.set_tab(texts.TAB_GOAL)
-    spin(lambda: "Schedule" in labels(detail.schedule_box))
-    goal = labels(detail.schedule_box)
-    assert f"Every day at 05:00 · next run {next_five.strftime('%a 05:00')}" in goal, goal
-    for text in ("Repeat", "At", "Ends", "Save schedule"):
-        assert text in goal, (text, goal)
-    save = buttons(detail.schedule_box, "Save schedule")[0]
-    assert not save.get_sensitive()
-    shot(window, "schedule")
-    detail.schedule_spins[0].set_value(6)                     # typing a time keeps the form (and its focus)
-    spin(lambda: save.get_sensitive())
-    assert buttons(detail.schedule_box, "Save schedule")[0] is save
-    detail.schedule_edit(kind="weekdays", rebuild=True)
-    spin(lambda: "Mon" in labels(detail.schedule_box) and "On" in labels(detail.schedule_box))
-    days = [w for w in walk(detail.schedule_box) if isinstance(w, Gtk.ToggleButton) and w.get_label() in ("Mon", "Tue")]
-    assert len(days) == 2 and all(d.get_active() for d in days)
-    for button in [w for w in walk(detail.schedule_box) if isinstance(w, Gtk.ToggleButton)
-                   and w.get_label() in ("Mon", "Tue", "Wed", "Thu", "Fri")]:
-        button.set_active(False)
-    spin(lambda: "Choose at least one day." in labels(detail.schedule_box))
-    assert not buttons(detail.schedule_box, "Save schedule")[0].get_sensitive()
-    next(d for d in days if d.get_label() == "Tue").set_active(True)
-    spin(lambda: buttons(detail.schedule_box, "Save schedule")[0].get_sensitive())
-    shot(window, "schedule-weekdays")
-    buttons(detail.schedule_box, "Save schedule")[0].emit("clicked")
-    spin(lambda: any(c[0] == "set_schedule" for c in center.calls) and not ctrl.scheduling)
-    sent = [c for c in center.calls if c[0] == "set_schedule"][-1][1]
-    assert sent == {"id": "done", "schedule": {"kind": "weekdays", "time": "06:00", "days": ["tue"]}}, sent
-    spin(lambda: detail.schedule_draft is None)
-    for kind, text in (("hours", "How often"), ("monthly", "On day"), ("weekly", "On")):
-        detail.schedule_edit(kind=kind, rebuild=True)
-        spin(lambda text=text: text in labels(detail.schedule_box))
-    detail.schedule_edit(until="2031-01-31", rebuild=True)
-    spin(lambda: "31 Jan 2031" in labels(detail.schedule_box))
-    detail.on_width(500)                                      # narrow: the rows stack
-    spin(lambda: "Repeat" in labels(detail.schedule_box))
-    detail.on_width(1200)
-    detail.schedule_edit(kind="off", rebuild=True)
-    spin(lambda: "At" not in labels(detail.schedule_box))
-    buttons(detail.schedule_box, "Save schedule")[0].emit("clicked")
-    spin(lambda: [c for c in center.calls if c[0] == "set_schedule"][-1][1]["schedule"] is None and not ctrl.scheduling)
-    ctrl.back_to_board()
-    spin(lambda: not ctrl.open)
     # The running project's page: rail, tabs, message box.
     ctrl.open_card(next(p for p in ctrl.projects if p["id"] == "run"))
     spin(lambda: host.projects_stack.get_visible_child_name() == "project")
@@ -451,7 +392,7 @@ def main():
     spin(lambda: not ctrl.open)
     # Shutdown: the poll stops, no center is opened again, late answers change nothing.
     host.shutdown_projects()
-    assert host._projects_tick_id is None and host._schedule_tick_id is None and ctrl.disposed
+    assert host._projects_tick_id is None and ctrl.disposed
     host._projects_release.join(5)
     assert not host._projects_release.is_alive() and host._project_center is None
     try:

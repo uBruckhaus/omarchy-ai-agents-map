@@ -21,8 +21,6 @@ kept here:
 - Busy states: one page action at a time (`busy`), one quick action per card (`quick`), one move
   at a time (`moving`), one mark per card (`marking`), one question at a time (`confirming`,
   `leaving`).
-- A schedule (project_schedule) is set at once like a mark (`scheduling`, one per project); its answer
-  is taken over as a mutation result (`view_generation`), so an older read does not show the old one.
 - Drafts per project: message drafts and notes by project id, setup requests by "<id>:<phase>"; a
   deleted project's drafts go with it.
 """
@@ -79,7 +77,6 @@ class ProjectsController:
         self.leaving = False
         self.quick: set = set()        # cards with a quick action on its way
         self.marking: dict = {}        # id -> the mark on its way
-        self.scheduling: set = set()   # ids with a schedule on its way
         self.mark_gen: dict = {}       # id -> marks sent and answered
         self.moving = False
         self.order_seq = 0
@@ -859,34 +856,6 @@ class ProjectsController:
             if kept:
                 self.refresh(then=self._release_error)
         self.run(lambda: self.call("set_importance", {"id": pid, "importance": code}), answered)
-
-    def set_schedule(self, pid: str, schedule, done=None):
-        """Sends set_schedule from the Goal tab (schedule None: off). The answer's project is taken over;
-        a timer that could not be set up is said (the schedule itself is saved); a refusal keeps its
-        reason. done(ok) afterwards (the page then drops its draft)."""
-        if pid in self.scheduling or self.unavailable:
-            return
-        self.scheduling.add(pid)
-        self.notify()
-
-        def answered(result, error):
-            self.scheduling.discard(pid)
-            ok = error is None
-            if ok:
-                project = result.get("project") if isinstance(result, dict) else None
-                if isinstance(project, dict) and (self.project or {}).get("id") == pid:
-                    self.view_generation += 1          # a read begun before this answer is older
-                    for key in ("schedule", "next_run", "events"):
-                        self.project[key] = copy.deepcopy(project.get(key))
-                timer = result.get("timer_error") if isinstance(result, dict) else None
-                self.error = texts.schedule_timer_failure(timer) if timer else None
-            else:
-                self._quick_failed(error)
-            self.notify()
-            if done is not None:
-                done(ok)
-            self.refresh(then=None if ok else self._release_error)
-        self.run(lambda: self.call("set_schedule", {"id": pid, "schedule": schedule}), answered)
 
     # --- the footer's actions ------------------------------------------------------------------------
 

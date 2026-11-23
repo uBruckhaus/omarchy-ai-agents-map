@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "ubruckhaus.ai-agents-map",
   "name": "AI Agents Map",
-  "version": "2.1.7",
+  "version": "2.1.8",
   "author": "Uwe Bruckhaus",
   "license": "MIT",
-  "description": "Your AI setup on one map: coding agents with plan, limits and usage, local LLMs (llama.cpp, Ollama, LM Studio, vLLM, Jan, KoboldCpp) and their models, MCP servers and skills. Connect by drawing a line, with preview and Undo; install, update and sign in from each box's menu. Projects: a team of your agents plans and runs work in a folder, now also on a schedule (systemd user timers). Plus Ask AI, Reports, a 3D map, drag and drop, keyboard shortcuts and update badges.",
+  "description": "Your AI setup on one map: coding agents with plan, limits and usage, local LLMs (llama.cpp, Ollama, LM Studio, vLLM, Jan, KoboldCpp) and their models, MCP servers and skills. Connect by drawing a line, with preview and Undo; install, update and sign in from each box's menu. Projects: a team of your agents plans and runs work in a folder, step by step, only when you click. Plus Ask AI, Reports, a 3D map, drag and drop, keyboard shortcuts and update badges.",
   "kinds": [
     "bar-widget"
   ],
