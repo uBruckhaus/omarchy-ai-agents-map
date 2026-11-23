@@ -122,6 +122,12 @@ CONTINUE_QUESTION = ("Continue from saved handoff?",
                      "I reviewed the existing changes")
 DELETE_QUESTION = ("Delete saved project?", "The saved project will be removed. Its working folder is kept.",
                    "Delete")
+# Skip planning (Maprisma task 099): the plan becomes this note, approved, and the run starts.
+SKIP_QUESTION = ("Skip planning?",
+                 "The agents work directly from the goal, without a plan. This approves the team, working "
+                 "folder and permissions and starts the run.", "Skip planning and run")
+SKIPPED_PLAN = ("No separate plan: work directly from the goal. Inspect the project first, keep the changes to "
+                "what the goal asks, and report what you did and checked.")
 APPROVE_QUESTION = ("Approve this plan?",
                     "Review the plan, team, working folder and permissions before approving. Approval applies "
                     "to this saved plan version.", "Approve plan")
@@ -443,12 +449,20 @@ def message_state(message: dict, agent_name=None) -> str:
     return " · ".join(p for p in (_("Waiting for the next assignment"), when(message.get("at"))) if p)
 
 
-def footer_actions(project, plan_text: str, dirty: bool, running: bool, approved: bool, has_team: bool) -> list:
-    """The project page's footer: [(label, operation, enabled)] in Maprisma's order."""
+def footer_actions(project, plan_text: str, dirty: bool, running: bool, approved: bool, has_team: bool,
+                   has_run_team: bool | None = None) -> list:
+    """The project page's footer: [(label, operation, enabled)] in Maprisma's order. Skip planning only
+    with an execution team and an empty plan, not while old agents still stop or existing changes need
+    a review first (Run asks for that), nor for a stopped run."""
     status_ = project.get("status") if isinstance(project, dict) else None
+    view = project if isinstance(project, dict) else {}
+    skip = (not running and (has_team if has_run_team is None else has_run_team) and not plan_text.strip()
+            and view.get("processes_stopping") is not True and view.get("needs_reconciliation") is not True
+            and status_ not in ("paused", "interrupted", "failed"))
     actions = [
         (_("Save project"), "save", not running and (dirty or project is None)),
         (_("Draft plan with AI"), "plan", not running and has_team),
+        (_("Skip planning"), "skip_plan", skip),
         (_("Approve plan"), "review", not running and bool(plan_text.strip()) and (not approved or status_ == "completed")),
         (_("Run project"), "run", not running and approved and status_ == "ready"),
     ]

@@ -1338,6 +1338,11 @@ class ProjectCenter:
         if phase == "planning":
             parts.append("Create a concrete implementation plan with steps, dependencies and acceptance checks. "
                          "Inspect the project read-only. Do not implement, edit, commit, publish or change permissions.")
+            if member["role"] == "lead":
+                # The lead's answer is saved as the plan the user reviews.
+                parts.append("Your answer is saved as the plan the user reviews: answer with the plan itself as "
+                             "plain text or Markdown. Do not write files, and do not mention your tools, plan mode "
+                             "or files you could not write.")
         else:
             parts.append("Review the existing changes against the approved plan, read-only. "
                          "Report findings with file and line, or state that no findings remain. Do not edit or publish."

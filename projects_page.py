@@ -24,6 +24,7 @@ from gi.repository import Adw, GLib, GObject, Gdk, Gtk
 
 import ai_core
 import project_parts as parts
+import project_working
 import project_texts as texts
 from i18n import _
 from project_detail_page import ProjectDetail
@@ -440,6 +441,8 @@ class ProjectsBoard:
         trash.connect("clicked", lambda *_a: ctrl.delete_from_board(project))
         actions.append(trash)
         box.append(actions)
+        if project_working.working_card(project):
+            box.append(project_working.WorkingBar())     # an agent works here (task 098)
         return box
 
     def move_handle(self, project: dict, busy: bool) -> Gtk.Widget:

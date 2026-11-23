@@ -187,6 +187,19 @@ def main():
     assert not buttons(running_card, "Delete project")[0].get_sensitive()
     assert buttons(board.cards["draft"][0], "Delete project")[0].get_sensitive()
     assert "1" in labels(running_card)                       # the messages badge
+    import project_working
+
+    def bars(widget):
+        found, stack = 0, [widget]
+        while stack:
+            item = stack.pop()
+            found += isinstance(item, project_working.WorkingBar)
+            child = item.get_first_child()
+            while child is not None:
+                stack.append(child)
+                child = child.get_next_sibling()
+        return found
+    assert bars(running_card) == 1 and bars(board.cards["draft"][0]) == 0    # task 098
     # Fix on map appears once the shell links to the map.
     host.projects_map_fix = lambda node: None
     board.cards = {pid: (child, None) for pid, (child, _sig) in board.cards.items()}
@@ -252,6 +265,9 @@ def main():
                  "Pause project", "Plan", "Agents finished"):
         assert text in page_text, (text, page_text)
     assert any(t.startswith("Delivered to Claude Code") for t in page_text), page_text
+    # The working strip under the tabs (task 098), the bar on the running card.
+    assert detail.working.root.get_visible()
+    assert "AI is working on the project…" in page_text, page_text
     assert not detail.messages.send_button.get_sensitive()   # empty box
     detail.messages.text.get_buffer().set_text("More tests please")
     assert detail.messages.send_button.get_sensitive()

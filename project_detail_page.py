@@ -14,10 +14,12 @@ import json
 from gi.repository import Gio, GLib, Gtk, Pango
 
 import ai_core
+import folder_picker
 import project_parts as parts
 import project_texts as texts
 from i18n import _
 from project_messages_view import MessagesView
+from project_working import ProjectWorking
 
 NARROW = 600          # the tabs become a list, the footer keeps one action
 GRAPH_BESIDE = 900
@@ -134,6 +136,9 @@ class ProjectDetail:
         self.tabs = Gtk.Box(spacing=4)
         self.root.append(self.tabs)
         self.root.append(Gtk.Separator())
+        # While an agent works: what happens, on every tab (Maprisma task 098).
+        self.working = ProjectWorking()
+        self.root.append(self.working.root)
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP)
         for side in ("start", "end", "top", "bottom"):
             getattr(body, f"set_margin_{side}")(ai_core.GAP_TIGHT)
@@ -218,6 +223,10 @@ class ProjectDetail:
         box.append(parts.label(_("Project plan"), ("am-section-heading",)))
         self.plan_view = text_view(10, lambda text: self.edit("plan", text))
         box.append(self.plan_view)
+        # The plan box is empty while the lead drafts: it says why.
+        self.plan_hint = parts.label(_("The AI is drafting the plan. It appears here when the agent is done."),
+                                     ("am-project-dim",), wrap=True)
+        box.append(self.plan_hint)
         self.approved_note = parts.label("", wrap=True)
         box.append(self.approved_note)
         return box
@@ -243,25 +252,17 @@ class ProjectDetail:
             self.ctrl.set_text(field, value)
 
     def choose_folder(self):
-        dialog = Gtk.FileDialog(title=_("Working folder"), modal=True)
         ctrl = self.ctrl
-        current = ctrl.texts.get("path") or ""
-        if current:
-            dialog.set_initial_folder(Gio.File.new_for_path(current))
         asked = (ctrl.selection, (ctrl.project or {}).get("id"))
 
-        def done(source, result):
-            try:
-                folder = source.select_folder_finish(result)
-            except GLib.Error:
-                return
-            path = folder.get_path() if folder is not None else None
+        def done(path):
             # Only into the project it was chosen for, while its fields can still be edited.
             still = (not ctrl.disposed and ctrl.open and not ctrl.busy and not ctrl.running
                      and (ctrl.selection, (ctrl.project or {}).get("id")) == asked)
             if path and still and self.root.get_root() is not None:
                 self.path_entry.set_text(path)
-        dialog.select_folder(self.host.window, None, done)
+        # The mounted disks and pinned folders in the sidebar (Maprisma task 098).
+        folder_picker.choose_folder(self.host.window, _("Working folder"), ctrl.texts.get("path") or "", done)
 
     # --- drawing ---------------------------------------------------------------------------------------
 
@@ -284,6 +285,9 @@ class ProjectDetail:
             if found is not None:
                 self.issues.append(found)
         self.render_tabs()
+        self.working.render(card, project, compact=self.narrow)
+        self.plan_hint.set_visible(not ctrl.texts["plan"].strip() and (project or {}).get("status") == "planning"
+                                   and (project or {}).get("phase") == "planning")
         self.stopping.set_visible((project or {}).get("processes_stopping") is True)
         self.error.set_label(ctrl.error or "")
         self.error.set_visible(bool(ctrl.error))
@@ -721,7 +725,8 @@ class ProjectDetail:
     def render_footer(self):
         ctrl = self.ctrl
         actions = texts.footer_actions(ctrl.project, ctrl.texts["plan"], ctrl.dirty, ctrl.running, ctrl.approved,
-                                       bool(ctrl.plan_team if ctrl.plan_team is not None else ctrl.run_team))
+                                       bool(ctrl.plan_team if ctrl.plan_team is not None else ctrl.run_team),
+                                       has_run_team=bool(ctrl.run_team))
         key = (tuple(actions), ctrl.busy, ctrl.dirty, self.narrow)
         if key == self.shown_footer:
             return                        # its buttons and its More menu stay while output comes in

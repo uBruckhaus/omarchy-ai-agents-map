@@ -676,19 +676,8 @@ class SetupPage:
 
     def pick_folder(self, title: str, start, done):
         """A folder picker (it can make new folders too); done(Path) when one is chosen."""
-        dialog = Gtk.FileDialog(title=title, modal=True)
-        start = Path(os.path.expanduser(str(start))) if start else None
-        if start is not None and start.is_dir():
-            dialog.set_initial_folder(Gio.File.new_for_path(str(start)))
-
-        def chosen(source, result):
-            try:
-                folder = source.select_folder_finish(result)
-            except GLib.Error:
-                return                         # cancelled
-            if folder is not None and folder.get_path():
-                done(Path(folder.get_path()))
-        dialog.select_folder(self.window, None, chosen)
+        import folder_picker                   # the mounted disks in the sidebar (Maprisma task 098)
+        folder_picker.choose_folder(self.window, title, start, lambda path: done(Path(path)))
 
     def add_model_folder(self):
         def done(path):

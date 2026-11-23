@@ -1165,20 +1165,12 @@ class SettingsPages:
         self.save_setting(models_root=inventory.tilde(path))
 
     def choose_models_root(self, entry):
-        dialog = Gtk.FileDialog(title=_("Models folder"), modal=True)
-        current = Path(os.path.expanduser(entry.get_text().strip() or "~"))
-        if current.is_dir():
-            dialog.set_initial_folder(Gio.File.new_for_path(str(current)))
+        import folder_picker               # the mounted disks in the sidebar (Maprisma task 098)
 
-        def done(source, result):
-            try:
-                folder = source.select_folder_finish(result)
-            except GLib.Error:
-                return                     # cancelled
-            if folder is not None and folder.get_path():
-                entry.set_text(inventory.tilde(folder.get_path()))
-                self.save_models_root(entry)
-        dialog.select_folder(self.window, None, done)
+        def done(path):
+            entry.set_text(inventory.tilde(path))
+            self.save_models_root(entry)
+        folder_picker.choose_folder(self.window, _("Models folder"), entry.get_text().strip() or "~", done)
 
     def folder_holders(self, steps) -> list:
         """The running local LLMs whose model folder moves and that hold their files open while they

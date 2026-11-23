@@ -901,8 +901,61 @@ class ProjectsController:
             self.refresh(then=lambda: done(True))
         self.run(lambda: self.call("save", params), answered)
 
+    def skip_planning(self, finish):
+        """Skip planning (Maprisma task 099), after its question: the plan becomes texts.SKIPPED_PLAN and is
+        saved, approved with the team and its permissions, and the project runs. A step that fails leaves
+        the project where it got (saved, or approved) with the reason; a failed save leaves the form as it
+        was."""
+        def confirmed(go):
+            if not go:
+                finish()
+                return
+            before, was_dirty = self.texts["plan"], self.dirty
+            self.texts["plan"] = texts.SKIPPED_PLAN
+            self.dirty = True
+
+            def saved(ok):
+                if not ok:
+                    if self.texts["plan"] == texts.SKIPPED_PLAN:
+                        self.texts["plan"], self.dirty = before, was_dirty
+                    finish()
+                    return
+                self._skip_steps(finish)
+            self._save(saved)
+        self._confirm(texts.SKIP_QUESTION, confirmed)
+
+    def _skip_steps(self, finish):
+        def failed(error):
+            self.error = texts.failure(error)
+            self.notify()
+            self.refresh(then=finish)          # the board and the stage rail show where it got
+
+        def started(result, error):
+            if error is not None:
+                failed(error)
+                return
+            if isinstance(result.get("project"), dict):
+                self._adopt(dict(result["project"]))
+            self.tab = texts.TAB_ACTIVITY
+            self.notify()
+            self.refresh(then=finish)
+
+        def reviewed(result, error):
+            if error is not None:
+                failed(error)
+                return
+            if isinstance(result.get("project"), dict):
+                self._adopt(dict(result["project"]))
+            project = self.project or {}
+            self.run(lambda: self.call("run", {"id": project.get("id"), "revision": project.get("revision")}),
+                     started)
+        project = self.project or {}
+        self.run(lambda: self.call("review", {"id": project.get("id"), "revision": project.get("revision"),
+                                              "approved": True}), reviewed)
+
     def perform(self, operation: str):
-        """A footer action (save, plan, review, run, continue, pause, delete, setup, setup_apply)."""
+        """A footer action (save, plan, skip_plan, review, run, continue, pause, delete, setup,
+        setup_apply)."""
         if self.busy:
             return
         failures = self.quick_failures
@@ -984,6 +1037,8 @@ class ProjectsController:
 
         if operation == "save":
             self._save(lambda _ok: finish())
+        elif operation == "skip_plan":
+            self.skip_planning(finish)
         elif operation == "delete":
             if self.project is None:
                 finish()

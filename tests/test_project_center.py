@@ -2433,3 +2433,17 @@ class CoreRegressionTest(CenterCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PlanPromptTest(CenterCase):
+    """The planning lead's answer is the plan (Maprisma task 098)."""
+
+    def test_only_the_planning_lead_is_told_to_answer_with_the_plan(self):
+        item = {"title": "T", "brief": "Goal", "plan": "", "handoff": ""}
+        lead = self.center._prompt(item, {"role": "lead"}, "planning")
+        self.assertIn("answer with the plan itself", lead)
+        self.assertIn("Do not write files", lead)
+        reviewer = self.center._prompt(item, {"role": "reviewer"}, "planning")
+        self.assertNotIn("answer with the plan itself", reviewer)
+        runner = self.center._prompt({**item, "plan": "Do it."}, {"role": "lead"}, "running")
+        self.assertNotIn("answer with the plan itself", runner)
