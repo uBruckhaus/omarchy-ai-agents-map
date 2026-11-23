@@ -403,6 +403,8 @@ def main():
     third = folder_picker.choose_folder(None, "Working folder", "/", chosen.append)
     third.destroy()                                   # gone without an answer: the next one opens
     assert folder_picker._open is None and chosen == []
+    import gc
+    gc.collect()                                      # closed dialogs run no handler any more
     print("SMOKE OK")
 
 

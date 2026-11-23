@@ -143,12 +143,18 @@ def choose_folder(parent, title: str, initial, done):
                 dialog.set_current_folder(Gio.File.new_for_path(str(start)))
             except Exception:
                 pass
+    # The handlers of the dialog and its window; all go when the dialog does (no cycle keeps the dialog
+    # alive until garbage collection, no handler runs after it closed). `held` names the open dialog.
     watched = []
+    held = {"dialog": dialog}
 
-    def forget():
-        """The dialog is gone: no longer the open one, its window no longer watched."""
+    def forget(*_a):
+        """The dialog is gone: no longer the open one, nothing of it connected any more."""
         global _open
-        if _open is dialog:
+        gone = held.pop("dialog", None)
+        if gone is None:
+            return
+        if _open is gone:
             _open = None
         while watched:
             widget, handler = watched.pop()
@@ -159,10 +165,11 @@ def choose_folder(parent, title: str, initial, done):
                 pass
 
     def close(answer_path):
-        if _open is not dialog:
+        gone = held.get("dialog")
+        if gone is None:
             return
         forget()
-        dialog.destroy()
+        gone.destroy()
         if answer_path:
             done(answer_path)
 
@@ -174,10 +181,10 @@ def choose_folder(parent, title: str, initial, done):
                 chosen = widget.get_file()
             path = chosen.get_path() if chosen is not None else None
         close(path)
-    dialog.connect("response", response)
+    watched.append((dialog, dialog.connect("response", response)))
     # Destroyed or hidden without an answer (GTK sends "destroy" only once the last reference goes).
     for signal in ("unmap", "destroy"):
-        dialog.connect(signal, lambda *_a: forget())
+        watched.append((dialog, dialog.connect(signal, forget)))
     if parent is not None:
         # Unmapped: hidden (the bar toggle) or destroyed; the dialog closes without an answer.
         watched.append((parent, parent.connect("unmap", lambda *_a: close(None))))
