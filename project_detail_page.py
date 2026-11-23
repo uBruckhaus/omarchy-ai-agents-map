@@ -21,6 +21,8 @@ from i18n import _
 from project_messages_view import MessagesView
 from project_working import ProjectWorking
 
+MAPRISMA_URL = "https://github.com/maprisma/maprisma"     # scheduled runs live there (a hint, a link)
+
 NARROW = 600          # the tabs become a list, the footer keeps one action
 GRAPH_BESIDE = 900
 SHORT = 460           # compact also in a window lower than this    # the Team graph next to the form from this width, else below it
@@ -216,6 +218,12 @@ class ProjectDetail:
         box.append(self.folder_button)
         self.importance_row = Gtk.Box(spacing=ai_core.GAP_INLINE)
         box.append(self.importance_row)
+        # Scheduled runs are not part of the plugin (they need systemd user timers); Maprisma, the
+        # desktop app it is based on, has them. Only a hint and a link: nothing is installed from here.
+        box.append(parts.label(_("Want this project to run by itself, for example every day at 05:00? "
+                                 "Scheduled runs are in Maprisma, the desktop app AI Agents Map is based on."),
+                               ("am-project-dim",), wrap=True))
+        box.append(Gtk.LinkButton(uri=MAPRISMA_URL, label=_("Maprisma on GitHub"), halign=Gtk.Align.START))
         return box
 
     def build_plan(self) -> Gtk.Widget:

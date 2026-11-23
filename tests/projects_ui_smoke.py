@@ -280,6 +280,11 @@ def main():
                  "Pause project", "Plan", "Agents finished"):
         assert text in page_text, (text, page_text)
     assert any(t.startswith("Delivered to Claude Code") for t in page_text), page_text
+    # No scheduled runs in the plugin: the Goal tab points to Maprisma (a hint and a link only).
+    assert any("Scheduled runs are in Maprisma" in t for t in page_text), page_text
+    links = [w for w in walk(detail.root) if isinstance(w, Gtk.LinkButton)]
+    assert [w.get_uri() for w in links if w.get_label() == "Maprisma on GitHub"] == \
+        ["https://github.com/maprisma/maprisma"], [(w.get_label(), w.get_uri()) for w in links]
     # The working strip under the tabs (task 098), the bar on the running card.
     assert detail.working.root.get_visible()
     assert "AI is working on the project…" in page_text, page_text

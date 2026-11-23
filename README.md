@@ -56,6 +56,10 @@ The same features as Maprisma 2.x, inside the plugin:
   Setup. A team of your installed agents plans and runs the work step by step; every launch is checked
   against Settings › Rules, agents run under a supervisor that stops their whole process tree, and an
   open project with unsaved changes asks before you leave it (another tab, a header action, closing).
+  A project runs only when you click. **Scheduled runs** (for example every day at 05:00, also while
+  the window is closed) are not part of the plugin: they are in
+  [Maprisma](https://github.com/maprisma/maprisma), the desktop app AI Agents Map is based on, and the
+  project's Goal tab links there.
 - **Links between the tabs**: an agent's box on the map shows **Used in N projects** (opens the board
   with that agent's chip); **Show on map** in a project's Team graph and **Fix on map** on a problem
   switch to the AI Map, scroll to the box and mark it for a few seconds.
@@ -1042,8 +1046,8 @@ rm ~/.config/systemd/user/ai-agents-map-providers.service && systemctl --user da
 ```
 
 Versions 2.1.0 to 2.1.4 (installed from GitHub, never released on the marketplace) could run
-projects on a schedule with systemd user timers. This version has no scheduled runs. If you used
-them, remove the timers they left:
+projects on a schedule with systemd user timers. This version has no scheduled runs (Maprisma has
+them, see Projects above). If you used them, remove the timers they left:
 
 ```sh
 systemctl --user disable --now 'ai-agents-map-schedule-*.timer'
