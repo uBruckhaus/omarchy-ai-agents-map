@@ -229,9 +229,28 @@ def _valid_template(profile: dict, key: str) -> bool:
     value = profile.get(key)
     if not _valid_argv(value):
         return False
+    if not _valid_env(profile.get(_env_key(key))):
+        return False
     if profile.get("stdin") is not True and "{prompt}" not in value:
         return False
     return not any(("{prompt}" in arg and arg != "{prompt}") or "{session}" in arg or arg == "--" for arg in value)
+
+
+def _env_key(argv_key: str) -> str:
+    """The phase's fixed variables (plan_env beside plan_argv, ...)."""
+    return re.sub(r"_argv$", "_env", argv_key)
+
+
+def _valid_env(value) -> bool:
+    """None, or at most 16 audited variables (adapter_data.PROJECT_ENV_NAMES, each with its own values),
+    never one of an agent session."""
+    if value is None:
+        return True
+    import adapter_data
+    import ai_core
+    return isinstance(value, dict) and len(value) <= 16 and all(
+        isinstance(name, str) and not ai_core.is_agent_session_var(name)
+        and value in adapter_data.PROJECT_ENV_NAMES.get(name, ()) for name, value in value.items())
 
 
 def _option(value) -> bool:
@@ -858,10 +877,16 @@ class ProjectCenter:
             runtime = member.get("runtime")
             bindings = (runtimes.get(runtime) or {}).get("bindings") if runtime else None
             binding = bindings.get(member["agent"]) if isinstance(bindings, dict) else None
-            facts = {"argv": profile.get(_argv_key(member, phase)),
-                     **{fact: profile.get(fact) for fact in _LAUNCH_FACTS},
-                     "subagents": {i: definitions.get(i) if isinstance(definitions, dict) else None
-                                   for i in member.get("subagents") or []}}
+            key = _argv_key(member, phase)
+            facts = {"argv": profile.get(key)}
+            # Only when declared (sorted): approvals saved before env existed stay valid, and an empty
+            # table is no change.
+            env = profile.get(_env_key(key))
+            if isinstance(env, dict) and env:
+                facts["env"] = {name: env[name] for name in sorted(env)}
+            facts.update({fact: profile.get(fact) for fact in _LAUNCH_FACTS})
+            facts["subagents"] = {i: definitions.get(i) if isinstance(definitions, dict) else None
+                                  for i in member.get("subagents") or []}
             if isinstance(runtime, str):
                 facts["runtime"] = {"known": runtime in runtimes,
                                     "provider": binding.get("provider") if isinstance(binding, dict) else None}
@@ -1036,6 +1061,9 @@ class ProjectCenter:
         profile = self._profiles().get(chosen) if isinstance(chosen, str) else None
         if profile is None or not _valid_argv(profile.get("setup_argv")):
             raise ProjectError("project_setup_helper_unavailable")
+        # Refused before anything changes (the dispatch checks the same).
+        if not _valid_template(profile, "setup_argv"):
+            raise ProjectError("project_profile_invalid")
         previous = next((m for m in current if m["agent"] == chosen), None) or {}
         helper = {"agent": chosen, "role": "setup", "access": "read-only", "instructions": "",
                   **{key: previous[key] for key in ("model", "provider", "runtime") if isinstance(previous.get(key), str)}}
@@ -1452,7 +1480,8 @@ class ProjectCenter:
                         active.process = process
                         return True
                 try:
-                    process = self._runner(argv, cwd, dict(self._environment), prompt if stdin else None, lock,
+                    process = self._runner(argv, cwd, {**self._environment, **(profile.get(_env_key(key)) or {})},
+                                           prompt if stdin else None, lock,
                                            may_launch)
                 except Exception as error:
                     # A runner that raises has withdrawn (and reaped) its supervisor before any launch:
@@ -2409,8 +2438,14 @@ def default_agent_profiles() -> list:
                       if not any(m.startswith(f"{p}/") for p in local)] if agent.installed else []
         except Exception:
             models = []
+        # Fixed variables per phase (goose's GOOSE_MODE): validated with the adapter, checked again at
+        # every dispatch; only a phase that declares some.
+        env = facts.get("env") if isinstance(facts.get("env"), dict) else {}
+        phase_env = {f"{phase}_env": dict(env[phase]) for phase in ("plan", "run", "setup")
+                     if isinstance(env.get(phase), dict) and env[phase]}
         found.append({"id": agent.command, "name": agent.name, "aliases": [label], "installed": agent.installed,
                       "plan_argv": facts.get("plan"), "run_argv": facts.get("run"), "setup_argv": facts.get("setup"),
+                      **phase_env,
                       "access_modes": facts.get("access_modes") or ["read-only", "project-edit"],
                       "models": models, "local_providers": local, "permissions": facts.get("permissions"),
                       "native_subagents": facts.get("native_subagents") is True,

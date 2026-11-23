@@ -2020,6 +2020,89 @@ class SupervisorControlTest(unittest.TestCase):
             self.assertIsNotNone(managed._proc.returncode)
 
 
+class PhaseEnvTest(CenterCase):
+    """[project.env] (Maprisma's ai_project_center_test): fixed variables per phase, audited names only,
+    part of the approval only when declared."""
+
+    def test_a_phase_env_reaches_only_that_phase_and_overrides_the_user(self):
+        self.profiles[0]["plan_env"] = {"GOOSE_MODE": "chat"}
+        self.profiles[0]["run_env"] = {"GOOSE_MODE": "auto"}
+        self.started([{"agent": "fixture", "role": "lead"}])
+        self.assertEqual(self.environments[0]["GOOSE_MODE"], "auto")
+        self.processes[0].finish("Done.")
+        self.idle()
+
+    def test_a_planning_assignment_gets_the_plan_env(self):
+        self.profiles[0]["plan_env"] = {"GOOSE_MODE": "chat"}
+        item = self.save()
+        self.center.call("plan", {"id": item["id"], "revision": item["revision"]})
+        wait_until(lambda: len(self.processes) == 1)
+        self.assertEqual(self.environments[0]["GOOSE_MODE"], "chat")
+        self.processes[0].finish("The plan.")
+        self.idle()
+
+    def test_an_unsafe_profile_env_is_refused(self):
+        for env in ({"LD_PRELOAD": "/tmp/x.so"}, {"NODE_OPTIONS": "--require=/tmp/x.js"}, {"PYTHONPATH": "/tmp"},
+                    {"PATH": "/tmp"}, {"AI_AGENTS_MAP_PAGE": "x"}, {"CLAUDECODE": "1"}, {"lower": "x"},
+                    {"GOOSE_MODE": "yolo"}, {"GOOSE_MODE": 1}, "GOOSE_MODE=auto"):
+            with self.subTest(env=env):
+                self.profiles[0]["plan_env"] = env
+                item = self.save()
+                self.assertCode("project_profile_invalid", self.center.call, "plan",
+                                {"id": item["id"], "revision": item["revision"]})
+                self.assertEqual(self.commands, [])
+
+    def test_the_phase_env_overrides_the_users_own_value(self):
+        self.center.shutdown()
+        self.center = self.make(environment={"GOOSE_MODE": "approve", "KEEP": "me"})
+        self.profiles[0]["plan_env"] = {"GOOSE_MODE": "auto"}
+        item = self.save()
+        self.center.call("plan", {"id": item["id"], "revision": item["revision"]})
+        wait_until(lambda: len(self.processes) == 1)
+        self.assertEqual(self.environments[0]["GOOSE_MODE"], "auto")
+        self.assertEqual(self.environments[0]["KEEP"], "me")
+        self.processes[0].finish("The plan.")
+        self.idle()
+
+    def test_a_reviewer_in_execution_gets_the_plan_env(self):
+        self.profiles[0]["plan_env"] = {"GOOSE_MODE": "chat"}
+        self.profiles[0]["run_env"] = {"GOOSE_MODE": "auto"}
+        self.started([{"agent": "fixture", "role": "lead"}, {"agent": "fixture", "role": "reviewer"}])
+        self.assertEqual(self.environments[0]["GOOSE_MODE"], "auto")
+        self.processes[0].finish("Lead finished.")
+        wait_until(lambda: len(self.processes) == 2)
+        self.assertEqual(self.environments[1]["GOOSE_MODE"], "chat")
+        self.processes[1].finish("CLEAN")
+        self.idle()
+
+    def test_an_invalid_setup_env_is_refused_before_the_project_changes(self):
+        self.profiles[0]["setup_env"] = {"NODE_OPTIONS": "--require=/x.js"}
+        item = self.save()
+        self.assertCode("project_profile_invalid", self.center.call, "setup",
+                        {"id": item["id"], "revision": item["revision"], "request": "A team please.",
+                         "agent": "fixture"})
+        self.assertEqual(self.commands, [])
+        after = self.get(item["id"])
+        self.assertEqual(after["revision"], item["revision"])
+        self.assertNotIn("setup_request", after)
+
+    def test_an_old_approval_stays_valid_and_an_empty_env_table_is_no_change(self):
+        item = self.approve(self.save(plan="The checked plan."))
+        self.profiles[0]["run_env"] = {}
+        self.center.call("run", {"id": item["id"], "revision": item["revision"]})
+        wait_until(lambda: len(self.processes) == 1)
+        self.processes[0].finish("Done.")
+        self.idle()
+
+    def test_an_env_change_invalidates_an_already_approved_plan(self):
+        self.profiles[0]["run_env"] = {"GOOSE_MODE": "chat"}
+        item = self.approve(self.save(plan="The checked plan."))
+        self.profiles[0]["run_env"] = {"GOOSE_MODE": "auto"}
+        self.assertCode("project_plan_not_approved", self.center.call, "run",
+                        {"id": item["id"], "revision": item["revision"]})
+        self.assertEqual(self.commands, [])
+
+
 class AdapterProjectTest(unittest.TestCase):
     def test_declared_profiles_load(self):
         claude = json.loads(adapter_data.load(ROOT / "adapters/claude.toml").project)
@@ -2052,6 +2135,18 @@ class AdapterProjectTest(unittest.TestCase):
         self.assertEqual(found["claude"]["plan_argv"][0], "claude")
         self.assertEqual(found["claude"]["models"], ["claude-opus-5"])
         self.assertTrue(found["claude"]["native_subagents"])
+
+    def test_default_profiles_pass_a_phase_env_only_when_declared(self):
+        import agents as agents_mod
+        fake = [agents_mod.Agent("claude", "Claude Code", "", installed=True),
+                agents_mod.Agent("goose", "Goose", "", installed=True)]
+        with mock.patch.object(agents_mod, "list_agents", return_value=fake), \
+                mock.patch("agent_details.details_for", side_effect=OSError), \
+                mock.patch("online_models.choices", return_value=[]):
+            found = {p["id"]: p for p in pc.default_agent_profiles()}
+        for phase in ("plan", "run", "setup"):
+            self.assertEqual(found["goose"][f"{phase}_env"], {"GOOSE_MODE": "auto"})
+            self.assertNotIn(f"{phase}_env", found["claude"])
 
 
 OLD_SUPERVISOR = """import json, sys
