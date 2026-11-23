@@ -1074,10 +1074,16 @@ class ProjectCenter:
 
     def sync_schedules(self) -> dict:
         """The timers follow the store (schedules hook; {} without one): {project id: why it failed}.
-        Never under the center's lock (systemctl may take seconds); one sync at a time, in order."""
+        Never under the center's lock (systemctl may take seconds); one sync at a time, in order. Only
+        while this center owns the store: shutdown() and detach() take the sync lock before they let the
+        store go, so a sync that started finishes first and none starts after (a later owner's syncs
+        are never overwritten by this center's older view)."""
         if self._schedules is None:
             return {}
         with self._sync_lock:
+            with self._lock:
+                if not self._owns_store():
+                    return {}
             wanted = self.schedules()
             try:
                 return dict(self._schedules(wanted) or {})
@@ -2377,8 +2383,9 @@ class ProjectCenter:
             raise ProjectError(self._storage_fault)
 
     def detach(self) -> None:
-        """Release this controller without waiting: each supervisor sees EOF on its control pipe and
-        stops its own tree while holding the project's run lock."""
+        """Release this controller without waiting for its runs: each supervisor sees EOF on its control
+        pipe and stops its own tree while holding the project's run lock. A timer sync that is going on
+        is finished first (bounded by systemctl's deadlines), so it cannot undo a later owner's timers."""
         with self._lock:
             self._closed = True
             for pid in set(self._projects) | set(self._lifecycle):
@@ -2390,6 +2397,7 @@ class ProjectCenter:
                         active.process.detach()
                     except Exception:
                         pass
+        with self._sync_lock, self._lock:         # a timer sync still going on ends before the store goes
             if self._directory_fd is not None:
                 os.close(self._directory_fd)
                 self._directory_fd = None
@@ -2422,7 +2430,7 @@ class ProjectCenter:
             deadline = time.monotonic() + 10.0
             for thread in threads:
                 thread.join(max(0.0, deadline - time.monotonic()))
-            with self._lock:
+            with self._sync_lock, self._lock:     # a timer sync still going on ends before the store goes
                 if len(results) != len(attempts) or not all(results.values()):
                     if self._directory_fd is not None:
                         self._closed = False  # keep the store lock: no second controller may dispatch

@@ -893,8 +893,10 @@ the backup and Undo), and the agent is told the same context. A context you set 
   only for a project you gave a Schedule): one timer and one service per project,
   `~/.config/systemd/user/ai-agents-map-schedule-<project id>.timer` and `.service`, written by
   `schedule_units.sync` (called by `project_center.ProjectCenter` after `set_schedule` or a deletion,
-  and on a thread of its own after the app or a timer's program opened the store, once a waiting
-  request has been served). Each sync makes the timers match the store, not only what changed: it
+  and once after the store is opened: the app starts that sync on a thread of its own right after
+  opening, so serving a waiting request never waits for it; a timer's program opens the store without
+  it and starts it only after it has served its own request). Only the store's owner syncs: closing
+  or releasing the store waits for a sync that is going on, and no sync starts after it. Each sync makes the timers match the store, not only what changed: it
   writes what differs and asks systemd (`systemctl --user show`) about every other wanted timer, and
   one it does not confirm as enabled and active (a failed or incomplete answer counts as not
   confirmed) is enabled and started again, so a start that failed once is retried by the next sync. Each file starts with `# Managed by AI Agents Map`; a file of that
@@ -908,8 +910,9 @@ the backup and Undo), and the agent is told the same context. A context you set 
   each). Turning a schedule off, an end date that has passed, deleting the project, or
   `project_schedule.py clear` stops and removes its units; a timer whose `disable --now` fails keeps
   its files and is reported (`clear` names it and exits with 1), and the next change or start tries
-  again. `clear` tries every step whatever failed before it (each schedule off, then every unit
-  removed), names each failure, reads the unit folder again afterwards and exits with 1 when any step
+  again. `clear` refuses (exit 1, nothing changed) while another program holds the project store,
+  since that owner would put its timers back; otherwise it tries every step whatever failed before it
+  (each schedule off, then every unit removed), names each failure, reads the unit folder again afterwards and exits with 1 when any step
   failed, any unit of the plugin is left or the folder cannot be read. When a timer fires, the program
   (`schedule_handover.job`) puts a request (only the project id and a time) into a private 0700
   folder in `$XDG_RUNTIME_DIR`, or, when that is missing or unsafe, a private 0700 folder of yours
@@ -1087,7 +1090,9 @@ rm ~/.config/systemd/user/ai-agents-map-providers.service && systemctl --user da
 
 Scheduled projects have systemd user timers: turn their schedules off first, or remove every timer
 of the plugin with its own command (from the plugin's folder under `~/.config/omarchy/plugins/`;
-with AI Agents Map closed this also turns the schedules off in the project list), or by hand:
+it turns the schedules off in the project list and removes the timers; while AI Agents Map or a
+scheduled run holds the project list it changes nothing and exits with 1, so close the app first),
+or by hand:
 
 ```sh
 python3 -I <plugin folder>/project_schedule.py clear

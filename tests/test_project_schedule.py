@@ -536,6 +536,47 @@ class StoreScheduleTest(ScheduleCenterCase):
         self.center.call("delete", {"id": item["id"], "revision": current["revision"]})
         self.assertEqual(self.synced[-1], {})
 
+    def test_a_running_sync_ends_before_the_store_is_let_go_and_none_starts_after(self):
+        """Codex 2.1.5 r6: the headless host on a stop signal and the app's release let the store go
+        while a reconciliation thread still ran, so a later owner's timers could be overwritten by the
+        old view. Now shutdown and detach wait for a sync that is going on, and a sync asked for after
+        that touches nothing."""
+        for leave in ("shutdown", "detach"):
+            with self.subTest(leave=leave):
+                entered, go, order = threading.Event(), threading.Event(), []
+
+                def slow(schedules):
+                    entered.set()
+                    go.wait(5)
+                    order.append("sync done")
+                    return {}
+                self.center.shutdown()
+                center = self.make(schedules=slow, sync_at_open=False)
+                syncing = threading.Thread(target=center.sync_schedules)
+                syncing.start()
+                self.assertTrue(entered.wait(5))
+                leaving = threading.Thread(target=lambda: (getattr(center, leave)(), order.append("released")))
+                leaving.start()
+                time.sleep(0.2)
+                self.assertTrue(leaving.is_alive())                  # waits for the sync
+                go.set()
+                syncing.join(5)
+                leaving.join(5)
+                self.assertEqual(order, ["sync done", "released"])
+                entered.clear()
+                self.assertEqual(center.sync_schedules(), {})        # after: nothing is touched
+                self.assertFalse(entered.is_set())
+                self.center = self.make()
+
+    def test_the_store_opens_without_a_sync_when_asked(self):
+        self.center.shutdown()
+        self.synced.clear()
+        self.center = self.make(sync_at_open=False)
+        self.assertEqual(self.synced, [])
+        self.center.shutdown()
+        self.center = self.make()
+        self.assertEqual(len(self.synced), 1)
+
     def test_hostile_title_never_reaches_a_unit(self):
         title = "Mail\n[Service]\nExecStart=/bin/sh -c 'rm -rf ~'; $(id) %h `x`"
         item = self.save(title=title)
@@ -1104,7 +1145,11 @@ class ProgramTest(unittest.TestCase):
         def busy():
             raise ProjectError("project_center_busy")
         with mock.patch("sys.stderr"):
-            self.assertEqual(ps.clear(open_store=busy, remove_all=lambda: {}), 0)
+            # Codex 2.1.5 r6: the app (or a timer's run) holds the store and would put the timers back,
+            # so clear changes nothing and says so (exit 1) instead of reporting a removal that is undone.
+            untouched = mock.Mock(return_value={})
+            self.assertEqual(ps.clear(open_store=busy, remove_all=untouched), 1)
+            untouched.assert_not_called()
 
 
 class ControllerScheduleTest(unittest.TestCase):

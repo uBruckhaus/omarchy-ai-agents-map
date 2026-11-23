@@ -362,19 +362,21 @@ def clear(open_store=None, remove_all=None) -> int:
     """Every schedule off and every timer of the plugin gone (before removing the plugin). Best effort
     over everything: each step is tried whatever failed before it, every failure is said, and the exit
     status is 1 if any step failed or a timer of ours is still there (remove_all reads the folder
-    again). When the app holds the store, only the timers go; its projects keep their schedule until
-    it is changed there."""
+    again). While another program holds the store (the app, or a timer's run), nothing is touched and
+    the exit status is 1: that owner would put its timers back."""
     import project_center
     import schedule_units
     from project_supervisor import ProjectError
     remove_all = remove_all or schedule_units.remove_all
     problems: list[str] = []
-    kept = False
     try:
         center = (open_store or project_center.ProjectCenter)()
     except ProjectError as error:
         if error.code == "project_center_busy":
-            kept = True
+            print("The project list is in use (AI Agents Map or a scheduled run is running), and it would put "
+                  "the timers back: nothing was changed. Close AI Agents Map, wait for scheduled runs to end, "
+                  "and run clear again.", file=sys.stderr)
+            return 1
         else:
             problems.append(f"The project list could not be opened: {_text_of(error)}")
     except Exception as error:
@@ -402,9 +404,6 @@ def clear(open_store=None, remove_all=None) -> int:
         print(f"The timer of project {project_id} could not be removed: {why}", file=sys.stderr)
     for problem in problems:
         print(problem, file=sys.stderr)
-    if kept:
-        print("The project list is in use (AI Agents Map runs): the timers were removed, the projects keep "
-              "their schedule.", file=sys.stderr)
     return 1 if failures or problems else 0
 
 
