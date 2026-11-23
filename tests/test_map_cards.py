@@ -15,7 +15,7 @@ class Cards:
                  "reorder", "card_height", "column_height", "needed_height", "layout", "column_top",
                  "visible_rows", "group_title", "default_layout", "card_header_at", "card_at",
                  "agent_slots", "agent_width", "text_width", "card_rows", "toggle_card", "make_room",
-                 "card_nodes", "node_used", "add_of", "card_box_height", "order_bar"):
+                 "card_nodes", "node_used", "add_of", "card_box_height", "order_bar", "moving_box"):
         locals()[name] = M.__dict__[name]
     del name
 
@@ -118,6 +118,32 @@ class OrderTest(unittest.TestCase):
                 self.assertIsNone(view.order_slot("mcp:alpha", px, py), key)
         before = {key: list(nodes) for key, nodes in view.order.items()}
         self.assertEqual(view.order, before)
+
+    def test_moving_a_box_lights_no_other_box_and_selects_only_it(self):
+        """While a box is moved inside its card, the box under the pointer is not hovered (not lit, no
+        target): only the separators show. After the drop the moved box alone is selected."""
+        view = Cards(built(mcp=("alpha", "beta", "gamma")))
+        view.keep_order()
+        view.layout(1200, 800)
+        changed = []
+        view.set_cursor_from_name = lambda _name: None
+        view.queue_draw = lambda: None
+        view.set_hover = lambda node_id: setattr(view, "hover", node_id)
+        view.selection_changed = lambda: changed.append(list(view.selected))
+        view.hover, view.selected = None, ["mcp:gamma"]
+        gx, gy, _gw, gh = view.boxes["mcp:gamma"]
+        view.link = {"from": "mcp:alpha", "start": (0, 0), "x": gx + 10, "y": gy + gh - 2, "target": None,
+                     "drawing": True, "slot": 2}
+        self.assertTrue(M.moving_box(view))
+        # Pointer motion over beta while moving: no hover.
+        M.on_motion(view, None, view.boxes["mcp:beta"][0] + 5, view.boxes["mcp:beta"][1] + 5)
+        self.assertIsNone(view.hover)
+        M.on_link_end(view, None, 0, 0)
+        self.assertEqual([n.label for n in view.groups(0)[0]], ["beta", "gamma", "alpha"])
+        self.assertEqual(view.selected, ["mcp:alpha"])
+        self.assertEqual(changed, [["mcp:alpha"]])
+        self.assertIsNone(view.link)
+        self.assertFalse(M.moving_box(view))
 
     def test_a_separator_for_every_place_in_the_card(self):
         """While a box is dragged inside its card, a separator is drawn at every place it can go: one

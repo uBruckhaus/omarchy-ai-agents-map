@@ -1251,6 +1251,8 @@ class MapView(Gtk.DrawingArea):
             if not self.link.get("relink") and not self.link.get("remodel") else None
         if self.link["slot"] is not None or self.link.get("order_only"):
             self.link["target"] = None           # inside its own card: a new place, not a line
+            if self.hover is not None:
+                self.set_hover(None)             # the box under it is not lit (only the separators)
             self.set_cursor_from_name("grabbing")
             self.queue_draw()
             return
@@ -1280,6 +1282,8 @@ class MapView(Gtk.DrawingArea):
             return
         if link and link.get("slot") is not None and link["drawing"]:
             self.reorder(link["from"], link["slot"])
+            self.selected = [link["from"]]               # the moved box alone is selected
+            self.selection_changed()
             return
         if link and link.get("order_only"):
             return
@@ -1476,7 +1480,15 @@ class MapView(Gtk.DrawingArea):
         cr.move_to(x + 10, y + (sh - layout.get_pixel_size()[1]) / 2)
         PangoCairo.show_layout(cr, layout)
 
+    def moving_box(self) -> bool:
+        """A box is being moved inside its card: no other box is hovered, lit or a target then (only
+        the separators show where it goes)."""
+        link = self.link
+        return bool(link and link.get("drawing") and (link.get("slot") is not None or link.get("order_only")))
+
     def on_motion(self, controller, x, y):
+        if self.moving_box():
+            return
         x, y = x / self.zoom, y / self.zoom
         self.set_shift(bool(controller.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK))
         found = self.node_at(x, y)
