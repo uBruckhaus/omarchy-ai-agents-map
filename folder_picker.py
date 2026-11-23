@@ -14,9 +14,12 @@ from urllib.parse import unquote, urlsplit
 
 import warnings
 
-from gi.repository import Gio, Gtk
+import gi
 
-from i18n import _
+gi.require_version("Gtk", "4.0")
+from gi.repository import Gio, Gtk  # noqa: E402
+
+from i18n import _  # noqa: E402
 
 # Where data disks are mounted (fstab under /mnt, udisks under /run/media).
 _MOUNT_ROOTS = ("/mnt/", "/media/", "/run/media/", "/srv/")
@@ -28,10 +31,9 @@ _ENTITIES = {"amp": "&", "lt": "<", "gt": ">", "quot": '"', "apos": "'"}
 def _xml_text(text: str) -> str:
     def one(m):
         name = m.group(1)
-        if name.startswith("#x"):
-            return chr(int(name[2:], 16))
         if name.startswith("#"):
-            return chr(int(name[1:]))
+            code = int(name[2:], 16) if name.startswith("#x") else int(name[1:])
+            return chr(code) if 0 < code < 0x110000 else m.group(0)    # out of range: left as written
         return _ENTITIES[name]
     return re.sub(r"&(#x[0-9a-fA-F]+|#[0-9]+|amp|lt|gt|quot|apos);", one, text)
 
@@ -80,7 +82,10 @@ def folder_shortcuts(mounts: str, home: str, cosmic_favorites: str | None = None
         href = re.search(r'href="(file://[^"]+)"', m.group(1))
         if href is None:
             continue
-        url = urlsplit(_xml_text(href.group(1)))
+        try:
+            url = urlsplit(_xml_text(href.group(1)))
+        except ValueError:
+            continue                       # not a usable local path (a broken bookmark)
         if url.netloc not in ("", "localhost"):
             continue
         add(unquote(url.path))
@@ -108,11 +113,21 @@ def current_folder_shortcuts() -> list[str]:
                             is_system_root=lambda p: os.path.isdir(f"{p}/etc") and os.path.isdir(f"{p}/usr"))
 
 
+# The open folder dialog: one at a time (a second "Choose folder" brings it to the front).
+_open = None
+
+
 def choose_folder(parent, title: str, initial, done):
-    """Open the folder dialog over `parent`; done(path) when a folder is chosen (not when cancelled)."""
+    """Open the folder dialog over `parent`; done(path) when a folder is chosen (not when cancelled).
+    It closes without an answer when its window hides or closes (the bar toggle, Esc on a page that
+    goes), so a choice never lands in a page that is gone."""
+    global _open
+    if _open is not None:
+        _open.present()
+        return _open
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", DeprecationWarning)
-        dialog = Gtk.FileChooserDialog(title=title, transient_for=parent, modal=True,
+        dialog = Gtk.FileChooserDialog(title=title, transient_for=parent, modal=True, destroy_with_parent=True,
                                        action=Gtk.FileChooserAction.SELECT_FOLDER)
         dialog.add_button(_("Cancel"), Gtk.ResponseType.CANCEL)
         dialog.add_button(_("Select"), Gtk.ResponseType.ACCEPT)
@@ -128,15 +143,31 @@ def choose_folder(parent, title: str, initial, done):
                 dialog.set_current_folder(Gio.File.new_for_path(str(start)))
             except Exception:
                 pass
+    watched = []
+
+    def close(answer_path):
+        global _open
+        if _open is not dialog:
+            return
+        _open = None
+        for widget, handler in watched:
+            widget.disconnect(handler)
+        dialog.destroy()
+        if answer_path:
+            done(answer_path)
 
     def response(widget, answer):
         path = None
         if answer == Gtk.ResponseType.ACCEPT:
-            chosen = widget.get_file()
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", DeprecationWarning)
+                chosen = widget.get_file()
             path = chosen.get_path() if chosen is not None else None
-        widget.destroy()
-        if path:
-            done(path)
+        close(path)
     dialog.connect("response", response)
+    if parent is not None:
+        for signal in ("hide", "destroy"):
+            watched.append((parent, parent.connect(signal, lambda *_a: close(None))))
+    _open = dialog
     dialog.present()
     return dialog

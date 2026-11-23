@@ -385,6 +385,17 @@ def main():
         raise AssertionError("a center after shutdown")
     except Exception as error:
         assert getattr(error, "code", None) == "project_center_closed", error
+    # The folder dialog (task 098): one at a time; it closes without an answer when its window hides.
+    import folder_picker
+    chosen = []
+    owner = Gtk.Window()
+    owner.present()
+    first = folder_picker.choose_folder(owner, "Working folder", "/", chosen.append)
+    assert folder_picker.choose_folder(owner, "Working folder", "/", chosen.append) is first
+    owner.set_visible(False)
+    spin(lambda: folder_picker._open is None)
+    assert chosen == []
+    owner.destroy()
     print("SMOKE OK")
 
 

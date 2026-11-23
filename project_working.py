@@ -12,11 +12,14 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 
-from gi.repository import GLib, Gtk
+import gi
 
-import ai_core
-import project_parts as parts
-from i18n import _
+gi.require_version("Gtk", "4.0")
+from gi.repository import GLib, Gtk  # noqa: E402
+
+import ai_core  # noqa: E402
+import project_parts as parts  # noqa: E402
+from i18n import _  # noqa: E402
 
 # The moving bar pulses (tests switch it off: no timers without a main loop).
 ANIMATE = True

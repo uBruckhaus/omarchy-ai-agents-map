@@ -214,6 +214,12 @@ class FolderShortcutsTest(unittest.TestCase):
         self.assertEqual(found, ["/mnt/Data", "/mnt/Games", "/mnt/Nas", "/run/media/uwe/My Stick", "/mnt/Data/Ai",
                                  "/mnt/Data/Projects", "/home/uwe/My Work", "/mnt/Data/Uwe's"])
 
+    def test_a_broken_bookmark_is_left_out(self):
+        kde = '<bookmark href="file://[bad"></bookmark><bookmark href="file:///mnt/Data/X&#x110000;"></bookmark>' \
+              '<bookmark href="file:///mnt/Data/Ok"></bookmark>'
+        self.assertEqual(folder_picker.folder_shortcuts("", "/h", kde_places=kde, is_dir=lambda p: "Ok" in p),
+                         ["/mnt/Data/Ok"])
+
     def test_nothing_to_add_without_mounts_or_pins(self):
         self.assertEqual(folder_picker.folder_shortcuts("", "/home/uwe", is_dir=lambda _p: True), [])
 

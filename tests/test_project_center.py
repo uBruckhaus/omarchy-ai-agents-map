@@ -2431,10 +2431,6 @@ class CoreRegressionTest(CenterCase):
         self.assertEqual(events[-1], {"stopped": True})
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class PlanPromptTest(CenterCase):
     """The planning lead's answer is the plan (Maprisma task 098)."""
 
@@ -2447,3 +2443,7 @@ class PlanPromptTest(CenterCase):
         self.assertNotIn("answer with the plan itself", reviewer)
         runner = self.center._prompt({**item, "plan": "Do it."}, {"role": "lead"}, "running")
         self.assertNotIn("answer with the plan itself", runner)
+
+
+if __name__ == "__main__":
+    unittest.main()
