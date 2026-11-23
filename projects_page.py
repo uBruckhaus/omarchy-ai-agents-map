@@ -757,15 +757,20 @@ class ProjectsPage:
 
     def _project_center_open(self):
         """On a worker thread: the in-process ProjectCenter, opened on first use (never after shutdown);
-        its systemd timers follow its schedules (schedule_units.sync)."""
+        its systemd timers follow its schedules (schedule_units.sync). The reconciliation at open runs on a
+        thread of its own afterwards, so slow systemctl calls never hold up a timer's waiting request
+        (serve first, reconcile after)."""
         with self._project_center_lock:
             if self._projects_closed:
                 raise ProjectError("project_center_closed")
             if self._project_center is None:
                 import project_center
                 import schedule_units
-                self._project_center = project_center.ProjectCenter(
-                    on_change=lambda _pid: GLib.idle_add(self._projects_poke), schedules=schedule_units.sync)
+                center = project_center.ProjectCenter(
+                    on_change=lambda _pid: GLib.idle_add(self._projects_poke), schedules=schedule_units.sync,
+                    sync_at_open=False)
+                self._project_center = center
+                threading.Thread(target=center.sync_schedules, daemon=True, name="schedule-reconcile").start()
             return self._project_center
 
     def _schedule_look(self):

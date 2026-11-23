@@ -10,9 +10,10 @@ hidden), a headless host started by an earlier timer, or nobody. So the timer's 
    *claims* a request by renaming it to `<nonce>.claimed` (one rename: exactly one owner gets it),
    runs the occurrence (project_schedule.trigger) and writes `<nonce>.ans`;
 3. when nobody claims it, it opens the store itself (ProjectCenter: the lock decides between two
-   triggers that try at once) and becomes the headless host: it serves the queue (its own request
-   first), waits under the supervisors until no project works any more, takes requests of other
-   timers meanwhile, and only then lets the store go (`host()`).
+   triggers that try at once; no timer reconciliation while opening) and becomes the headless host:
+   it serves the queue (its own request first), then lets the timers follow the store, waits under
+   the supervisors until no project works any more, takes requests of other timers meanwhile, and
+   only then lets the store go (`host()`).
 
 While the app runs (its PID file names a process that passes the toggle's identity checks: owner,
 kernel start time, interpreter, exact script) the job gives it APP_GRACE seconds before it tries the
@@ -326,7 +327,9 @@ def _prepare_environment() -> None:
 def _open_store():
     import project_center
     import schedule_units
-    return project_center.ProjectCenter(schedules=schedule_units.sync)
+    # No reconciliation while opening: slow systemctl calls must never delay this timer's own
+    # occurrence (host() reconciles after serving it).
+    return project_center.ProjectCenter(schedules=schedule_units.sync, sync_at_open=False)
 
 
 def job(project_id: str, open_store=None, notify=None, app=None, directory: Path | None = None,
@@ -386,21 +389,42 @@ def host(center, notify, directory: Path | None = None, clock=time.monotonic, sl
          stop: threading.Event | None = None, nonce: str | None = None) -> int:
     """The store's owner without a window: serves the queue (`nonce`: its own request, first) until no
     project works any more, then lets the store go (shutdown stops what is left on SIGTERM: a logout,
-    `systemctl stop`). The exit status follows its own request's outcome."""
+    `systemctl stop`). Serve first, reconcile after: only once the first pass has claimed and started
+    its own occurrence do the timers follow the store (center.sync_schedules, on a thread of its own
+    while the queue keeps being served), so slow systemctl calls never make a request stale. The
+    store is let go only after that reconciliation ended. The exit status follows its own request's
+    outcome."""
     stop = stop or _stop_on_signals()
     outcome = None
+    reconcile = None
     try:
         while True:
             for served, result in serve(lambda: center.call, notify, directory):
                 if served == nonce:
                     outcome = result
                     answer(nonce, directory)          # its own answer: nobody else reads it
-            if stop.is_set() or (not center.working() and not waiting(directory, whole=True)):
+            if reconcile is None:
+                reconcile = threading.Thread(target=_reconcile, args=(center,), daemon=True,
+                                             name="schedule-reconcile")
+                reconcile.start()
+            if stop.is_set() or (not center.working() and not reconcile.is_alive()
+                                 and not waiting(directory, whole=True)):
                 break
             stop.wait(HOST_LOOK)
     finally:
         _release(center, clock, sleep)
     return 1 if outcome in ("failed", "invalid") else 0
+
+
+def _reconcile(center) -> None:
+    """The timers follow the store (its failures stay where the app shows them: the next sync tries
+    again). A center without the hook (tests, an old store object) has nothing to do."""
+    sync = getattr(center, "sync_schedules", None)
+    if sync is not None:
+        try:
+            sync()
+        except Exception:
+            pass
 
 
 def _stop_on_signals() -> threading.Event:

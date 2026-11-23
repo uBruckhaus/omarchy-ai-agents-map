@@ -14,9 +14,12 @@ Rules:
 - Nothing of the project goes into a unit but its id (32 hex digits, checked again here): no title,
   no folder. ExecStart= is /usr/bin/python3 -I <plugin>/project_schedule.py run <id>, and the plugin
   folder must be plain (UNIT_SAFE): no spaces, %, quotes, $, backslashes, ; or control characters.
-- systemctl --user only as argv lists (daemon-reload, enable --now, restart, disable --now; a timer
-  whose disable --now fails keeps its files and is reported, the next sync tries again), each
-  bounded by ai_core.read_bounded_output (own process group, output cap, deadline).
+- systemctl --user only as argv lists (daemon-reload, enable --now, restart, disable --now, and
+  show for the state of our timers), each bounded by ai_core.read_bounded_output (own process
+  group, output cap, deadline).
+- Desired state, not differences: every sync writes what differs and asks systemd about every other
+  wanted timer; one it does not confirm as enabled and active is enabled and started again. A timer
+  whose disable --now fails keeps its files and is reported; the next sync tries again.
 - An end date that has passed counts as off: its timer goes.
 """
 
@@ -169,33 +172,61 @@ def _present(directory: Path) -> set:
 
 # --- systemctl ---------------------------------------------------------------------------------------
 
-def systemctl(*args, run=None) -> tuple[bool, str]:
+def systemctl(*args, run=None, limit: int | None = 300) -> tuple[bool, str]:
+    """One `systemctl --user` call: (it succeeded, what it said; cut to `limit` characters, None:
+    the whole bounded output)."""
     import ai_core
     run = run or ai_core.read_bounded_output
     out, ok = run(["systemctl", "--user", *args], max_bytes=16 * 1024, timeout=SYSTEMCTL_TIMEOUT,
-                  merge_stderr=True)
-    return ok, out.decode("utf-8", "replace").strip()[:300]
+                  merge_stderr=False if limit is None else True)
+    text = out.decode("utf-8", "replace").strip()
+    return ok, text if limit is None else text[:limit]
+
+
+SHOW_BATCH = 100                # timers per `systemctl show` (16 KiB output cap: ~120 bytes each)
+
+
+def states(names: list, run=None) -> dict:
+    """{timer name: (enabled, active, needs reload)} for the timers systemd answered about; a timer it
+    did not answer about (a failed or cut-short query) is missing, and the caller treats it as "not
+    known to be running"."""
+    found: dict = {}
+    for index in range(0, len(names), SHOW_BATCH):
+        batch = names[index:index + SHOW_BATCH]
+        ok, said = systemctl("show", "-p", "Id", "-p", "UnitFileState", "-p", "ActiveState",
+                             "-p", "NeedDaemonReload", *batch, run=run, limit=None)
+        if not ok:
+            continue
+        for block in said.split("\n\n"):
+            values = dict(line.split("=", 1) for line in block.splitlines() if "=" in line)
+            name = values.get("Id")
+            if name in batch and {"UnitFileState", "ActiveState", "NeedDaemonReload"} <= set(values):
+                found[name] = (values["UnitFileState"] == "enabled", values["ActiveState"] == "active",
+                               values["NeedDaemonReload"] != "no")
+    return found
 
 
 def sync(schedules: dict, directory: Path | None = None, today: dt.date | None = None, run=None,
          here: Path = HERE) -> dict:
-    """The timers follow `schedules` ({project id: checked schedule}): new or changed ones are written
-    and (re)started, the others' units are stopped and removed. {project id: why it failed}."""
+    """Makes the timers match `schedules` ({project id: checked schedule}) every time, not only what
+    changed: the wanted units are written where they differ, and every wanted timer whose state
+    systemd does not confirm as enabled and active (a failed query counts as not confirmed) is
+    enabled and started again, so an activation that failed once is retried by the next sync. The
+    other units of ours are stopped and removed. {project id: why it failed}."""
     directory = directory or unit_dir()
     today = today or dt.date.today()
     failures: dict = {}
     wanted = {pid: schedule for pid, schedule in schedules.items()
               if _ID.fullmatch(str(pid)) and schedule and not project_schedule.ended(schedule, today)}
-    written, removed = [], []
+    written, kept, removed = [], [], []
     for pid, schedule in wanted.items():
         try:
             timer = _write(directory / timer_name(pid), timer_text(pid, schedule))
             service = _write(directory / service_name(pid), service_text(pid, here))
         except (OSError, ValueError) as error:
-            failures[pid] = str(error)
+            failures[pid] = str(error) or "the unit files could not be written"
             continue
-        if timer or service:
-            written.append(pid)
+        (written if timer or service else kept).append(pid)
     try:
         present = _present(directory)
     except OSError as error:
@@ -209,16 +240,23 @@ def sync(schedules: dict, directory: Path | None = None, today: dt.date | None =
                 # Not known to be stopped: its files stay, so the next sync (or clear) tries again.
                 failures[pid] = said or "systemctl could not stop the timer"
                 continue
-        gone = [_remove(timer), _remove(service)]
+        try:
+            gone = [_remove(timer), _remove(service)]
+        except OSError as error:
+            failures[pid] = str(error) or "the unit files could not be removed"
+            continue
         if any(gone):
             removed.append(pid)
-    if written or removed:
+    # Unchanged timers: does systemd confirm them? Anything else is started again below.
+    known = states([timer_name(pid) for pid in kept], run=run) if kept else {}
+    redo = [pid for pid in kept if known.get(timer_name(pid)) != (True, True, False)]
+    if written or removed or redo:
         ok, said = systemctl("daemon-reload", run=run)
         if not ok:
-            failures.update({pid: said or "systemctl daemon-reload failed" for pid in written + removed})
+            failures.update({pid: said or "systemctl daemon-reload failed" for pid in written + removed + redo})
             return failures
-    for pid in written:
-        # enable --now starts a new timer; restart makes a changed calendar count at once.
+    for pid in written + redo:
+        # enable --now starts a timer; restart makes a changed calendar count at once.
         ok, said = systemctl("enable", "--now", timer_name(pid), run=run)
         if ok:
             ok, said = systemctl("restart", timer_name(pid), run=run)

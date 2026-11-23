@@ -892,20 +892,25 @@ the backup and Undo), and the agent is told the same context. A context you set 
   installed or that start a local LLM (service-management); **scheduled projects** (service-management,
   only for a project you gave a Schedule): one timer and one service per project,
   `~/.config/systemd/user/ai-agents-map-schedule-<project id>.timer` and `.service`, written by
-  `schedule_units.sync` (called by `project_center.ProjectCenter` when it opens the store and after
-  `set_schedule` or a deletion). Each file starts with `# Managed by AI Agents Map`; a file of that
+  `schedule_units.sync` (called by `project_center.ProjectCenter` after `set_schedule` or a deletion,
+  and on a thread of its own after the app or a timer's program opened the store, once a waiting
+  request has been served). Each sync makes the timers match the store, not only what changed: it
+  writes what differs and asks systemd (`systemctl --user show`) about every other wanted timer, and
+  one it does not confirm as enabled and active (a failed or incomplete answer counts as not
+  confirmed) is enabled and started again, so a start that failed once is retried by the next sync. Each file starts with `# Managed by AI Agents Map`; a file of that
   name without it, or a link in its place, is never replaced or removed. The timer has
   `OnCalendar=` built from the schedule's numbers and day names only (`project_schedule.on_calendar`)
   and `Persistent=true`; the service runs `/usr/bin/python3 -I <plugin>/project_schedule.py run
   <project id>` (`Type=oneshot`; the plugin folder must be a plain path, no spaces, `%`, quotes, `$`,
   backslashes, `;` or control characters; nothing of the project but its 32-hex-digit id goes into a
-  unit, never its title or folder). `systemctl --user daemon-reload`, `enable --now`, `restart` and
-  `disable --now` of those timers only, as argv lists through `ai_core.read_bounded_output` (30 s
+  unit, never its title or folder). `systemctl --user daemon-reload`, `enable --now`, `restart`,
+  `disable --now` and `show` of those timers only, as argv lists through `ai_core.read_bounded_output` (30 s
   each). Turning a schedule off, an end date that has passed, deleting the project, or
   `project_schedule.py clear` stops and removes its units; a timer whose `disable --now` fails keeps
   its files and is reported (`clear` names it and exits with 1), and the next change or start tries
-  again. `clear` reads the unit folder again afterwards and exits with 1 while any unit of the
-  plugin is left or the folder cannot be read. When a timer fires, the program
+  again. `clear` tries every step whatever failed before it (each schedule off, then every unit
+  removed), names each failure, reads the unit folder again afterwards and exits with 1 when any step
+  failed, any unit of the plugin is left or the folder cannot be read. When a timer fires, the program
   (`schedule_handover.job`) puts a request (only the project id and a time) into a private 0700
   folder in `$XDG_RUNTIME_DIR`, or, when that is missing or unsafe, a private 0700 folder of yours
   under `/tmp` (`/tmp/ai-agents-map-<uid>`, the PID file's fallback) (written to a new 0600 file first and then linked under its name, so

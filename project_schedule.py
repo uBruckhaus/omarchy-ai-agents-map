@@ -359,30 +359,58 @@ def notify(title: str, body: str, run=None) -> bool:
 # --- the timer's program -----------------------------------------------------------------------------
 
 def clear(open_store=None, remove_all=None) -> int:
-    """Every schedule off and every timer of the plugin gone (before removing the plugin). When the app
-    holds the store, only the timers go; its projects keep their schedule until it is changed there."""
+    """Every schedule off and every timer of the plugin gone (before removing the plugin). Best effort
+    over everything: each step is tried whatever failed before it, every failure is said, and the exit
+    status is 1 if any step failed or a timer of ours is still there (remove_all reads the folder
+    again). When the app holds the store, only the timers go; its projects keep their schedule until
+    it is changed there."""
     import project_center
     import schedule_units
     from project_supervisor import ProjectError
     remove_all = remove_all or schedule_units.remove_all
+    problems: list[str] = []
     kept = False
     try:
         center = (open_store or project_center.ProjectCenter)()
-    except ProjectError:
-        kept = True
+    except ProjectError as error:
+        if error.code == "project_center_busy":
+            kept = True
+        else:
+            problems.append(f"The project list could not be opened: {_text_of(error)}")
+    except Exception as error:
+        problems.append(f"The project list could not be opened: {_text_of(error)}")
     else:
         try:
             for project_id in center.schedules():
-                center.call("set_schedule", {"id": project_id, "schedule": None})
+                try:
+                    center.call("set_schedule", {"id": project_id, "schedule": None})
+                except Exception as error:
+                    problems.append(f"The schedule of project {project_id} could not be turned off: "
+                                    f"{_text_of(error)}")
+        except Exception as error:
+            problems.append(f"The schedules could not be read: {_text_of(error)}")
         finally:
-            center.shutdown()
-    failures = remove_all()
-    for project_id, why in sorted((failures or {}).items()):
+            try:
+                center.shutdown()
+            except Exception as error:
+                problems.append(f"The project list could not be closed: {_text_of(error)}")
+    try:
+        failures = remove_all() or {}
+    except Exception as error:
+        failures = {"all": _text_of(error)}
+    for project_id, why in sorted(failures.items()):
         print(f"The timer of project {project_id} could not be removed: {why}", file=sys.stderr)
+    for problem in problems:
+        print(problem, file=sys.stderr)
     if kept:
         print("The project list is in use (AI Agents Map runs): the timers were removed, the projects keep "
               "their schedule.", file=sys.stderr)
-    return 1 if failures else 0
+    return 1 if failures or problems else 0
+
+
+def _text_of(error) -> str:
+    code = getattr(error, "code", None)
+    return str(code or error or type(error).__name__)[:300]
 
 
 def main(argv: list[str]) -> int:

@@ -310,7 +310,7 @@ class ProjectCenter:
                  store_limit: int = MAX_STORE, prompt_limit: int = MAX_PROMPT_BYTES,
                  writer: Callable[[Path, bytes], None] | None = None, clock: Callable[[], float] | None = None,
                  on_change: Callable[[str], None] | None = None,
-                 schedules: Callable[[dict], dict] | None = None):
+                 schedules: Callable[[dict], dict] | None = None, sync_at_open: bool = True):
         if data_directory is None:
             import identity
             data_directory = identity.config_dir()
@@ -362,7 +362,10 @@ class ProjectCenter:
             os.close(self._directory_fd)
             self._directory_fd = None
             raise
-        self.sync_schedules()      # timers left by a deleted project or an older store follow the store
+        if sync_at_open:
+            # Timers left by a deleted project or an older store follow the store. The timer's
+            # program passes False: it serves its own occurrence first and reconciles after.
+            self.sync_schedules()
 
     # --- small helpers -------------------------------------------------------------------------------
 

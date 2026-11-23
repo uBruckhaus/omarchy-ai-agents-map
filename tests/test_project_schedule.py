@@ -192,14 +192,41 @@ class WordsTest(unittest.TestCase):
 
 
 class FakeSystemctl:
+    """systemctl --user with state: enable --now / restart make a timer enabled and active, disable
+    --now ends both, daemon-reload clears "needs reload"; show answers like systemd (one block per
+    unit). `fail`: verbs that fail; `forget()`: systemd lost the state (a failed start)."""
+
     def __init__(self, fail=()):
         self.calls, self.fail = [], set(fail)
+        self.running: set = set()
+        self.stale: set = set()                   # names whose files changed without a reload
 
     def __call__(self, argv, **options):
         assert isinstance(argv, list) and all(isinstance(word, str) for word in argv)
         assert options.get("timeout") and options["timeout"] <= 60
         self.calls.append(argv)
-        return (b"Failed" if argv[2] in self.fail else b""), argv[2] not in self.fail
+        verb = argv[2]
+        if verb in self.fail:
+            return b"Failed", False
+        if verb == "enable":
+            self.running.add(argv[-1])
+        elif verb == "restart":
+            if argv[-1] not in self.running:
+                return b"Failed", False
+        elif verb == "disable":
+            self.running.discard(argv[-1])
+        elif verb == "daemon-reload":
+            self.stale.clear()
+        elif verb == "show":
+            names = [word for word in argv[3:] if word.endswith(".timer")]
+            blocks = [f"Id={name}\nActiveState={'active' if name in self.running else 'inactive'}\n"
+                      f"UnitFileState={'enabled' if name in self.running else ''}\n"
+                      f"NeedDaemonReload={'yes' if name in self.stale else 'no'}" for name in names]
+            return "\n\n".join(blocks).encode(), True
+        return b"", True
+
+    def verbs(self):
+        return [argv[2] for argv in self.calls]
 
 
 class UnitsTest(unittest.TestCase):
@@ -232,7 +259,7 @@ class UnitsTest(unittest.TestCase):
                                           ["systemctl", "--user", "restart", name]])
         self.ctl.calls.clear()
         self.assertEqual(self.sync({self.PID: DAILY}), {})
-        self.assertEqual(self.ctl.calls, [])                      # unchanged: nothing reloaded or restarted
+        self.assertEqual(self.ctl.verbs(), ["show"])              # unchanged and confirmed: only asked
         self.sync({self.PID: {"kind": "weekly", "time": "06:00", "day": "mon"}})
         self.assertIn("OnCalendar=Mon *-*-* 06:00:00", (self.dir / name).read_text())
         self.assertIn(["systemctl", "--user", "restart", name], self.ctl.calls)
@@ -292,6 +319,46 @@ class UnitsTest(unittest.TestCase):
         self.assertIn(self.PID, self.sync({self.PID: DAILY}))
 
 
+    def test_a_failed_start_is_retried_by_the_next_sync(self):
+        """Codex 2.1.4 r5: a failed enable --now left the files written, the next sync saw them
+        unchanged and never started the timer. Now each sync asks systemd about every wanted timer."""
+        name = f"ai-agents-map-schedule-{self.PID}.timer"
+        self.ctl.fail.add("enable")
+        self.assertIn(self.PID, self.sync({self.PID: DAILY}))
+        self.assertNotIn(name, self.ctl.running)
+        self.ctl.fail.discard("enable")
+        self.ctl.calls.clear()
+        self.assertEqual(self.sync({self.PID: DAILY}), {})
+        self.assertEqual(self.ctl.verbs(), ["show", "daemon-reload", "enable", "restart"])
+        self.assertIn(name, self.ctl.running)
+
+    def test_a_failed_state_query_is_never_taken_as_running(self):
+        name = f"ai-agents-map-schedule-{self.PID}.timer"
+        self.sync({self.PID: DAILY})
+        for broken in ("fail", "empty", "other", "cut", "reload"):
+            with self.subTest(broken=broken):
+                self.ctl.calls.clear()
+                answer = {"fail": (b"Failed", False), "empty": (b"", True),
+                          "other": (f"Id=x.timer\nActiveState=active\nUnitFileState=enabled\n"
+                                    f"NeedDaemonReload=no".encode(), True),
+                          "cut": (f"Id={name}\nActiveState=active\nUnitFileState=enabled".encode(), True),
+                          "reload": (f"Id={name}\nActiveState=active\nUnitFileState=enabled\n"
+                                     f"NeedDaemonReload=yes".encode(), True)}[broken]
+                real = self.ctl
+
+                def ctl(argv, **options):
+                    result = real(argv, **options)
+                    return answer if argv[2] == "show" else result
+                self.assertEqual(su.sync({self.PID: DAILY}, directory=self.dir, run=ctl, here=self.here), {})
+                self.assertEqual(self.ctl.verbs(), ["show", "daemon-reload", "enable", "restart"])
+
+    def test_many_timers_are_asked_about_in_batches(self):
+        ids = [f"{index:032x}" for index in range(su.SHOW_BATCH * 2 + 5)]
+        self.sync({pid: DAILY for pid in ids})
+        self.ctl.calls.clear()
+        self.assertEqual(self.sync({pid: DAILY for pid in ids}), {})
+        self.assertEqual(self.ctl.verbs(), ["show", "show", "show"])
+
     def test_a_timer_that_cannot_be_stopped_keeps_its_files_and_is_said(self):
         """Codex 2.1.0 r1/r2: a failed disable --now was ignored, so clear could report success with a
         timer still active. Now any failed disable keeps the files and is reported; the next sync
@@ -347,6 +414,34 @@ class UnitsTest(unittest.TestCase):
         self.sync({self.PID: DAILY})
         self.ctl.fail.add("daemon-reload")
         self.assertIn(self.PID, su.remove_all(directory=self.dir, run=self.ctl))
+
+    def test_clear_removes_the_timers_even_when_turning_a_schedule_off_fails(self):
+        """Codex 2.1.4 r5: a failed set_schedule left clear() through `finally` without remove_all, so
+        enabled timers stayed. Now every step is tried, every failure is said, and it exits 1."""
+        removed = []
+
+        class Center:
+            def schedules(self):
+                return {"a" * 32: DAILY, "b" * 32: DAILY}
+
+            def call(self, op, params):
+                if params["id"] == "a" * 32:
+                    raise ProjectError("project_store_write_failed")
+
+            def shutdown(self):
+                raise OSError("busy")
+        with mock.patch("sys.stderr") as err:
+            self.assertEqual(ps.clear(open_store=Center, remove_all=lambda: removed.append(1) or {}), 1)
+        said = "".join(str(c.args[0]) for c in err.write.call_args_list)
+        self.assertEqual(removed, [1])
+        self.assertIn("a" * 32, said)
+        self.assertIn("could not be closed", said)
+        with mock.patch("sys.stderr"):
+            def broken():
+                raise ProjectError("project_store_corrupt")
+            self.assertEqual(ps.clear(open_store=broken, remove_all=lambda: removed.append(2) or {}), 1)
+            self.assertEqual(ps.clear(open_store=Center, remove_all=mock.Mock(side_effect=OSError("x"))), 1)
+        self.assertEqual(removed, [1, 2])
 
     def test_clear_reports_a_timer_left_running(self):
         class Center:
@@ -846,6 +941,38 @@ class JobTest(QueueCase):
             raise ProjectError("project_store_corrupt")
         self.assertEqual(self.job(broken), 1)
         self.assertIn("saved project store", self.notes[0][1])
+
+    def test_its_own_occurrence_is_served_before_the_timers_are_reconciled(self):
+        """Codex 2.1.4 r5: the timer job opened the store, which synced every unit (30 s per slow
+        systemctl) before it served its own request, so the request could go stale. Now the store is
+        opened without a sync, the own request is claimed and run first, and the reconciliation runs
+        after it; the store is let go only once it ended."""
+        order = []
+
+        class Center(FakeHostCenter):
+            def sync_schedules(self):
+                order.append("sync start")
+                time.sleep(0.3)
+                order.append("sync end")
+                return {}
+
+            def shutdown(self):
+                order.append("release")
+                super().shutdown()
+        center = Center(work=0)
+
+        def trigger(call, project_id, notify):
+            order.append("run")
+            return "started"
+        with mock.patch.object(ps, "trigger", side_effect=trigger), \
+                mock.patch.object(sh, "REQUEST_AGE", 0.2):         # would be stale after the slow sync
+            self.assertEqual(self.job(lambda: center), 0)
+        self.assertEqual(order, ["run", "sync start", "sync end", "release"])
+
+    def test_the_timer_program_opens_the_store_without_a_sync(self):
+        with mock.patch("project_center.ProjectCenter") as opened:
+            sh._open_store()
+        self.assertIs(opened.call_args.kwargs["sync_at_open"], False)
 
     def test_a_host_serves_another_timer_meanwhile(self):
         center = FakeHostCenter(work=400)
