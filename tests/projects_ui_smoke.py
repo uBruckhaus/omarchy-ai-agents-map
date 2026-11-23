@@ -404,7 +404,12 @@ def main():
     third.destroy()                                   # gone without an answer: the next one opens
     assert folder_picker._open is None and chosen == []
     import gc
-    gc.collect()                                      # closed dialogs run no handler any more
+    finalized = []
+    for dialog in (first, second, third):
+        dialog.weak_ref(lambda: finalized.append(1))   # GObject level: the GTK object itself is freed
+    del first, second, third, dialog
+    gc.collect()
+    spin(lambda: len(finalized) == 3)                 # nothing of a closed dialog stays (no cycle)
     print("SMOKE OK")
 
 

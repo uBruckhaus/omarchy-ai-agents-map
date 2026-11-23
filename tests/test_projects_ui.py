@@ -800,6 +800,7 @@ class GtkBuildTest(unittest.TestCase):
                 daemon.wait(5)
             self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
             self.assertIn("SMOKE OK", done.stdout)
+            self.assertNotIn("Traceback", done.stderr)    # also none from a signal handler
 
 
 if __name__ == "__main__":
