@@ -36,8 +36,8 @@ PYTHON = "/usr/bin/python3"
 HERE = Path(__file__).resolve().parent
 SYSTEMCTL_TIMEOUT = 30.0
 MAX_UNIT_BYTES = 64 * 1024
-MAX_PRESENT = 10_000             # project ids with unit files looked at per sync
 UNIT_SAFE = re.compile(r"/[A-Za-z0-9._/+-]+")
+UNIT_FOLDER = "unit folder"     # the failures key when the folder itself cannot be read
 _NAME = re.compile(PREFIX + r"([0-9a-f]{32})\.(timer|service)")
 _ID = re.compile(r"[0-9a-f]{32}")
 
@@ -152,8 +152,9 @@ def _remove(path: Path) -> bool:
 
 def _present(directory: Path) -> set:
     """Project ids that have one of our unit files (by name; the marker is checked before a change).
-    The folder is read one entry at a time and at most MAX_PRESENT ids are kept, so a huge
-    systemd/user folder costs time, never memory."""
+    The folder is read one entry at a time and only names of ours are kept, so other files cost
+    time, never memory, and no unit of ours is ever left out. A folder that is not there holds
+    none; any other error is raised (the caller reports it instead of "nothing to remove")."""
     found = set()
     try:
         with os.scandir(directory) as entries:
@@ -161,9 +162,7 @@ def _present(directory: Path) -> set:
                 match = _NAME.fullmatch(entry.name)
                 if match:
                     found.add(match.group(1))
-                    if len(found) >= MAX_PRESENT:
-                        break
-    except OSError:
+    except FileNotFoundError:
         pass
     return found
 
@@ -197,7 +196,12 @@ def sync(schedules: dict, directory: Path | None = None, today: dt.date | None =
             continue
         if timer or service:
             written.append(pid)
-    for pid in sorted(_present(directory) - set(wanted)):
+    try:
+        present = _present(directory)
+    except OSError as error:
+        failures[UNIT_FOLDER] = str(error) or "the unit folder cannot be read"
+        present = set()
+    for pid in sorted(present - set(wanted)):
         timer, service = directory / timer_name(pid), directory / service_name(pid)
         if managed(timer):
             ok, said = systemctl("disable", "--now", timer.name, run=run)
@@ -225,5 +229,17 @@ def sync(schedules: dict, directory: Path | None = None, today: dt.date | None =
 
 def remove_all(directory: Path | None = None, run=None) -> dict:
     """Every timer of the plugin stopped and removed (the plugin's schedules cleared; the projects
-    keep their schedule and get the timers again the next time the store is opened)."""
-    return sync({}, directory=directory, run=run)
+    keep their schedule and get the timers again the next time the store is opened). Afterwards the
+    folder is read again: a unit of ours still there is a failure, so `clear` never says "done"
+    while a timer is left."""
+    directory = directory or unit_dir()
+    failures = sync({}, directory=directory, run=run)
+    try:
+        left = _present(directory)
+    except OSError as error:
+        failures[UNIT_FOLDER] = str(error) or "the unit folder cannot be read"
+        return failures
+    for pid in sorted(left):
+        if managed(directory / timer_name(pid)) or managed(directory / service_name(pid)):
+            failures.setdefault(pid, "its timer is still there")
+    return failures

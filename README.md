@@ -904,9 +904,11 @@ the backup and Undo), and the agent is told the same context. A context you set 
   each). Turning a schedule off, an end date that has passed, deleting the project, or
   `project_schedule.py clear` stops and removes its units; a timer whose `disable --now` fails keeps
   its files and is reported (`clear` names it and exits with 1), and the next change or start tries
-  again. When a timer fires, the program
+  again. `clear` reads the unit folder again afterwards and exits with 1 while any unit of the
+  plugin is left or the folder cannot be read. When a timer fires, the program
   (`schedule_handover.job`) puts a request (only the project id and a time) into a private 0700
-  folder in `$XDG_RUNTIME_DIR` (written to a new 0600 file first and then linked under its name, so
+  folder in `$XDG_RUNTIME_DIR`, or, when that is missing or unsafe, a private 0700 folder of yours
+  under `/tmp` (`/tmp/ai-agents-map-<uid>`, the PID file's fallback) (written to a new 0600 file first and then linked under its name, so
   it is never seen half-written); whoever holds the project store (the app, or an earlier timer's
   program) claims it by an atomic rename and runs it through `ProjectCenter.call("run", …)`; when
   nobody holds the store, the program opens it itself, starts the run, waits under the supervisor

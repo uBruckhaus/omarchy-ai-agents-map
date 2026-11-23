@@ -309,17 +309,39 @@ class UnitsTest(unittest.TestCase):
         self.assertEqual(list(self.dir.iterdir()), [])
 
     def test_the_unit_folder_is_read_one_entry_at_a_time(self):
-        """Codex 2.1.2 r3: _present listed the whole systemd/user folder at once. Now it streams it and
-        keeps at most MAX_PRESENT ids, and other files cost no memory."""
-        self.sync({self.PID: DAILY})
+        """Codex 2.1.2 r3 / 2.1.3 r4: _present streams systemd/user (no listdir) and keeps every id of
+        ours, with no cap: 10 005 managed timers are all removed (2.1.3 stopped at 10 000 and clear
+        said done with five timers left)."""
         for index in range(200):
             (self.dir / f"other-{index}.service").write_text("")
+        ids = [f"{index:032x}" for index in range(10_005)]
+        for pid in ids:
+            (self.dir / su.timer_name(pid)).write_text(su.MARKER + "\n")
         with mock.patch.object(su.os, "listdir", side_effect=AssertionError("listdir")):
-            self.assertEqual(su._present(self.dir), {self.PID})
-            for index in range(5):
-                (self.dir / f"ai-agents-map-schedule-{index:032x}.timer").write_text("x")
-            with mock.patch.object(su, "MAX_PRESENT", 3):
-                self.assertEqual(len(su._present(self.dir)), 3)
+            self.assertEqual(su._present(self.dir), set(ids))
+            self.assertEqual(su.remove_all(directory=self.dir, run=self.ctl), {})
+        self.assertEqual(sorted(p.name for p in self.dir.iterdir() if p.name.startswith("ai-agents-map")), [])
+
+    def test_remove_all_checks_nothing_of_ours_is_left(self):
+        self.sync({self.PID: DAILY})
+        with mock.patch.object(su, "sync", return_value={}):          # whatever made a removal miss
+            self.assertIn(self.PID, su.remove_all(directory=self.dir, run=self.ctl))
+        foreign = self.dir / f"ai-agents-map-schedule-{'f' * 32}.timer"
+        foreign.write_text("[Timer]\n")                                # not ours: never counted
+        self.assertEqual(su.remove_all(directory=self.dir, run=self.ctl), {})
+        self.assertTrue(foreign.exists())
+
+    @unittest.skipIf(os.geteuid() == 0, "root reads any folder")
+    def test_an_unreadable_unit_folder_is_a_failure(self):
+        self.sync({self.PID: DAILY})
+        os.chmod(self.dir, 0o300)
+        self.addCleanup(os.chmod, self.dir, 0o755)
+        failures = su.remove_all(directory=self.dir, run=self.ctl)
+        self.assertIn(su.UNIT_FOLDER, failures)
+        with mock.patch("sys.stderr"):
+            self.assertEqual(ps.clear(open_store=lambda: type("C", (), {"schedules": lambda s: {},
+                                                                        "shutdown": lambda s: None})(),
+                                      remove_all=lambda: su.remove_all(directory=self.dir, run=self.ctl)), 1)
 
     def test_a_failed_reload_after_removing_is_said(self):
         self.sync({self.PID: DAILY})
