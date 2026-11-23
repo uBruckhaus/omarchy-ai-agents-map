@@ -21,10 +21,18 @@ _CSS = """
   padding: 12px; }}
 .am-project-card:focus-within {{ border-color: alpha({accent}, 0.7); }}
 .am-project-card.am-project-busy {{ opacity: 0.75; }}
-.am-project-card.am-project-drop-before {{ box-shadow: inset 3px 0 0 {accent}; }}
-.am-project-card.am-project-drop-after {{ box-shadow: inset -3px 0 0 {accent}; }}
-.am-project-card.am-project-vertical.am-project-drop-before {{ box-shadow: inset 0 3px 0 {accent}; }}
-.am-project-card.am-project-vertical.am-project-drop-after {{ box-shadow: inset 0 -3px 0 {accent}; }}
+.am-board-dragging .am-project-card {{ box-shadow: inset 2px 0 0 alpha({accent}, 0.35),
+  inset -2px 0 0 alpha({accent}, 0.35); }}
+.am-board-dragging .am-project-card.am-project-vertical {{ box-shadow: inset 0 2px 0 alpha({accent}, 0.35),
+  inset 0 -2px 0 alpha({accent}, 0.35); }}
+.am-project-card.am-project-drop-before {{ box-shadow: inset 4px 0 0 {accent}, inset -2px 0 0 alpha({accent}, 0.35); }}
+.am-project-card.am-project-drop-after {{ box-shadow: inset -4px 0 0 {accent}, inset 2px 0 0 alpha({accent}, 0.35); }}
+.am-project-card.am-project-vertical.am-project-drop-before {{ box-shadow: inset 0 4px 0 {accent},
+  inset 0 -2px 0 alpha({accent}, 0.35); }}
+.am-project-card.am-project-vertical.am-project-drop-after {{ box-shadow: inset 0 -4px 0 {accent},
+  inset 0 2px 0 alpha({accent}, 0.35); }}
+.am-board-dragging .am-project-card.am-project-dragged {{ opacity: 0.4; box-shadow: none; }}
+.am-project-grip {{ color: alpha({fg}, 0.45); padding: 4px; }}
 .am-project-title {{ font-weight: 600; font-size: 14px; }}
 .am-project-small {{ font-size: 11px; }}
 .am-project-dim {{ color: alpha({fg}, 0.62); }}

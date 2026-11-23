@@ -1363,20 +1363,30 @@ class MapView(Gtk.DrawingArea):
             self.order[key] = order
             self.layout_changed()
 
+    def order_bar(self, node_id, slot: int):
+        """(x, y) of the bar for `slot` among the other boxes of `node_id`'s card."""
+        others = self.siblings(node_id)
+        if slot < len(others):
+            bx, by, _bw, _bh = self.boxes[others[slot]]
+            return bx, by - NODE_GAP / 2
+        if others:
+            bx, by, _bw, bh = self.boxes[others[-1]]
+            return bx, by + bh + NODE_GAP / 2
+        return self.boxes[node_id][0], self.boxes[node_id][1]
+
     def draw_order(self, cr, link):
-        """A box being moved inside its card: a bar where it would go, the box following the pointer."""
+        """A box being moved inside its card: a faint separator at every place it can go, a bold bar
+        where it would go now, the box following the pointer."""
         node_id, slot = link["from"], link.get("slot")
         if slot is not None:
-            others = self.siblings(node_id)
             _x, _y, w, _h = self.boxes[node_id]
-            if slot < len(others):
-                bx, by, _bw, _bh = self.boxes[others[slot]]
-                bar_y = by - NODE_GAP / 2
-            elif others:
-                bx, by, _bw, bh = self.boxes[others[-1]]
-                bar_y = by + bh + NODE_GAP / 2
-            else:
-                bx, bar_y = self.boxes[node_id][0], self.boxes[node_id][1]
+            cr.set_source_rgba(*self.color("accent", 0.3))
+            for place in range(len(self.siblings(node_id)) + 1):
+                if place != slot:
+                    bx, bar_y = self.order_bar(node_id, place)
+                    self.rounded(cr, bx + 8, bar_y - 0.75, w - 16, 1.5, 0.75)
+                    cr.fill()
+            bx, bar_y = self.order_bar(node_id, slot)
             cr.set_source_rgba(*self.color("accent", 0.95))
             self.rounded(cr, bx, bar_y - 1.5, w, 3, 1.5)
             cr.fill()

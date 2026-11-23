@@ -221,21 +221,36 @@ def main():
         board.on_width(width)
         spin(lambda: True, 0.05)
         assert children(board.flow) == 4, (width, children(board.flow))
-    # The Move menu is built when it opens, from the board as it is shown then (b hidden by a filter).
+    # Cards are moved by dragging the whole card: no Move menu any more, the grip only shows it.
     ctrl.set_filter("drafts")
     spin(lambda: board.order == ["draft"])
     ctrl.set_filter(None)
     spin(lambda: len(board.order) == 4)
     ctrl.set_filter("needs_you")
     spin(lambda: board.order == ["blocked"])
-    handle = [w for w in walk(board.cards["blocked"][0]) if isinstance(w, Gtk.MenuButton)
-              and w.get_tooltip_text() == "Move"][0]
-    handle.get_popover().emit("show")
-    items = {w.get_label(): w.get_sensitive() for w in walk(handle.get_popover()) if isinstance(w, Gtk.Button)}
-    assert items == {"Move up": False, "Move down": False, "Move to top": True, "Move to end": True}, items
-    assert "blocked" in board.popovers                 # its card is not drawn again meanwhile
-    handle.get_popover().emit("closed")
-    assert "blocked" not in board.popovers
+    card_child = board.cards["blocked"][0]
+    assert not [w for w in walk(card_child) if isinstance(w, Gtk.MenuButton) and w.get_tooltip_text() == "Move"]
+    sources = [c for c in card_child.observe_controllers() if isinstance(c, Gtk.DragSource)]
+    assert len(sources) == 1, sources                  # the whole card is the drag source
+    # A drag shows separators on the board and fades the dragged card; dropping or cancelling ends both.
+    assert board.drag_start("blocked", 20, 10) is not None
+    board.drag_begin(sources[0], "blocked")
+    assert board.flow.has_css_class("am-board-dragging")
+    assert card_child.get_child().has_css_class("am-project-dragged")
+    board.drag_end()
+    assert not board.flow.has_css_class("am-board-dragging")
+    assert not card_child.get_child().has_css_class("am-project-dragged")
+    # By touch a drag starts only on the grip (a swipe on the card scrolls the board).
+    spin(lambda: card_child.get_height() > 0)
+    ok, bounds = board.grips["blocked"].compute_bounds(card_child)
+    assert ok and card_child.get_height() > 0, (card_child.get_width(), card_child.get_height())
+    assert board.on_grip("blocked", bounds.get_x() + bounds.get_width() / 2, bounds.get_y() + bounds.get_height() / 2)
+    assert not board.on_grip("blocked", 4, card_child.get_height() - 4), (
+        bounds.get_x(), bounds.get_y(), bounds.get_width(), bounds.get_height())
+    # A card whose importance menu is open is not dragged.
+    board.popovers.add("blocked")
+    assert board.drag_start("blocked") is None
+    board.popovers.discard("blocked")
     # Dragging: no drop onto the card itself, nothing from outside the board.
     assert board.drop_hint("blocked", True) == Gdk.DragAction(0)
     assert board.dropped("blocked", "draft") is False and not center_moves(center)

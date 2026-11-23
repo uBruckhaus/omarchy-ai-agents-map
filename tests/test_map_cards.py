@@ -15,7 +15,7 @@ class Cards:
                  "reorder", "card_height", "column_height", "needed_height", "layout", "column_top",
                  "visible_rows", "group_title", "default_layout", "card_header_at", "card_at",
                  "agent_slots", "agent_width", "text_width", "card_rows", "toggle_card", "make_room",
-                 "card_nodes", "node_used", "add_of", "card_box_height"):
+                 "card_nodes", "node_used", "add_of", "card_box_height", "order_bar"):
         locals()[name] = M.__dict__[name]
     del name
 
@@ -102,6 +102,38 @@ class OrderTest(unittest.TestCase):
         self.assertIsNone(view.order_slot("mcp:alpha", gx + 10, top + 4))
         self.assertIsNone(view.order_slot("mcp:alpha", gx + 10, y + 2000))
         self.assertEqual(view.card_header_at(gx + 10, top + 4), "mcp")
+
+    def test_a_box_never_finds_a_place_in_another_card(self):
+        """The map's rule while a box is dragged: a place only among the boxes of its own card. Over
+        another card (an agent over the providers' card) there is none: no move, a line may be drawn."""
+        view = Cards(built(mcp=("alpha", "beta", "gamma")))
+        view.keep_order()
+        view.layout(1200, 800)
+        own = view.group_key(next(n for n in view.graph.nodes if n.id == "mcp:alpha"))
+        others = [key for key in view.card_rects if key != own]
+        self.assertTrue(others)
+        for key in others:
+            x, y, w, h = view.card_rects[key]
+            for px, py in ((x + w / 2, y + h / 2), (x + 10, y + h - 4)):
+                self.assertIsNone(view.order_slot("mcp:alpha", px, py), key)
+        before = {key: list(nodes) for key, nodes in view.order.items()}
+        self.assertEqual(view.order, before)
+
+    def test_a_separator_for_every_place_in_the_card(self):
+        """While a box is dragged inside its card, a separator is drawn at every place it can go: one
+        above each other box and one below the last, each between two boxes, top to bottom."""
+        view = Cards(built(mcp=("alpha", "beta", "gamma")))
+        view.keep_order()
+        view.layout(1200, 800)
+        bars = [view.order_bar("mcp:alpha", place) for place in range(len(view.siblings("mcp:alpha")) + 1)]
+        self.assertEqual(len(bars), 3)
+        ys = [y for _x, y in bars]
+        self.assertEqual(ys, sorted(ys))
+        _bx, beta_y, _bw, _bh = view.boxes["mcp:beta"]
+        _gx, gamma_y, _gw, gamma_h = view.boxes["mcp:gamma"]
+        self.assertLess(ys[0], beta_y)
+        self.assertTrue(beta_y < ys[1] < gamma_y)
+        self.assertGreater(ys[2], gamma_y + gamma_h)
 
     def test_cards_and_their_boxes(self):
         view = Cards(built())

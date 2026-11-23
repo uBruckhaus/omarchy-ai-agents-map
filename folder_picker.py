@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import re
+import stat
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
@@ -26,6 +27,10 @@ _MOUNT_ROOTS = ("/mnt/", "/media/", "/run/media/", "/srv/")
 # Mounts that hold data besides disks (/dev/...): network shares and pools.
 _NETWORK = frozenset({"nfs", "nfs4", "cifs", "smb3", "fuse.sshfs", "zfs", "9p"})
 _ENTITIES = {"amp": "&", "lt": "<", "gt": ">", "quot": '"', "apos": "'"}
+# The files read for the sidebar are read on GTK's loop when the dialog opens: each at most this big
+# (bigger: not used), and at most this many entries are added.
+MAX_FILE_BYTES = 1 << 20
+MAX_SHORTCUTS = 64
 
 
 def _xml_text(text: str) -> str:
@@ -55,6 +60,8 @@ def folder_shortcuts(mounts: str, home: str, cosmic_favorites: str | None = None
     home = trim(home)
 
     def add(path: str):
+        if len(found) >= MAX_SHORTCUTS:
+            return
         clean = trim(path)
         if not clean.startswith("/") or clean in (home, "/") or clean in found or not exists(clean):
             return
@@ -93,10 +100,22 @@ def folder_shortcuts(mounts: str, home: str, cosmic_favorites: str | None = None
 
 
 def _read(path: str) -> str | None:
+    """A regular file's text, or None. Opened without waiting (a FIFO in its place is not waited on)
+    and read up to MAX_FILE_BYTES; a bigger file is not used at all."""
     try:
-        return Path(path).read_text(errors="replace")
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
     except OSError:
         return None
+    try:
+        with os.fdopen(fd, "rb") as f:
+            if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+                return None
+            data = f.read(MAX_FILE_BYTES + 1)
+    except OSError:
+        return None
+    if len(data) > MAX_FILE_BYTES:
+        return None
+    return data.decode("utf-8", errors="replace")
 
 
 def current_folder_shortcuts() -> list[str]:

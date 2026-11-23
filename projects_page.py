@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 import threading
 
-from gi.repository import Adw, GLib, GObject, Gdk, Gtk
+from gi.repository import Adw, GLib, GObject, Gdk, Graphene, Gtk
 
 import ai_core
 import project_parts as parts
@@ -58,6 +58,7 @@ class ProjectsBoard:
         self.order: list = []
         self.dragged = None
         self.popovers: set = set()      # cards with an open menu: not rebuilt meanwhile
+        self.grips: dict = {}            # each card's grip (a touch drag starts only there)
         self.shown_summary = None
         self.root = parts.SizeBox(lambda width, _height: self.on_width(width), orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP_TIGHT,
                              hexpand=True, vexpand=True)
@@ -358,6 +359,13 @@ class ProjectsBoard:
         drop.connect("leave", lambda _t, pid=pid: self.drop_hint(pid, False))
         drop.connect("drop", lambda _t, value, _x, _y, pid=pid: self.dropped(value, pid))
         child.add_controller(drop)
+        # The whole card is dragged (not only its grip). A press on one of its buttons stays a click:
+        # the drag starts only once the pointer has moved past GTK's drag threshold.
+        source = Gtk.DragSource(actions=Gdk.DragAction.MOVE)
+        source.connect("prepare", lambda s, x, y, pid=pid: self.drag_start(pid, x, y, s))
+        source.connect("drag-begin", lambda s, _drag, pid=pid: self.drag_begin(s, pid))
+        source.connect("drag-end", lambda *_a: self.drag_end())
+        child.add_controller(source)
         return child
 
     def host_map_fix(self):
@@ -387,7 +395,8 @@ class ProjectsBoard:
                 mark.get_popover().connect("show", lambda *_a: self.menu_shown(pid, True))
                 mark.get_popover().connect("closed", lambda *_a: self.menu_shown(pid, False))
             head.append(mark)
-        head.append(self.move_handle(project, busy))
+        self.grips[pid] = grip = self.grip(busy)
+        head.append(grip)
         box.append(head)
         line = Gtk.Box(spacing=ai_core.GAP_TIGHT)
         line.append(parts.icon(texts.bucket_icon(project.get("bucket")), 14))
@@ -445,56 +454,68 @@ class ProjectsBoard:
             box.append(project_working.WorkingBar())     # an agent works here (task 098)
         return box
 
-    def move_handle(self, project: dict, busy: bool) -> Gtk.Widget:
-        """The drag handle (task 095): dragged onto another card it moves this one there; clicked it
-        offers Move up / Move down / Move to top / Move to end."""
+    def grip(self, busy: bool) -> Gtk.Widget:
+        """The grip in a card's corner: it only shows that the card can be dragged. The whole card is
+        dragged (see _new_child); the keyboard moves the focused card with Ctrl+Up/Down/Home/End."""
         ctrl = self.ctrl
-        pid = str(project.get("id"))
-        handle = Gtk.MenuButton(child=parts.icon("list-drag-handle-symbolic"), valign=Gtk.Align.START,
-                                tooltip_text=_("Move"))
-        handle.add_css_class("flat")
-        handle.set_sensitive(not busy and not ctrl.unavailable and not ctrl.moving)
-        popover = Gtk.Popover()
-        menu = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        popover.set_child(menu)
-
-        def fill(*_a):
-            # Built when it opens, from the board as it is shown now (a filter or a new card since).
-            parts.clear(menu)
-            for key, text, place in ctrl.move_options(pid):
-                item = Gtk.Button(label=text)
-                item.add_css_class("flat")
-                item.set_sensitive(place is not None)
-                item.connect("clicked", lambda *_a, key=key: (popover.popdown(), ctrl.move_by(pid, key)))
-                menu.append(item)
-            self.menu_shown(pid, True)
-        popover.connect("show", fill)
-        popover.connect("closed", lambda *_a: self.menu_shown(pid, False))
-        handle.set_popover(popover)
-        source = Gtk.DragSource(actions=Gdk.DragAction.MOVE)
-        source.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)   # before the button's own click
-        source.connect("prepare", lambda *_a: self.drag_start(pid))
-        source.connect("drag-end", lambda *_a: self.drag_end())
-        handle.add_controller(source)
-        return handle
+        grip = parts.icon("list-drag-handle-symbolic")
+        grip.set_valign(Gtk.Align.START)
+        grip.add_css_class("am-project-grip")
+        grip.set_tooltip_text(_("Drag the card to move it (keyboard: Ctrl+Up, Ctrl+Down, Ctrl+Home, Ctrl+End)"))
+        grip.set_cursor_from_name("grab")
+        grip.set_sensitive(not busy and not ctrl.unavailable and not ctrl.moving)
+        return grip
 
     # --- dragging ----------------------------------------------------------------------------------
 
-    def drag_start(self, pid: str):
-        if self.ctrl.unavailable or self.ctrl.moving or self.ctrl.card_busy(pid):
+    def drag_start(self, pid: str, x: float = 0.0, y: float = 0.0, source=None):
+        if self.ctrl.unavailable or self.ctrl.moving or self.ctrl.card_busy(pid) or pid in self.popovers:
             return None
+        if source is not None and self.touch(source) and not self.on_grip(pid, x, y):
+            return None                   # by touch only from the grip: a swipe on the card scrolls
         self.dragged = pid
+        self.drag_point = (x, y)
         return Gdk.ContentProvider.new_for_value(pid)
+
+    @staticmethod
+    def touch(source) -> bool:
+        device = source.get_current_event_device()
+        return device is not None and device.get_source() == Gdk.InputSource.TOUCHSCREEN
+
+    def on_grip(self, pid: str, x: float, y: float) -> bool:
+        """Whether (x, y) on the card's FlowBoxChild is on its grip."""
+        held = self.cards.get(pid)
+        grip = self.grips.get(pid)
+        if held is None or grip is None or grip.get_root() is None:
+            return False
+        ok, bounds = grip.compute_bounds(held[0])
+        if not ok:
+            return False
+        return bounds.contains_point(Graphene.Point().init(x, y))
+
+    def drag_begin(self, source, pid: str):
+        """The card itself follows the pointer, held where it was grabbed; its place on the board is
+        shown faded until it is dropped."""
+        held = self.cards.get(pid)
+        card = held[0].get_child() if held else None
+        if card is None:
+            return
+        x, y = getattr(self, "drag_point", (0.0, 0.0))
+        source.set_icon(Gtk.WidgetPaintable.new(card), int(x), int(y))
+        card.add_css_class("am-project-dragged")
+        self.flow.add_css_class("am-board-dragging")      # separators at every place it can go
 
     def drag_end(self):
         if self.dragged is not None and not self.ctrl.disposed:
             GLib.idle_add(lambda: self.ctrl.notify() and False)    # a card held while dragged is drawn now
         self.dragged = None
+        self.flow.remove_css_class("am-board-dragging")
         for child, _sig in self.cards.values():
             card = child.get_child()
             if card is not None:
                 card.remove_css_class("am-project-drop-before")
                 card.remove_css_class("am-project-drop-after")
+                card.remove_css_class("am-project-dragged")
 
     def drop_place(self, source: str, target: str):
         """(target, after) for a card dropped on `target`: after it when it comes from before, before it

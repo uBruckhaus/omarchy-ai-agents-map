@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT))
 import gi  # noqa: E402
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import GLib, Gtk  # noqa: E402
+from gi.repository import Gio, GLib, Gtk  # noqa: E402
 
 import ai_popup  # noqa: E402
 
@@ -129,7 +129,11 @@ def check(app, width, selected):
 # A desktop that sizes the window itself (as on Hyprland, or a user's resize): the window keeps the width given.
 ai_popup.desktop.header_moves_window = lambda: True
 app = ai_popup.AgentsMap()
+# Its own instance even while AI Agents Map runs on this desktop: the test keeps the real session bus,
+# and as a remote instance of the running app GTK never starts it up (adding a window then crashes).
+app.set_flags(app.get_flags() | Gio.ApplicationFlags.NON_UNIQUE)
 app.register(None)
+assert not app.get_is_remote()
 app.make_window()
 app.build_window()
 app.collect = lambda: None              # nothing of this PC is looked at

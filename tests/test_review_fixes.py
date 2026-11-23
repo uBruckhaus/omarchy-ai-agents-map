@@ -395,6 +395,15 @@ class DiskBudgetTest(unittest.TestCase):
         self.assertNotIn("\x1b", out.getvalue())
 
 
+def no_display() -> bool:
+    import gi
+    gi.require_version("Gtk", "4.0")
+    gi.require_version("Gdk", "4.0")
+    from gi.repository import Gdk, Gtk  # noqa: F401 - Gtk opens the display
+    return Gdk.Display.get_default() is None
+
+
+@unittest.skipIf(no_display(), "real GTK widgets need a display (without one GTK crashes)")
 class ModelAskProgressTest(unittest.TestCase):
     """While the agent looks for models: a spinner and the time it has taken so far."""
 

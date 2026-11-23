@@ -6,7 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import gi  # noqa: E402
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk  # noqa: E402
+from gi.repository import Gdk, Gtk  # noqa: E402
 import mcp_pages  # noqa: E402
 
 
@@ -23,6 +23,7 @@ class FormOnly:
         return {"command": "x"}
 
 
+@unittest.skipIf(Gdk.Display.get_default() is None, "real GTK widgets need a display (without one GTK crashes)")
 class TestButtonTest(unittest.TestCase):
     def test_off_until_a_server_is_picked(self):
         for tab in ("picks", "web", "local"):

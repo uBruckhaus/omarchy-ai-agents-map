@@ -2306,7 +2306,12 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
         installed = {a.command for a in self.agent_list if a.installed}
 
         def work():
-            result = agent_profiles.research(agent, installed)
+            # Always back on the main loop, so a failure (e.g. a profile that cannot be saved) never
+            # leaves the agent marked as being looked up.
+            try:
+                result = agent_profiles.research(agent, installed)
+            except Exception as error:  # noqa: BLE001 - shown as the look-up's error
+                result = {"status": "failed", "error": str(error) or type(error).__name__}
             GLib.idle_add(done, result)
 
         def done(result):

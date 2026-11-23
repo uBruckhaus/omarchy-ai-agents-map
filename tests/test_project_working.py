@@ -223,6 +223,31 @@ class FolderShortcutsTest(unittest.TestCase):
     def test_nothing_to_add_without_mounts_or_pins(self):
         self.assertEqual(folder_picker.folder_shortcuts("", "/home/uwe", is_dir=lambda _p: True), [])
 
+    def test_at_most_so_many_shortcuts_are_added(self):
+        favorites = "".join(f'Path("/data/{i}")' for i in range(500))
+        found = folder_picker.folder_shortcuts("", "/home/uwe", favorites, is_dir=lambda _p: True)
+        self.assertEqual(len(found), folder_picker.MAX_SHORTCUTS)
+        self.assertEqual(found[0], "/data/0")
+
+    def test_only_a_bounded_regular_file_is_read(self):
+        """Read on GTK's loop when the dialog opens: a FIFO is not waited on, a huge file not used."""
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            fifo = os.path.join(folder, "favorites")
+            os.mkfifo(fifo)
+            self.assertIsNone(folder_picker._read(fifo))           # returns at once, no writer needed
+            big = os.path.join(folder, "user-places.xbel")
+            with open(big, "wb") as f:
+                f.write(b"x" * (folder_picker.MAX_FILE_BYTES + 1))
+            self.assertIsNone(folder_picker._read(big))
+            self.assertIsNone(folder_picker._read(folder))          # a folder
+            small = os.path.join(folder, "ok")
+            with open(small, "w") as f:
+                f.write('Path("/mnt/Data")')
+            self.assertEqual(folder_picker._read(small), 'Path("/mnt/Data")')
+        self.assertIsNone(folder_picker._read("/nonexistent/favorites"))
+
 
 if __name__ == "__main__":
     unittest.main()
