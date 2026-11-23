@@ -243,8 +243,8 @@ class CheckTest(unittest.TestCase):
 
     def test_goose_project_env_has_tools_only_where_it_works(self):
         data = tomllib.loads((adapter_data.ADAPTERS / "goose.toml").read_text())
-        self.assertEqual(data["project"]["env"], {"setup": {"GOOSE_MODE": "chat"}, "plan": {"GOOSE_MODE": "auto"},
-                                                  "run": {"GOOSE_MODE": "auto"}})
+        # Planning and execution keep the user's own goose mode; only setup is forced to "chat" (no tools).
+        self.assertEqual(data["project"]["env"], {"setup": {"GOOSE_MODE": "chat"}})
         self.assertEqual(data["project"]["access_modes"], ["read-only"])
 
     def test_every_adapter_file_loads(self):
