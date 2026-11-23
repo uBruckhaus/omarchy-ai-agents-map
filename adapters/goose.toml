@@ -73,8 +73,8 @@ access_modes = ["read-only"]
 model_option = "--model"
 provider_option = "--provider"
 
-[project.env.setup]
-GOOSE_MODE = "auto"
+[project.env.setup]                    # no tools at all (also if goose ever loads one by default)
+GOOSE_MODE = "chat"
 
 [project.env.plan]
 GOOSE_MODE = "auto"

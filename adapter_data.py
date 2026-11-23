@@ -187,7 +187,13 @@ def _check(table: dict, allowed: dict, where: str, required: tuple = ()) -> None
 # (project_center._valid_env checks the same list at every dispatch, with the values each may take): a
 # variable such as NODE_OPTIONS or PYTHONPATH would load code into the agent. GOOSE_MODE: goose's approval
 # mode, which has no flag (goose.toml).
-PROJECT_ENV_NAMES = {"GOOSE_MODE": ("auto", "approve", "smart_approve", "chat")}
+PROJECT_ENV_NAMES = {
+    "GOOSE_MODE": ("auto", "approve", "smart_approve", "chat"),
+    # Copilot: turn off what the user's own environment could switch on (only "false" is accepted).
+    "COPILOT_ALLOW_ALL": ("false",),
+    "COPILOT_ASSISTED_APPROVAL": ("false",),
+    "GITHUB_COPILOT_PROMPT_MODE_EXTENSIONS": ("false",),
+}
 
 
 def check_project_env(env, name: str) -> None:

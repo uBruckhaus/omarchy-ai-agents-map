@@ -2144,8 +2144,8 @@ class AdapterProjectTest(unittest.TestCase):
                 mock.patch("agent_details.details_for", side_effect=OSError), \
                 mock.patch("online_models.choices", return_value=[]):
             found = {p["id"]: p for p in pc.default_agent_profiles()}
-        for phase in ("plan", "run", "setup"):
-            self.assertEqual(found["goose"][f"{phase}_env"], {"GOOSE_MODE": "auto"})
+        for phase, mode in (("plan", "auto"), ("run", "auto"), ("setup", "chat")):
+            self.assertEqual(found["goose"][f"{phase}_env"], {"GOOSE_MODE": mode})
             self.assertNotIn(f"{phase}_env", found["claude"])
 
 

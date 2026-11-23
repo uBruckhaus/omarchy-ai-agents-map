@@ -226,9 +226,18 @@ class CheckTest(unittest.TestCase):
             with self.subTest(env=bad):
                 self.refused(with_env(bad), "project.env")
 
-    def test_goose_project_env_is_auto_in_every_phase(self):
+    def test_copilot_project_env_turns_off_what_the_user_could_switch_on(self):
+        data = tomllib.loads((adapter_data.ADAPTERS / "copilot.toml").read_text())
+        off = {"COPILOT_ALLOW_ALL": "false", "COPILOT_ASSISTED_APPROVAL": "false",
+               "GITHUB_COPILOT_PROMPT_MODE_EXTENSIONS": "false"}
+        self.assertEqual(data["project"]["env"], {"plan": off, "run": off})
+        with self.assertRaises(adapter_data.AdapterError):
+            adapter_data.check_project_env({"plan": {"COPILOT_ALLOW_ALL": "true"}}, "x")
+
+    def test_goose_project_env_has_tools_only_where_it_works(self):
         data = tomllib.loads((adapter_data.ADAPTERS / "goose.toml").read_text())
-        self.assertEqual(data["project"]["env"], {phase: {"GOOSE_MODE": "auto"} for phase in ("setup", "plan", "run")})
+        self.assertEqual(data["project"]["env"], {"setup": {"GOOSE_MODE": "chat"}, "plan": {"GOOSE_MODE": "auto"},
+                                                  "run": {"GOOSE_MODE": "auto"}})
         self.assertEqual(data["project"]["access_modes"], ["read-only"])
 
     def test_every_adapter_file_loads(self):

@@ -80,3 +80,16 @@ plan = ["copilot", "-p", "{prompt}", "-s", "--no-ask-user", "--no-auto-update", 
 run = ["copilot", "-p", "{prompt}", "-s", "--no-ask-user", "--no-auto-update", "--disable-builtin-mcps", "--disallow-temp-dir", "--available-tools=view,glob,grep,rg,edit,create,apply_patch", "--allow-tool=write", "--deny-tool=shell", "--deny-tool=url", "--deny-tool=memory"]
 permissions = "Planning and review only read and search project files. Execution may also create and edit files inside the project folder; shell commands, web access, memory and the built-in MCP servers are disabled. Only these file tools reach the model, but your own hooks, plugins and MCP servers still start (and repository hooks in a folder you already trusted in Copilot)."
 model_option = "--model"
+
+# The user's own environment could switch these on: COPILOT_ALLOW_ALL=true trusts the folder (its
+# hooks, MCP servers, skills, plugins), the other two let extensions load or a judge approve in -p.
+# Source: `copilot help environment`, `copilot help extensions` (1.0.114).
+[project.env.plan]
+COPILOT_ALLOW_ALL = "false"
+COPILOT_ASSISTED_APPROVAL = "false"
+GITHUB_COPILOT_PROMPT_MODE_EXTENSIONS = "false"
+
+[project.env.run]
+COPILOT_ALLOW_ALL = "false"
+COPILOT_ASSISTED_APPROVAL = "false"
+GITHUB_COPILOT_PROMPT_MODE_EXTENSIONS = "false"
