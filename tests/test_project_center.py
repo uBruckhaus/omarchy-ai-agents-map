@@ -2923,6 +2923,39 @@ class ProjectAccessTest(CenterCase):
         self.assertIn("git commit: no", self.commands[1][-1])
         self.processes[1].finish("Done.\n```not_done\n```")
         self.idle()
+        dot_git.unlink()
+        # A group/world-writable project folder refuses --add-dir .git and clears git_commit.
+        dot_git.mkdir()
+        old_mode = stat.S_IMODE(os.stat(self.workspace).st_mode)
+        os.chmod(self.workspace, 0o777)
+        try:
+            shared = self.save(title="Shared", brief="Commit changes", plan="1. Commit\n```needs\nedit, commit\n```",
+                               team=[{"agent": "fixture", "role": "lead", "access": "project-commands"}])
+            self.assertEqual([g["need"] for g in shared["access_gaps"]], ["commit"])
+            self.assertFalse(shared["effective_capabilities"]["fixture"]["project-commands"]["git_commit"])
+            approved_shared = self.review(shared, accept_gaps=True)
+            self.run_it(approved_shared)
+            self.idle()
+            self.assertEqual(self.get(shared["id"])["status"], "failed")
+        finally:
+            os.chmod(self.workspace, old_mode)
+
+    def test_accepted_gaps_are_reserved_when_agent_fills_not_done_cap(self):
+        self.commands_profile(push=False)
+        item = self.save(brief="Push changes", plan="1. Push\n```needs\nedit, push\n```",
+                         team=[{"agent": "fixture", "role": "lead", "access": "project-edit"},
+                               {"agent": "fixture", "role": "implementer", "access": "project-edit"},
+                               {"agent": "fixture", "role": "implementer", "access": "project-edit"}])
+        approved = self.review(item, accept_gaps=True)
+        self.run_it(approved)
+        many = "\n".join(f"- step {i}" for i in range(25))
+        for idx in range(3):
+            wait_until(lambda n=idx + 1: len(self.processes) >= n)
+            self.processes[idx].finish(f"Done {idx}.\n```not_done\n{many}\n```")
+        self.idle()
+        done = self.get(item["id"])
+        self.assertEqual(len(done["not_done"]), pc.MAX_NOT_DONE)
+        self.assertEqual(done["not_done"][-1], {"kind": "gap", "need": "push", "text": "push"})
 
 
 if __name__ == "__main__":

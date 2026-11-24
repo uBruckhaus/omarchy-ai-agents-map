@@ -79,7 +79,9 @@ The same features as Maprisma 2.x, inside the plugin:
   in `~/.gemini/antigravity-cli/settings.json` still win, and any other command ends its turn). Before a
   plan is approved or planning is skipped, AI Agents Map checks which planned steps the chosen access
   cannot do and offers to raise access or leave those steps to you; a run that leaves steps undone ends
-  as **Done, steps left to you** with the list.
+  as **Done, steps left to you** with the list. Project prompts are passed to agents as a command-line
+  argument (assuming a single-user desktop or `hidepid`), and Codex's `--add-dir .git` grant is refused
+  for group- or world-writable project directories.
 - **Links between the tabs**: an agent's box on the map shows **Used in N projects** (opens the board
   with that agent's chip); **Show on map** in a project's Team graph and **Fix on map** on a problem
   switch to the AI Map, scroll to the box and mark it for a few seconds.

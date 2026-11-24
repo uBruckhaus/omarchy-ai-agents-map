@@ -279,6 +279,7 @@ def _safe_add_dirs(template: list, cwd: str) -> list:
         raise ProjectError("project_folder_changed") from None
     if str(base) != os.path.normpath(cwd):
         raise ProjectError("project_folder_changed")
+    root_checked = False
     out = []
     i = 0
     while i < len(template):
@@ -293,6 +294,14 @@ def _safe_add_dirs(template: list, cwd: str) -> list:
             out.append(arg)
             i += 1
             continue
+        if not root_checked:
+            try:
+                root_st = os.lstat(base)
+            except OSError:
+                raise ProjectError("project_folder_changed") from None
+            if not stat.S_ISDIR(root_st.st_mode) or root_st.st_uid != os.geteuid() or (root_st.st_mode & 0o022):
+                raise ProjectError("project_folder_changed")
+            root_checked = True
         if not isinstance(target, str) or not target or target == "{prompt}" \
                 or target.startswith("~") or os.path.isabs(target):
             raise ProjectError("project_folder_changed")
@@ -1839,10 +1848,12 @@ class ProjectCenter:
                 item["status"] = "paused" if active.cancelled else "awaiting_review" if phase == "planning" \
                     else "completed"
                 if not active.cancelled and phase == "running":
-                    # Steps the approval knowingly left to the user (task 104).
+                    # Steps the approval knowingly left to the user (task 104); reserve room so
+                    # agent-reported items can never crowd accepted gaps out of MAX_NOT_DONE.
                     gaps = [{"kind": "gap", "need": need, "text": need} for need in item.get("accepted_gaps") or []]
                     if gaps:
-                        item["not_done"] = (list(item.get("not_done") or []) + gaps)[:MAX_NOT_DONE]
+                        keep = max(0, MAX_NOT_DONE - len(gaps))
+                        item["not_done"] = (list(item.get("not_done") or [])[:keep] + gaps)[:MAX_NOT_DONE]
                 if phase == "running":
                     item["needs_reconciliation"] = active.cancelled
                 item["checkpoint_kind"] = "handoff" if active.cancelled else "assignment"
