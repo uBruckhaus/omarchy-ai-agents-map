@@ -454,7 +454,8 @@ class ProjectDetail:
         self.team_graph.set_visible(card is not None)   # a new project: the form takes the width
         # Every profile fact the form shows (commands, permissions, options) is part of its key.
         key = json.dumps([ctrl.team_version, ctrl.phase, ctrl.busy, ctrl.running, ctrl.profiles, ctrl.runtimes,
-                          ctrl.allow_push], sort_keys=True, default=str)
+                          ctrl.allow_push, (ctrl.project or {}).get("effective_capabilities")],
+                         sort_keys=True, default=str)
         if key == self.shown_team:
             return
         self.shown_team = key

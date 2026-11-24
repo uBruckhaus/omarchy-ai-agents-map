@@ -457,6 +457,29 @@ def main():
     assert any("Higher risk: runs commands on this PC" in t for t in setup_labels), setup_labels
     ctrl.project = saved_project
     detail.render_setup()
+    # Task 104 (Codex round 4): an idle refresh updating effective_capabilities re-renders the Team shield.
+    ctrl.set_tab(texts.TAB_TEAM)
+    spin(lambda: detail.pages.get_visible_child_name() == str(texts.TAB_TEAM))
+    ctrl.team[0]["access"] = "project-commands"
+    ctrl.team_version += 1
+    ctrl.project = {"id": "wt", "title": "WT", "status": "draft",
+                    "effective_capabilities": {"claude": {"project-commands": {**dict.fromkeys(facts, False),
+                                                                               "edit": True, "shell": True,
+                                                                               "git_commit": True}}}}
+    detail.render_team()
+    hint1 = next(w for w in walk(detail.team_form) if hasattr(w, "agent_hint"))
+    assert "✓ Commit with git" in hint1.agent_hint, hint1.agent_hint
+    ctrl.project = {"id": "wt", "title": "WT", "status": "draft",
+                    "effective_capabilities": {"claude": {"project-commands": {**dict.fromkeys(facts, False),
+                                                                               "edit": True, "shell": True,
+                                                                               "git_commit": False}}}}
+    detail.render_team()
+    hint2 = next(w for w in walk(detail.team_form) if hasattr(w, "agent_hint"))
+    assert "✗ Commit with git" in hint2.agent_hint, hint2.agent_hint
+    ctrl.team[0]["access"] = "project-edit"
+    ctrl.team_version += 1
+    ctrl.project = saved_project
+    detail.render_team()
     # Dropdowns: a missing value is shown as itself, a disabled choice goes back and is not applied.
     from project_detail_page import dropdown
     picked = []
