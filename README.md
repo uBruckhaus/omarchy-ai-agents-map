@@ -68,13 +68,15 @@ The same features as Maprisma 2.x, inside the plugin:
   cannot do in this project. Each team member also has an access level: **Read-only**, **Edit project
   files**, or (for Claude Code, Codex and Antigravity) **Edit + commands**, with a separate **Allow
   push** switch (off by default; new members never start on **Edit + commands**). In **Edit + commands**,
-  Claude Code runs its fixed list of build, test, install (`./install.sh`, `./build.sh`, `makepkg`) and
-  `git commit` commands **without a filesystem sandbox** (the allow list fences the agent's own commands,
-  not the project code its builds and tests run; `git push` only with **Allow push**); Codex runs inside
-  its workspace sandbox with `.git` opened for commits (no install outside the project) and turning on
-  **Allow push** enables **network access for every sandbox command**, not only `git push`; Antigravity
-  runs its fixed command list in its sandbox (allowed commands have network access, user deny rules in
-  `~/.gemini/antigravity-cli/settings.json` still win, and any other command ends its turn). Before a
+  Claude Code runs its fixed list of build, test, install (`./install.sh`, `./build.sh`, exact `makepkg`
+  with no `-s`/`-i` flags) and `git commit` commands **without a filesystem sandbox** (the allow list
+  fences the agent's own commands, not the project code its builds and tests run; `git push` only with
+  **Allow push**); Codex runs inside its workspace sandbox with `.git` opened for commits (no install
+  outside the project; opening `.git` also allows writing `.git/config` and `.git/hooks` inside that
+  repository) and turning on **Allow push** enables **network access for every sandbox command**, not
+  only `git push`; Antigravity runs its fixed command list in its sandbox (allowed commands such as
+  `./install.sh` can write outside the project into `~/.local` and have network access, user deny rules
+  in `~/.gemini/antigravity-cli/settings.json` still win, and any other command ends its turn). Before a
   plan is approved or planning is skipped, AI Agents Map checks which planned steps the chosen access
   cannot do and offers to raise access or leave those steps to you; a run that leaves steps undone ends
   as **Done, steps left to you** with the list.

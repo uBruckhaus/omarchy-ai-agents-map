@@ -277,6 +277,8 @@ def _safe_add_dirs(template: list, cwd: str) -> list:
         base = Path(cwd).resolve(strict=True)
     except OSError:
         raise ProjectError("project_folder_changed") from None
+    if str(base) != os.path.normpath(cwd):
+        raise ProjectError("project_folder_changed")
     out = []
     i = 0
     while i < len(template):
@@ -327,13 +329,20 @@ def _safe_add_dirs(template: list, cwd: str) -> list:
     return out
 
 
+def _is_git_dir_arg(value) -> bool:
+    if not isinstance(value, str) or not value or os.path.isabs(value):
+        return False
+    parts = [part for part in Path(value).parts if part != "."]
+    return parts == [".git"]
+
+
 def _has_add_dir_git(template) -> bool:
     if not isinstance(template, list):
         return False
     for i, arg in enumerate(template):
-        if arg == "--add-dir" and i + 1 < len(template) and template[i + 1] == ".git":
+        if arg == "--add-dir" and i + 1 < len(template) and _is_git_dir_arg(template[i + 1]):
             return True
-        if arg == "--add-dir=.git":
+        if isinstance(arg, str) and arg.startswith("--add-dir=") and _is_git_dir_arg(arg.split("=", 1)[1]):
             return True
     return False
 
