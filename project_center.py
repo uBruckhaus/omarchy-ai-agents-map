@@ -267,6 +267,66 @@ def _option(value) -> bool:
     return isinstance(value, str) and value.startswith("--") and "\0" not in value
 
 
+def _safe_add_dirs(template: list, cwd: str) -> list:
+    """Validate every --add-dir path in a profile template against the project folder `cwd`.
+    Refuses absolute paths, parent traversal, symlinks, paths resolving outside `cwd`, and special
+    files (e.g. a symlinked `.git` pointing outside the project). Keeps `--add-dir <dir>` only when
+    the target is a real directory inside `cwd`; omits it when the path is absent or a regular file
+    (such as a git worktree's `.git` file)."""
+    try:
+        base = Path(cwd).resolve(strict=True)
+    except OSError:
+        raise ProjectError("project_folder_changed") from None
+    out = []
+    i = 0
+    while i < len(template):
+        arg = template[i]
+        if arg == "--add-dir":
+            if i + 1 >= len(template):
+                raise ProjectError("project_profile_invalid")
+            target, step = template[i + 1], 2
+        elif isinstance(arg, str) and arg.startswith("--add-dir="):
+            target, step = arg.split("=", 1)[1], 1
+        else:
+            out.append(arg)
+            i += 1
+            continue
+        if not isinstance(target, str) or not target or target == "{prompt}" \
+                or target.startswith("~") or os.path.isabs(target):
+            raise ProjectError("project_folder_changed")
+        parts = Path(target).parts
+        if not parts or any(p in ("..", "") for p in parts):
+            raise ProjectError("project_folder_changed")
+        cur = base
+        keep = True
+        st = None
+        for part in parts:
+            cur = cur / part
+            try:
+                st = os.lstat(cur)
+            except FileNotFoundError:
+                keep = False
+                break
+            except OSError:
+                raise ProjectError("project_folder_changed") from None
+            if stat.S_ISLNK(st.st_mode):
+                raise ProjectError("project_folder_changed")
+            try:
+                resolved = cur.resolve(strict=True)
+                resolved.relative_to(base)
+            except (OSError, ValueError):
+                raise ProjectError("project_folder_changed") from None
+            if resolved == base:
+                raise ProjectError("project_folder_changed")
+        if keep and st is not None:
+            if stat.S_ISDIR(st.st_mode):
+                out.extend(template[i:i + step])
+            elif not stat.S_ISREG(st.st_mode):
+                raise ProjectError("project_folder_changed")
+        i += step
+    return out
+
+
 def _argv_key(member: dict, phase: str, allow_push: bool = False, profile: dict | None = None) -> str:
     """The argv a member launches with (task 104): the read-only one for planning, reviewers and Read
     only; run_argv for Edit files; run_commands_argv for Edit + commands, its push variant with the
@@ -1575,9 +1635,10 @@ class ProjectCenter:
                         raise ProjectError("project_prompt_too_large")   # before any launch; messages stay queued
                     if not _valid_template(profile, key):
                         raise ProjectError("project_profile_invalid")
-                    argv = [prompt if arg == "{prompt}" else arg for arg in profile[key]] \
-                        + self._member_options(member, profile, runtimes)
                     cwd = str(self.directory / "setup-workspace") if phase == "setup" else item["path"]
+                    validated_template = profile[key] if phase == "setup" else _safe_add_dirs(profile[key], cwd)
+                    argv = [prompt if arg == "{prompt}" else arg for arg in validated_template] \
+                        + self._member_options(member, profile, runtimes)
                 # Host policy at dispatch time, also for later teammates (a rule may have changed).
                 if self.authorize is not None:
                     self.authorize(member["agent"])
@@ -1595,6 +1656,14 @@ class ProjectCenter:
                         if validated_generation != self.discovery_generation:
                             generation_changed = True
                             return False
+                        if phase != "setup":
+                            try:
+                                if _safe_add_dirs(profile[key], cwd) != validated_template:
+                                    launch_error = ProjectError("project_folder_changed")
+                                    return False
+                            except ProjectError as error:
+                                launch_error = error
+                                return False
                         # Save only an authorized assignment, before its go-ahead. A withdrawn
                         # snapshot leaves no assignment flag, status or event to roll back. Read
                         # the current record so messages queued during supervisor startup survive.

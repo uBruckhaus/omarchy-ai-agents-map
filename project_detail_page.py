@@ -762,9 +762,14 @@ class ProjectDetail:
                 for title, key_ in ((_("Model (optional)"), "model"), (_("Agent provider"), "provider"),
                                     (_("Local runtime"), "runtime")):
                     card.append(parts.label(f"{title}: {member.get(key_) or _('Agent default')}", wrap=True))
-                read_only = target_plan or member.get("access") == "read-only" or member.get("role") == "reviewer"
-                card.append(parts.label(_("Effective permissions") + ": " +
-                                        (_("Read-only") if read_only else _("Edit project files"))))
+                effective = ("read-only" if target_plan or member.get("role") == "reviewer"
+                             else member.get("access") or "project-edit")
+                card.append(parts.label(_("Effective permissions") + ": " + texts.access_label(effective)))
+                if effective == "project-commands":
+                    card.append(parts.label(
+                        _("Higher risk: runs commands on this PC, and builds and tests run the project's own code. "
+                          "The shield shows this agent's limits."),
+                        ("am-warn",), wrap=True))
                 if member.get("instructions"):
                     card.append(parts.label(str(member["instructions"]), wrap=True))
                 box.append(card)

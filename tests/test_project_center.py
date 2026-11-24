@@ -2874,6 +2874,41 @@ class ProjectAccessTest(CenterCase):
         self.assertEqual(found["goose"]["setup_env"], {"GOOSE_MODE": "chat"})      # setup only
         self.assertNotIn("run_env", found["goose"])
 
+    def test_add_dir_refuses_symlink_escape_and_omits_non_directory_git(self):
+        outside = self.tmp / "outside-secret"
+        outside.mkdir()
+        self.profiles[0].update(
+            access_modes=["read-only", "project-edit", "project-commands"],
+            run_commands_argv=["/fixture/agent", "commands", "--add-dir", ".git", "{prompt}"],
+            capabilities={**self._caps("project-edit", edit=True),
+                          **self._caps("project-commands", edit=True, shell=True, git_commit=True)})
+        item = self.save(brief="Commit changes", plan="1. Commit\n```needs\nedit, commit\n```",
+                         team=[{"agent": "fixture", "role": "lead", "access": "project-commands"}])
+        rev = self.center.call("review", {"id": item["id"], "revision": item["revision"],
+                                          "approved": True})["project"]["revision"]
+        # Hostile .git symlink pointing outside the workspace is refused; nothing launches.
+        dot_git = self.project / ".git"
+        dot_git.symlink_to(outside)
+        self.center.call("run", {"id": item["id"], "revision": rev})
+        failed = self.wait_status(item["id"], {"failed"})
+        self.assertEqual(self.launched, [])
+        self.assertEqual(failed["status"], "failed")
+        dot_git.unlink()
+        # Real .git directory inside the project keeps --add-dir .git.
+        dot_git.mkdir()
+        self.center.call("run", {"id": item["id"], "revision": failed["revision"]})
+        done = self.wait_status(item["id"], {"completed"})
+        self.assertEqual(self.launched[-1][0][:4], ["/fixture/agent", "commands", "--add-dir", ".git"])
+        dot_git.rmdir()
+        # A worktree .git regular file omits --add-dir .git safely without failing.
+        dot_git.write_text("gitdir: /somewhere/else\n")
+        rev = self.center.call("review", {"id": item["id"], "revision": done["revision"],
+                                          "approved": True})["project"]["revision"]
+        self.center.call("run", {"id": item["id"], "revision": rev})
+        self.wait_status(item["id"], {"completed"})
+        self.assertNotIn("--add-dir", self.launched[-1][0])
+        self.assertNotIn(".git", self.launched[-1][0])
+
 
 if __name__ == "__main__":
     unittest.main()
