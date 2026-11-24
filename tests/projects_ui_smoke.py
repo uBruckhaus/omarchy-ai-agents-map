@@ -160,10 +160,28 @@ def main():
              bucket="needs_you", importance="high", approval_valid=True,
              issues=[{"code": "runtime_stopped", "target": "runtime", "node": "runtime:llama", "fix": "map"}]),
         card("draft", title="A draft", last_event={"at": "2026-11-22T08:00:00Z", "type": "saved",
-                                                   "text": "Project created."}),
+                                                   "text": "Project created."},
+             plan="1. Install it.", needs_source="keywords",
+             access_gaps=[{"need": "install", "members": ["claude"], "suggest_access": "project-commands",
+                           "needs_allow_push": False}]),
         card("done", title="Finished", status="completed", stage="finished", activity="agents_finished",
-             bucket="finished", importance="low"),
+             bucket="finished", importance="low", partial=True,
+             not_done=[{"kind": "gap", "need": "push", "text": "push"},
+                       {"kind": "agent", "agent": "claude", "text": "cargo test: denied"},
+                       {"kind": "denied", "agent": "claude", "text": "jetski: no output produced"}]),
     ])
+    # Task 104: an agent with Edit + commands (and its push variant).
+    facts = ("edit", "shell", "network", "outside_project", "git_commit", "git_push")
+    center.profiles[0].update(
+        access_modes=["read-only", "project-edit", "project-commands"],
+        run_commands_argv=["claude", "--allowedTools", "Bash(git commit:*)", "{prompt}"],
+        run_commands_push_argv=["claude", "--allowedTools", "Bash(git push:*)", "{prompt}"],
+        capabilities={"read-only": dict.fromkeys(facts, False),
+                      "project-edit": {**dict.fromkeys(facts, False), "edit": True},
+                      "project-commands": {**dict.fromkeys(facts, False), "edit": True, "shell": True,
+                                           "git_commit": True},
+                      "project-commands-push": {**dict.fromkeys(facts, False), "edit": True, "shell": True,
+                                                "git_commit": True, "git_push": True}})
     page = host.build_projects_page()
     host._project_center = center            # no real center: the fake answers
     window.set_child(page)
@@ -182,6 +200,10 @@ def main():
                  "All 4", "Running 1", "Needs you 1", "Agents finished 1", "Pause", "Open", "High", "Low"):
         assert text in shown, (text, shown)
     shot(window, "board")
+    # Task 104: a partial run and a team that can't do every step say so in amber on their cards.
+    assert "Done, steps left to you" in labels(board.cards["done"][0]), labels(board.cards["done"][0])
+    assert "This team can't: Install" in labels(board.cards["draft"][0]), labels(board.cards["draft"][0])
+    assert "Done, steps left to you" not in labels(board.cards["run"][0])
     # The trash symbol is off while agents work, on for a draft.
     running_card = board.cards["run"][0]
     assert not buttons(running_card, "Delete project")[0].get_sensitive()
@@ -266,6 +288,55 @@ def main():
     spin(lambda: board.phases.cards and "Goal" in labels(board.phases.root))
     ctrl.set_view("cards")
     board.on_width(1200)
+    # Task 104 on the project page: a partial run's status line and its steps left to the user.
+    ctrl.open_card(next(p for p in ctrl.projects if p["id"] == "done"))
+    spin(lambda: host.projects_stack.get_visible_child_name() == "project" and ctrl.project
+         and ctrl.project.get("id") == "done")
+    detail = host.projects_detail
+    spin(lambda: detail.status_line.get_label() == "Done, steps left to you")
+    assert detail.status_line.has_css_class("am-project-warn")
+    left = next(w for w in walk(detail.access) if hasattr(w, "steps"))
+    assert left.steps == ["• Push (the team's access doesn't allow it)", "• Claude Code: cargo test: denied",
+                          "• Claude Code stopped at a command it may not run; the rest of its work was not done."], \
+        left.steps
+    ctrl.back_to_board()
+    spin(lambda: not ctrl.open)
+    # The gaps box of a team that can't do a step: the button names what it changes.
+    ctrl.open_card(next(p for p in ctrl.projects if p["id"] == "draft"))
+    spin(lambda: ctrl.project and ctrl.project.get("id") == "draft"
+         and any(hasattr(w, "gap_buttons") for w in walk(detail.access)))
+    gaps_box = next(w for w in walk(detail.access) if hasattr(w, "gap_buttons"))
+    assert gaps_box.gap_buttons == ["Use Edit + commands", "Leave these to me"], gaps_box.gap_buttons
+    shown = labels(gaps_box)
+    assert "This team can't: Install" in shown and "• Install: Possible with Edit + commands." in shown, shown
+    assert "Guessed from the words of the goal and plan." in shown, shown
+    buttons(gaps_box, "Use Edit + commands")[0].emit("clicked")
+    spin(lambda: ctrl.dirty and not any(hasattr(w, "gap_buttons") for w in walk(detail.access)))
+    assert ctrl.run_team[0]["access"] == "project-commands"
+    # The Team tab: the level's capabilities, the agent-neutral risk note, Allow push and the command.
+    ctrl.set_tab(texts.TAB_TEAM)
+    spin(lambda: "Edit + commands" in labels(detail.team_form))
+    team_text = labels(detail.team_form)
+    assert "Can: Edit files, Run commands, Commit with git · Can't: Install outside the project, Push with git, " \
+           "Use the network" in team_text, team_text
+    assert texts.COMMANDS_RISK in team_text, team_text
+    assert "Allow push" in team_text
+    command = next(w for w in walk(detail.team_form) if w.get_name() == "execution-command-0")
+    assert command.get_label() == "claude --allowedTools Bash(git commit:*) {prompt}", command.get_label()
+    hint = next(w for w in walk(detail.team_form) if hasattr(w, "agent_hint"))
+    assert hint.agent_hint.startswith("In this team: edits files and runs commands"), hint.agent_hint
+    assert "✗ Push with git" in hint.agent_hint, hint.agent_hint
+    switch = next(w for w in walk(detail.team_form) if isinstance(w, Gtk.Switch) and w.get_name() == "allow-push")
+    switch.set_active(True)
+    spin(lambda: ctrl.allow_push and any(w.get_name() == "execution-command-0"
+                                         and "git push" in (w.get_label() or "") for w in walk(detail.team_form)))
+    hint = next(w for w in walk(detail.team_form) if hasattr(w, "agent_hint"))
+    assert "✓ Push with git" in hint.agent_hint, hint.agent_hint
+    ask = ctrl.ask
+    ctrl.ask = lambda kind, question, answer: answer("discard")
+    ctrl.back_to_board()
+    spin(lambda: not ctrl.open)
+    ctrl.ask = ask
     # The running project's page: rail, tabs, message box.
     ctrl.open_card(next(p for p in ctrl.projects if p["id"] == "run"))
     spin(lambda: host.projects_stack.get_visible_child_name() == "project")

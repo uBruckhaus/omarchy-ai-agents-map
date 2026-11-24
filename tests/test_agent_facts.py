@@ -2,6 +2,7 @@
 security settings, research, rewrite, …) and never names one. A new agent is an adapter (or an
 add-on), nothing in the core changes."""
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -111,6 +112,12 @@ class FactsTest(unittest.TestCase):
             supported = {p["id"] for p in project_center.default_agent_profiles()
                          if p.get("project_supported") is not False and p.get("installed") is not False}
             self.assertEqual(supported, supported & set(own))        # only agents with a [project] table
+            # Task 104: the add-ons get the Edit + commands commands and capabilities with it.
+            claude_facts = json.loads(harnesses.get("claude").project)
+            self.assertIn("run_commands_push", claude_facts)
+            self.assertTrue(claude_facts["capabilities"]["project-commands"]["git_commit"])
+            self.assertEqual(json.loads(harnesses.get("agy").project)["denied_marker"],
+                             "jetski: no output produced")
         finally:
             addons.load_all(set(), dirs=(), hooks=hooks)        # back to the built-in tables
         import dataclasses

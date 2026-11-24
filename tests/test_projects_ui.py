@@ -667,6 +667,245 @@ class ProjectPageTest(ControllerCase):
         self.assertEqual(ctrl.setup_request, "Use Claude")   # each phase its own draft
 
 
+COMMANDS_PROFILE = {
+    "id": "claude", "name": "Claude Code", "access_modes": ["read-only", "project-edit", "project-commands"],
+    "plan_argv": ["claude", "-p", "{prompt}"], "run_argv": ["claude", "edit", "{prompt}"],
+    "run_commands_argv": ["claude", "commands", "{prompt}"], "run_commands_push_argv": ["claude", "push", "{prompt}"],
+    "setup_argv": ["claude", "{prompt}"], "permissions": "Edits and runs commands.",
+    "capabilities": {
+        "read-only": dict.fromkeys(("edit", "shell", "network", "outside_project", "git_commit", "git_push"), False),
+        "project-edit": {"edit": True, "shell": False, "network": False, "outside_project": False,
+                         "git_commit": False, "git_push": False},
+        "project-commands": {"edit": True, "shell": True, "network": False, "outside_project": True,
+                             "git_commit": True, "git_push": False},
+        "project-commands-push": {"edit": True, "shell": True, "network": False, "outside_project": True,
+                                  "git_commit": True, "git_push": True}}}
+INSTALL_GAP = {"need": "install", "members": ["claude"], "suggest_access": "project-commands",
+               "needs_allow_push": False}
+PUSH_GAP = {"need": "push", "members": ["claude"], "suggest_access": "project-commands", "needs_allow_push": True}
+
+
+class AccessTextsTest(unittest.TestCase):
+    """Task 104's words and rules (Maprisma's project_access.dart, project_agent_hint.dart)."""
+
+    def test_labels_and_the_default_level(self):
+        self.assertEqual([texts.access_label(m) for m in ("read-only", "project-edit", "project-commands")],
+                         ["Read-only", "Edit project files", "Edit + commands"])
+        # A new member never gets the higher-risk Edit + commands on its own.
+        self.assertEqual(texts.default_access(["read-only", "project-edit", "project-commands"]), "project-edit")
+        self.assertEqual(texts.default_access(["read-only"]), "read-only")
+        self.assertEqual(texts.default_access(None), "project-edit")
+        self.assertEqual(texts.default_access(["project-commands"]), "project-commands")
+        self.assertEqual(texts.need_label("build"), "Build the project")     # review round 1, not "Build"
+        self.assertEqual(texts.need_label("weird"), "weird")
+
+    def test_capabilities_per_level_and_their_line(self):
+        self.assertIsNone(texts.capabilities_at({}, "project-edit"))
+        commands = texts.capabilities_at(COMMANDS_PROFILE, "project-commands")
+        self.assertFalse(commands["git_push"])
+        self.assertTrue(texts.capabilities_at(COMMANDS_PROFILE, "project-commands", allow_push=True)["git_push"])
+        self.assertFalse(texts.capabilities_at(COMMANDS_PROFILE, "project-edit", allow_push=True)["git_push"])
+        self.assertEqual(texts.capability_line(commands),
+                         "Can: Edit files, Run commands, Install outside the project, Commit with git · "
+                         "Can't: Push with git, Use the network")
+        self.assertEqual(texts.capability_line({}), "Can't: Run commands, Install outside the project, "
+                                                    "Commit with git, Push with git, Use the network")
+
+    def test_the_change_button_says_what_it_really_changes(self):
+        """Review round 1: never "Use Edit + commands" for a change that is something else."""
+        lead = [{"agent": "claude", "role": "lead", "access": "project-edit"}]
+        self.assertEqual(texts.suggest_label([INSTALL_GAP], lead), "Use Edit + commands")
+        self.assertEqual(texts.suggest_label([INSTALL_GAP, PUSH_GAP], lead), "Use Edit + commands and Allow push")
+        at_commands = [dict(lead[0], access="project-commands")]
+        self.assertEqual(texts.suggest_label([PUSH_GAP], at_commands), "Turn on Allow push")
+        edit_gap = {"need": "edit", "members": ["claude"], "suggest_access": "project-edit", "needs_allow_push": False}
+        self.assertEqual(texts.suggest_label([edit_gap], [dict(lead[0], access="read-only")]), "Use Edit project files")
+        self.assertIsNone(texts.suggest_label([edit_gap], lead))            # nothing would change
+        none_gap = {"need": "network", "members": [], "suggest_access": None, "needs_allow_push": False}
+        self.assertIsNone(texts.suggest_label([none_gap], lead))
+        # Reviewers are never raised.
+        self.assertIsNone(texts.suggest_label([INSTALL_GAP], [{"agent": "claude", "role": "reviewer",
+                                                               "access": "read-only"}]))
+        team = [dict(lead[0]), {"agent": "claude", "role": "reviewer", "access": "read-only"}]
+        self.assertTrue(texts.use_suggested([INSTALL_GAP, PUSH_GAP], team))
+        self.assertEqual([m["access"] for m in team], ["project-commands", "read-only"])
+        high = [dict(lead[0], access="project-commands")]
+        self.assertFalse(texts.use_suggested([edit_gap], high))
+        self.assertEqual(high[0]["access"], "project-commands")             # never lowered
+
+    def test_gap_hints_cards_status_and_steps_left(self):
+        self.assertEqual(texts.gap_hint(INSTALL_GAP), "Possible with Edit + commands.")
+        self.assertEqual(texts.gap_hint(PUSH_GAP), "Possible with Edit + commands and Allow push.")
+        self.assertEqual(texts.gap_hint({"suggest_access": "project-edit"}), "Possible with Edit project files.")
+        self.assertEqual(texts.gap_hint({"suggest_access": None}), "No agent of this team can do this.")
+        self.assertEqual(texts.gaps_title([INSTALL_GAP, PUSH_GAP]), "This team can't: Install, Push")
+        self.assertEqual(texts.card_access_line(card("a", access_gaps=[INSTALL_GAP])), "This team can't: Install")
+        self.assertIsNone(texts.card_access_line(card("a", access_gaps=[INSTALL_GAP], approval_valid=True)))
+        self.assertEqual(texts.card_access_line(card("a", partial=True, access_gaps=[INSTALL_GAP])),
+                         "Done, steps left to you")
+        self.assertIsNone(texts.card_access_line(card("a")))
+        self.assertEqual(texts.status_line({"status": "completed", "partial": True}), "Done, steps left to you")
+        self.assertEqual(texts.status_line({"status": "completed"}), "Completed")
+        done = {"status": "completed", "partial": True, "not_done": [
+            {"kind": "gap", "need": "build", "text": "build"},
+            {"kind": "agent", "agent": "claude", "text": "cargo test: denied"},
+            {"kind": "denied", "agent": "agy", "text": "jetski: no output produced"}, "junk"]}
+        self.assertEqual(texts.steps_left(done, {"claude": "Claude Code"}.get),
+                         ["• Build the project (the team's access doesn't allow it)", "• Claude Code: cargo test: denied",
+                          "• agy stopped at a command it may not run; the rest of its work was not done."])
+        self.assertEqual(texts.steps_left(dict(done, partial=False)), [])
+        self.assertEqual(texts.failure_code("project_access_gaps"),
+                         "This team can't do every planned step with its access. Change its access, or leave these "
+                         "steps to you.")
+
+    def test_the_execution_command_is_the_one_the_core_launches(self):
+        """Review round 1: the Team tab shows run_commands(_push) for an Edit + commands member."""
+        member = {"agent": "claude", "role": "lead", "access": "project-commands"}
+        self.assertEqual(texts.execution_argv(COMMANDS_PROFILE, member, False, False)[1], "commands")
+        self.assertEqual(texts.execution_argv(COMMANDS_PROFILE, member, False, True)[1], "push")
+        self.assertEqual(texts.execution_argv(COMMANDS_PROFILE, member, True, True)[1], "-p")
+        self.assertEqual(texts.execution_argv(COMMANDS_PROFILE, dict(member, access="project-edit"), False, True)[1],
+                         "edit")
+        self.assertEqual(texts.execution_argv(COMMANDS_PROFILE, dict(member, role="reviewer"), False, True)[1], "-p")
+        no_push = {k: v for k, v in COMMANDS_PROFILE.items() if k != "run_commands_push_argv"}
+        self.assertEqual(texts.execution_argv(no_push, member, False, True)[1], "commands")
+        self.assertEqual(texts.execution_argv({}, member, False, False), [])
+
+    def test_the_shield_names_what_the_level_allows(self):
+        found = texts.agent_abilities(COMMANDS_PROFILE, "project-commands")
+        self.assertEqual(found["here"], "In this team: edits files and runs commands")
+        self.assertIn("Run commands", found["can"])
+        self.assertIn("Push with git", found["cannot"])
+        self.assertIn("Push with git", texts.agent_abilities(COMMANDS_PROFILE, "project-commands", True)["can"])
+        edit = texts.agent_abilities(COMMANDS_PROFILE, "project-edit")
+        self.assertEqual(edit["here"], "In this team: edits project files")
+        self.assertIn("Run commands", edit["cannot"])
+        read = texts.agent_abilities(COMMANDS_PROFILE, "read-only")
+        self.assertNotIn("Run commands", read["can"] + read["cannot"])     # a read-only member lists no level
+        stale = texts.agent_abilities(dict(COMMANDS_PROFILE, access_modes=["read-only", "project-edit"]),
+                                      "project-commands")
+        self.assertEqual(stale["here"], "In this team: read-only")
+        self.assertIn("✓ Push with git", texts.abilities_text(COMMANDS_PROFILE, "project-commands", True))
+
+    def test_the_risk_note_is_agent_neutral(self):
+        """Review round 2: no "fixed list" for every agent (Codex has none); the shield names the limits."""
+        self.assertNotIn("fixed list", texts.COMMANDS_RISK)
+        self.assertIn("The shield shows this agent's limits.", texts.COMMANDS_RISK)
+
+
+class AccessFlowTest(ControllerCase):
+    """The controller's task 104 steps: Allow push, the gap question on Approve plan and Skip planning,
+    Use suggested and Leave these to me."""
+
+    def open(self, ctrl, pid):
+        ctrl.open_card(next(p for p in ctrl.projects if p["id"] == pid))
+        self.runner.flush()
+
+    def gapped(self, *gaps, **extra):
+        fields = {"plan": "1. Install it.", "status": "awaiting_review", "access_gaps": list(gaps),
+                  "needs_source": "plan", **extra}
+        ctrl = self.make([card("a", **fields)])
+        self.center.profiles = [copy.deepcopy(COMMANDS_PROFILE)]
+        ctrl.refresh(profiles=True)
+        self.runner.flush()
+        self.open(ctrl, "a")
+        return ctrl
+
+    def test_allow_push_is_saved_and_a_new_member_starts_with_edit_files(self):
+        ctrl = self.gapped()
+        self.assertFalse(ctrl.allow_push)
+        ctrl.set_allow_push(True)
+        self.assertTrue(ctrl.dirty)
+        ctrl.perform("save")
+        self.runner.flush()
+        self.assertIs(self.ops("save")[-1][1]["allow_push"], True)
+        self.assertFalse(ctrl.allow_push)            # the fake center's view has none: adopted from the view
+        self.center.projects[0]["allow_push"] = True
+        self.open(ctrl, "a")
+        self.assertTrue(ctrl.allow_push)
+        ctrl.open_card(None)
+        self.assertEqual(ctrl.run_team[0]["access"], "project-edit")
+        ctrl.set_member(0, "agent", "claude")
+        self.assertEqual(ctrl.run_team[0]["access"], "project-edit")
+        # Locked while running or in the planning team.
+        ctrl.change_phase("plan")
+        ctrl.set_allow_push(True)
+        self.assertFalse(ctrl.allow_push)
+
+    def test_approve_with_gaps_asks_and_leave_them_to_me_accepts(self):
+        ctrl = self.gapped(INSTALL_GAP)
+        self.questions.answers = [None]                  # cancelled
+        ctrl.perform("review")
+        self.runner.flush()
+        kind, question = self.questions.asked[-1]
+        self.assertEqual(kind, "gaps")
+        self.assertEqual(question[0], "This team can't: Install")
+        self.assertIn("• Install: Possible with Edit + commands.", question[1])
+        self.assertEqual(question[2:], ("Use Edit + commands", "Leave these to me"))
+        self.assertEqual(self.ops("review"), [])
+        self.assertFalse(ctrl.busy or ctrl.confirming)
+        self.questions.answers = ["accept"]
+        ctrl.perform("review")
+        self.runner.flush()
+        self.assertEqual(self.ops("review")[-1][1], {"id": "a", "revision": 1, "approved": True, "accept_gaps": True})
+        self.assertNotIn(("confirm", texts.APPROVE_QUESTION), self.questions.asked)
+
+    def test_the_gaps_box_leave_to_me_approves_without_a_second_question(self):
+        ctrl = self.gapped(INSTALL_GAP)
+        asked = len(self.questions.asked)
+        ctrl.leave_to_me()
+        self.runner.flush()
+        self.assertEqual(len(self.questions.asked), asked)
+        self.assertTrue(self.ops("review")[-1][1]["accept_gaps"])
+        self.assertFalse(ctrl.leave_gaps)
+        # Without gaps Approve plan asks its usual question and sends no accept_gaps.
+        self.center.projects[0]["access_gaps"] = []
+        self.open(ctrl, "a")
+        self.questions.answers = [True]
+        ctrl.perform("review")
+        self.runner.flush()
+        self.assertEqual(self.questions.asked[-1], ("confirm", texts.APPROVE_QUESTION))
+        self.assertNotIn("accept_gaps", self.ops("review")[-1][1])
+
+    def test_change_the_access_instead_saves_the_raised_team(self):
+        ctrl = self.gapped(INSTALL_GAP, PUSH_GAP)
+        self.questions.answers = ["commands"]
+        ctrl.perform("review")
+        self.runner.flush()
+        self.assertEqual(self.questions.asked[-1][1][2], "Use Edit + commands and Allow push")
+        saved = self.ops("save")[-1][1]
+        self.assertEqual(saved["team"][0]["access"], "project-commands")
+        self.assertIs(saved["allow_push"], True)
+        self.assertEqual(self.ops("review"), [])          # changed, not approved
+        self.assertFalse(ctrl.busy)
+
+    def test_use_suggested_from_the_box_changes_the_draft_only(self):
+        ctrl = self.gapped(PUSH_GAP)
+        self.assertEqual(ctrl.suggest_label(), "Use Edit + commands and Allow push")
+        ctrl.use_suggested()
+        self.assertTrue(ctrl.dirty and ctrl.allow_push)
+        self.assertEqual(ctrl.run_team[0]["access"], "project-commands")
+        self.assertEqual(self.ops("save"), [])
+
+    def test_skip_planning_asks_about_gaps_before_it_approves(self):
+        ctrl = self.gapped(INSTALL_GAP, plan="")
+        self.center.projects[0]["plan"] = ""
+        self.open(ctrl, "a")
+        self.questions.answers = [True, "accept"]
+        ctrl.perform("skip_plan")
+        self.runner.flush()
+        self.assertEqual([k for k, _q in self.questions.asked[-2:]], ["confirm", "gaps"])
+        self.assertTrue(self.ops("review")[-1][1]["accept_gaps"])
+        self.assertEqual(len(self.ops("run")), 1)
+        self.questions.answers = [True, None]
+        self.center.projects[0]["plan"] = ""
+        self.open(ctrl, "a")
+        ctrl.perform("skip_plan")
+        self.runner.flush()
+        self.assertEqual(len(self.ops("review")), 1)       # cancelled: saved, not approved, not run
+        self.assertFalse(ctrl.busy)
+
+
 class MessagesTest(ControllerCase):
     def running(self):
         ctrl = self.make([card("a", **RUNNING)])
@@ -809,6 +1048,23 @@ class RealCenterTest(unittest.TestCase):
         self.assertTrue(ctrl.approved)
         self.assertIsNone(ctrl.error)
         self.assertEqual(ctrl.card_of_open["activity"], "ready_to_run")
+
+    def test_a_gap_is_left_to_me_on_the_real_center(self):
+        """Task 104 end to end: a plan that needs a commit the team's access doesn't allow is refused
+        without accept_gaps; Leave these to me approves it with the gap recorded."""
+        ctrl = self.ctrl
+        self.create("Commit it")
+        ctrl.open_card(ctrl.projects[0])
+        ctrl.set_text("plan", "1. Edit it.\n```needs\nedit\ncommit\n```")
+        ctrl.perform("save")
+        self.assertEqual([g["need"] for g in ctrl.gaps], ["edit", "commit"])      # the fixture declares nothing
+        self.assertIsNone(ctrl.suggest_label())                                   # no agent of it can
+        self.answers.append("accept")
+        ctrl.perform("review")
+        self.assertIsNone(ctrl.error)
+        self.assertTrue(ctrl.approved)
+        self.assertEqual(ctrl.project["accepted_gaps"], ["edit", "commit"])
+        self.assertIsNone(texts.card_access_line(ctrl.card_of_open))              # approved: the card is quiet
 
     def test_forced_refresh_reaches_the_center(self):
         calls = []

@@ -247,6 +247,73 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(data["project"]["env"], {"setup": {"GOOSE_MODE": "chat"}})
         self.assertEqual(data["project"]["access_modes"], ["read-only"])
 
+    def test_project_commands_capabilities_and_denied_marker(self):
+        """Task 104: run_commands / run_commands_push, capabilities per level and the denied marker."""
+        def project(**changes) -> dict:
+            data = self.claude()
+            data["project"].update(changes)
+            for key in [k for k, v in changes.items() if v is None]:
+                del data["project"][key]
+            return data
+        harness = adapter_data.harness(self.claude(), "test.toml")
+        facts = json.loads(harness.project)
+        self.assertIn("Bash(git commit:*)", facts["run_commands"])
+        self.assertNotIn("Bash(git push:*)", facts["run_commands"])
+        self.assertIn("Bash(git push:*)", facts["run_commands_push"])
+        # run_commands_push needs run_commands; Edit + commands needs run_commands.
+        self.refused(project(run_commands=None), "run_commands_push needs project.run_commands")
+        self.refused(project(run_commands=None, run_commands_push=None,
+                             access_modes=["read-only", "project-edit", "project-commands"]),
+                     "project-commands needs project.run_commands")
+        self.refused(project(access_modes=["read-only", "everything"]), "project.access_modes")
+        # Their argv like the others: the agent's own command and {prompt} once as a word of its own.
+        self.refused(project(run_commands=["sh", "-c", "{prompt}"]), "project.run_commands must start")
+        self.refused(project(run_commands_push=["claude", "x{prompt}"]), "project.run_commands_push must start")
+        for bad in ({"everything": {"edit": True}}, {"project-edit": {"sudo": True}},
+                    {"project-edit": {"edit": "yes"}}, {"project-edit": True}):
+            with self.subTest(capabilities=bad):
+                self.refused(project(capabilities=bad), "project.capabilities")
+        self.refused(project(denied_marker="  "), "empty project.denied_marker")
+        self.refused(project(denied_marker=3), "project.denied_marker")
+        env = adapter_data.harness(project(env={"run_commands": {"GOOSE_MODE": "auto"},
+                                                "run_commands_push": {"GOOSE_MODE": "auto"}}), "test.toml")
+        self.assertEqual(set(json.loads(env.project)["env"]), {"run_commands", "run_commands_push"})
+        self.refused(project(env={"run_commands": {"LD_PRELOAD": "/x.so"}}), "project.env")
+
+    def test_the_agents_declare_what_each_level_can_do(self):
+        def project(name):
+            return tomllib.loads((adapter_data.ADAPTERS / f"{name}.toml").read_text())["project"]
+        claude, codex, agy = project("claude"), project("codex"), project("agy")
+        # Claude and agy: a fixed list of commands, no network; push only in the push variant.
+        for facts in (claude, agy):
+            self.assertEqual(facts["capabilities"]["project-commands"],
+                             {"edit": True, "shell": True, "outside_project": True, "git_commit": True})
+            self.assertTrue(facts["capabilities"]["project-commands-push"]["git_push"])
+            self.assertNotIn("network", facts["capabilities"]["project-commands-push"])
+        # No bare make, npm exec, dart run or cmake: they run any command line (review rounds 1-2).
+        words = " ".join(claude["run_commands"] + agy["run_commands"])
+        for word in ("Bash(make:*)", "Bash(make build:*)", "npm exec", "pnpm exec", "dart run", "cmake",
+                     "command(make)", "command(make ", "git push"):
+            self.assertNotIn(word, words)
+        self.assertIn("Bash(make build)", claude["run_commands"])
+        # Codex: Edit files can't commit, no install outside the project, network only with Allow push.
+        self.assertEqual(codex["capabilities"]["project-edit"], {"edit": True, "shell": True})
+        self.assertNotIn("outside_project", codex["capabilities"]["project-commands"])
+        self.assertIn("sandbox_workspace_write.network_access=false", codex["run_commands"])
+        self.assertIn("sandbox_workspace_write.network_access=true", codex["run_commands_push"])
+        self.assertNotIn("~/.local", " ".join(codex["run_commands_push"]))
+        # agy: plan and run override the user's allow list; it stops at a denied command.
+        self.assertIn('"permissions":{"allow":[]}', agy["plan"][agy["plan"].index("--settings") + 1])
+        self.assertIn('"permissions":{"allow":[]}', agy["run"][agy["run"].index("--settings") + 1])
+        self.assertEqual(agy["denied_marker"], "jetski: no output produced")
+        # Copilot: Edit project files only; Goose and Pi stay read-only.
+        copilot = project("copilot")
+        self.assertNotIn("run_commands", copilot)
+        self.assertEqual(copilot["capabilities"], {"project-edit": {"edit": True}})
+        for name in ("goose", "pi"):
+            self.assertEqual(project(name)["access_modes"], ["read-only"])
+            self.assertNotIn("run_commands", project(name))
+
     def test_every_adapter_file_loads(self):
         for path in sorted(adapter_data.ADAPTERS.glob("*.toml")):
             with self.subTest(file=path.name):

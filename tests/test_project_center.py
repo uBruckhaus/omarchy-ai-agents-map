@@ -97,7 +97,10 @@ class CenterCase(unittest.TestCase):
         self.profiles = [{"id": "fixture", "name": "Fixture agent", "installed": True,
                           "plan_argv": ["/fixture/agent", "read-only", "{prompt}"],
                           "run_argv": ["/fixture/agent", "workspace-write", "{prompt}"],
-                          "setup_argv": ["/fixture/agent", "no-tools", "{prompt}"]}]
+                          "setup_argv": ["/fixture/agent", "no-tools", "{prompt}"],
+                          # Task 104: every fact, so a plan's keywords leave no gap here.
+                          "capabilities": {"project-edit": dict.fromkeys(
+                              ("edit", "shell", "network", "outside_project", "git_commit", "git_push"), True)}}]
         self.runtimes = []
         self.processes: list[FakeProcess] = []
         self.commands: list[list[str]] = []
@@ -2540,6 +2543,336 @@ class PlanPromptTest(CenterCase):
         self.assertNotIn("answer with the plan itself", reviewer)
         runner = self.center._prompt({**item, "plan": "Do it."}, {"role": "lead"}, "running")
         self.assertNotIn("answer with the plan itself", runner)
+
+
+FACTS = ("edit", "shell", "network", "outside_project", "git_commit", "git_push")
+
+
+def facts(*on) -> dict:
+    return {fact: fact in on for fact in FACTS}
+
+
+PLAN_104 = "1. Change the code.\n2. Test it.\n\n```needs\nedit\ntest\ninstall\ncommit, push\n```\n"
+
+
+class ProjectAccessTest(CenterCase):
+    """Access levels and gaps (Maprisma task 104, its ai_project_center_test group): Edit + commands,
+    Allow push, approval with accepted gaps, the steps a run left to the user, strict store fields."""
+
+    def commands_profile(self, push=True, marker=None):
+        """A Codex-like adapter: Edit files can't commit, Edit + commands can, push only in the push variant."""
+        self.profiles[0].update({
+            "access_modes": ["read-only", "project-edit", "project-commands"],
+            "run_commands_argv": ["/fixture/agent", "commands", "{prompt}"],
+            "capabilities": {"read-only": facts(), "project-edit": facts("edit", "shell"),
+                             "project-commands": facts("edit", "shell", "outside_project", "git_commit")}})
+        if push:
+            self.profiles[0]["run_commands_push_argv"] = ["/fixture/agent", "push", "{prompt}"]
+            self.profiles[0]["capabilities"]["project-commands-push"] = facts(
+                "edit", "shell", "network", "outside_project", "git_commit", "git_push")
+        if marker is not None:
+            self.profiles[0]["denied_marker"] = marker
+
+    def review(self, item, **extra):
+        return self.center.call("review", {"id": item["id"], "revision": item["revision"], "approved": True,
+                                           **extra})["project"]
+
+    def run_it(self, item):
+        self.center.call("run", {"id": item["id"], "revision": item["revision"]})
+
+    def test_needs_come_from_the_plan_block_else_from_keywords(self):
+        self.commands_profile()
+        item = self.save(plan=PLAN_104)
+        self.assertEqual((item["needs"], item["needs_source"]), (["edit", "test", "install", "commit", "push"], "plan"))
+        item = self.save(plan="Fix the bug, run cargo test, then install, commit and push.")
+        self.assertEqual((item["needs"], item["needs_source"]),
+                         (["edit", "test", "install", "commit", "push"], "keywords"))
+        self.assertEqual(self.save(plan="Make the header bold, then build the app.")["needs"], ["edit", "build"])
+        item = self.save(plan="Look around.\n```needs\nnone\n```")
+        self.assertEqual((item["needs"], item["access_gaps"]), ([], []))
+        self.assertEqual(self.save()["needs_source"], "keywords")          # the goal's words without a plan
+
+    def test_gaps_name_the_lowest_level_and_approval_needs_accept_gaps(self):
+        self.commands_profile()
+        item = self.save(plan=PLAN_104)
+        gaps = {gap["need"]: gap for gap in item["access_gaps"]}
+        self.assertEqual(list(gaps), ["install", "commit", "push"])
+        self.assertEqual((gaps["install"]["suggest_access"], gaps["install"]["members"]),
+                         ("project-commands", ["fixture"]))
+        self.assertFalse(gaps["commit"]["needs_allow_push"])
+        self.assertEqual((gaps["push"]["suggest_access"], gaps["push"]["needs_allow_push"]), ("project-commands", True))
+        self.assertCode("project_access_gaps", self.approve, item)
+        self.assertCode("invalid", lambda: self.review(item, accept_gaps="yes"))
+        approved = self.review(item, accept_gaps=True)
+        self.assertEqual(approved["accepted_gaps"], ["install", "commit", "push"])
+        self.assertTrue(approved["approval_valid"])
+        # A card says the gaps too, until approval.
+        self.assertEqual([g["need"] for g in self.card(item["id"])["access_gaps"]], ["install", "commit", "push"])
+        # A capability change that changes the gaps voids the approval.
+        self.profiles[0]["capabilities"]["project-edit"] = facts("edit", "shell", "git_commit")
+        self.assertCode("project_plan_not_approved", self.run_it, approved)
+        self.assertEqual(self.commands, [])
+
+    def test_an_approval_without_gaps_from_before_stays_valid(self):
+        """Approvals stored before task 104 (no accepted_gaps, no allow_push) keep their digest."""
+        item = self.approve(self.save(plan="The checked plan."))
+        self.assertEqual(item["accepted_gaps"], [])
+        self.center.detach()
+        store = self.root / "ai-project-center" / "projects.json"
+        data = json.loads(store.read_text())
+        old = data["projects"][0]
+        old.pop("accepted_gaps")
+        self.assertNotIn("allow_push", old)
+        # The digest as a core from before task 104 computed it: no allow_push, no access_gaps.
+        old["approved_digest"] = pc._digest({
+            "brief": old["brief"], "path": old["path"], "team": old["team"], "plan_team": old["team"],
+            "plan": old["plan"],
+            "execution": [{"argv": self.profiles[0]["run_argv"], **{f: self.profiles[0].get(f) for f in pc._LAUNCH_FACTS},
+                           "subagents": {}}],
+            "planning": [{"argv": self.profiles[0]["plan_argv"], **{f: self.profiles[0].get(f) for f in pc._LAUNCH_FACTS},
+                          "subagents": {}}]})
+        store.write_text(json.dumps(data))
+        self.center = self.make()
+        loaded = self.get(item["id"])
+        self.assertTrue(loaded["approval_valid"])
+        self.run_it(loaded)
+        wait_until(lambda: len(self.processes) == 1)
+        self.processes[0].finish("Done.")
+        self.idle()
+        self.assertFalse(self.get(item["id"])["partial"])
+
+    def test_edit_and_commands_launch_run_commands_and_push_only_with_allow_push(self):
+        self.commands_profile()
+        team = [{"agent": "fixture", "role": "lead", "access": "project-commands"}]
+        item = self.save(plan=PLAN_104, team=team)
+        self.assertEqual([g["need"] for g in item["access_gaps"]], ["push"])
+        self.assertCode("invalid", self.center.call, "save",
+                        {"id": item["id"], "revision": item["revision"], "allow_push": "on"})
+        item = self.center.call("save", {"id": item["id"], "revision": item["revision"], "allow_push": True})["project"]
+        self.assertTrue(item["allow_push"])
+        self.assertEqual(item["access_gaps"], [])
+        self.assertIs(self.center._projects[item["id"]]["allow_push"], True)
+        item = self.approve(item)
+        self.run_it(item)
+        wait_until(lambda: len(self.processes) == 1)
+        self.assertEqual(self.commands[0][:2], ["/fixture/agent", "push"])
+        prompt = self.commands[0][2]
+        self.assertIn("git push: yes", prompt)
+        self.assertIn("fenced block named not_done", prompt)
+        self.assertIn("Run each command as written", prompt)
+        self.processes[0].finish("Done.\n```not_done\n```")
+        self.idle()
+        item = self.get(item["id"])
+        self.assertEqual((item["status"], item["partial"], item["not_done"]), ("completed", False, []))
+        # Turning Allow push off is a change: the approval goes, and it is not stored as False.
+        item = self.center.call("save", {"id": item["id"], "revision": item["revision"], "allow_push": False})["project"]
+        self.assertFalse(item["allow_push"])
+        self.assertIsNone(item["approved_digest"])
+        self.assertEqual(item["accepted_gaps"], [])
+        self.assertNotIn("allow_push", self.center._projects[item["id"]])
+        self.assertNotIn("accepted_gaps", self.center._projects[item["id"]])
+        item = self.review(item, accept_gaps=True)
+        self.run_it(item)
+        wait_until(lambda: len(self.processes) == 2)
+        self.assertEqual(self.commands[1][:2], ["/fixture/agent", "commands"])
+        self.assertIn("git push: no", self.commands[1][2])
+        self.processes[1].finish("Done.")
+        self.idle()
+        item = self.get(item["id"])
+        self.assertEqual(item["status"], "completed")              # partial is a view, the status stays
+        self.assertTrue(item["partial"])
+        self.assertEqual(item["not_done"], [{"kind": "gap", "need": "push", "text": "push"}])
+        self.assertTrue(self.card(item["id"])["partial"])
+
+    def test_the_commands_env_is_checked_and_passed_like_plan_and_run(self):
+        self.commands_profile()
+        self.profiles[0]["run_commands_env"] = {"GOOSE_MODE": "auto"}
+        self.profiles[0]["run_env"] = {"GOOSE_MODE": "chat"}
+        team = [{"agent": "fixture", "role": "lead", "access": "project-commands"}]
+        item = self.review(self.save(plan="Edit it.\n```needs\nedit\n```", team=team))
+        self.run_it(item)
+        wait_until(lambda: len(self.processes) == 1)
+        self.assertEqual(self.environments[0]["GOOSE_MODE"], "auto")
+        self.processes[0].finish("Done.")
+        self.idle()
+        # An unaudited variable for run_commands is refused at the launch, nothing is started.
+        self.profiles[0]["run_commands_env"] = {"LD_PRELOAD": "/tmp/x.so"}
+        item = self.get(item["id"])
+        self.assertCode("project_plan_not_approved", self.run_it, item)   # the env is part of the approval
+        self.assertCode("project_profile_invalid", self.review, item)
+        self.assertEqual(len(self.commands), 1)
+
+    def test_a_run_ends_partial_with_the_steps_agents_left_undone_or_were_denied(self):
+        self.commands_profile(marker="no output produced")
+        item = self.save(plan="Edit it.\n```needs\nedit\n```",
+                         team=[{"agent": "fixture", "role": "lead"}, {"agent": "fixture", "role": "implementer"},
+                               {"agent": "fixture", "role": "reviewer"}])
+        item = self.approve(item)
+        self.assertEqual(item["accepted_gaps"], [])
+        self.run_it(item)
+        wait_until(lambda: len(self.processes) == 1)
+        self.assertIn("install outside the project: no", self.commands[0][2])
+        self.processes[0].finish("Edited.\n```not_done\n- cargo test: denied\n- install: not allowed\n```")
+        wait_until(lambda: len(self.processes) == 2)
+        self.processes[1].finish("agent: no output produced\n```not_done\nNone\n```")
+        wait_until(lambda: len(self.processes) == 3)
+        reviewer_prompt = self.commands[2][-1]
+        self.assertNotIn("fenced block named not_done", reviewer_prompt)   # reviewers report findings, not steps
+        self.assertNotIn("Your access in this session", reviewer_prompt)
+        self.processes[2].finish("no output produced\n```not_done\n- left by the reviewer\n```")
+        self.idle()
+        item = self.get(item["id"])
+        self.assertEqual(item["status"], "completed")
+        self.assertTrue(item["partial"])
+        self.assertEqual([e["kind"] for e in item["not_done"]], ["agent", "agent", "denied"])
+        self.assertEqual(item["not_done"][0], {"kind": "agent", "agent": "fixture", "text": "cargo test: denied"})
+        self.assertEqual(item["not_done"][2], {"kind": "denied", "agent": "fixture", "text": "no output produced"})
+        self.assertTrue(self.card(item["id"])["partial"])
+        # A new run starts with a clean list.
+        item = self.approve(item)
+        self.run_it(item)
+        wait_until(lambda: len(self.processes) == 4)
+        self.assertEqual(self.get(item["id"])["not_done"], [])
+        for count in (5, 6):
+            self.processes[-1].finish("Edited.")
+            wait_until(lambda count=count: len(self.processes) == count)
+        self.processes[-1].finish("CLEAN")
+        self.idle()
+        self.assertFalse(self.get(item["id"])["partial"])
+
+    def test_a_failed_or_paused_run_is_never_partial(self):
+        self.commands_profile()
+        item = self.review(self.save(plan=PLAN_104), accept_gaps=True)
+        self.run_it(item)
+        wait_until(lambda: len(self.processes) == 1)
+        self.processes[0].finish("```not_done\n- tests\n```", code=1)
+        self.idle()
+        item = self.get(item["id"])
+        self.assertEqual(item["status"], "failed")
+        self.assertFalse(item["partial"])
+        self.assertEqual(item["not_done"], [])              # a failure records no steps: its handoff says it
+
+    def test_approval_is_cleared_with_its_accepted_gaps(self):
+        """Review round 1: wherever the approval goes (save, unapprove, a new plan, team setup applied),
+        its accepted gaps go too."""
+        self.commands_profile()
+
+        def approved():
+            item = self.review(self.save(plan=PLAN_104), accept_gaps=True)
+            self.assertIn("accepted_gaps", self.center._projects[item["id"]])
+            return item
+        item = approved()
+        item = self.center.call("save", {"id": item["id"], "revision": item["revision"], "plan": PLAN_104 + "x"})["project"]
+        self.assertNotIn("accepted_gaps", self.center._projects[item["id"]])
+        item = approved()
+        self.center.call("review", {"id": item["id"], "revision": item["revision"], "approved": False})
+        self.assertNotIn("accepted_gaps", self.center._projects[item["id"]])
+        item = approved()
+        self.center.call("plan", {"id": item["id"], "revision": item["revision"]})
+        wait_until(lambda: len(self.processes) == 1)
+        self.assertNotIn("accepted_gaps", self.center._projects[item["id"]])
+        self.processes[0].finish("A new plan.\n```needs\nedit\n```")
+        self.idle()
+        item = approved()
+        self.center.call("setup", {"id": item["id"], "revision": item["revision"], "request": "A team please.",
+                                   "agent": "fixture"})
+        wait_until(lambda: len(self.processes) == 2)
+        self.processes[1].finish(json.dumps({"team": [{"agent": "fixture", "role": "lead",
+                                                       "access": "project-commands"}],
+                                             "rationale": "Commands are needed.", "warnings": []}))
+        self.idle()
+        item = self.get(item["id"])
+        self.assertIn("accepted_gaps", self.center._projects[item["id"]])   # a proposal alone changes nothing
+        item = self.center.call("setup_apply", {"id": item["id"], "revision": item["revision"]})["project"]
+        self.assertNotIn("accepted_gaps", self.center._projects[item["id"]])
+        self.assertEqual(item["team"][0]["access"], "project-commands")
+
+    def test_a_level_the_adapter_does_not_offer_is_refused(self):
+        item = self.save(plan="Edit it.\n```needs\nedit\n```",
+                         team=[{"agent": "fixture", "role": "lead", "access": "project-commands"}])
+        self.profiles[0]["access_modes"] = ["read-only", "project-edit"]
+        self.assertCode("project_access_unsupported", self.approve, item)
+        self.assertEqual(self.card(item["id"])["execution"][0]["issues"][0]["code"], "access_unsupported")
+        self.assertCode("invalid", self.center.call, "save",
+                        {"id": item["id"], "revision": item["revision"],
+                         "team": [{"agent": "fixture", "role": "lead", "access": "everything"}]})
+        # Offered, but without run_commands: no agent to launch.
+        self.profiles[0]["access_modes"] = ["read-only", "project-edit", "project-commands"]
+        self.assertCode("project_agent_unavailable", self.approve, item)
+
+    def test_the_planner_asks_for_needs_and_the_executor_names_its_access(self):
+        self.commands_profile()
+        item = {"title": "T", "brief": "Goal", "plan": "", "handoff": ""}
+        lead = self.center._prompt(item, {"role": "lead", "instructions": ""}, "planning")
+        self.assertIn("fenced block named needs", lead)
+        self.assertIn("only from: edit, build, test, install, commit, push, network", lead)
+        self.assertIn("You have no tool to leave plan mode", lead)
+        member = {"role": "lead", "access": "project-commands", "instructions": ""}
+        runner = self.center._prompt({**item, "plan": "Do it."}, member, "running", (), self.profiles[0])
+        self.assertIn("Your access in this session: edit files: yes; run commands: yes; network: no; "
+                      "install outside the project: yes; git commit: yes; git push: no.", runner)
+        pushing = self.center._prompt({**item, "plan": "Do it.", "allow_push": True}, member, "running", (),
+                                      self.profiles[0])
+        self.assertIn("git push: yes", pushing)
+        # A profile without capabilities: no access sentence, still the not_done block.
+        bare = self.center._prompt({**item, "plan": "Do it."}, member, "running", (), {})
+        self.assertNotIn("Your access in this session", bare)
+        self.assertIn("fenced block named not_done", bare)
+
+    def test_the_store_refuses_malformed_task_104_fields(self):
+        item = self.save(plan="Edit it.\n```needs\nedit\n```")
+        self.center.detach()
+        store = self.root / "ai-project-center" / "projects.json"
+        good = store.read_text()
+        for bad in ({"accepted_gaps": None}, {"accepted_gaps": ["push", "push"]}, {"accepted_gaps": ["fly"]},
+                    {"accepted_gaps": "push"}, {"allow_push": False}, {"allow_push": "true"},
+                    {"not_done": [{"kind": "gap", "text": "push"}]},
+                    {"not_done": [{"kind": "gap", "need": "fly", "text": "fly"}]},
+                    {"not_done": [{"kind": "agent", "agent": 7, "text": "x"}]},
+                    {"not_done": [{"kind": "denied", "agent": "a" * 101, "text": "x"}]},
+                    {"not_done": [{"kind": "agent", "agent": "a", "text": 3}]},
+                    {"not_done": [{"kind": "other", "agent": "a", "text": "x"}]},
+                    {"not_done": [{"kind": "agent", "agent": "a", "text": "x" * 4001}]},
+                    {"not_done": [{"kind": "agent", "agent": "a", "text": "x"}] * 41},
+                    {"not_done": "steps"}):
+            with self.subTest(bad=bad):
+                data = json.loads(good)
+                data["projects"][0].update(bad)
+                store.write_text(json.dumps(data))
+                self.assertCode("project_store_corrupt", self.make)
+        data = json.loads(good)
+        data["projects"][0].update({"accepted_gaps": ["push"], "allow_push": True,
+                                    "not_done": [{"kind": "gap", "need": "push", "text": "push"},
+                                                 {"kind": "denied", "agent": "fixture", "text": "marker"}]})
+        store.write_text(json.dumps(data))
+        self.center = self.make()
+        self.assertIsNone(self.center.summary().get("error"))
+        loaded = self.get(item["id"])
+        self.assertEqual((loaded["accepted_gaps"], loaded["allow_push"]), (["push"], True))
+
+    def test_default_profiles_carry_the_commands_capabilities_and_marker(self):
+        import agents as agents_mod
+        fake = [agents_mod.Agent(c, c, "", installed=True) for c in ("claude", "codex", "agy", "copilot", "goose")]
+        with mock.patch.object(agents_mod, "list_agents", return_value=fake), \
+                mock.patch("agent_details.details_for", side_effect=OSError), \
+                mock.patch("online_models.choices", return_value=[]):
+            found = {p["id"]: p for p in pc.default_agent_profiles()}
+        claude = found["claude"]
+        self.assertEqual(claude["access_modes"], ["read-only", "project-edit", "project-commands"])
+        self.assertIn("Bash(git commit:*)", claude["run_commands_argv"])
+        self.assertIn("Bash(git push:*)", claude["run_commands_push_argv"])
+        self.assertEqual(set(claude["capabilities"]),
+                         {"read-only", "project-edit", "project-commands", "project-commands-push"})
+        self.assertFalse(claude["capabilities"]["project-commands"]["network"])
+        self.assertIsNone(claude["denied_marker"])
+        self.assertTrue(found["codex"]["capabilities"]["project-commands-push"]["network"])
+        self.assertFalse(found["codex"]["capabilities"]["project-edit"]["git_commit"])
+        self.assertEqual(found["agy"]["denied_marker"], "jetski: no output produced")
+        self.assertEqual(found["copilot"]["access_modes"], ["read-only", "project-edit"])
+        self.assertIsNone(found["copilot"]["run_commands_argv"])
+        self.assertEqual(found["goose"]["access_modes"], ["read-only"])
+        self.assertEqual(found["goose"]["setup_env"], {"GOOSE_MODE": "chat"})      # setup only
+        self.assertNotIn("run_env", found["goose"])
 
 
 if __name__ == "__main__":
