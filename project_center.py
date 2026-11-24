@@ -1,5 +1,6 @@
-"""AI Project Center core (Maprisma tasks 082, 084, 085, 087, 092, 095, 096; Maprisma's
-features/ai_project_center.dart, project_inventory.dart). GTK-free: the Projects pages (WP6) use it.
+"""AI Project Center core (Maprisma tasks 082, 084, 085, 087, 092, 095, 096, 104; Maprisma's
+features/ai_project_center.dart, project_inventory.dart; task 104's pure parts are in project_access.py).
+GTK-free: the Projects pages (WP6) use it.
 
 In-process API
 ==============
@@ -35,17 +36,23 @@ Operations (params → result):
                 stage, activity, second, bucket, approval_valid, needs_reconciliation,
                 processes_stopping, messages_queued, issues[{code,target,node?,fix}],
                 planning[assignment], execution[assignment], active{phase,position,state}|None,
-                setup_agent{agent,name}|None, setup_error, last_event
+                setup_agent{agent,name}|None, setup_error, last_event,
+                allow_push, access_gaps, partial, not_done (task 104)
                 assignment: phase, position, agent, name, role, model?, provider?, runtime?, issues
   get           {id}                              → {project: view}
                 view: the stored record + approval_valid, processes_stopping, messages,
-                messages_queued
-  save          {id?, revision?, title, brief, path, team, plan_team?, setup_requests?, plan}
+                messages_queued, allow_push, needs, needs_source (plan|keywords|none),
+                access_gaps[{need, members, suggest_access, needs_allow_push}], accepted_gaps,
+                not_done[{kind: agent|denied|gap, text, agent?, need?}], partial (completed with
+                steps left to the user; status stays completed)
+  save          {id?, revision?, title, brief, path, team, plan_team?, setup_requests?, plan,
+                 allow_push?}
                                                   → {project}   (no id: create; on top of the board)
   move          {id, before|None}                 → {order: [ids]}   (no revision, no content change)
   set_importance {id, importance: high|medium|low} → {project}
   delete        {id, revision}                    → {deleted: True}  (the folder stays)
-  review        {id, revision, approved: bool}    → {project}
+  review        {id, revision, approved: bool, accept_gaps?: bool} → {project}
+                (approving with access gaps needs accept_gaps, else project_access_gaps)
   setup         {id, revision, request, agent?, target: plan|run} → {project}   (drafts a proposal)
   setup_apply   {id, revision}                    → {project}
   plan / run    {id, revision}                    → {project}
@@ -59,7 +66,7 @@ Error codes: project_center_busy, project_center_closed, project_store_unavailab
 project_store_corrupt, project_store_full, project_limit, project_unknown, project_changed,
 project_already_running, project_still_pausing, project_capacity, project_folder_unavailable,
 project_folder_changed, project_folder_busy, project_lead_required, project_brief_required,
-project_agent_unavailable, project_profile_invalid, project_access_unsupported,
+project_agent_unavailable, project_profile_invalid, project_access_unsupported, project_access_gaps,
 project_runtime_required, project_runtime_unavailable, project_provider_unsupported,
 project_runtime_model_unavailable, project_model_unsupported, project_subagents_unsupported,
 project_plan_not_approved, project_review_changes_first, project_not_paused, project_not_running,
@@ -92,6 +99,8 @@ from pathlib import Path
 from typing import Callable
 
 import project_supervisor
+from project_access import (PROJECT_ACCESS, PROJECT_NEEDS, access_gaps, capability_text, not_done_items,
+                            plan_needs, project_capabilities)
 from project_stage import BUCKETS, ProjectFacts, ProjectState, project_state
 from project_supervisor import ProjectError
 
@@ -108,6 +117,7 @@ MAX_QUEUED_BYTES = 16 * 1024          # waiting text of one project together
 # A prompt passed as one argv word must stay below Linux's MAX_ARG_STRLEN (128 KiB).
 MAX_PROMPT_BYTES = 120 * 1024
 MAX_RUNTIME_MODELS = 48
+MAX_NOT_DONE = 40                      # steps left to the user of one project (task 104)
 IMPORTANCES = ("high", "medium", "low")
 STARTUP_BUDGET = 10.0
 MAX_DISCOVERY_RESCANS = 3
@@ -257,9 +267,37 @@ def _option(value) -> bool:
     return isinstance(value, str) and value.startswith("--") and "\0" not in value
 
 
-def _argv_key(member: dict, phase: str) -> str:
-    return "plan_argv" if phase == "planning" or member.get("role") == "reviewer" \
-        or member.get("access") == "read-only" else "run_argv"
+def _argv_key(member: dict, phase: str, allow_push: bool = False, profile: dict | None = None) -> str:
+    """The argv a member launches with (task 104): the read-only one for planning, reviewers and Read
+    only; run_argv for Edit files; run_commands_argv for Edit + commands, its push variant with the
+    project's Allow push when the adapter has one."""
+    if phase == "setup":
+        return "setup_argv"
+    if phase == "planning" or member.get("role") == "reviewer" or member.get("access") == "read-only":
+        return "plan_argv"
+    if member.get("access") == "project-commands":
+        return "run_commands_push_argv" if allow_push and (profile or {}).get("run_commands_push_argv") is not None \
+            else "run_commands_argv"
+    return "run_argv"
+
+
+def _level(member: dict, allow_push: bool, profile: dict | None) -> str:
+    """The capability level of `member` (task 104): its access, the push variant when Allow push uses
+    it; read-only for reviewers."""
+    return {"plan_argv": "read-only", "run_commands_push_argv": "project-commands-push",
+            "run_commands_argv": "project-commands"}.get(_argv_key(member, "running", allow_push, profile),
+                                                         "project-edit")
+
+
+def _not_done_valid(value) -> bool:
+    """A stored list of steps left to the user (task 104): an agent's or a denied command's (with a
+    bounded agent id), or an accepted gap (with a known need)."""
+    return isinstance(value, list) and len(value) <= MAX_NOT_DONE and all(
+        isinstance(entry, dict) and entry.get("kind") in ("agent", "denied", "gap")
+        and isinstance(entry.get("text"), str) and len(entry["text"]) <= 4000
+        and (entry.get("need") in PROJECT_NEEDS if entry["kind"] == "gap"
+             else isinstance(entry.get("agent"), str) and len(entry["agent"]) <= 100)
+        for entry in value)
 
 
 def _mentions(names, text: str) -> bool:
@@ -455,7 +493,7 @@ class ProjectCenter:
             subagents = entry.get("subagents") if entry.get("subagents") is not None else []
             access = entry.get("access") if entry.get("access") is not None else \
                 ("read-only" if entry["role"] == "reviewer" else "project-edit")
-            if access not in ("read-only", "project-edit"):
+            if access not in PROJECT_ACCESS:
                 raise InvalidRequest("Invalid project access mode")
             if not isinstance(subagents, list) or len(subagents) > 8 or any(
                     not isinstance(i, str) or not _SUBAGENT_ID.fullmatch(i) for i in subagents):
@@ -559,6 +597,18 @@ class ProjectCenter:
                 _text(event.get("text"), 4000)
             if "messages" in item:
                 self._check_messages(item["messages"])
+            # Task 104 fields, absent in stores from before: Allow push only as True; accepted gaps
+            # only as a list of distinct known needs (null is no such list); steps left to the user.
+            if "allow_push" in item and item["allow_push"] is not True:
+                raise ValueError("allow_push")
+            accepted = item.get("accepted_gaps")
+            if "accepted_gaps" in item and (
+                    not isinstance(accepted, list) or len(accepted) > len(PROJECT_NEEDS)
+                    or any(not isinstance(need, str) or need not in PROJECT_NEEDS for need in accepted)
+                    or len(set(accepted)) != len(accepted)):
+                raise ValueError("accepted_gaps")
+            if item.get("not_done") is not None and not _not_done_valid(item["not_done"]):
+                raise ValueError("not_done")
             item.setdefault("importance", "medium")      # a store from before task 095: Medium
             if item["importance"] not in IMPORTANCES:
                 raise ValueError("importance")
@@ -746,7 +796,39 @@ class ProjectCenter:
         view["processes_stopping"] = item["id"] not in self._active and self._run_held(item["id"])
         view.setdefault("messages", [])
         view["messages_queued"] = len(self._queued(item))
+        view.update(self._access_view(item))
         return view
+
+    def _access_view(self, item: dict) -> dict:
+        """Task 104 facts of every view, from the display snapshot."""
+        display = self._display if self._ensure_display() else None
+        needs, source, gaps = self._access(item, display[2] if display else {})
+        not_done = item.get("not_done") or []
+        return {"allow_push": item.get("allow_push") is True, "needs": needs, "needs_source": source,
+                "access_gaps": gaps, "accepted_gaps": _copy(item.get("accepted_gaps") or []),
+                "not_done": _copy(not_done), "partial": item["status"] == "completed" and bool(not_done)}
+
+    @staticmethod
+    def _access(item: dict, profiles: dict) -> tuple:
+        """Task 104: (needs, their source, gaps): what the plan needs and which needs the executing
+        members (lead and implementers of the execution team) can't do at their access."""
+        needs, source = plan_needs(item.get("plan") or "", item.get("brief") or "")
+        allow_push = item.get("allow_push") is True
+        members = []
+        for member in item.get("team") or []:
+            if not isinstance(member, dict) or member.get("role") == "reviewer":
+                continue
+            profile = profiles.get(member.get("agent"))
+            capabilities = (profile or {}).get("capabilities")
+            modes = (profile or {}).get("access_modes")
+            members.append({
+                "agent": str(member.get("agent")),
+                "level": _level(member, allow_push, profile),
+                "modes": [str(mode) for mode in modes] if isinstance(modes, list) else [],
+                "capabilities": {str(level): {str(fact): value is True for fact, value in facts.items()}
+                                 for level, facts in capabilities.items() if isinstance(facts, dict)}
+                if isinstance(capabilities, dict) else {}})
+        return needs, source, access_gaps(needs, members, allow_push)
 
     @staticmethod
     def _queued(item: dict) -> list:
@@ -814,7 +896,12 @@ class ProjectCenter:
         profiles = profiles if profiles is not None else self._profiles()
         for member in ordered:
             profile = profiles.get(member["agent"])
-            key = _argv_key(member, phase)
+            # A level the adapter doesn't offer (Edit + commands without run_commands) is refused as
+            # such, not as a missing agent.
+            modes = (profile or {}).get("access_modes")
+            if isinstance(modes, list) and member.get("access") not in modes:
+                raise ProjectError("project_access_unsupported")
+            key = _argv_key(member, phase, item.get("allow_push") is True, profile)
             if profile is None or not _valid_argv(profile.get(key)):
                 raise ProjectError("project_agent_unavailable")
             if not _valid_template(profile, key):
@@ -877,7 +964,7 @@ class ProjectCenter:
             runtime = member.get("runtime")
             bindings = (runtimes.get(runtime) or {}).get("bindings") if runtime else None
             binding = bindings.get(member["agent"]) if isinstance(bindings, dict) else None
-            key = _argv_key(member, phase)
+            key = _argv_key(member, phase, item.get("allow_push") is True, profile)
             facts = {"argv": profile.get(key)}
             # Only when declared (sorted): approvals saved before env existed stay valid, and an empty
             # table is no change.
@@ -894,16 +981,25 @@ class ProjectCenter:
 
         team = item["team"]
         plan_team = item.get("plan_team") if isinstance(item.get("plan_team"), list) else team
-        return _digest({"brief": item["brief"], "path": item["path"], "team": team, "plan_team": plan_team,
-                        "plan": item["plan"], "execution": [launch(m, "running") for m in team],
-                        "planning": [launch(m, "planning") for m in plan_team]})
+        bound = {"brief": item["brief"], "path": item["path"], "team": team, "plan_team": plan_team,
+                 "plan": item["plan"], "execution": [launch(m, "running") for m in team],
+                 "planning": [launch(m, "planning") for m in plan_team]}
+        # Task 104, only when set: approvals from before stay valid.
+        if item.get("allow_push") is True:
+            bound["allow_push"] = True
+        if "accepted_gaps" in item:
+            bound["access_gaps"] = [gap["need"] for gap in self._access(item, profiles)[2]]
+        return _digest(bound)
 
     # --- create, change, review ----------------------------------------------------------------------
 
     def _save(self, params: dict) -> dict:
-        allowed = {"id", "revision", "title", "brief", "path", "team", "plan_team", "setup_requests", "plan"}
+        allowed = {"id", "revision", "title", "brief", "path", "team", "plan_team", "setup_requests", "plan",
+                   "allow_push"}
         if any(key not in allowed for key in params):
             raise InvalidRequest("Invalid project fields")
+        if "allow_push" in params and not isinstance(params["allow_push"], bool):
+            raise InvalidRequest("Invalid allow_push")
         creating = "id" not in params
         if creating and len(self._projects) >= MAX_PROJECTS:
             raise ProjectError("project_limit")
@@ -917,14 +1013,19 @@ class ProjectCenter:
         title_before = item["title"]
 
         def content():
-            return json.dumps([item["brief"], item["path"], item["team"], item.get("plan_team"), item["plan"]],
-                              sort_keys=True)
+            return json.dumps([item["brief"], item["path"], item["team"], item.get("plan_team"), item["plan"],
+                               item.get("allow_push") is True], sort_keys=True)
         before = content()
         given = lambda key: params[key] if params.get(key) is not None else item[key]   # noqa: E731
         item["title"] = _text(given("title"), 200, required=True)
         item["brief"] = _text(given("brief"), 16 * 1024)
         item["path"] = self._folder(given("path"))
         item["team"] = self._team(given("team"))
+        # Stored only when on (task 104): a project from before reads off.
+        if params.get("allow_push") is True:
+            item["allow_push"] = True
+        elif params.get("allow_push") is False:
+            item.pop("allow_push", None)
         if "plan_team" in params:
             if params["plan_team"] is None:
                 item.pop("plan_team", None)
@@ -948,6 +1049,7 @@ class ProjectCenter:
         if before != content():
             item.update(approved_version=None, approved_digest=None,
                         status="draft" if not plan else "awaiting_review", next_member=0, assignment_started=False)
+            item.pop("accepted_gaps", None)
             item.pop("setup_proposal", None)
             item.pop("setup_context", None)
         if item["title"] != title_before:
@@ -964,8 +1066,18 @@ class ProjectCenter:
         self._idle(item)
         if not isinstance(params.get("approved"), bool) or not item["plan"].strip():
             raise InvalidRequest("A plan and review decision are required")
+        if "accept_gaps" in params and not isinstance(params["accept_gaps"], bool):
+            raise InvalidRequest("Invalid accept_gaps")
         self._members(item, "running")
         approved = params["approved"]
+        # Task 104: steps the team can't do are approved only knowingly.
+        gaps = [gap["need"] for gap in self._access(item, self._profiles())[2]] if approved else []
+        if gaps and params.get("accept_gaps") is not True:
+            raise ProjectError("project_access_gaps")
+        if approved:
+            item["accepted_gaps"] = gaps
+        else:
+            item.pop("accepted_gaps", None)
         item["approved_version"] = item["plan_version"] if approved else None
         item["approved_digest"] = self._approval(item) if approved else None
         # Renewing approval of a stopped execution keeps its checkpoint (Continue resumes there).
@@ -1247,6 +1359,7 @@ class ProjectCenter:
         item.update(approved_version=None, approved_digest=None,
                     status="draft" if not item["plan"] else "awaiting_review", phase="planning", next_member=0,
                     assignment_started=False)
+        item.pop("accepted_gaps", None)
         self._event(item, "setup_applied", "The proposed team was applied. Review the plan before execution.")
         self._put(item)
         self._advance_lifecycle(item["id"])
@@ -1274,7 +1387,7 @@ class ProjectCenter:
             'Configure an AI project team using only the supplied metadata. '
             'You have no tools. Do not read files, run commands, contact other agents, change settings or implement work. '
             'Return only JSON {"team":[{"agent":"installed id","role":"lead|implementer|reviewer",'
-            '"access":"read-only|project-edit","instructions":"assignment",'
+            '"access":"read-only|project-edit|project-commands","instructions":"assignment",'
             '"model":"optional exact model id","provider":"optional configured provider alias",'
             '"runtime":"optional runtime key"}],"rationale":"why this team fits","warnings":["uncertainties"]}. '
             'You may also include "excluded_agents":["candidate id"] for agents explicitly excluded or unavailable; '
@@ -1332,6 +1445,8 @@ class ProjectCenter:
                 raise ProjectError("project_folder_busy")
         if not continuing:
             item["next_member"] = 0
+            if phase == "running":
+                item.pop("not_done", None)              # a fresh execution: no steps left yet
             item["assignment_started"] = False          # a fresh attempt: its first member has not started
             if item["needs_reconciliation"] is not True:
                 item["output"] = ""
@@ -1339,6 +1454,7 @@ class ProjectCenter:
         if phase == "planning":
             item["approved_version"] = None
             item["approved_digest"] = None
+            item.pop("accepted_gaps", None)
         item["phase"] = phase
         item["status"] = phase
         if phase == "running":
@@ -1359,8 +1475,11 @@ class ProjectCenter:
         threading.Thread(target=self._execute, args=(project_id, attempt, members, phase, lock),
                          name=f"project-{project_id[:8]}", daemon=True).start()
 
-    def _prompt(self, item: dict, member: dict, phase: str, messages: list = ()) -> str:
+    def _prompt(self, item: dict, member: dict, phase: str, messages: list = (), profile: dict | None = None) -> str:
         reviewing = member["role"] == "reviewer"
+        level = _level(member, item.get("allow_push") is True, profile)
+        capabilities = (profile or {}).get("capabilities")
+        facts = capabilities.get(level) if isinstance(capabilities, dict) else None
         parts = [f"Project: {item['title']}", f"Goal:\n{item['brief']}",
                  f"Your role: {member['role']}. {member.get('instructions', '')}"]
         if phase == "planning":
@@ -1369,8 +1488,12 @@ class ProjectCenter:
             if member["role"] == "lead":
                 # The lead's answer is saved as the plan the user reviews.
                 parts.append("Your answer is saved as the plan the user reviews: answer with the plan itself as "
-                             "plain text or Markdown. Do not write files, and do not mention your tools, plan mode "
-                             "or files you could not write.")
+                             "plain text or Markdown. You have no tool to leave plan mode or to save a plan file, "
+                             "and none is needed: your answer is the plan. Do not write files, and do not mention "
+                             "your tools, plan mode or files you could not write. "
+                             "End the plan with a fenced block named needs that lists what carrying it out requires, "
+                             f"one per line, only from: {', '.join(PROJECT_NEEDS)} (for example ```needs, then edit "
+                             "and test on their own lines, then ```).")
         else:
             parts.append("Review the existing changes against the approved plan, read-only. "
                          "Report findings with file and line, or state that no findings remain. Do not edit or publish."
@@ -1378,6 +1501,17 @@ class ProjectCenter:
                          "Carry out your assigned work from the approved plan in this project folder. "
                          "Respect project instructions and the configured permissions. "
                          "Do not publish or expand the approved scope. Report work completed, checks and unresolved items.")
+            if not reviewing:
+                # Task 104: what this session may do, and the steps left to the user.
+                if isinstance(facts, dict):
+                    parts.append("Your access in this session: "
+                                 f"{capability_text({str(k): v is True for k, v in facts.items()})}. "
+                                 "Do not try what is not allowed (a denied command can end your session); "
+                                 "list it as not done instead. "
+                                 "Run each command as written, without extra commands chained to it.")
+                parts.append("End your answer with a fenced block named not_done that lists, one per line, each "
+                             "step of your assigned work you did not do or could not do, with the reason; leave "
+                             "the block empty when everything is done.")
         if item["plan"]:
             parts.append(f"Plan:\n{item['plan']}")
         if item["handoff"]:
@@ -1428,14 +1562,14 @@ class ProjectCenter:
                         raise ProjectError("project_plan_not_approved")
                     if phase != "setup" and self._folder(item["path"]) != item["path"]:
                         raise ProjectError("project_folder_changed")
-                    key = "setup_argv" if phase == "setup" else _argv_key(member, phase)
+                    key = _argv_key(member, phase, item.get("allow_push") is True, profile)
                     if not _valid_argv(profile.get(key)):
                         raise ProjectError("project_agent_unavailable")
                     # Waiting user messages go to this assignment (task 096); delivered only once started.
                     messages = [] if phase == "setup" else self._queued(item)
                     active.pending = {m["id"] for m in messages}
                     prompt = self._setup_prompt(item, snapshot) if phase == "setup" \
-                        else self._prompt(item, member, phase, messages)
+                        else self._prompt(item, member, phase, messages, profile)
                     stdin = profile.get("stdin") is True
                     if not stdin and _utf8(prompt) > self.prompt_limit:
                         raise ProjectError("project_prompt_too_large")   # before any launch; messages stay queued
@@ -1554,6 +1688,17 @@ class ProjectCenter:
                             raise ProjectError("project_plan_too_large")
                         item["plan"] = output
                         item["plan_version"] += 1
+                    if phase == "running" and member["role"] != "reviewer":
+                        # Task 104: what this member says it left undone, and an agent that ended its turn
+                        # at a command it may not run (agy, exit 0).
+                        marker = profile.get("denied_marker")
+                        left = [{"kind": "agent", "agent": member["agent"], "text": text}
+                                for text in not_done_items(output)]
+                        if isinstance(marker, str) and marker and marker in output:
+                            # Bounded as the store reads it back (a store it refused would hold no project).
+                            left.append({"kind": "denied", "agent": member["agent"], "text": marker[:4000]})
+                        if left:
+                            item["not_done"] = (list(item.get("not_done") or []) + left)[:MAX_NOT_DONE]
                     item["next_member"] += 1
                     item["checkpoint_kind"] = "assignment"
                     if phase != "setup":
@@ -1574,6 +1719,11 @@ class ProjectCenter:
                     return
                 item["status"] = "paused" if active.cancelled else "awaiting_review" if phase == "planning" \
                     else "completed"
+                if not active.cancelled and phase == "running":
+                    # Steps the approval knowingly left to the user (task 104).
+                    gaps = [{"kind": "gap", "need": need, "text": need} for need in item.get("accepted_gaps") or []]
+                    if gaps:
+                        item["not_done"] = (list(item.get("not_done") or []) + gaps)[:MAX_NOT_DONE]
                 if phase == "running":
                     item["needs_reconciliation"] = active.cancelled
                 item["checkpoint_kind"] = "handoff" if active.cancelled else "assignment"
@@ -2053,7 +2203,8 @@ class ProjectCenter:
         project = self._project_issues(item)
         launch = [] if display is None else _unique(project + [
             issue for member in self._assignment_order(item, "execution")
-            for issue in self._member_issues(member, "execution", display[2], display[3])])
+            for issue in self._member_issues(member, "execution", display[2], display[3],
+                                             item.get("allow_push") is True)])
         if display is not None:
             self._readiness_memo[item["id"]] = (item["revision"], self._display_version, project, launch)
         return project, launch
@@ -2097,16 +2248,20 @@ class ProjectCenter:
             for key in ("model", "provider", "runtime"):
                 if isinstance(member.get(key), str) and member[key]:
                     entry[key] = member[key]
-            entry["issues"] = [] if display is None else self._member_issues(member, phase, display[2], display[3])
+            entry["issues"] = [] if display is None else self._member_issues(member, phase, display[2], display[3],
+                                                                             item.get("allow_push") is True)
             found.append(entry)
         return found
 
-    def _member_issues(self, member: dict, phase: str, profiles: dict, runtimes: dict) -> list:
+    def _member_issues(self, member: dict, phase: str, profiles: dict, runtimes: dict,
+                       allow_push: bool = False) -> list:
         """What the launch itself would refuse for `member` (the checks of _members/_member_options,
         against the display snapshot), as issue links."""
         profile = profiles.get(member.get("agent"))
-        key = "plan_argv" if phase == "planning" or member.get("role") == "reviewer" \
-            or member.get("access") == "read-only" else "run_argv"
+        # A level the adapter doesn't offer is access_unsupported (below), not a missing agent.
+        modes = (profile or {}).get("access_modes")
+        key = "plan_argv" if isinstance(modes, list) and member.get("access") not in modes \
+            else _argv_key(member, phase, allow_push, profile)
 
         def text(value):
             return value if isinstance(value, str) and value else None
@@ -2177,12 +2332,14 @@ class ProjectCenter:
         planning = self._assignments(item, "planning")
         execution = self._assignments(item, "execution")
         display = self._display if self._ensure_display() else None
+        access = self._access_view(item)
         return {**{key: item.get(key) for key in ("id", "title", "path", "status", "revision")},
                 "updated_at": item.get("updated_at"), "importance": item.get("importance"),
                 "phase": item.get("phase"), "run_id": item.get("run_id"), **state.to_json(),
                 "approval_valid": self._display_approval_valid(item),
                 "needs_reconciliation": item.get("needs_reconciliation") is True,
                 "processes_stopping": stopping, "messages_queued": len(self._queued(item)),
+                **{key: access[key] for key in ("allow_push", "access_gaps", "partial", "not_done")},
                 "issues": launch if state.activity == "approved_blocked" else self._readiness(item)[0],
                 "planning": planning, "execution": execution,
                 "active": self._active_assignment(item, stopping, len(planning), len(execution)),
@@ -2441,12 +2598,18 @@ def default_agent_profiles() -> list:
         # Fixed variables per phase (goose's GOOSE_MODE): validated with the adapter, checked again at
         # every dispatch; only a phase that declares some.
         env = facts.get("env") if isinstance(facts.get("env"), dict) else {}
-        phase_env = {f"{phase}_env": dict(env[phase]) for phase in ("plan", "run", "setup")
+        phase_env = {f"{phase}_env": dict(env[phase])
+                     for phase in ("plan", "run", "setup", "run_commands", "run_commands_push")
                      if isinstance(env.get(phase), dict) and env[phase]}
         found.append({"id": agent.command, "name": agent.name, "aliases": [label], "installed": agent.installed,
                       "plan_argv": facts.get("plan"), "run_argv": facts.get("run"), "setup_argv": facts.get("setup"),
+                      # Edit + commands (task 104); push only with the project's Allow push.
+                      "run_commands_argv": facts.get("run_commands"),
+                      "run_commands_push_argv": facts.get("run_commands_push"),
+                      "capabilities": project_capabilities(facts), "denied_marker": facts.get("denied_marker"),
                       **phase_env,
-                      "access_modes": facts.get("access_modes") or ["read-only", "project-edit"],
+                      "access_modes": facts.get("access_modes") or (
+                          ["read-only", "project-edit"] + (["project-commands"] if facts.get("run_commands") else [])),
                       "models": models, "local_providers": local, "permissions": facts.get("permissions"),
                       "native_subagents": facts.get("native_subagents") is True,
                       "model_option": facts.get("model_option"), "provider_option": facts.get("provider_option"),

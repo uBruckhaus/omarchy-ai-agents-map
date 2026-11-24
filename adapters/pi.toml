@@ -103,6 +103,7 @@ setup = ["pi", "--print", "--offline", "--no-session", "--no-tools", "--no-mcp",
 plan = ["pi", "--print", "--offline", "--no-session", "--no-mcp", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-approve", "--tools", "read,grep,find,ls", "{prompt}"]
 run = ["pi", "--print", "--offline", "--no-session", "--no-mcp", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-approve", "--tools", "read,grep,find,ls", "{prompt}"]
 permissions = "Reads and searches files only. Pi has no filesystem sandbox or approval prompts; edits and shell commands are unavailable in this managed profile. Offline disables startup checks, not inference requests."
+# Stays read-only (no filesystem sandbox, no approval prompts), so no Edit files or Edit + commands.
 access_modes = ["read-only"]
 model_option = "--model"
 provider_option = "--provider"

@@ -127,7 +127,35 @@ key = "trustedWorkspaces"
 title = "Trusted folders"
 
 [project]                              # AI Project Center (project_center.py): managed plan/run/setup commands, facts only
-plan = ["agy", "--mode", "plan", "--sandbox", "--settings", "{\"toolPermission\":\"request-review\",\"allowNonWorkspaceAccess\":false}", "-p", "{prompt}"]
-run = ["agy", "--mode", "accept-edits", "--sandbox", "--settings", "{\"toolPermission\":\"request-review\",\"allowNonWorkspaceAccess\":false}", "-p", "{prompt}"]
-permissions = "Planning and review use plan mode. Execution may edit project files in the sandbox; tool requests needing approval are denied in this managed session."
+plan = ["agy", "--mode", "plan", "--sandbox", "--settings", "{\"toolPermission\":\"request-review\",\"allowNonWorkspaceAccess\":false,\"permissions\":{\"allow\":[]}}", "-p", "{prompt}"]
+run = ["agy", "--mode", "accept-edits", "--sandbox", "--settings", "{\"toolPermission\":\"request-review\",\"allowNonWorkspaceAccess\":false,\"permissions\":{\"allow\":[]}}", "-p", "{prompt}"]
+permissions = "Planning and review use plan mode. Edit project files: edits project files in the sandbox; commands needing approval are denied. Edit + commands: also runs build, test, install and git commit commands from a fixed list in its sandbox, git push only with Allow push. agy stops at the first other command and leaves the rest undone."
+# Edit + commands (probed with agy 1.5.14 on 2026-11-24): permissions.allow command(...) rules
+# let these commands run without review in print mode (prefix rules: "command(cargo test)" allows
+# "cargo test --offline"; probed with "command(cargo)"). Only subcommands that build, test or check; no
+# make (a prefix rule would also allow "make build --eval=..." and so any command). Probed: cargo test, ./install.sh (writes ~/.local), git commit; git push only with
+# command(git push) (run_commands_push). Re-probed with agy 1.5.15 (2026-11-24): allowed commands
+# DO have network in --sandbox (command(curl), command(git ls-remote) both reached the net), so cargo build,
+# flutter pub get, npm ci or a git push over https can fetch; generic network commands (curl, wget, npm
+# install, pip install) are not in the allow list and stay denied, so network stays false. The user's
+# permissions.deny in ~/.gemini/antigravity-cli/settings.json still wins over this permissions.allow (a deny
+# rule for command(git push) still blocks the push). plan and run set "allow": [] because without it agy
+# inherits the user's permissions.allow (probed: "git log" ran in a run).
+# agy ends its turn at the first command it may not run and exits 0 without a report: denied_marker.
+run_commands = ["agy", "--mode", "accept-edits", "--sandbox", "--settings", "{\"toolPermission\":\"request-review\",\"allowNonWorkspaceAccess\":false,\"permissions\":{\"allow\":[\"command(cargo build)\",\"command(cargo test)\",\"command(cargo check)\",\"command(cargo clippy)\",\"command(cargo fmt)\",\"command(flutter build)\",\"command(flutter test)\",\"command(flutter analyze)\",\"command(flutter pub get)\",\"command(dart test)\",\"command(dart analyze)\",\"command(dart format)\",\"command(npm test)\",\"command(npm ci)\",\"command(npm run build)\",\"command(npm run test)\",\"command(pnpm test)\",\"command(pnpm run build)\",\"command(python3 -m unittest)\",\"command(python3 -m pytest)\",\"command(pytest)\",\"command(tools/test-changed)\",\"command(./install.sh)\",\"command(./build.sh)\",\"command(makepkg)\",\"command(pgrep)\",\"command(git status)\",\"command(git diff)\",\"command(git log)\",\"command(git show)\",\"command(git add)\",\"command(git commit)\",\"command(git rev-parse)\",\"command(git branch)\"]}}", "-p", "{prompt}"]
+run_commands_push = ["agy", "--mode", "accept-edits", "--sandbox", "--settings", "{\"toolPermission\":\"request-review\",\"allowNonWorkspaceAccess\":false,\"permissions\":{\"allow\":[\"command(cargo build)\",\"command(cargo test)\",\"command(cargo check)\",\"command(cargo clippy)\",\"command(cargo fmt)\",\"command(flutter build)\",\"command(flutter test)\",\"command(flutter analyze)\",\"command(flutter pub get)\",\"command(dart test)\",\"command(dart analyze)\",\"command(dart format)\",\"command(npm test)\",\"command(npm ci)\",\"command(npm run build)\",\"command(npm run test)\",\"command(pnpm test)\",\"command(pnpm run build)\",\"command(python3 -m unittest)\",\"command(python3 -m pytest)\",\"command(pytest)\",\"command(tools/test-changed)\",\"command(./install.sh)\",\"command(./build.sh)\",\"command(makepkg)\",\"command(pgrep)\",\"command(git status)\",\"command(git diff)\",\"command(git log)\",\"command(git show)\",\"command(git add)\",\"command(git commit)\",\"command(git rev-parse)\",\"command(git branch)\",\"command(git push)\"]}}", "-p", "{prompt}"]
+denied_marker = "jetski: no output produced"
 model_option = "--model"
+[project.capabilities.project-edit]
+edit = true
+[project.capabilities.project-commands]
+edit = true
+shell = true
+outside_project = true
+git_commit = true
+[project.capabilities.project-commands-push]
+edit = true
+shell = true
+outside_project = true
+git_commit = true
+git_push = true

@@ -70,6 +70,7 @@ setup = ["goose", "run", "--no-profile", "--no-session", "-q", "-t", "{prompt}"]
 plan = ["goose", "run", "--no-profile", "--with-builtin", "analyze", "--no-session", "-q", "-t", "{prompt}"]
 run = ["goose", "run", "--no-profile", "--with-builtin", "analyze", "--no-session", "-q", "-t", "{prompt}"]
 permissions = "Planning, review and execution only see code structure (files, signatures, call graphs) through goose's built-in analyze tool; it cannot read whole files, edit or run commands, but it is not fenced to the project folder. Goose has no filesystem sandbox; its other extensions and MCP servers are not loaded in this managed profile."
+# Stays read-only (the analyze tool only; goose has no filesystem sandbox).
 access_modes = ["read-only"]
 model_option = "--model"
 provider_option = "--provider"

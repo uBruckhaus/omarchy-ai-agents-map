@@ -87,11 +87,20 @@ SUBAGENTS = {"format": STR, "path": STR}
 # read-only), execution (run), the team-setup helper (setup, no tools); "{prompt}" once as a word of its
 # own, never "--" (options for model, provider and subagents follow the template), the access modes it
 # really has, the options that pick a model / provider / native subagents, and those subagents.
-PROJECT = {"setup": STRS, "plan": STRS, "run": STRS, "permissions": STR, "access_modes": STRS,
+# Edit + commands (Maprisma task 104): run_commands, and run_commands_push for a project with Allow push;
+# what each access level can do (capabilities.<level>), and the line its output has when it stopped at a
+# command it may not run (denied_marker).
+PROJECT = {"setup": STRS, "plan": STRS, "run": STRS, "run_commands": STRS, "run_commands_push": STRS,
+           "capabilities": TABLE, "denied_marker": STR, "permissions": STR, "access_modes": STRS,
            "model_option": STR, "provider_option": STR, "native_subagents": BOOL, "subagent_option": STR,
            "subagent_definitions": TABLE, "env": TABLE}
 PROJECT_SUBAGENT = {"description": STR, "prompt": STR, "tools": STRS}
-PROJECT_ACCESS = ("read-only", "project-edit")
+# The access levels a team member can have, and what an adapter declares it can do in each
+# ([project.capabilities.<level>]; project-commands-push is project-commands with the project's Allow push).
+PROJECT_PHASES = ("setup", "plan", "run", "run_commands", "run_commands_push")
+PROJECT_ACCESS = ("read-only", "project-edit", "project-commands")
+PROJECT_CAPABILITY_LEVELS = (*PROJECT_ACCESS, "project-commands-push")
+PROJECT_CAPABILITIES = ("edit", "shell", "network", "outside_project", "git_commit", "git_push")
 # Its plan's limits where no Omarchy collector is: asked of the agent's own program (argv: plain words,
 # starting with its command) over a protocol the app speaks (LIMIT_RPCS); no prompt, no credential read.
 # home_env: a variable that moves the agent's home, and its access files and store file with it (each
@@ -183,7 +192,7 @@ def _check(table: dict, allowed: dict, where: str, required: tuple = ()) -> None
             raise AdapterError(f"{where}: “{key}” is missing")
 
 
-# [project.env.<plan|run|setup>]: fixed variables for that phase's process only. Only audited names
+# [project.env.<plan|run|setup|run_commands|run_commands_push>]: fixed variables for that phase's process only. Only audited names
 # (project_center._valid_env checks the same list at every dispatch, with the values each may take): a
 # variable such as NODE_OPTIONS or PYTHONPATH would load code into the agent. GOOSE_MODE: goose's approval
 # mode, which has no flag (goose.toml).
@@ -203,8 +212,9 @@ def check_project_env(env, name: str) -> None:
     if not isinstance(env, dict):
         raise AdapterError(f"{name}: project.env must be a table")
     for phase, values in env.items():
-        if phase not in ("plan", "run", "setup") or not isinstance(values, dict):
-            raise AdapterError(f"{name}: project.env.{phase} must be a table (plan, run or setup)")
+        if phase not in PROJECT_PHASES or not isinstance(values, dict):
+            raise AdapterError(f"{name}: project.env.{phase} must be a table "
+                               "(plan, run, setup, run_commands or run_commands_push)")
         for key, value in values.items():
             if value not in PROJECT_ENV_NAMES.get(key, ()):
                 raise AdapterError(f"{name}: invalid project.env.{phase} variable “{key}”")
@@ -212,7 +222,7 @@ def check_project_env(env, name: str) -> None:
 
 def _check_project(project: dict, command: str, name: str) -> None:
     _check(project, PROJECT, f"{name}: project")
-    for key in ("setup", "plan", "run"):
+    for key in PROJECT_PHASES:
         argv = project.get(key)
         if argv is None:
             continue
@@ -224,8 +234,21 @@ def _check_project(project: dict, command: str, name: str) -> None:
     for key in ("model_option", "provider_option", "subagent_option"):
         if key in project and not project[key].startswith("--"):
             raise AdapterError(f"{name}: project.{key} must be an option starting with “--”")
-    if any(mode not in PROJECT_ACCESS for mode in project.get("access_modes", [])):
+    if "run_commands_push" in project and "run_commands" not in project:
+        raise AdapterError(f"{name}: project.run_commands_push needs project.run_commands")
+    modes = project.get("access_modes", [])
+    if any(mode not in PROJECT_ACCESS for mode in modes):
         raise AdapterError(f"{name}: project.access_modes may only hold {', '.join(PROJECT_ACCESS)}")
+    if "project-commands" in modes and "run_commands" not in project:
+        raise AdapterError(f"{name}: project.access_modes project-commands needs project.run_commands")
+    for level, facts in project.get("capabilities", {}).items():
+        if level not in PROJECT_CAPABILITY_LEVELS or not isinstance(facts, dict):
+            raise AdapterError(f"{name}: invalid project.capabilities.{level}")
+        for key, value in facts.items():
+            if key not in PROJECT_CAPABILITIES or not isinstance(value, bool):
+                raise AdapterError(f"{name}: invalid project.capabilities.{level}.{key}")
+    if "denied_marker" in project and not project["denied_marker"].strip():
+        raise AdapterError(f"{name}: empty project.denied_marker")
     for sub, definition in project.get("subagent_definitions", {}).items():
         if not re.fullmatch(r"[a-zA-Z0-9_-]{1,80}", sub) or not isinstance(definition, dict):
             raise AdapterError(f"{name}: project.subagent_definitions.{sub} must be a table with a plain name")

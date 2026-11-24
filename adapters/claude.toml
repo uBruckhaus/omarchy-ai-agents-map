@@ -158,10 +158,33 @@ task = ["--permission-mode", "manual", "--strict-mcp-config", "--settings",
 setup = ["claude", "-p", "--safe-mode", "--restricted", "--permission-mode", "plan", "--permission-prompts", "none", "--tools", "", "--strict-mcp-config", "--no-session-persistence", "--disable-slash-commands", "--settings", "{\"disableAllHooks\":true}", "{prompt}"]
 plan = ["claude", "-p", "--restricted", "--permission-mode", "plan", "--tools", "Read,Glob,Grep,Agent", "--strict-mcp-config", "--settings", "{\"disableAllHooks\":true}", "{prompt}"]
 run = ["claude", "-p", "--restricted", "--permission-mode", "acceptEdits", "--permission-prompts", "none", "--tools", "Read,Glob,Grep,Edit,Write,Agent", "--strict-mcp-config", "--settings", "{\"disableAllHooks\":true}", "{prompt}"]
-permissions = "Planning and review read project files. Execution may edit project files; shell commands and external MCP tools are disabled."
+# Edit + commands (probed with claude 2.1.330 and 2.1.331, 2026-11-24): Bash only for the commands below,
+# anything else is denied (prompts none), not asked. Bash itself is not sandboxed: the allow list fences
+# the agent's own commands, not the project code its builds and tests run. Only subcommands that build, test or
+# check (no "npm exec", "dart run", "cmake -E": they run any command line; make only as exact words, since
+# options after a target, like --eval, run any command). Options of allowed tools can still start other
+# programs (e.g. cargo --config ...runner): a fence against mistakes, not against an agent set on getting
+# around it. git push only with the project's Allow push (run_commands_push). "--allowedTools" takes several
+# words; the next option ends them.
+run_commands = ["claude", "-p", "--restricted", "--permission-mode", "acceptEdits", "--permission-prompts", "none", "--tools", "Read,Glob,Grep,Edit,Write,Agent,Bash", "--allowedTools", "Bash(cargo build:*)", "Bash(cargo test:*)", "Bash(cargo check:*)", "Bash(cargo clippy:*)", "Bash(cargo fmt:*)", "Bash(flutter build:*)", "Bash(flutter test:*)", "Bash(flutter analyze:*)", "Bash(flutter pub get:*)", "Bash(dart test:*)", "Bash(dart analyze:*)", "Bash(dart format:*)", "Bash(npm test:*)", "Bash(npm ci:*)", "Bash(npm run build:*)", "Bash(npm run test:*)", "Bash(pnpm test:*)", "Bash(pnpm run build:*)", "Bash(make)", "Bash(make build)", "Bash(make test)", "Bash(make install)", "Bash(python3 -m unittest:*)", "Bash(python3 -m pytest:*)", "Bash(pytest:*)", "Bash(tools/test-changed:*)", "Bash(./install.sh:*)", "Bash(./build.sh:*)", "Bash(makepkg:*)", "Bash(pgrep:*)", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(git add:*)", "Bash(git commit:*)", "Bash(git rev-parse:*)", "Bash(git branch:*)", "--strict-mcp-config", "--settings", "{\"disableAllHooks\":true}", "{prompt}"]
+run_commands_push = ["claude", "-p", "--restricted", "--permission-mode", "acceptEdits", "--permission-prompts", "none", "--tools", "Read,Glob,Grep,Edit,Write,Agent,Bash", "--allowedTools", "Bash(cargo build:*)", "Bash(cargo test:*)", "Bash(cargo check:*)", "Bash(cargo clippy:*)", "Bash(cargo fmt:*)", "Bash(flutter build:*)", "Bash(flutter test:*)", "Bash(flutter analyze:*)", "Bash(flutter pub get:*)", "Bash(dart test:*)", "Bash(dart analyze:*)", "Bash(dart format:*)", "Bash(npm test:*)", "Bash(npm ci:*)", "Bash(npm run build:*)", "Bash(npm run test:*)", "Bash(pnpm test:*)", "Bash(pnpm run build:*)", "Bash(make)", "Bash(make build)", "Bash(make test)", "Bash(make install)", "Bash(python3 -m unittest:*)", "Bash(python3 -m pytest:*)", "Bash(pytest:*)", "Bash(tools/test-changed:*)", "Bash(./install.sh:*)", "Bash(./build.sh:*)", "Bash(makepkg:*)", "Bash(pgrep:*)", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(git add:*)", "Bash(git commit:*)", "Bash(git rev-parse:*)", "Bash(git branch:*)", "Bash(git push:*)", "--strict-mcp-config", "--settings", "{\"disableAllHooks\":true}", "{prompt}"]
+permissions = "Planning and review read project files. Edit project files: edits project files; shell commands and external MCP tools are disabled. Edit + commands: also runs build, test, install and git commit commands from a fixed list (not sandboxed; anything else is denied), git push only with Allow push."
 model_option = "--model"
 native_subagents = true
 subagent_option = "--agents"
+[project.capabilities.project-edit]
+edit = true
+[project.capabilities.project-commands]   # curl, wget and other programs are denied: no network need
+edit = true
+shell = true
+outside_project = true
+git_commit = true
+[project.capabilities.project-commands-push]
+edit = true
+shell = true
+outside_project = true
+git_commit = true
+git_push = true
 [project.subagent_definitions.researcher]
 description = "Read-only project researcher"
 prompt = "Inspect the project and return evidence-based findings. Do not change files or run commands."

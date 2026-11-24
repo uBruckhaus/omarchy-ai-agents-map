@@ -153,5 +153,25 @@ home_env = "CODEX_HOME"                # where its [mcp] file is when this varia
 [project]                              # AI Project Center (project_center.py): managed plan/run/setup commands, facts only
 plan = ["codex", "--ask-for-approval", "never", "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--color", "never", "--disable", "apps", "--disable", "plugins", "--disable", "hooks", "{prompt}"]
 run = ["codex", "--ask-for-approval", "never", "exec", "--sandbox", "workspace-write", "--skip-git-repo-check", "--color", "never", "--disable", "apps", "--disable", "plugins", "--disable", "hooks", "-c", "sandbox_workspace_write.network_access=false", "{prompt}"]
-permissions = "Planning and review are read-only. Execution may edit and run commands in the project sandbox, with command network access disabled."
+# Edit + commands (probed with codex 0.167.0 and 0.171.0, 2026-11-24): workspace-write keeps .git
+# read-only, so Edit files can't commit; --add-dir .git opens it (resolved against the project folder; a
+# worktree's .git is a file, so it can't commit there). Codex has no command allow list, so no install
+# targets are opened (~/.local, ~/.config/autostart would let every command write there): install is left
+# to the user. Network stays off unless the project allows push: push can't be told apart from other network use.
+run_commands = ["codex", "--ask-for-approval", "never", "exec", "--sandbox", "workspace-write", "--skip-git-repo-check", "--color", "never", "--disable", "apps", "--disable", "plugins", "--disable", "hooks", "-c", "sandbox_workspace_write.network_access=false", "--add-dir", ".git", "{prompt}"]
+run_commands_push = ["codex", "--ask-for-approval", "never", "exec", "--sandbox", "workspace-write", "--skip-git-repo-check", "--color", "never", "--disable", "apps", "--disable", "plugins", "--disable", "hooks", "-c", "sandbox_workspace_write.network_access=true", "--add-dir", ".git", "{prompt}"]
+permissions = "Planning and review are read-only. Edit project files: edits and runs commands in the project sandbox, without network; it can't commit (.git stays read-only) or install. Edit + commands: also commits, still without network; it can't install outside the project. With Allow push the sandbox has network for every command, not only git push."
 model_option = "--model"
+[project.capabilities.project-edit]
+edit = true
+shell = true
+[project.capabilities.project-commands]
+edit = true
+shell = true
+git_commit = true
+[project.capabilities.project-commands-push]
+edit = true
+shell = true
+network = true
+git_commit = true
+git_push = true

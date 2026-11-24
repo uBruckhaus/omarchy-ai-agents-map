@@ -80,6 +80,11 @@ plan = ["copilot", "-p", "{prompt}", "-s", "--no-ask-user", "--no-auto-update", 
 run = ["copilot", "-p", "{prompt}", "-s", "--no-ask-user", "--no-auto-update", "--disable-builtin-mcps", "--disallow-temp-dir", "--available-tools=view,glob,grep,rg,edit,create,apply_patch", "--allow-tool=write", "--deny-tool=shell", "--deny-tool=url", "--deny-tool=memory"]
 permissions = "Planning and review only read and search project files. Execution may also create and edit files inside the project folder; shell commands, web access, memory and the built-in MCP servers are disabled. Only these file tools reach the model, but your own hooks, plugins and MCP servers still start (and repository hooks in a folder you already trusted in Copilot)."
 model_option = "--model"
+# Declared from the argv (edit tools, --deny-tool=shell); not verified live. The Omarchy probe
+# (1.0.114, 2026-11-24) stopped at "Error: Access denied by policy settings" (the account's policy), so no
+# run could prove shell allow rules: Edit project files only, no run_commands / run_commands_push.
+[project.capabilities.project-edit]
+edit = true
 
 # The user's own environment could switch these on: COPILOT_ALLOW_ALL=true trusts the folder (its
 # hooks, MCP servers, skills, plugins), the PROMPT_MODE_* opt-ins load the folder's extensions, repo
