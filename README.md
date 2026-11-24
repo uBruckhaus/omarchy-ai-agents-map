@@ -67,9 +67,17 @@ The same features as Maprisma 2.x, inside the plugin:
   OpenCode, Hermes, OpenClaw) have none. The shield beside a team member's agent shows what it can and
   cannot do in this project. Each team member also has an access level: **Read-only**, **Edit project
   files**, or (for Claude Code, Codex and Antigravity) **Edit + commands**, with a separate **Allow
-  push** switch (off by default). Before a plan is approved or planning is skipped, AI Agents Map checks
-  which planned steps the chosen access cannot do and offers to raise access or leave those steps to you;
-  a run that leaves steps undone ends as **Done, steps left to you** with the list.
+  push** switch (off by default; new members never start on **Edit + commands**). In **Edit + commands**,
+  Claude Code runs its fixed list of build, test, install (`./install.sh`, `./build.sh`, `makepkg`) and
+  `git commit` commands **without a filesystem sandbox** (the allow list fences the agent's own commands,
+  not the project code its builds and tests run; `git push` only with **Allow push**); Codex runs inside
+  its workspace sandbox with `.git` opened for commits (no install outside the project) and turning on
+  **Allow push** enables **network access for every sandbox command**, not only `git push`; Antigravity
+  runs its fixed command list in its sandbox (allowed commands have network access, user deny rules in
+  `~/.gemini/antigravity-cli/settings.json` still win, and any other command ends its turn). Before a
+  plan is approved or planning is skipped, AI Agents Map checks which planned steps the chosen access
+  cannot do and offers to raise access or leave those steps to you; a run that leaves steps undone ends
+  as **Done, steps left to you** with the list.
 - **Links between the tabs**: an agent's box on the map shows **Used in N projects** (opens the board
   with that agent's chip); **Show on map** in a project's Team graph and **Fix on map** on a problem
   switch to the AI Map, scroll to the box and mark it for a few seconds.
