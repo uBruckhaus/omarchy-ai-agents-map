@@ -1,400 +1,400 @@
 {
- "command": "claude",
- "name": "Claude Code",
- "label": "Claude",
- "full_name": "Claude Code",
- "icon": "󰛄",
- "icon_font": "",
- "spec": "",
- "package": "",
- "package_only": false,
- "own_install_counts": true,
- "install_marks": [],
- "download": null,
- "short_version": false,
- "offered": true,
- "login_status": null,
- "fixed_provider": "",
- "self_served": false,
- "short_model_flag": false,
- "self_update": [
-  "claude",
-  "update"
- ],
- "install": [
-  {
-   "kind": "mise",
-   "spec": "claude",
-   "tool": "",
-   "argv": [],
-   "sudo": false,
-   "packages": [],
-   "url": "",
-   "note": "",
-   "update": []
-  }
- ],
- "data": [
-  "~/.claude",
-  "~/.claude.json"
- ],
- "homepage": "https://github.com/anthropics/claude-code",
- "ask": [
-  "claude",
-  "-p",
-  "--tools",
-  "",
-  "--strict-mcp-config",
-  "--no-session-persistence",
-  "{prompt}"
- ],
- "games": [
-  "chess"
- ],
- "effort": [
-  [
-   "quick",
-   [
-    "--effort",
-    "low"
-   ]
+  "access": {
+    "env": [
+      "ANTHROPIC_API_KEY"
+    ],
+    "extra_file": "~/.claude.json",
+    "extra_key": "oauthAccount.hasExtraUsageEnabled",
+    "extra_url": "https://claude.ai/settings/usage",
+    "files": [
+      ".claude/.credentials.json"
+    ],
+    "how": "A Claude Pro or Max subscription (claude.ai), or an API key from console.anthropic.com",
+    "key": null,
+    "local_ok": false,
+    "login": "claude auth login",
+    "logins": [
+      {
+        "argv": [
+          "claude",
+          "auth",
+          "login",
+          "--claudeai"
+        ],
+        "label": "Claude subscription",
+        "note": ""
+      },
+      {
+        "argv": [
+          "claude",
+          "auth",
+          "login",
+          "--console"
+        ],
+        "label": "API billing (Anthropic Console)",
+        "note": ""
+      }
+    ],
+    "per_token": false
+  },
+  "activity": [
+    "~/.claude/history.jsonl",
+    "~/.claude/projects"
   ],
-  [
-   "normal",
-   [
-    "--effort",
-    "medium"
-   ]
-  ],
-  [
-   "deep",
-   [
-    "--effort",
-    "high"
-   ]
-  ],
-  [
-   "max",
-   [
-    "--effort",
-    "max"
-   ]
-  ]
- ],
- "configure": [
-  {
-   "label": "Check its setup",
-   "argv": [
+  "activity_dir": "~/.claude/projects",
+  "activity_reader": "",
+  "advise": [],
+  "ask": [
     "claude",
-    "doctor"
-   ],
-   "note": "",
-   "window": false
-  }
- ],
- "home": "~/.claude",
- "activity": [
-  "~/.claude/history.jsonl",
-  "~/.claude/projects"
- ],
- "program_dir": "",
- "web_search": true,
- "chat_app": false,
- "herdr": "",
- "logout": [
-  "claude",
-  "auth",
-  "logout"
- ],
- "start": [],
- "research": [
-  "claude",
-  "-p",
-  "--tools",
-  "WebSearch",
-  "WebFetch",
-  "--allowedTools",
-  "WebSearch",
-  "WebFetch",
-  "--strict-mcp-config",
-  "--no-session-persistence",
-  "--disable-slash-commands",
-  "--output-format",
-  "json"
- ],
- "research_output": "claude-json",
- "task": [
-  "claude",
-  "{prompt}"
- ],
- "rewrite": [
-  "claude",
-  "-p",
-  "--tools",
-  "",
-  "--strict-mcp-config",
-  "--no-session-persistence",
-  "--disable-slash-commands",
-  "--output-format",
-  "text"
- ],
- "advise": [],
- "closed": [
-  [
-   "--strict-mcp-config",
-   "--settings",
-   "{\"disableAllHooks\": true}"
-  ],
-  [
-   "--permission-mode",
-   "manual",
-   "--strict-mcp-config",
-   "--settings",
-   "{\"disableAllHooks\": true, \"permissions\": {\"ask\": [\"Bash\", \"Edit\", \"Write\", \"MultiEdit\", \"NotebookEdit\"]}}"
-  ],
-  [],
-  ""
- ],
- "tools_setting": [],
- "sandbox_setting": "sandbox.enabled",
- "replies": [
-  "~/.claude/projects",
-  1,
-  "claude-jsonl",
-  [
-   [
+    "-p",
+    "--tools",
     "",
-    200000
-   ],
-   [
-    "claude-opus-5",
-    1000000
-   ]
-  ]
- ],
- "subagents": [
-  "claude-projects",
-  "~/.claude/projects"
- ],
- "session_files": "claude-files",
- "activity_reader": "",
- "activity_dir": "~/.claude/projects",
- "extra_dir_option": "--add-dir",
- "asks_setting": "permissions.defaultMode",
- "project": "{\"capabilities\": {\"project-commands\": {\"edit\": true, \"git_commit\": true, \"outside_project\": true, \"shell\": true}, \"project-commands-push\": {\"edit\": true, \"git_commit\": true, \"git_push\": true, \"outside_project\": true, \"shell\": true}, \"project-edit\": {\"edit\": true}}, \"model_option\": \"--model\", \"native_subagents\": true, \"permissions\": \"Planning and review read project files. Edit project files: edits project files; shell commands and external MCP tools are disabled. Edit + commands: also runs build, test, install and git commit commands from a fixed list (not sandboxed; anything else is denied), git push only with Allow push.\", \"plan\": [\"claude\", \"-p\", \"--restricted\", \"--permission-mode\", \"plan\", \"--tools\", \"Read,Glob,Grep,Agent\", \"--strict-mcp-config\", \"--settings\", \"{\\\"disableAllHooks\\\":true}\", \"{prompt}\"], \"run\": [\"claude\", \"-p\", \"--restricted\", \"--permission-mode\", \"acceptEdits\", \"--permission-prompts\", \"none\", \"--tools\", \"Read,Glob,Grep,Edit,Write,Agent\", \"--strict-mcp-config\", \"--settings\", \"{\\\"disableAllHooks\\\":true}\", \"{prompt}\"], \"run_commands\": [\"claude\", \"-p\", \"--restricted\", \"--permission-mode\", \"acceptEdits\", \"--permission-prompts\", \"none\", \"--tools\", \"Read,Glob,Grep,Edit,Write,Agent,Bash\", \"--allowedTools\", \"Bash(cargo build:*)\", \"Bash(cargo test:*)\", \"Bash(cargo check:*)\", \"Bash(cargo clippy:*)\", \"Bash(cargo fmt:*)\", \"Bash(flutter build:*)\", \"Bash(flutter test:*)\", \"Bash(flutter analyze:*)\", \"Bash(flutter pub get:*)\", \"Bash(dart test:*)\", \"Bash(dart analyze:*)\", \"Bash(dart format:*)\", \"Bash(npm test:*)\", \"Bash(npm ci:*)\", \"Bash(npm run build:*)\", \"Bash(npm run test:*)\", \"Bash(pnpm test:*)\", \"Bash(pnpm run build:*)\", \"Bash(make)\", \"Bash(make build)\", \"Bash(make test)\", \"Bash(make install)\", \"Bash(python3 -m unittest:*)\", \"Bash(python3 -m pytest:*)\", \"Bash(pytest:*)\", \"Bash(tools/test-changed:*)\", \"Bash(./install.sh:*)\", \"Bash(./build.sh:*)\", \"Bash(makepkg:*)\", \"Bash(pgrep:*)\", \"Bash(git status:*)\", \"Bash(git diff:*)\", \"Bash(git log:*)\", \"Bash(git show:*)\", \"Bash(git add:*)\", \"Bash(git commit:*)\", \"Bash(git rev-parse:*)\", \"Bash(git branch:*)\", \"--strict-mcp-config\", \"--settings\", \"{\\\"disableAllHooks\\\":true}\", \"{prompt}\"], \"run_commands_push\": [\"claude\", \"-p\", \"--restricted\", \"--permission-mode\", \"acceptEdits\", \"--permission-prompts\", \"none\", \"--tools\", \"Read,Glob,Grep,Edit,Write,Agent,Bash\", \"--allowedTools\", \"Bash(cargo build:*)\", \"Bash(cargo test:*)\", \"Bash(cargo check:*)\", \"Bash(cargo clippy:*)\", \"Bash(cargo fmt:*)\", \"Bash(flutter build:*)\", \"Bash(flutter test:*)\", \"Bash(flutter analyze:*)\", \"Bash(flutter pub get:*)\", \"Bash(dart test:*)\", \"Bash(dart analyze:*)\", \"Bash(dart format:*)\", \"Bash(npm test:*)\", \"Bash(npm ci:*)\", \"Bash(npm run build:*)\", \"Bash(npm run test:*)\", \"Bash(pnpm test:*)\", \"Bash(pnpm run build:*)\", \"Bash(make)\", \"Bash(make build)\", \"Bash(make test)\", \"Bash(make install)\", \"Bash(python3 -m unittest:*)\", \"Bash(python3 -m pytest:*)\", \"Bash(pytest:*)\", \"Bash(tools/test-changed:*)\", \"Bash(./install.sh:*)\", \"Bash(./build.sh:*)\", \"Bash(makepkg:*)\", \"Bash(pgrep:*)\", \"Bash(git status:*)\", \"Bash(git diff:*)\", \"Bash(git log:*)\", \"Bash(git show:*)\", \"Bash(git add:*)\", \"Bash(git commit:*)\", \"Bash(git rev-parse:*)\", \"Bash(git branch:*)\", \"Bash(git push:*)\", \"--strict-mcp-config\", \"--settings\", \"{\\\"disableAllHooks\\\":true}\", \"{prompt}\"], \"setup\": [\"claude\", \"-p\", \"--safe-mode\", \"--restricted\", \"--permission-mode\", \"plan\", \"--permission-prompts\", \"none\", \"--tools\", \"\", \"--strict-mcp-config\", \"--no-session-persistence\", \"--disable-slash-commands\", \"--settings\", \"{\\\"disableAllHooks\\\":true}\", \"{prompt}\"], \"subagent_definitions\": {\"researcher\": {\"description\": \"Read-only project researcher\", \"prompt\": \"Inspect the project and return evidence-based findings. Do not change files or run commands.\", \"tools\": [\"Read\", \"Glob\", \"Grep\"]}, \"reviewer\": {\"description\": \"Read-only project reviewer\", \"prompt\": \"Inspect the project and return actionable correctness findings with file evidence, or CLEAN. Do not change files or run commands.\", \"tools\": [\"Read\", \"Glob\", \"Grep\"]}}, \"subagent_option\": \"--agents\"}",
- "access": {
-  "how": "A Claude Pro or Max subscription (claude.ai), or an API key from console.anthropic.com",
-  "login": "claude auth login",
-  "files": [
-   ".claude/.credentials.json"
+    "--strict-mcp-config",
+    "--no-session-persistence",
+    "{prompt}"
   ],
-  "env": [
-   "ANTHROPIC_API_KEY"
-  ],
-  "local_ok": false,
-  "per_token": false,
-  "logins": [
-   {
-    "label": "Claude subscription",
-    "argv": [
-     "claude",
-     "auth",
-     "login",
-     "--claudeai"
-    ],
-    "note": ""
-   },
-   {
-    "label": "API billing (Anthropic Console)",
-    "argv": [
-     "claude",
-     "auth",
-     "login",
-     "--console"
-    ],
-    "note": ""
-   }
-  ],
-  "key": null,
-  "extra_file": "~/.claude.json",
-  "extra_key": "oauthAccount.hasExtraUsageEnabled",
-  "extra_url": "https://claude.ai/settings/usage"
- },
- "security": {
-  "settings": [
-   {
-    "key": "permissions.defaultMode",
-    "title": "Permission mode",
-    "explain": "How much Claude Code may do without asking. It can be changed for one session with Shift+Tab.",
-    "choices": [
-     {
-      "value": "default",
-      "label": "Ask first",
-      "explain": "Asks before it edits a file or runs a command.",
-      "risk": 1
-     },
-     {
-      "value": "plan",
-      "label": "Plan only",
-      "explain": "Reads and plans; changes nothing until you agree.",
-      "risk": 0
-     },
-     {
-      "value": "dontAsk",
-      "label": "Only what is allowed",
-      "explain": "Never asks: does only what your allow rules permit and refuses the rest.",
-      "risk": 0
-     },
-     {
-      "value": "acceptEdits",
-      "label": "Edit without asking",
-      "explain": "Edits files in the project on its own, asks before commands.",
-      "risk": 2
-     },
-     {
-      "value": "auto",
-      "label": "Automatic review",
-      "explain": "A classifier lets safe actions through and asks about the rest.",
-      "risk": 2
-     },
-     {
-      "value": "bypassPermissions",
-      "label": "Bypass all checks",
-      "explain": "Does everything without asking. Only for a throwaway machine.",
-      "risk": 3
-     }
-    ],
-    "current": "acceptEdits",
-    "default": "default",
-    "path": "~/.claude/settings.json",
-    "fmt": "json",
-    "terms": [
-     "approval",
-     "classifier",
-     "bypass"
-    ],
-    "editable": true,
-    "recommended": "default",
-    "warn": []
-   },
-   {
-    "key": "sandbox.enabled",
-    "title": "Sandbox for commands",
-    "explain": "Runs shell commands in a sandbox (bubblewrap on Linux): writes only in the project, network only to allowed sites.",
-    "choices": [
-     {
-      "value": true,
-      "label": "On",
-      "explain": "Commands are fenced in.",
-      "risk": 0
-     },
-     {
-      "value": false,
-      "label": "Off",
-      "explain": "Commands run with all your rights.",
-      "risk": 1
-     }
-    ],
-    "current": true,
-    "default": false,
-    "path": "~/.claude/settings.json",
-    "fmt": "json",
-    "terms": [
-     "sandbox",
-     "network"
-    ],
-    "editable": true,
-    "recommended": true,
-    "warn": []
-   },
-   {
-    "key": "permissions.disableBypassPermissionsMode",
-    "title": "Block bypass mode",
-    "explain": "Makes it impossible to start Claude Code with --dangerously-skip-permissions, even by mistake.",
-    "choices": [
-     {
-      "value": "disable",
-      "label": "Blocked",
-      "explain": "Bypass mode cannot be switched on.",
-      "risk": 0
-     },
-     {
-      "value": null,
-      "label": "Allowed",
-      "explain": "Bypass mode can be switched on with a flag.",
-      "risk": 1
-     }
-    ],
-    "current": null,
-    "default": null,
-    "path": "~/.claude/settings.json",
-    "fmt": "json",
-    "terms": [
-     "bypass"
-    ],
-    "editable": true,
-    "recommended": "disable",
-    "warn": [
-     "Bypass mode can be switched on",
-     "Starting it with --dangerously-skip-permissions switches every check off.",
-     "Block bypass mode."
-    ]
-   }
-  ],
-  "rules": [
-   [
-    "Allowed without asking",
-    "permissions.allow",
+  "asks_setting": "permissions.defaultMode",
+  "chat_app": false,
+  "closed": [
     [
-     "Bash(git status)"
-    ]
-   ],
-   [
-    "Never allowed",
-    "permissions.deny",
+      "--strict-mcp-config",
+      "--settings",
+      "{\"disableAllHooks\": true}"
+    ],
     [
-     "Read(.env)"
+      "--permission-mode",
+      "manual",
+      "--strict-mcp-config",
+      "--settings",
+      "{\"disableAllHooks\": true, \"permissions\": {\"ask\": [\"Bash\", \"Edit\", \"Write\", \"MultiEdit\", \"NotebookEdit\"]}}"
+    ],
+    [],
+    ""
+  ],
+  "command": "claude",
+  "configure": [
+    {
+      "argv": [
+        "claude",
+        "doctor"
+      ],
+      "label": "Check its setup",
+      "note": "",
+      "window": false
+    }
+  ],
+  "data": [
+    "~/.claude",
+    "~/.claude.json"
+  ],
+  "details": true,
+  "detect": false,
+  "download": null,
+  "effort": [
+    [
+      "quick",
+      [
+        "--effort",
+        "low"
+      ]
+    ],
+    [
+      "normal",
+      [
+        "--effort",
+        "medium"
+      ]
+    ],
+    [
+      "deep",
+      [
+        "--effort",
+        "high"
+      ]
+    ],
+    [
+      "max",
+      [
+        "--effort",
+        "max"
+      ]
     ]
-   ]
   ],
-  "files": [
-   "~/.claude/settings.json"
+  "extra_dir_option": "--add-dir",
+  "fixed_provider": "",
+  "full_name": "Claude Code",
+  "games": [
+    "chess"
   ],
-  "note": ""
- },
- "sessions": {
-  "collect": "claude_sessions.collect_by_id",
-  "note": "Numbers from Claude Code's session files (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs."
- },
- "usage": null,
- "latest": "agent_updates.claude_channel_latest",
- "installer": null,
- "detect": false,
- "limits": false,
- "details": true,
- "models": [
-  "online_models.claude_choices",
-  "online_models.claude_plan"
- ],
- "local_llm": null,
- "skills": {
-  "dirs": [
-   "~/.claude/skills"
+  "herdr": "",
+  "home": "~/.claude",
+  "homepage": "https://github.com/anthropics/claude-code",
+  "icon": "\udb81\udec4",
+  "icon_font": "",
+  "install": [
+    {
+      "argv": [],
+      "kind": "mise",
+      "note": "",
+      "packages": [],
+      "spec": "claude",
+      "sudo": false,
+      "tool": "",
+      "update": [],
+      "url": ""
+    }
   ],
-  "own": "~/.claude/skills",
-  "settings_list": false,
-  "settings_file": "",
-  "listed": null,
-  "write": null
- },
- "mcp": {
-  "path": "~/.claude.json",
-  "format": "claude",
-  "key": "mcpServers",
-  "shape": "claude",
-  "in_app": "",
-  "write": null,
-  "read": null,
-  "native": null
- }
+  "install_marks": [],
+  "installer": null,
+  "label": "Claude",
+  "latest": "agent_updates.claude_channel_latest",
+  "limits": false,
+  "local_llm": null,
+  "login_status": null,
+  "logout": [
+    "claude",
+    "auth",
+    "logout"
+  ],
+  "mcp": {
+    "format": "claude",
+    "in_app": "",
+    "key": "mcpServers",
+    "native": null,
+    "path": "~/.claude.json",
+    "read": null,
+    "shape": "claude",
+    "write": null
+  },
+  "models": [
+    "online_models.claude_choices",
+    "online_models.claude_plan"
+  ],
+  "name": "Claude Code",
+  "offered": true,
+  "own_install_counts": true,
+  "package": "",
+  "package_only": false,
+  "program_dir": "",
+  "project": "{\"capabilities\": {\"project-commands\": {\"edit\": true, \"git_commit\": true, \"outside_project\": true, \"shell\": true}, \"project-commands-push\": {\"edit\": true, \"git_commit\": true, \"git_push\": true, \"outside_project\": true, \"shell\": true}, \"project-edit\": {\"edit\": true}}, \"model_option\": \"--model\", \"native_subagents\": true, \"permissions\": \"Planning and review read project files. Edit project files: edits project files; shell commands and external MCP tools are disabled. Edit + commands: also runs build, test, install and git commit commands from a fixed list (not sandboxed; anything else is denied), git push only with Allow push.\", \"plan\": [\"claude\", \"-p\", \"--restricted\", \"--permission-mode\", \"plan\", \"--tools\", \"Read,Glob,Grep,Agent\", \"--strict-mcp-config\", \"--settings\", \"{\\\"disableAllHooks\\\":true}\", \"{prompt}\"], \"run\": [\"claude\", \"-p\", \"--restricted\", \"--permission-mode\", \"acceptEdits\", \"--permission-prompts\", \"none\", \"--tools\", \"Read,Glob,Grep,Edit,Write,Agent\", \"--strict-mcp-config\", \"--settings\", \"{\\\"disableAllHooks\\\":true}\", \"{prompt}\"], \"run_commands\": [\"claude\", \"-p\", \"--restricted\", \"--permission-mode\", \"acceptEdits\", \"--permission-prompts\", \"none\", \"--tools\", \"Read,Glob,Grep,Edit,Write,Agent,Bash\", \"--allowedTools\", \"Bash(cargo build:*)\", \"Bash(cargo test:*)\", \"Bash(cargo check:*)\", \"Bash(cargo clippy:*)\", \"Bash(cargo fmt:*)\", \"Bash(flutter build:*)\", \"Bash(flutter test:*)\", \"Bash(flutter analyze:*)\", \"Bash(flutter pub get:*)\", \"Bash(dart test:*)\", \"Bash(dart analyze:*)\", \"Bash(dart format:*)\", \"Bash(npm test:*)\", \"Bash(npm ci:*)\", \"Bash(npm run build:*)\", \"Bash(npm run test:*)\", \"Bash(pnpm test:*)\", \"Bash(pnpm run build:*)\", \"Bash(make)\", \"Bash(make build)\", \"Bash(make test)\", \"Bash(make install)\", \"Bash(python3 -m unittest:*)\", \"Bash(python3 -m pytest:*)\", \"Bash(pytest:*)\", \"Bash(tools/test-changed:*)\", \"Bash(./install.sh:*)\", \"Bash(./build.sh:*)\", \"Bash(makepkg)\", \"Bash(pgrep:*)\", \"Bash(git status:*)\", \"Bash(git diff:*)\", \"Bash(git log:*)\", \"Bash(git show:*)\", \"Bash(git add:*)\", \"Bash(git commit:*)\", \"Bash(git rev-parse:*)\", \"Bash(git branch:*)\", \"--strict-mcp-config\", \"--settings\", \"{\\\"disableAllHooks\\\":true}\", \"{prompt}\"], \"run_commands_push\": [\"claude\", \"-p\", \"--restricted\", \"--permission-mode\", \"acceptEdits\", \"--permission-prompts\", \"none\", \"--tools\", \"Read,Glob,Grep,Edit,Write,Agent,Bash\", \"--allowedTools\", \"Bash(cargo build:*)\", \"Bash(cargo test:*)\", \"Bash(cargo check:*)\", \"Bash(cargo clippy:*)\", \"Bash(cargo fmt:*)\", \"Bash(flutter build:*)\", \"Bash(flutter test:*)\", \"Bash(flutter analyze:*)\", \"Bash(flutter pub get:*)\", \"Bash(dart test:*)\", \"Bash(dart analyze:*)\", \"Bash(dart format:*)\", \"Bash(npm test:*)\", \"Bash(npm ci:*)\", \"Bash(npm run build:*)\", \"Bash(npm run test:*)\", \"Bash(pnpm test:*)\", \"Bash(pnpm run build:*)\", \"Bash(make)\", \"Bash(make build)\", \"Bash(make test)\", \"Bash(make install)\", \"Bash(python3 -m unittest:*)\", \"Bash(python3 -m pytest:*)\", \"Bash(pytest:*)\", \"Bash(tools/test-changed:*)\", \"Bash(./install.sh:*)\", \"Bash(./build.sh:*)\", \"Bash(makepkg)\", \"Bash(pgrep:*)\", \"Bash(git status:*)\", \"Bash(git diff:*)\", \"Bash(git log:*)\", \"Bash(git show:*)\", \"Bash(git add:*)\", \"Bash(git commit:*)\", \"Bash(git rev-parse:*)\", \"Bash(git branch:*)\", \"Bash(git push:*)\", \"--strict-mcp-config\", \"--settings\", \"{\\\"disableAllHooks\\\":true}\", \"{prompt}\"], \"setup\": [\"claude\", \"-p\", \"--safe-mode\", \"--restricted\", \"--permission-mode\", \"plan\", \"--permission-prompts\", \"none\", \"--tools\", \"\", \"--strict-mcp-config\", \"--no-session-persistence\", \"--disable-slash-commands\", \"--settings\", \"{\\\"disableAllHooks\\\":true}\", \"{prompt}\"], \"subagent_definitions\": {\"researcher\": {\"description\": \"Read-only project researcher\", \"prompt\": \"Inspect the project and return evidence-based findings. Do not change files or run commands.\", \"tools\": [\"Read\", \"Glob\", \"Grep\"]}, \"reviewer\": {\"description\": \"Read-only project reviewer\", \"prompt\": \"Inspect the project and return actionable correctness findings with file evidence, or CLEAN. Do not change files or run commands.\", \"tools\": [\"Read\", \"Glob\", \"Grep\"]}}, \"subagent_option\": \"--agents\"}",
+  "replies": [
+    "~/.claude/projects",
+    1,
+    "claude-jsonl",
+    [
+      [
+        "",
+        200000
+      ],
+      [
+        "claude-opus-5",
+        1000000
+      ]
+    ]
+  ],
+  "research": [
+    "claude",
+    "-p",
+    "--tools",
+    "WebSearch",
+    "WebFetch",
+    "--allowedTools",
+    "WebSearch",
+    "WebFetch",
+    "--strict-mcp-config",
+    "--no-session-persistence",
+    "--disable-slash-commands",
+    "--output-format",
+    "json"
+  ],
+  "research_output": "claude-json",
+  "rewrite": [
+    "claude",
+    "-p",
+    "--tools",
+    "",
+    "--strict-mcp-config",
+    "--no-session-persistence",
+    "--disable-slash-commands",
+    "--output-format",
+    "text"
+  ],
+  "sandbox_setting": "sandbox.enabled",
+  "security": {
+    "files": [
+      "~/.claude/settings.json"
+    ],
+    "note": "",
+    "rules": [
+      [
+        "Allowed without asking",
+        "permissions.allow",
+        [
+          "Bash(git status)"
+        ]
+      ],
+      [
+        "Never allowed",
+        "permissions.deny",
+        [
+          "Read(.env)"
+        ]
+      ]
+    ],
+    "settings": [
+      {
+        "choices": [
+          {
+            "explain": "Asks before it edits a file or runs a command.",
+            "label": "Ask first",
+            "risk": 1,
+            "value": "default"
+          },
+          {
+            "explain": "Reads and plans; changes nothing until you agree.",
+            "label": "Plan only",
+            "risk": 0,
+            "value": "plan"
+          },
+          {
+            "explain": "Never asks: does only what your allow rules permit and refuses the rest.",
+            "label": "Only what is allowed",
+            "risk": 0,
+            "value": "dontAsk"
+          },
+          {
+            "explain": "Edits files in the project on its own, asks before commands.",
+            "label": "Edit without asking",
+            "risk": 2,
+            "value": "acceptEdits"
+          },
+          {
+            "explain": "A classifier lets safe actions through and asks about the rest.",
+            "label": "Automatic review",
+            "risk": 2,
+            "value": "auto"
+          },
+          {
+            "explain": "Does everything without asking. Only for a throwaway machine.",
+            "label": "Bypass all checks",
+            "risk": 3,
+            "value": "bypassPermissions"
+          }
+        ],
+        "current": "acceptEdits",
+        "default": "default",
+        "editable": true,
+        "explain": "How much Claude Code may do without asking. It can be changed for one session with Shift+Tab.",
+        "fmt": "json",
+        "key": "permissions.defaultMode",
+        "path": "~/.claude/settings.json",
+        "recommended": "default",
+        "terms": [
+          "approval",
+          "classifier",
+          "bypass"
+        ],
+        "title": "Permission mode",
+        "warn": []
+      },
+      {
+        "choices": [
+          {
+            "explain": "Commands are fenced in.",
+            "label": "On",
+            "risk": 0,
+            "value": true
+          },
+          {
+            "explain": "Commands run with all your rights.",
+            "label": "Off",
+            "risk": 1,
+            "value": false
+          }
+        ],
+        "current": true,
+        "default": false,
+        "editable": true,
+        "explain": "Runs shell commands in a sandbox (bubblewrap on Linux): writes only in the project, network only to allowed sites.",
+        "fmt": "json",
+        "key": "sandbox.enabled",
+        "path": "~/.claude/settings.json",
+        "recommended": true,
+        "terms": [
+          "sandbox",
+          "network"
+        ],
+        "title": "Sandbox for commands",
+        "warn": []
+      },
+      {
+        "choices": [
+          {
+            "explain": "Bypass mode cannot be switched on.",
+            "label": "Blocked",
+            "risk": 0,
+            "value": "disable"
+          },
+          {
+            "explain": "Bypass mode can be switched on with a flag.",
+            "label": "Allowed",
+            "risk": 1,
+            "value": null
+          }
+        ],
+        "current": null,
+        "default": null,
+        "editable": true,
+        "explain": "Makes it impossible to start Claude Code with --dangerously-skip-permissions, even by mistake.",
+        "fmt": "json",
+        "key": "permissions.disableBypassPermissionsMode",
+        "path": "~/.claude/settings.json",
+        "recommended": "disable",
+        "terms": [
+          "bypass"
+        ],
+        "title": "Block bypass mode",
+        "warn": [
+          "Bypass mode can be switched on",
+          "Starting it with --dangerously-skip-permissions switches every check off.",
+          "Block bypass mode."
+        ]
+      }
+    ]
+  },
+  "self_served": false,
+  "self_update": [
+    "claude",
+    "update"
+  ],
+  "session_files": "claude-files",
+  "sessions": {
+    "collect": "claude_sessions.collect_by_id",
+    "note": "Numbers from Claude Code's session files (no text is read). The API value is what the tokens would cost at API prices, not what a plan costs."
+  },
+  "short_model_flag": false,
+  "short_version": false,
+  "skills": {
+    "dirs": [
+      "~/.claude/skills"
+    ],
+    "listed": null,
+    "own": "~/.claude/skills",
+    "settings_file": "",
+    "settings_list": false,
+    "write": null
+  },
+  "spec": "",
+  "start": [],
+  "subagents": [
+    "claude-projects",
+    "~/.claude/projects"
+  ],
+  "task": [
+    "claude",
+    "{prompt}"
+  ],
+  "tools_setting": [],
+  "usage": null,
+  "web_search": true
 }

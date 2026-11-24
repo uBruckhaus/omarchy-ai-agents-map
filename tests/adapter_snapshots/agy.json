@@ -1,285 +1,285 @@
 {
- "command": "agy",
- "name": "Antigravity CLI",
- "label": "Antigravity",
- "full_name": "Antigravity CLI",
- "icon": "󰊭",
- "icon_font": "",
- "spec": "antigravity-cli",
- "package": "",
- "package_only": false,
- "own_install_counts": true,
- "install_marks": [],
- "download": null,
- "short_version": false,
- "offered": false,
- "login_status": null,
- "fixed_provider": "",
- "self_served": false,
- "short_model_flag": false,
- "self_update": [],
- "install": [
-  {
-   "kind": "mise",
-   "spec": "antigravity-cli",
-   "tool": "",
-   "argv": [],
-   "sudo": false,
-   "packages": [],
-   "url": "",
-   "note": "",
-   "update": []
+  "access": {
+    "env": [
+      "GEMINI_API_KEY"
+    ],
+    "extra_file": "",
+    "extra_key": "",
+    "extra_url": "",
+    "files": [
+      ".gemini/antigravity-cli/history.jsonl"
+    ],
+    "how": "A Google account (free tier or Google AI plan), or a Gemini API key from aistudio.google.com",
+    "key": null,
+    "local_ok": false,
+    "login": "agy",
+    "logins": [
+      {
+        "argv": [
+          "agy"
+        ],
+        "label": "Google account",
+        "note": "Choose \u201cSign in with Google\u201d when it asks."
+      }
+    ],
+    "per_token": false
   },
-  {
-   "kind": "installer",
-   "spec": "",
-   "tool": "",
-   "argv": [],
-   "sudo": false,
-   "packages": [],
-   "url": "",
-   "note": "",
-   "update": []
-  }
- ],
- "data": [
-  "~/.gemini/antigravity-cli",
-  "~/.gemini/config",
-  "~/.gemini/antigravity"
- ],
- "homepage": "https://antigravity.google",
- "ask": [],
- "games": [],
- "effort": [],
- "configure": [],
- "home": "~/.gemini/antigravity-cli",
- "activity": [
-  "~/.gemini/antigravity-cli"
- ],
- "program_dir": "",
- "web_search": true,
- "chat_app": false,
- "herdr": "",
- "logout": [],
- "start": [],
- "research": [],
- "research_output": "text",
- "task": [],
- "rewrite": [],
- "advise": [],
- "closed": [],
- "tools_setting": [],
- "sandbox_setting": "enableTerminalSandbox",
- "replies": [],
- "subagents": [],
- "session_files": "",
- "activity_reader": "trajectory-sqlite",
- "activity_dir": "~/.gemini/antigravity-cli/conversations",
- "extra_dir_option": "--add-dir",
- "asks_setting": "toolPermission",
- "project": "{\"capabilities\": {\"project-commands\": {\"edit\": true, \"git_commit\": true, \"outside_project\": true, \"shell\": true}, \"project-commands-push\": {\"edit\": true, \"git_commit\": true, \"git_push\": true, \"outside_project\": true, \"shell\": true}, \"project-edit\": {\"edit\": true}}, \"denied_marker\": \"jetski: no output produced\", \"model_option\": \"--model\", \"permissions\": \"Planning and review use plan mode. Edit project files: edits project files in the sandbox; commands needing approval are denied. Edit + commands: also runs build, test, install and git commit commands from a fixed list in its sandbox, git push only with Allow push. agy stops at the first other command and leaves the rest undone.\", \"plan\": [\"agy\", \"--mode\", \"plan\", \"--sandbox\", \"--settings\", \"{\\\"toolPermission\\\":\\\"request-review\\\",\\\"allowNonWorkspaceAccess\\\":false,\\\"permissions\\\":{\\\"allow\\\":[]}}\", \"-p\", \"{prompt}\"], \"run\": [\"agy\", \"--mode\", \"accept-edits\", \"--sandbox\", \"--settings\", \"{\\\"toolPermission\\\":\\\"request-review\\\",\\\"allowNonWorkspaceAccess\\\":false,\\\"permissions\\\":{\\\"allow\\\":[]}}\", \"-p\", \"{prompt}\"], \"run_commands\": [\"agy\", \"--mode\", \"accept-edits\", \"--sandbox\", \"--settings\", \"{\\\"toolPermission\\\":\\\"request-review\\\",\\\"allowNonWorkspaceAccess\\\":false,\\\"permissions\\\":{\\\"allow\\\":[\\\"command(cargo build)\\\",\\\"command(cargo test)\\\",\\\"command(cargo check)\\\",\\\"command(cargo clippy)\\\",\\\"command(cargo fmt)\\\",\\\"command(flutter build)\\\",\\\"command(flutter test)\\\",\\\"command(flutter analyze)\\\",\\\"command(flutter pub get)\\\",\\\"command(dart test)\\\",\\\"command(dart analyze)\\\",\\\"command(dart format)\\\",\\\"command(npm test)\\\",\\\"command(npm ci)\\\",\\\"command(npm run build)\\\",\\\"command(npm run test)\\\",\\\"command(pnpm test)\\\",\\\"command(pnpm run build)\\\",\\\"command(python3 -m unittest)\\\",\\\"command(python3 -m pytest)\\\",\\\"command(pytest)\\\",\\\"command(tools/test-changed)\\\",\\\"command(./install.sh)\\\",\\\"command(./build.sh)\\\",\\\"command(makepkg)\\\",\\\"command(pgrep)\\\",\\\"command(git status)\\\",\\\"command(git diff)\\\",\\\"command(git log)\\\",\\\"command(git show)\\\",\\\"command(git add)\\\",\\\"command(git commit)\\\",\\\"command(git rev-parse)\\\",\\\"command(git branch)\\\"]}}\", \"-p\", \"{prompt}\"], \"run_commands_push\": [\"agy\", \"--mode\", \"accept-edits\", \"--sandbox\", \"--settings\", \"{\\\"toolPermission\\\":\\\"request-review\\\",\\\"allowNonWorkspaceAccess\\\":false,\\\"permissions\\\":{\\\"allow\\\":[\\\"command(cargo build)\\\",\\\"command(cargo test)\\\",\\\"command(cargo check)\\\",\\\"command(cargo clippy)\\\",\\\"command(cargo fmt)\\\",\\\"command(flutter build)\\\",\\\"command(flutter test)\\\",\\\"command(flutter analyze)\\\",\\\"command(flutter pub get)\\\",\\\"command(dart test)\\\",\\\"command(dart analyze)\\\",\\\"command(dart format)\\\",\\\"command(npm test)\\\",\\\"command(npm ci)\\\",\\\"command(npm run build)\\\",\\\"command(npm run test)\\\",\\\"command(pnpm test)\\\",\\\"command(pnpm run build)\\\",\\\"command(python3 -m unittest)\\\",\\\"command(python3 -m pytest)\\\",\\\"command(pytest)\\\",\\\"command(tools/test-changed)\\\",\\\"command(./install.sh)\\\",\\\"command(./build.sh)\\\",\\\"command(makepkg)\\\",\\\"command(pgrep)\\\",\\\"command(git status)\\\",\\\"command(git diff)\\\",\\\"command(git log)\\\",\\\"command(git show)\\\",\\\"command(git add)\\\",\\\"command(git commit)\\\",\\\"command(git rev-parse)\\\",\\\"command(git branch)\\\",\\\"command(git push)\\\"]}}\", \"-p\", \"{prompt}\"]}",
- "access": {
-  "how": "A Google account (free tier or Google AI plan), or a Gemini API key from aistudio.google.com",
-  "login": "agy",
-  "files": [
-   ".gemini/antigravity-cli/history.jsonl"
+  "activity": [
+    "~/.gemini/antigravity-cli"
   ],
-  "env": [
-   "GEMINI_API_KEY"
+  "activity_dir": "~/.gemini/antigravity-cli/conversations",
+  "activity_reader": "trajectory-sqlite",
+  "advise": [],
+  "ask": [],
+  "asks_setting": "toolPermission",
+  "chat_app": false,
+  "closed": [],
+  "command": "agy",
+  "configure": [],
+  "data": [
+    "~/.gemini/antigravity-cli",
+    "~/.gemini/config",
+    "~/.gemini/antigravity"
   ],
-  "local_ok": false,
-  "per_token": false,
-  "logins": [
-   {
-    "label": "Google account",
-    "argv": [
-     "agy"
-    ],
-    "note": "Choose “Sign in with Google” when it asks."
-   }
+  "details": true,
+  "detect": false,
+  "download": null,
+  "effort": [],
+  "extra_dir_option": "--add-dir",
+  "fixed_provider": "",
+  "full_name": "Antigravity CLI",
+  "games": [],
+  "herdr": "",
+  "home": "~/.gemini/antigravity-cli",
+  "homepage": "https://antigravity.google",
+  "icon": "\udb80\udead",
+  "icon_font": "",
+  "install": [
+    {
+      "argv": [],
+      "kind": "mise",
+      "note": "",
+      "packages": [],
+      "spec": "antigravity-cli",
+      "sudo": false,
+      "tool": "",
+      "update": [],
+      "url": ""
+    },
+    {
+      "argv": [],
+      "kind": "installer",
+      "note": "",
+      "packages": [],
+      "spec": "",
+      "sudo": false,
+      "tool": "",
+      "update": [],
+      "url": ""
+    }
   ],
-  "key": null,
-  "extra_file": "",
-  "extra_key": "",
-  "extra_url": ""
- },
- "security": {
-  "settings": [
-   {
-    "key": "toolPermission",
-    "title": "When Antigravity asks",
-    "explain": "Whether Antigravity asks before it runs a tool, such as a command or a file change.",
-    "choices": [
-     {
-      "value": "strict",
-      "label": "Strict",
-      "explain": "Asks before every tool, even reading.",
-      "risk": 0
-     },
-     {
-      "value": "request-review",
-      "label": "Ask first",
-      "explain": "Asks before it runs a command or changes a file.",
-      "risk": 1
-     },
-     {
-      "value": "proceed-in-sandbox",
-      "label": "Go ahead in the sandbox",
-      "explain": "Runs commands in its sandbox without asking.",
-      "risk": 2
-     },
-     {
-      "value": "always-proceed",
-      "label": "Never ask",
-      "explain": "Runs every tool without asking. Only for a throwaway machine.",
-      "risk": 3
-     }
+  "install_marks": [],
+  "installer": "Agy",
+  "label": "Antigravity",
+  "latest": null,
+  "limits": false,
+  "local_llm": null,
+  "login_status": null,
+  "logout": [],
+  "mcp": {
+    "format": "json",
+    "in_app": "",
+    "key": "mcpServers",
+    "native": null,
+    "path": "~/.gemini/config/mcp_config.json",
+    "read": null,
+    "shape": "antigravity",
+    "write": null
+  },
+  "models": null,
+  "name": "Antigravity CLI",
+  "offered": false,
+  "own_install_counts": true,
+  "package": "",
+  "package_only": false,
+  "program_dir": "",
+  "project": "{\"capabilities\": {\"project-commands\": {\"edit\": true, \"git_commit\": true, \"outside_project\": true, \"shell\": true}, \"project-commands-push\": {\"edit\": true, \"git_commit\": true, \"git_push\": true, \"outside_project\": true, \"shell\": true}, \"project-edit\": {\"edit\": true}}, \"denied_marker\": \"jetski: no output produced\", \"model_option\": \"--model\", \"permissions\": \"Planning and review use plan mode. Edit project files: edits project files in the sandbox; commands needing approval are denied. Edit + commands: also runs build, test, install and git commit commands from a fixed list in its sandbox, git push only with Allow push. agy stops at the first other command and leaves the rest undone.\", \"plan\": [\"agy\", \"--mode\", \"plan\", \"--sandbox\", \"--settings\", \"{\\\"toolPermission\\\":\\\"request-review\\\",\\\"allowNonWorkspaceAccess\\\":false,\\\"permissions\\\":{\\\"allow\\\":[]}}\", \"-p\", \"{prompt}\"], \"run\": [\"agy\", \"--mode\", \"accept-edits\", \"--sandbox\", \"--settings\", \"{\\\"toolPermission\\\":\\\"request-review\\\",\\\"allowNonWorkspaceAccess\\\":false,\\\"permissions\\\":{\\\"allow\\\":[]}}\", \"-p\", \"{prompt}\"], \"run_commands\": [\"agy\", \"--mode\", \"accept-edits\", \"--sandbox\", \"--settings\", \"{\\\"toolPermission\\\":\\\"request-review\\\",\\\"allowNonWorkspaceAccess\\\":false,\\\"permissions\\\":{\\\"allow\\\":[\\\"command(cargo build)\\\",\\\"command(cargo test)\\\",\\\"command(cargo check)\\\",\\\"command(cargo clippy)\\\",\\\"command(cargo fmt)\\\",\\\"command(flutter build)\\\",\\\"command(flutter test)\\\",\\\"command(flutter analyze)\\\",\\\"command(flutter pub get)\\\",\\\"command(dart test)\\\",\\\"command(dart analyze)\\\",\\\"command(dart format)\\\",\\\"command(npm test)\\\",\\\"command(npm ci)\\\",\\\"command(npm run build)\\\",\\\"command(npm run test)\\\",\\\"command(pnpm test)\\\",\\\"command(pnpm run build)\\\",\\\"command(python3 -m unittest)\\\",\\\"command(python3 -m pytest)\\\",\\\"command(pytest)\\\",\\\"command(tools/test-changed)\\\",\\\"command(./install.sh)\\\",\\\"command(./build.sh)\\\",\\\"command(pgrep)\\\",\\\"command(git status)\\\",\\\"command(git diff)\\\",\\\"command(git log)\\\",\\\"command(git show)\\\",\\\"command(git add)\\\",\\\"command(git commit)\\\",\\\"command(git rev-parse)\\\",\\\"command(git branch)\\\"]}}\", \"-p\", \"{prompt}\"], \"run_commands_push\": [\"agy\", \"--mode\", \"accept-edits\", \"--sandbox\", \"--settings\", \"{\\\"toolPermission\\\":\\\"request-review\\\",\\\"allowNonWorkspaceAccess\\\":false,\\\"permissions\\\":{\\\"allow\\\":[\\\"command(cargo build)\\\",\\\"command(cargo test)\\\",\\\"command(cargo check)\\\",\\\"command(cargo clippy)\\\",\\\"command(cargo fmt)\\\",\\\"command(flutter build)\\\",\\\"command(flutter test)\\\",\\\"command(flutter analyze)\\\",\\\"command(flutter pub get)\\\",\\\"command(dart test)\\\",\\\"command(dart analyze)\\\",\\\"command(dart format)\\\",\\\"command(npm test)\\\",\\\"command(npm ci)\\\",\\\"command(npm run build)\\\",\\\"command(npm run test)\\\",\\\"command(pnpm test)\\\",\\\"command(pnpm run build)\\\",\\\"command(python3 -m unittest)\\\",\\\"command(python3 -m pytest)\\\",\\\"command(pytest)\\\",\\\"command(tools/test-changed)\\\",\\\"command(./install.sh)\\\",\\\"command(./build.sh)\\\",\\\"command(pgrep)\\\",\\\"command(git status)\\\",\\\"command(git diff)\\\",\\\"command(git log)\\\",\\\"command(git show)\\\",\\\"command(git add)\\\",\\\"command(git commit)\\\",\\\"command(git rev-parse)\\\",\\\"command(git branch)\\\",\\\"command(git push)\\\"]}}\", \"-p\", \"{prompt}\"]}",
+  "replies": [],
+  "research": [],
+  "research_output": "text",
+  "rewrite": [],
+  "sandbox_setting": "enableTerminalSandbox",
+  "security": {
+    "files": [
+      "~/.gemini/antigravity-cli/settings.json"
     ],
-    "current": null,
-    "default": "request-review",
-    "path": "~/.gemini/antigravity-cli/settings.json",
-    "fmt": "json",
-    "terms": [
-     "approval",
-     "sandbox"
+    "note": "",
+    "rules": [],
+    "settings": [
+      {
+        "choices": [
+          {
+            "explain": "Asks before every tool, even reading.",
+            "label": "Strict",
+            "risk": 0,
+            "value": "strict"
+          },
+          {
+            "explain": "Asks before it runs a command or changes a file.",
+            "label": "Ask first",
+            "risk": 1,
+            "value": "request-review"
+          },
+          {
+            "explain": "Runs commands in its sandbox without asking.",
+            "label": "Go ahead in the sandbox",
+            "risk": 2,
+            "value": "proceed-in-sandbox"
+          },
+          {
+            "explain": "Runs every tool without asking. Only for a throwaway machine.",
+            "label": "Never ask",
+            "risk": 3,
+            "value": "always-proceed"
+          }
+        ],
+        "current": null,
+        "default": "request-review",
+        "editable": true,
+        "explain": "Whether Antigravity asks before it runs a tool, such as a command or a file change.",
+        "fmt": "json",
+        "key": "toolPermission",
+        "path": "~/.gemini/antigravity-cli/settings.json",
+        "recommended": "request-review",
+        "terms": [
+          "approval",
+          "sandbox"
+        ],
+        "title": "When Antigravity asks",
+        "warn": []
+      },
+      {
+        "choices": [
+          {
+            "explain": "Follows \u201cWhen Antigravity asks\u201d.",
+            "label": "Normal",
+            "risk": 1,
+            "value": "default"
+          },
+          {
+            "explain": "Reads and plans; changes nothing until you agree.",
+            "label": "Plan only",
+            "risk": 0,
+            "value": "plan"
+          },
+          {
+            "explain": "Edits files on its own, asks before commands.",
+            "label": "Edit without asking",
+            "risk": 2,
+            "value": "accept-edits"
+          },
+          {
+            "explain": "Decides on its own which actions need your OK.",
+            "label": "Automatic (preview)",
+            "risk": 2,
+            "value": "auto"
+          }
+        ],
+        "current": null,
+        "default": "default",
+        "editable": true,
+        "explain": "How much Antigravity may do on its own. It can be changed for one session in the CLI.",
+        "fmt": "json",
+        "key": "agentMode",
+        "path": "~/.gemini/antigravity-cli/settings.json",
+        "recommended": "default",
+        "terms": [
+          "approval"
+        ],
+        "title": "Agent mode",
+        "warn": []
+      },
+      {
+        "choices": [
+          {
+            "explain": "Commands are fenced in.",
+            "label": "On",
+            "risk": 0,
+            "value": "on"
+          },
+          {
+            "explain": "Commands run with all your rights.",
+            "label": "Off",
+            "risk": 1,
+            "value": "off"
+          }
+        ],
+        "current": null,
+        "default": "off",
+        "editable": true,
+        "explain": "Runs terminal commands in a sandbox.",
+        "fmt": "json",
+        "key": "enableTerminalSandbox",
+        "path": "~/.gemini/antigravity-cli/settings.json",
+        "recommended": "on",
+        "terms": [
+          "sandbox"
+        ],
+        "title": "Sandbox for commands",
+        "warn": []
+      },
+      {
+        "choices": [
+          {
+            "explain": "Stays inside the project folder.",
+            "label": "Project only",
+            "risk": 0,
+            "value": "off"
+          },
+          {
+            "explain": "May touch any file you can.",
+            "label": "Anywhere",
+            "risk": 2,
+            "value": "on"
+          }
+        ],
+        "current": null,
+        "default": "off",
+        "editable": true,
+        "explain": "Whether Antigravity may read and write files outside the project folder.",
+        "fmt": "json",
+        "key": "allowNonWorkspaceAccess",
+        "path": "~/.gemini/antigravity-cli/settings.json",
+        "recommended": "off",
+        "terms": [
+          "sandbox"
+        ],
+        "title": "Files outside the project",
+        "warn": []
+      }
+    ]
+  },
+  "self_served": false,
+  "self_update": [],
+  "session_files": "",
+  "sessions": null,
+  "short_model_flag": false,
+  "short_version": false,
+  "skills": {
+    "dirs": [
+      "~/.gemini/antigravity-cli/skills"
     ],
-    "editable": true,
-    "recommended": "request-review",
-    "warn": []
-   },
-   {
-    "key": "agentMode",
-    "title": "Agent mode",
-    "explain": "How much Antigravity may do on its own. It can be changed for one session in the CLI.",
-    "choices": [
-     {
-      "value": "default",
-      "label": "Normal",
-      "explain": "Follows “When Antigravity asks”.",
-      "risk": 1
-     },
-     {
-      "value": "plan",
-      "label": "Plan only",
-      "explain": "Reads and plans; changes nothing until you agree.",
-      "risk": 0
-     },
-     {
-      "value": "accept-edits",
-      "label": "Edit without asking",
-      "explain": "Edits files on its own, asks before commands.",
-      "risk": 2
-     },
-     {
-      "value": "auto",
-      "label": "Automatic (preview)",
-      "explain": "Decides on its own which actions need your OK.",
-      "risk": 2
-     }
-    ],
-    "current": null,
-    "default": "default",
-    "path": "~/.gemini/antigravity-cli/settings.json",
-    "fmt": "json",
-    "terms": [
-     "approval"
-    ],
-    "editable": true,
-    "recommended": "default",
-    "warn": []
-   },
-   {
-    "key": "enableTerminalSandbox",
-    "title": "Sandbox for commands",
-    "explain": "Runs terminal commands in a sandbox.",
-    "choices": [
-     {
-      "value": "on",
-      "label": "On",
-      "explain": "Commands are fenced in.",
-      "risk": 0
-     },
-     {
-      "value": "off",
-      "label": "Off",
-      "explain": "Commands run with all your rights.",
-      "risk": 1
-     }
-    ],
-    "current": null,
-    "default": "off",
-    "path": "~/.gemini/antigravity-cli/settings.json",
-    "fmt": "json",
-    "terms": [
-     "sandbox"
-    ],
-    "editable": true,
-    "recommended": "on",
-    "warn": []
-   },
-   {
-    "key": "allowNonWorkspaceAccess",
-    "title": "Files outside the project",
-    "explain": "Whether Antigravity may read and write files outside the project folder.",
-    "choices": [
-     {
-      "value": "off",
-      "label": "Project only",
-      "explain": "Stays inside the project folder.",
-      "risk": 0
-     },
-     {
-      "value": "on",
-      "label": "Anywhere",
-      "explain": "May touch any file you can.",
-      "risk": 2
-     }
-    ],
-    "current": null,
-    "default": "off",
-    "path": "~/.gemini/antigravity-cli/settings.json",
-    "fmt": "json",
-    "terms": [
-     "sandbox"
-    ],
-    "editable": true,
-    "recommended": "off",
-    "warn": []
-   }
-  ],
-  "rules": [],
-  "files": [
-   "~/.gemini/antigravity-cli/settings.json"
-  ],
-  "note": ""
- },
- "sessions": null,
- "usage": null,
- "latest": null,
- "installer": "Agy",
- "detect": false,
- "limits": false,
- "details": true,
- "models": null,
- "local_llm": null,
- "skills": {
-  "dirs": [
-   "~/.gemini/antigravity-cli/skills"
-  ],
-  "own": "~/.gemini/antigravity-cli/skills",
-  "settings_list": false,
-  "settings_file": "",
-  "listed": null,
-  "write": null
- },
- "mcp": {
-  "path": "~/.gemini/config/mcp_config.json",
-  "format": "json",
-  "key": "mcpServers",
-  "shape": "antigravity",
-  "in_app": "",
-  "write": null,
-  "read": null,
-  "native": null
- }
+    "listed": null,
+    "own": "~/.gemini/antigravity-cli/skills",
+    "settings_file": "",
+    "settings_list": false,
+    "write": null
+  },
+  "spec": "antigravity-cli",
+  "start": [],
+  "subagents": [],
+  "task": [],
+  "tools_setting": [],
+  "usage": null,
+  "web_search": true
 }
