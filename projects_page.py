@@ -409,6 +409,10 @@ class ProjectsBoard:
         second = texts.second_line(project.get("second"))
         if second:
             box.append(parts.label(second, ("am-project-small",)))
+        # Task 104: a run that left steps to the user, or steps this team can't do (before approval).
+        access = texts.card_access_line(project)
+        if access:
+            box.append(parts.warn_line(access))
         box.append(parts.stage_rail(project.get("stage"), self.colors, compact=narrow))
         box.append(parts.team_strip(project, 3 if narrow else 4))
         issues = [i for i in project.get("issues") or [] if isinstance(i, dict)]
@@ -786,6 +790,18 @@ class ProjectsPage:
             dialog.set_default_response("save")
             dialog.set_close_response("cancel")
             dialog.connect("response", lambda _d, response: answered(response))
+        elif kind == "gaps":
+            # Task 104: the steps this team can't do. Change the access, leave them to me, or cancel.
+            heading, body, change, leave = question
+            dialog = Adw.AlertDialog(heading=heading, body=body)
+            dialog.add_response("cancel", _("Cancel"))
+            if change:
+                dialog.add_response("commands", change)
+            dialog.add_response("accept", leave)
+            dialog.set_response_appearance("accept", Adw.ResponseAppearance.SUGGESTED)
+            dialog.set_default_response("cancel")
+            dialog.set_close_response("cancel")
+            dialog.connect("response", lambda _d, response: answered(response if response != "cancel" else None))
         else:
             title, body, action = question
             dialog = Adw.AlertDialog(heading=_(title), body=_(body))

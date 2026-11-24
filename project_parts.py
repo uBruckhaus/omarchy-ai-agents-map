@@ -37,6 +37,8 @@ _CSS = """
 .am-project-small {{ font-size: 11px; }}
 .am-project-dim {{ color: alpha({fg}, 0.62); }}
 .am-project-error {{ color: {red}; }}
+.am-project-warn {{ color: {amber}; }}
+.am-project-gaps {{ border: 1px solid {amber}; border-radius: {r}px; padding: 10px; }}
 .am-project-node {{ border: 1px solid alpha({fg}, 0.25); border-radius: 999px; min-width: 30px;
   min-height: 30px; font-size: 11px; }}
 .am-project-node.am-node-active {{ border: 2px solid {accent}; }}
@@ -78,6 +80,7 @@ def apply_css(colors: dict, radius: int = 10):
     provider = Gtk.CssProvider()
     provider.load_from_string(_CSS.format(fg=colors.get("foreground", "#cdd6f4"), accent=colors.get("accent", "#89b4fa"),
                                           red=colors.get("red", "#f04452"), green=colors.get("green", "#a6e3a1"),
+                                          amber=colors.get("yellow", "#f9e2af"),
                                           r=max(0, int(radius))))
     Gtk.StyleContext.add_provider_for_display(display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
     apply_css.provider = provider
@@ -436,11 +439,11 @@ def importance_mark(code: str, on_change=None) -> Gtk.Widget:
     return button
 
 
-def ability_hint(profile: dict | None, access: str) -> Gtk.Widget:
+def ability_hint(profile: dict | None, access: str, allow_push: bool = False) -> Gtk.Widget:
     """The shield beside a team member's agent (Maprisma's AgentAbilityHint): what the chosen agent can
-    and cannot do here, as its tooltip on hover and in a popover on click, Enter or Space; a screen
-    reader gets its name and the whole hint."""
-    message = texts.abilities_text(profile, access)
+    and cannot do here (at Edit + commands with the project's Allow push), as its tooltip on hover and
+    in a popover on click, Enter or Space; a screen reader gets its name and the whole hint."""
+    message = texts.abilities_text(profile, access, allow_push)
     button = Gtk.MenuButton(valign=Gtk.Align.CENTER, tooltip_text=message)
     button.set_child(icon("security-high-symbolic"))
     button.add_css_class("flat")
@@ -457,6 +460,73 @@ def ability_hint(profile: dict | None, access: str) -> Gtk.Widget:
     popover.set_child(text)
     button.set_popover(popover)
     return button
+
+
+def warn_line(text: str, size: int = 14, title: bool = False) -> Gtk.Widget:
+    """An amber warning line (task 104): a symbol and its text."""
+    row = Gtk.Box(spacing=ai_core.GAP_TIGHT)
+    mark = icon("dialog-warning-symbolic", size)
+    mark.add_css_class("am-project-warn")
+    row.append(mark)
+    text_label = label(text, ("am-project-warn",) if title else ("am-project-small", "am-project-warn"), wrap=True)
+    text_label.set_hexpand(True)
+    if title:
+        text_label.add_css_class("heading")
+    row.append(text_label)
+    row.warn_text = text                        # for the build test
+    return row
+
+
+def access_gaps_box(project: dict, use_label, on_use, on_leave) -> Gtk.Widget | None:
+    """The amber box above the project's tabs (Maprisma's ProjectAccessGaps, task 104): the planned
+    steps this team can't do with its access, a button that changes the access (named for what it
+    really changes; none when nothing would), and Leave these to me (approve without them).
+    on_use / on_leave None: the button is shown but not available now."""
+    gaps = texts.gaps_of(project)
+    if not gaps:
+        return None
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+    box.add_css_class("am-project-gaps")
+    box.set_name("access-gaps")
+    box.append(warn_line(texts.gaps_title(gaps), 18, title=True))
+    for line in texts.gap_lines(gaps):
+        box.append(label(line, ("am-project-small",), wrap=True))
+    if project.get("needs_source") == "keywords":
+        box.append(label(_(texts.GUESSED_NEEDS), ("am-project-small", "am-project-dim"), wrap=True))
+    buttons = Gtk.Box(spacing=ai_core.GAP_TIGHT)
+    buttons.set_margin_top(4)
+    if use_label:
+        use = Gtk.Button(label=use_label)
+        use.set_name("access-gaps-use")
+        use.set_sensitive(on_use is not None)
+        if on_use is not None:
+            use.connect("clicked", lambda *_a: on_use())
+        buttons.append(use)
+    leave = Gtk.Button(label=_(texts.LEAVE_TO_ME))
+    leave.set_name("access-gaps-leave")
+    leave.add_css_class("flat")
+    leave.set_sensitive(on_leave is not None)
+    if on_leave is not None:
+        leave.connect("clicked", lambda *_a: on_leave())
+    buttons.append(leave)
+    box.append(buttons)
+    box.gap_buttons = [b.get_label() for b in (buttons.get_first_child(), buttons.get_last_child())
+                       if b is not None]
+    return box
+
+
+def steps_left_box(project: dict, agent_name=None) -> Gtk.Widget | None:
+    """The steps a completed run left to the user (Maprisma's ProjectStepsLeft, task 104)."""
+    lines = texts.steps_left(project, agent_name)
+    if not texts.is_partial(project):
+        return None
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+    box.set_name("steps-left")
+    box.append(warn_line(_(texts.PARTIAL), 18, title=True))
+    for line in lines:
+        box.append(label(line, ("am-project-small",), wrap=True))
+    box.steps = lines
+    return box
 
 
 def messages_badge(count: int) -> Gtk.Widget:

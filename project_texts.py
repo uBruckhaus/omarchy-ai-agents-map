@@ -1,6 +1,6 @@
 """AI Project Center pages: the words, symbols and small rules the Projects board, the Phases view,
 the project page and the message box share (Maprisma's project_board.dart, project_page_parts.dart,
-project_messages.dart and ai_project_center.dart, tasks 082, 088-096). GTK-free, so the rules can be
+project_messages.dart, project_access.dart and ai_project_center.dart, tasks 082, 088-096, 104). GTK-free, so the rules can be
 tested without a display; the pages (projects_page.py, project_detail_page.py, project_phases_page.py,
 project_messages_view.py) build their widgets from these."""
 
@@ -84,6 +84,8 @@ _FAILURES = (
       "project_model_unsupported", "project_runtime_model_unavailable", "project_provider_unsupported",
       "project_runtime_required"), "A selected model or runtime is unavailable."),
     (("project_access_unsupported",), "Choose a supported access mode before saving."),
+    (("project_access_gaps",),
+     "This team can't do every planned step with its access. Change its access, or leave these steps to you."),
     (("project_review_changes_first",), "Review existing changes before changing this setup."),
     (("project_still_pausing", "project_processes_still_running"),
      "Some agent processes are still stopping. Try again shortly."),
@@ -491,7 +493,215 @@ ABILITIES_NAME = "What this agent can and cannot do"
 ABILITIES_NONE = "Choose an agent to see what it can do."
 
 
-def agent_abilities(profile: dict, access: str) -> dict:
+# --- access levels, plan needs and steps left to the user (Maprisma task 104, project_access.dart) ----
+
+_ACCESS_LABELS = {"read-only": "Read-only", "project-edit": "Edit project files",
+                  "project-commands": "Edit + commands"}
+# The capability facts in display order with their labels.
+CAPABILITY_LABELS = (("shell", "Run commands"), ("outside_project", "Install outside the project"),
+                     ("git_commit", "Commit with git"), ("git_push", "Push with git"),
+                     ("network", "Use the network"))
+_NEED_LABELS = {"edit": "Edit files", "build": "Build the project", "test": "Run tests", "install": "Install",
+                "commit": "Commit", "push": "Push", "network": "Network access"}
+_RANK = {"read-only": 0, "project-edit": 1, "project-commands": 2}
+# The Edit + commands risk note under the access choice: agent-neutral, each agent's own limits are in
+# its shield (review round 2).
+COMMANDS_RISK = ("Higher risk: runs commands on this PC, and builds and tests run the project's own code. "
+                 "The shield shows this agent's limits.")
+ALLOW_PUSH = ("Allow push", "Members with Edit + commands may push to the project's git remote.")
+GAPS_PROMPT = "Approve anyway and these steps are left to you, or change the team's access first."
+GUESSED_NEEDS = "Guessed from the words of the goal and plan."
+LEAVE_TO_ME = "Leave these to me"
+PARTIAL = "Done, steps left to you"
+
+
+def access_label(mode) -> str:
+    """The label of an access level."""
+    return _(_ACCESS_LABELS.get(mode, "Edit project files"))
+
+
+def default_access(modes) -> str:
+    """The level a new member gets: Edit files where the profile has it, never the higher-risk
+    Edit + commands on its own."""
+    found = [str(mode) for mode in modes] if isinstance(modes, (list, tuple)) else []
+    if not found or "project-edit" in found:
+        return "project-edit"
+    if "read-only" in found:
+        return "read-only"
+    return found[0]
+
+
+def capabilities_at(profile, access: str, allow_push: bool = False):
+    """The capability facts of `profile` at `access` (the push variant with Allow push when the
+    profile has one), or None when it declares none."""
+    found = profile.get("capabilities") if isinstance(profile, dict) else None
+    if not isinstance(found, dict):
+        return None
+    level = "project-commands-push" if access == "project-commands" and allow_push \
+        and isinstance(found.get("project-commands-push"), dict) else access
+    facts = found.get(level)
+    if not isinstance(facts, dict):
+        return None
+    return {str(key): value is True for key, value in facts.items()}
+
+
+def need_label(need) -> str:
+    """A plan's need as the user reads it."""
+    return _(_NEED_LABELS[need]) if need in _NEED_LABELS else str(need)
+
+
+def capability_line(facts: dict) -> str:
+    """One line for a level: what the agent can do and can't do there."""
+    can = ([_("Edit files")] if facts.get("edit") is True else []) \
+        + [_(label) for fact, label in CAPABILITY_LABELS if facts.get(fact) is True]
+    cannot = [_(label) for fact, label in CAPABILITY_LABELS if facts.get(fact) is not True]
+    parts = []
+    if can:
+        parts.append(_("Can") + ": " + ", ".join(can))
+    if cannot:
+        parts.append(_("Can't") + ": " + ", ".join(cannot))
+    return " · ".join(parts)
+
+
+def _raises(gap: dict, team) -> tuple:
+    """(level, the executing members of `team` that this gap's suggestion would raise)."""
+    level = gap.get("suggest_access")
+    if not isinstance(level, str) or level not in _RANK:
+        return None, []
+    able = {str(agent) for agent in gap.get("members") or []}
+    return level, [m for m in team or [] if isinstance(m, dict) and m.get("role") != "reviewer"
+                   and m.get("agent") in able and _RANK.get(m.get("access"), 1) < _RANK[level]]
+
+
+def suggest_label(gaps, team):
+    """The label of the button that changes the team as the gaps suggest, from what it would really
+    change (review round 1); None when it would change nothing."""
+    edit = commands = push = False
+    for gap in gaps or []:
+        if not isinstance(gap, dict):
+            continue
+        level, raised = _raises(gap, team)
+        if raised:
+            if level == "project-commands":
+                commands = True
+            else:
+                edit = True
+        if gap.get("needs_allow_push") is True:
+            push = True
+    if commands and push:
+        return _("Use Edit + commands and Allow push")
+    if commands:
+        return _("Use Edit + commands")
+    if push:
+        return _("Turn on Allow push")
+    if edit:
+        return _("Use Edit project files")
+    return None
+
+
+def use_suggested(gaps, team) -> bool:
+    """Gives the members of `team` (changed in place) the access the gaps suggest, never lowering
+    one; True when Allow push is needed too."""
+    push = False
+    for gap in gaps or []:
+        if not isinstance(gap, dict):
+            continue
+        level, raised = _raises(gap, team)
+        for member in raised:
+            member["access"] = level
+        if gap.get("needs_allow_push") is True:
+            push = True
+    return push
+
+
+def gap_hint(gap: dict) -> str:
+    """What a gap's suggestion says."""
+    if gap.get("suggest_access") is None:
+        return _("No agent of this team can do this.")
+    if gap.get("needs_allow_push") is True:
+        return _("Possible with Edit + commands and Allow push.")
+    if gap.get("suggest_access") == "project-commands":
+        return _("Possible with Edit + commands.")
+    return _("Possible with Edit project files.")
+
+
+def gaps_of(project) -> list:
+    """A project's access gaps (task 104), each a dict."""
+    if not isinstance(project, dict):
+        return []
+    return [gap for gap in project.get("access_gaps") or [] if isinstance(gap, dict)]
+
+
+def gaps_title(gaps) -> str:
+    return _("This team can't: {0}").format(", ".join(need_label(gap.get("need")) for gap in gaps))
+
+
+def gap_lines(gaps) -> list:
+    return [f"• {need_label(gap.get('need'))}: {gap_hint(gap)}" for gap in gaps]
+
+
+def card_access_line(project) -> str | None:
+    """A card's amber line: a run that left steps to the user, or the steps this team can't do (before
+    approval); None without either."""
+    if not isinstance(project, dict):
+        return None
+    if project.get("partial") is True:
+        return _(PARTIAL)
+    gaps = gaps_of(project)
+    if project.get("approval_valid") is not True and gaps:
+        return gaps_title(gaps)
+    return None
+
+
+def is_partial(project) -> bool:
+    """A completed run with steps left to the user (its status stays completed)."""
+    return isinstance(project, dict) and project.get("partial") is True
+
+
+def status_line(project) -> str:
+    """The project page's status: Done, steps left to you for a partial run (its status stays
+    completed), else the status (review round 1: also on the board's project page)."""
+    if isinstance(project, dict) and project.get("partial") is True:
+        return _(PARTIAL)
+    return status(project.get("status") if isinstance(project, dict) else None)
+
+
+def steps_left_entry(entry: dict, agent_name=None) -> str:
+    """One step left to the user: an accepted gap, an agent stopped at a denied command, or a step an
+    agent says it left undone."""
+    agent = str(entry.get("agent") or "")
+    name = (agent_name(agent) if agent_name and agent else None) or agent
+    kind = entry.get("kind")
+    if kind == "gap":
+        return _("{0} (the team's access doesn't allow it)").format(need_label(entry.get("need")))
+    if kind == "denied":
+        return _("{0} stopped at a command it may not run; the rest of its work was not done.").format(name)
+    text = str(entry.get("text") or "")
+    return f"{name}: {text}" if name else text
+
+
+def steps_left(project, agent_name=None) -> list:
+    """The bullet lines of a partial project's steps left to the user (none unless partial)."""
+    if not isinstance(project, dict) or project.get("partial") is not True:
+        return []
+    return [f"• {steps_left_entry(entry, agent_name)}" for entry in project.get("not_done") or []
+            if isinstance(entry, dict)]
+
+
+def execution_argv(profile: dict, member: dict, planning: bool, allow_push: bool) -> list:
+    """The argv this member launches with in execution (review round 1: the core's choice per access
+    level and Allow push), for the Team tab's Execution command."""
+    if planning or member.get("role") == "reviewer" or member.get("access") == "read-only":
+        argv = profile.get("plan_argv")
+    elif member.get("access") == "project-commands":
+        argv = profile.get("run_commands_push_argv") if allow_push \
+            and isinstance(profile.get("run_commands_push_argv"), list) else profile.get("run_commands_argv")
+    else:
+        argv = profile.get("run_argv")
+    return list(argv) if isinstance(argv, list) else []
+
+
+def agent_abilities(profile: dict, access: str, allow_push: bool = False) -> dict:
     """Maprisma's AgentAbilities.of (project_agent_hint.dart): from the facts of the agent's managed
     profile (adapters' [project]) what it can and cannot do in a project. can/cannot: translated
     lines; here: what this member does in this team; details: the profile's permissions sentence.
@@ -506,15 +716,20 @@ def agent_abilities(profile: dict, access: str) -> dict:
         return isinstance(value, str) and value.startswith("--")
     modes = profile.get("access_modes")
     modes = list(modes) if isinstance(modes, list) else ["read-only", "project-edit"]
-    # Only a member whose access is really project-edit edits (a stale or unknown value is refused by
-    # the core, so it is not editing either).
-    editing = "project-edit" in modes and access == "project-edit"
+    # Only a member whose access the profile offers edits (a stale or unknown value is refused by the
+    # core, so it is not editing either).
+    editing = access in modes and access in ("project-edit", "project-commands")
     if "project-edit" not in modes:
         cannot.append(_("Edit project files"))
     elif not editing:
         cannot.append(_("Edit project files (read-only in this team)"))   # the profile could, this member does not
     else:
         can.append(_("Edit project files"))
+    # What its level allows (task 104), as the adapter declares it.
+    facts = capabilities_at(profile, access, allow_push) if editing else None
+    if facts is not None:
+        for fact, label in CAPABILITY_LABELS:
+            add(facts.get(fact) is True, label)
     # The same conditions the core checks before it starts the agent.
     model = option(profile.get("model_option"))
     add(model, "Choose a model")
@@ -526,15 +741,17 @@ def agent_abilities(profile: dict, access: str) -> dict:
     add(isinstance(setup, list) and bool(setup), "Propose a team")
     details = str(profile.get("permissions") or "").strip()
     return {"can": can, "cannot": cannot,
-            "here": _("In this team: edits project files") if editing else _("In this team: read-only"),
+            "here": _("In this team: read-only") if not editing
+            else _("In this team: edits files and runs commands") if access == "project-commands"
+            else _("In this team: edits project files"),
             "details": _(details) if details else ""}
 
 
-def abilities_text(profile: dict | None, access: str) -> str:
+def abilities_text(profile: dict | None, access: str, allow_push: bool = False) -> str:
     """The hint's whole text: the member's part in the team, ✓ and ✗ lines, the profile's sentence."""
     if profile is None:
         return _(ABILITIES_NONE)
-    found = agent_abilities(profile, access)
+    found = agent_abilities(profile, access, allow_push)
     lines = [found["here"], "", *(f"✓ {c}" for c in found["can"]), *(f"✗ {c}" for c in found["cannot"])]
     if found["details"]:
         lines += ["", found["details"]]

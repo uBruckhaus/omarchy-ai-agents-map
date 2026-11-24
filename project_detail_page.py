@@ -146,6 +146,10 @@ class ProjectDetail:
             getattr(body, f"set_margin_{side}")(ai_core.GAP_TIGHT)
         self.issues = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         body.append(self.issues)
+        # Task 104: the steps this team can't do (before approval), and the steps a run left undone.
+        self.access = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP_TIGHT)
+        body.append(self.access)
+        self.shown_access = None
         self.stopping = parts.label(_("Some agent processes are still stopping. Try again shortly."), wrap=True)
         body.append(self.stopping)
         self.error = parts.label("", ("am-project-error",), wrap=True)
@@ -279,8 +283,13 @@ class ProjectDetail:
         project = ctrl.project
         card = ctrl.card_of_open
         self.title.set_label(str(project.get("title") or "") if project else _("New project"))
-        self.status_line.set_label(" · ".join([texts.status((project or {}).get("status"))]
+        # A completed run that left steps to the user says so (its status stays completed).
+        self.status_line.set_label(" · ".join([texts.status_line(project or {})]
                                               + ([_("Unsaved changes")] if ctrl.dirty else [])))
+        if texts.is_partial(project):
+            self.status_line.add_css_class("am-project-warn")
+        else:
+            self.status_line.remove_css_class("am-project-warn")
         card_key = json.dumps([card, self.narrow], sort_keys=True, default=str)
         if card_key != self.shown_card:
             self.shown_card = card_key
@@ -292,6 +301,7 @@ class ProjectDetail:
                                       self.host_map_fix() is not None) if card is not None else None
             if found is not None:
                 self.issues.append(found)
+        self.render_access()
         self.render_tabs()
         self.working.render(card, project, compact=self.narrow)
         self.plan_hint.set_visible(not ctrl.texts["plan"].strip() and (project or {}).get("status") == "planning"
@@ -316,6 +326,34 @@ class ProjectDetail:
 
     def host_map_fix(self):
         return getattr(self.host, "projects_map_fix", None)
+
+    def render_access(self):
+        """The amber gaps box (a saved, unchanged, not approved project whose team can't do every
+        planned step) and the steps a completed run left to the user (task 104)."""
+        ctrl = self.ctrl
+        project = ctrl.project
+        show_gaps = project is not None and not ctrl.dirty and not ctrl.approved
+        idle = not ctrl.busy and not ctrl.running
+        label = ctrl.suggest_label() if show_gaps else None
+        names = {str(e.get("agent")): ctrl.agent_name(str(e.get("agent")))
+                 for e in (project or {}).get("not_done") or [] if isinstance(e, dict) and e.get("agent")}
+        key = json.dumps([show_gaps and texts.gaps_of(project), (project or {}).get("needs_source"), label, idle,
+                          bool(ctrl.texts["plan"].strip()), (project or {}).get("partial"),
+                          (project or {}).get("not_done"), names], sort_keys=True, default=str)
+        if key == self.shown_access:
+            return
+        self.shown_access = key
+        parts.clear(self.access)
+        if show_gaps:
+            box = parts.access_gaps_box(project, label, ctrl.use_suggested if idle else None,
+                                        ctrl.leave_to_me if idle and ctrl.texts["plan"].strip() else None)
+            if box is not None:
+                self.access.append(box)
+        if project is not None:
+            left = parts.steps_left_box(project, ctrl.agent_name)
+            if left is not None:
+                self.access.append(left)
+        self.access.set_visible(self.access.get_first_child() is not None)
 
     def sync_fields(self):
         """The fields take the adopted texts (a project opened, saved, discarded or read again)
@@ -415,8 +453,8 @@ class ProjectDetail:
                 self.team_graph.append(parts.team_graph(card, show_on_map))
         self.team_graph.set_visible(card is not None)   # a new project: the form takes the width
         # Every profile fact the form shows (commands, permissions, options) is part of its key.
-        key = json.dumps([ctrl.team_version, ctrl.phase, ctrl.busy, ctrl.running, ctrl.profiles, ctrl.runtimes],
-                         sort_keys=True, default=str)
+        key = json.dumps([ctrl.team_version, ctrl.phase, ctrl.busy, ctrl.running, ctrl.profiles, ctrl.runtimes,
+                          ctrl.allow_push], sort_keys=True, default=str)
         if key == self.shown_team:
             return
         self.shown_team = key
@@ -435,6 +473,19 @@ class ProjectDetail:
             toggle.connect("clicked", lambda *_a: ctrl.toggle_plan_team())
             form.append(toggle)
         form.append(parts.label(_("Choose the lead agent and optional cooperating agents."), wrap=True))
+        # Task 104: push stays off unless the user allows it for this project.
+        if ctrl.phase != "plan":
+            line = Gtk.Box(spacing=ai_core.GAP_INLINE)
+            words = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True)
+            words.append(parts.label(_(texts.ALLOW_PUSH[0])))
+            words.append(parts.label(_(texts.ALLOW_PUSH[1]), ("am-project-small", "am-project-dim"), wrap=True))
+            line.append(words)
+            push = Gtk.Switch(active=ctrl.allow_push, sensitive=not locked, valign=Gtk.Align.CENTER)
+            push.set_name("allow-push")
+            parts.set_accessible(push, _(texts.ALLOW_PUSH[0]))
+            push.connect("notify::active", lambda switch, _p: ctrl.set_allow_push(switch.get_active()))
+            line.append(push)
+            form.append(line)
         if not ctrl.profiles:
             form.append(parts.label(_("No project agent profiles are available."), ("am-project-dim",), wrap=True))
         for index in range(len(ctrl.team)):
@@ -493,10 +544,9 @@ class ProjectDetail:
         profile = ctrl.profile(member.get("agent"))
         modes = list((profile or {}).get("access_modes") or ["read-only", "project-edit"])
         plan = ctrl.phase == "plan"
-        access = "read-only" if plan or member.get("role") == "reviewer" else member.get("access") or modes[-1]
-
-        def access_label(value):
-            return _("Read-only") if value == "read-only" else _("Edit project files")
+        access = "read-only" if plan or member.get("role") == "reviewer" \
+            else member.get("access") or texts.default_access(modes)
+        access_label = texts.access_label
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=ai_core.GAP_TIGHT)
         card.add_css_class("am-model-card")
 
@@ -510,7 +560,8 @@ class ProjectDetail:
         agent = Gtk.Box(spacing=ai_core.GAP_INLINE)
         agent.append(dropdown([(p.get("id"), str(p.get("name") or p.get("id")), True) for p in ctrl.profiles],
                               member.get("agent"), lambda v: ctrl.set_member(index, "agent", v), not locked))
-        agent.append(parts.ability_hint(profile, access))     # what the chosen agent can and cannot do here
+        # What the chosen agent can and cannot do here (at Edit + commands with the project's Allow push).
+        agent.append(parts.ability_hint(profile, access, ctrl.allow_push))
         row(_("Agent profile"), agent)
         row(_("Role"), dropdown([(r, texts.role(r, planning=plan), True) for r in ("lead", "implementer", "reviewer")],
                                 member.get("role"), lambda v: ctrl.set_member(index, "role", v), not locked))
@@ -520,6 +571,16 @@ class ProjectDetail:
                                             not locked and not plan and member.get("role") != "reviewer"))
         if access not in modes:
             card.append(parts.label(_("Choose a supported access mode before saving."), ("am-project-error",), wrap=True))
+        else:
+            # What this level allows for this agent (task 104), and the higher risk of Edit + commands
+            # (agent-neutral: the shield names this agent's own limits).
+            facts = texts.capabilities_at(profile, access, ctrl.allow_push)
+            if facts is not None and access != "read-only":
+                line = parts.label(texts.capability_line(facts), ("am-project-small",), wrap=True)
+                line.set_name(f"access-facts-{index}")
+                card.append(line)
+            if access == "project-commands":
+                card.append(parts.warn_line(_(texts.COMMANDS_RISK)))
         card.append(parts.label(_("Role instructions"), ("am-project-small", "am-project-dim")))
         instructions = Gtk.Entry(text=str(member.get("instructions") or ""), sensitive=not locked)
         instructions.field_key = (ctrl.phase, index, "instructions")
@@ -557,8 +618,11 @@ class ProjectDetail:
             card.append(parts.label(_("Planning command"), ("am-project-small", "am-project-dim")))
             card.append(parts.label(" ".join(profile.get("plan_argv") or []), ("monospace",), wrap=True, selectable=True))
             card.append(parts.label(_("Execution command"), ("am-project-small", "am-project-dim")))
-            argv = profile.get("plan_argv") if read_only else profile.get("run_argv")
-            card.append(parts.label(" ".join(argv or []), ("monospace",), wrap=True, selectable=True))
+            # The argv this member launches with (the core's choice per access level and Allow push).
+            argv = texts.execution_argv(profile, member, plan, ctrl.allow_push)
+            command = parts.label(" ".join(str(word) for word in argv), ("monospace",), wrap=True, selectable=True)
+            command.set_name(f"execution-command-{index}")
+            card.append(command)
         remove = Gtk.Button(label=_("Remove"), halign=Gtk.Align.END, sensitive=not locked)
         remove.add_css_class("am-small-btn")
         remove.connect("clicked", lambda *_a: ctrl.remove_member(index))

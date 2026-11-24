@@ -70,6 +70,8 @@ class ProjectsController:
         self.adopted = dict.fromkeys(FIELDS, "")
         self.run_team: list = []
         self.plan_team = None
+        self.allow_push = False        # task 104: Edit + commands members may push (saved with the project)
+        self.leave_gaps = False        # "Leave these to me": the next Approve accepts the gaps
         self.base_revision = None
         self.dirty = False
         self.busy = False
@@ -379,7 +381,7 @@ class ProjectsController:
     # --- the open project's draft --------------------------------------------------------------------
 
     def _adopt(self, project):
-        before = (self.run_team, self.plan_team, (self.project or {}).get("id"))
+        before = (self.run_team, self.plan_team, (self.project or {}).get("id"), self.allow_push)
         self.project = project
         for field in FIELDS:
             self.texts[field] = str((project or {}).get(field) or "")
@@ -387,10 +389,11 @@ class ProjectsController:
         self.run_team = _rows((project or {}).get("team"))
         plan_team = (project or {}).get("plan_team")
         self.plan_team = _rows(plan_team) if isinstance(plan_team, list) else None
+        self.allow_push = (project or {}).get("allow_push") is True
         if project is None and self.profiles:
             first = self.profiles[0]
-            modes = first.get("access_modes") or ["read-only", "project-edit"]
-            self.run_team = [{"agent": first.get("id"), "role": "lead", "instructions": "", "access": modes[-1]}]
+            self.run_team = [{"agent": first.get("id"), "role": "lead", "instructions": "",
+                              "access": texts.default_access(first.get("access_modes"))}]
         for team in [self.run_team] + ([self.plan_team] if self.plan_team is not None else []):
             for member in team:
                 modes = (self.profile(member.get("agent")) or {}).get("access_modes") or []
@@ -400,7 +403,7 @@ class ProjectsController:
         self._restore_setup_request()
         self.dirty = False
         self.adopt_version += 1
-        if before != (self.run_team, self.plan_team, (project or {}).get("id")):
+        if before != (self.run_team, self.plan_team, (project or {}).get("id"), self.allow_push):
             self.team_version += 1        # the team's form is built again only when the team changed
 
     def _draft_key(self, phase: str | None = None) -> str:
@@ -472,8 +475,7 @@ class ProjectsController:
             return
         first = self.profiles[0]
         team = self.team
-        access = "read-only" if self.phase == "plan" or team else \
-            (first.get("access_modes") or ["read-only", "project-edit"])[-1]
+        access = "read-only" if self.phase == "plan" or team else texts.default_access(first.get("access_modes"))
         team.append({"agent": first.get("id"), "role": "lead" if not team else "reviewer", "instructions": "",
                      "access": access})
         self.team_version += 1
@@ -498,8 +500,8 @@ class ProjectsController:
             member["agent"] = value
             for gone in ("model", "subagents", "runtime", "provider"):
                 member.pop(gone, None)
-            modes = (self.profile(value) or {}).get("access_modes") or ["read-only", "project-edit"]
-            member["access"] = "read-only" if self.phase == "plan" or member.get("role") == "reviewer" else modes[-1]
+            member["access"] = "read-only" if self.phase == "plan" or member.get("role") == "reviewer" \
+                else texts.default_access((self.profile(value) or {}).get("access_modes"))
         elif key == "role":
             member["role"] = value
             if value == "reviewer":
@@ -530,6 +532,69 @@ class ProjectsController:
             self.team_version += 1
         self.dirty = True
         self.notify()
+
+    def set_allow_push(self, value: bool):
+        """The project's Allow push (task 104): Edit + commands members may push; saved with it."""
+        if self.team_locked or bool(value) == self.allow_push:
+            return
+        self.allow_push = bool(value)
+        self.dirty = True
+        self.notify()
+
+    @property
+    def gaps(self) -> list:
+        """The saved project's access gaps (task 104)."""
+        return texts.gaps_of(self.project)
+
+    def suggest_label(self):
+        return texts.suggest_label(self.gaps, self.run_team)
+
+    def use_suggested(self):
+        """Gives the members the access the gaps suggest (never lowers one) and turns Allow push on
+        where only that helps (task 104). Saving applies it."""
+        if self.busy or self.running:
+            return
+        self._apply_suggested()
+
+    def _apply_suggested(self):
+        if texts.use_suggested(self.gaps, self.run_team):
+            self.allow_push = True
+        self.selection += 1
+        self.team_version += 1
+        self.dirty = True
+        self.notify()
+
+    def leave_to_me(self):
+        """The gaps box's Leave these to me: approve with the steps left to the user."""
+        if self.busy or self.running or not self.texts["plan"].strip():
+            return
+        self.leave_gaps = True
+        self.perform("review")
+
+    def _gap_choice(self, answer):
+        """Asks what to do about the steps this team can't do: change the access ("commands"), approve
+        without them ("accept") or nothing (None)."""
+        gaps = self.gaps
+        label = self.suggest_label()
+        self.confirming = True
+        self.notify()
+
+        def answered(choice):
+            self.confirming = False
+            self.notify()
+            answer(choice if choice in ("commands", "accept") else None)
+        self.ask("gaps", (texts.gaps_title(gaps), "\n".join(texts.gap_lines(gaps)) + "\n\n" + _(texts.GAPS_PROMPT),
+                          label, _(texts.LEAVE_TO_ME)), answered)
+
+    def _after_gaps(self, choice, finish, accepted):
+        """The gap question's answer: change the access and save, approve with the gaps, or stop."""
+        if choice == "commands":
+            self._apply_suggested()
+            self._save(lambda _ok: finish())
+        elif choice == "accept":
+            accepted()
+        else:
+            finish()
 
     # --- choosing a project, leaving it --------------------------------------------------------------
 
@@ -880,6 +945,7 @@ class ProjectsController:
         params = {"title": self.texts["title"].strip(), "brief": self.texts["brief"].strip(),
                   "path": self.texts["path"].strip(), "plan": self.texts["plan"],
                   "team": copy.deepcopy(self.run_team), "plan_team": copy.deepcopy(self.plan_team),
+                  "allow_push": self.allow_push,
                   "setup_requests": {phase: self.setup_drafts.get(
                       f"{key_id}:{phase}", ((project or {}).get("setup_requests") or {}).get(phase, ""))
                       for phase in ("plan", "run")}}
@@ -925,6 +991,14 @@ class ProjectsController:
         self._confirm(texts.SKIP_QUESTION, confirmed)
 
     def _skip_steps(self, finish):
+        # Task 104: steps the team can't do are approved only knowingly.
+        if self.gaps:
+            self._gap_choice(lambda choice: self._after_gaps(
+                choice, finish, lambda: self._skip_approve(finish, accept_gaps=True)))
+            return
+        self._skip_approve(finish)
+
+    def _skip_approve(self, finish, accept_gaps: bool = False):
         def failed(error):
             self.error = texts.failure(error)
             self.notify()
@@ -950,8 +1024,10 @@ class ProjectsController:
             self.run(lambda: self.call("run", {"id": project.get("id"), "revision": project.get("revision")}),
                      started)
         project = self.project or {}
-        self.run(lambda: self.call("review", {"id": project.get("id"), "revision": project.get("revision"),
-                                              "approved": True}), reviewed)
+        params = {"id": project.get("id"), "revision": project.get("revision"), "approved": True}
+        if accept_gaps:
+            params["accept_gaps"] = True
+        self.run(lambda: self.call("review", params), reviewed)
 
     def perform(self, operation: str):
         """A footer action (save, plan, skip_plan, review, run, continue, pause, delete, setup,
@@ -963,7 +1039,7 @@ class ProjectsController:
         self.busy = True
         self.error = None
         self.notify()
-        state = {"back_after_delete": False}
+        state = {"back_after_delete": False, "accept_gaps": False}
 
         def finish():
             self.busy = False
@@ -984,6 +1060,8 @@ class ProjectsController:
                 params["run_id"] = project["run_id"]
             if operation == "review":
                 params["approved"] = True
+                if state["accept_gaps"]:
+                    params["accept_gaps"] = True
             if operation == "continue" or (operation == "run" and project.get("needs_reconciliation") is True):
                 params["acknowledge_interrupted"] = True
             if operation == "setup":
@@ -1029,7 +1107,19 @@ class ProjectsController:
             if operation == "delete":
                 self._confirm(texts.DELETE_QUESTION, confirmed)
             elif operation == "review":
-                self._confirm(texts.APPROVE_QUESTION, confirmed)
+                # Task 104: steps the team can't do are approved only knowingly; Leave these to me
+                # has already said so.
+                accepted, self.leave_gaps = self.leave_gaps, False
+                if accepted:
+                    state["accept_gaps"] = True
+                    send()
+                elif self.gaps:
+                    def accept():
+                        state["accept_gaps"] = True
+                        send()
+                    self._gap_choice(lambda choice: self._after_gaps(choice, finish, accept))
+                else:
+                    self._confirm(texts.APPROVE_QUESTION, confirmed)
             elif operation == "continue" or (operation == "run" and (project or {}).get("needs_reconciliation") is True):
                 self._confirm(texts.CONTINUE_QUESTION, confirmed)
             else:
