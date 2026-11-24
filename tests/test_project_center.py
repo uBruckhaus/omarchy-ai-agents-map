@@ -2875,39 +2875,54 @@ class ProjectAccessTest(CenterCase):
         self.assertNotIn("run_env", found["goose"])
 
     def test_add_dir_refuses_symlink_escape_and_omits_non_directory_git(self):
-        outside = self.tmp / "outside-secret"
+        outside = self.root / "outside-secret"
         outside.mkdir()
         self.profiles[0].update(
             access_modes=["read-only", "project-edit", "project-commands"],
             run_commands_argv=["/fixture/agent", "commands", "--add-dir", ".git", "{prompt}"],
-            capabilities={**self._caps("project-edit", edit=True),
-                          **self._caps("project-commands", edit=True, shell=True, git_commit=True)})
+            capabilities={"read-only": facts(), "project-edit": facts("edit"),
+                          "project-commands": facts("edit", "shell", "git_commit")})
+        # Real .git directory inside the project: no commit gap, keeps --add-dir .git.
+        dot_git = Path(self.workspace) / ".git"
+        dot_git.mkdir()
         item = self.save(brief="Commit changes", plan="1. Commit\n```needs\nedit, commit\n```",
                          team=[{"agent": "fixture", "role": "lead", "access": "project-commands"}])
-        rev = self.center.call("review", {"id": item["id"], "revision": item["revision"],
-                                          "approved": True})["project"]["revision"]
-        # Hostile .git symlink pointing outside the workspace is refused; nothing launches.
-        dot_git = self.project / ".git"
+        self.assertEqual(item["access_gaps"], [])
+        self.assertTrue(item["effective_capabilities"]["fixture"]["project-commands"]["git_commit"])
+        item = self.review(item)
+        self.run_it(item)
+        wait_until(lambda: len(self.processes) == 1)
+        self.assertEqual(self.commands[0][:4], ["/fixture/agent", "commands", "--add-dir", ".git"])
+        self.processes[0].finish("Done.\n```not_done\n```")
+        self.idle()
+        done = self.get(item["id"])
+        dot_git.rmdir()
+        # Hostile .git symlink pointing outside the workspace: commit gap reported, launch refused.
         dot_git.symlink_to(outside)
-        self.center.call("run", {"id": item["id"], "revision": rev})
-        failed = self.wait_status(item["id"], {"failed"})
-        self.assertEqual(self.launched, [])
+        view = self.get(item["id"])
+        self.assertEqual([g["need"] for g in view["access_gaps"]], ["commit"])
+        self.assertFalse(view["effective_capabilities"]["fixture"]["project-commands"]["git_commit"])
+        approved = self.review(done, accept_gaps=True)
+        self.run_it(approved)
+        self.idle()
+        failed = self.get(item["id"])
+        self.assertEqual(len(self.commands), 1)
         self.assertEqual(failed["status"], "failed")
         dot_git.unlink()
-        # Real .git directory inside the project keeps --add-dir .git.
-        dot_git.mkdir()
-        self.center.call("run", {"id": item["id"], "revision": failed["revision"]})
-        done = self.wait_status(item["id"], {"completed"})
-        self.assertEqual(self.launched[-1][0][:4], ["/fixture/agent", "commands", "--add-dir", ".git"])
-        dot_git.rmdir()
-        # A worktree .git regular file omits --add-dir .git safely without failing.
+        # A worktree .git regular file: commit gap reported (can't commit), launch omits --add-dir .git.
         dot_git.write_text("gitdir: /somewhere/else\n")
-        rev = self.center.call("review", {"id": item["id"], "revision": done["revision"],
-                                          "approved": True})["project"]["revision"]
-        self.center.call("run", {"id": item["id"], "revision": rev})
-        self.wait_status(item["id"], {"completed"})
-        self.assertNotIn("--add-dir", self.launched[-1][0])
-        self.assertNotIn(".git", self.launched[-1][0])
+        wt = self.save(title="Worktree", brief="Commit changes", plan="1. Commit\n```needs\nedit, commit\n```",
+                       team=[{"agent": "fixture", "role": "lead", "access": "project-commands"}])
+        self.assertEqual([g["need"] for g in wt["access_gaps"]], ["commit"])
+        self.assertFalse(wt["effective_capabilities"]["fixture"]["project-commands"]["git_commit"])
+        approved = self.review(wt, accept_gaps=True)
+        self.run_it(approved)
+        wait_until(lambda: len(self.processes) == 2)
+        self.assertNotIn("--add-dir", self.commands[1])
+        self.assertNotIn(".git", self.commands[1])
+        self.assertIn("git commit: no", self.commands[1][-1])
+        self.processes[1].finish("Done.\n```not_done\n```")
+        self.idle()
 
 
 if __name__ == "__main__":

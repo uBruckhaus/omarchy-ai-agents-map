@@ -439,19 +439,23 @@ def main():
     spin(lambda: detail.pages.get_visible_child_name() == str(texts.TAB_SETUP))
     assert detail.request_view._am_guarded
     # Task 104 (Codex round 2): a setup proposal with Edit + commands shows the real level and risk note.
-    ctrl.project["setup_proposal"] = {
-        "target": "run",
-        "rationale": "Needs commands to run tests.",
-        "team": [{"agent": "claude", "role": "lead", "access": "project-commands", "instructions": "Run tests."}],
-        "warnings": [],
-        "excluded_agents": [],
-        "excluded_runtimes": [],
+    saved_project = ctrl.project
+    ctrl.project = {
+        "id": "setup-demo", "title": "Demo", "status": "draft",
+        "setup_proposal": {
+            "target": "run",
+            "rationale": "Needs commands to run tests.",
+            "team": [{"agent": "claude", "role": "lead", "access": "project-commands", "instructions": "Run tests."}],
+            "warnings": [],
+            "excluded_agents": [],
+            "excluded_runtimes": [],
+        },
     }
     detail.render_setup()
-    setup_labels = labels(detail.setup_page)
+    setup_labels = labels(detail.setup_holder)
     assert "Effective permissions: Edit + commands" in setup_labels, setup_labels
     assert any("Higher risk: runs commands on this PC" in t for t in setup_labels), setup_labels
-    ctrl.project.pop("setup_proposal", None)
+    ctrl.project = saved_project
     detail.render_setup()
     # Dropdowns: a missing value is shown as itself, a disabled choice goes back and is not applied.
     from project_detail_page import dropdown

@@ -327,6 +327,45 @@ def _safe_add_dirs(template: list, cwd: str) -> list:
     return out
 
 
+def _has_add_dir_git(template) -> bool:
+    if not isinstance(template, list):
+        return False
+    for i, arg in enumerate(template):
+        if arg == "--add-dir" and i + 1 < len(template) and template[i + 1] == ".git":
+            return True
+        if arg == "--add-dir=.git":
+            return True
+    return False
+
+
+def _effective_capabilities(profile: dict | None, project_path: str | None) -> dict:
+    """A profile's capabilities for `project_path`: when a command template relies on
+    `--add-dir .git` (Codex), git_commit and git_push are only available when `.git` is a real
+    in-project directory (not a git worktree `.git` file, missing, or a symlink)."""
+    capabilities = (profile or {}).get("capabilities")
+    if not isinstance(capabilities, dict):
+        return {}
+    out = {str(level): {str(fact): value is True for fact, value in facts.items()}
+           for level, facts in capabilities.items() if isinstance(facts, dict)}
+    if not isinstance(project_path, str) or not project_path.strip():
+        return out
+    for level, key in (("project-commands", "run_commands_argv"),
+                       ("project-commands-push", "run_commands_push_argv")):
+        if level not in out:
+            continue
+        template = (profile or {}).get(key)
+        if not _has_add_dir_git(template):
+            continue
+        try:
+            kept = _has_add_dir_git(_safe_add_dirs(template, project_path))
+        except ProjectError:
+            kept = False
+        if not kept:
+            out[level]["git_commit"] = False
+            out[level]["git_push"] = False
+    return out
+
+
 def _argv_key(member: dict, phase: str, allow_push: bool = False, profile: dict | None = None) -> str:
     """The argv a member launches with (task 104): the read-only one for planning, reviewers and Read
     only; run_argv for Edit files; run_commands_argv for Edit + commands, its push variant with the
@@ -862,11 +901,15 @@ class ProjectCenter:
     def _access_view(self, item: dict) -> dict:
         """Task 104 facts of every view, from the display snapshot."""
         display = self._display if self._ensure_display() else None
-        needs, source, gaps = self._access(item, display[2] if display else {})
+        profiles = display[2] if display else {}
+        needs, source, gaps = self._access(item, profiles)
         not_done = item.get("not_done") or []
+        effective_caps = {str(agent): _effective_capabilities(profile, item.get("path"))
+                          for agent, profile in profiles.items() if isinstance(profile, dict)}
         return {"allow_push": item.get("allow_push") is True, "needs": needs, "needs_source": source,
                 "access_gaps": gaps, "accepted_gaps": _copy(item.get("accepted_gaps") or []),
-                "not_done": _copy(not_done), "partial": item["status"] == "completed" and bool(not_done)}
+                "not_done": _copy(not_done), "partial": item["status"] == "completed" and bool(not_done),
+                "effective_capabilities": effective_caps}
 
     @staticmethod
     def _access(item: dict, profiles: dict) -> tuple:
@@ -874,20 +917,18 @@ class ProjectCenter:
         members (lead and implementers of the execution team) can't do at their access."""
         needs, source = plan_needs(item.get("plan") or "", item.get("brief") or "")
         allow_push = item.get("allow_push") is True
+        project_path = item.get("path")
         members = []
         for member in item.get("team") or []:
             if not isinstance(member, dict) or member.get("role") == "reviewer":
                 continue
             profile = profiles.get(member.get("agent"))
-            capabilities = (profile or {}).get("capabilities")
             modes = (profile or {}).get("access_modes")
             members.append({
                 "agent": str(member.get("agent")),
                 "level": _level(member, allow_push, profile),
                 "modes": [str(mode) for mode in modes] if isinstance(modes, list) else [],
-                "capabilities": {str(level): {str(fact): value is True for fact, value in facts.items()}
-                                 for level, facts in capabilities.items() if isinstance(facts, dict)}
-                if isinstance(capabilities, dict) else {}})
+                "capabilities": _effective_capabilities(profile, project_path)})
         return needs, source, access_gaps(needs, members, allow_push)
 
     @staticmethod
@@ -1538,8 +1579,8 @@ class ProjectCenter:
     def _prompt(self, item: dict, member: dict, phase: str, messages: list = (), profile: dict | None = None) -> str:
         reviewing = member["role"] == "reviewer"
         level = _level(member, item.get("allow_push") is True, profile)
-        capabilities = (profile or {}).get("capabilities")
-        facts = capabilities.get(level) if isinstance(capabilities, dict) else None
+        capabilities = _effective_capabilities(profile, item.get("path"))
+        facts = capabilities.get(level) if capabilities else None
         parts = [f"Project: {item['title']}", f"Goal:\n{item['brief']}",
                  f"Your role: {member['role']}. {member.get('instructions', '')}"]
         if phase == "planning":

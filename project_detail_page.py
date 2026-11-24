@@ -542,6 +542,9 @@ class ProjectDetail:
         ctrl = self.ctrl
         member = ctrl.team[index]
         profile = ctrl.profile(member.get("agent"))
+        effective_caps = ((ctrl.project or {}).get("effective_capabilities") or {}).get(member.get("agent"))
+        effective_profile = ({**profile, "capabilities": effective_caps}
+                             if profile is not None and isinstance(effective_caps, dict) else profile)
         modes = list((profile or {}).get("access_modes") or ["read-only", "project-edit"])
         plan = ctrl.phase == "plan"
         access = "read-only" if plan or member.get("role") == "reviewer" \
@@ -561,7 +564,7 @@ class ProjectDetail:
         agent.append(dropdown([(p.get("id"), str(p.get("name") or p.get("id")), True) for p in ctrl.profiles],
                               member.get("agent"), lambda v: ctrl.set_member(index, "agent", v), not locked))
         # What the chosen agent can and cannot do here (at Edit + commands with the project's Allow push).
-        agent.append(parts.ability_hint(profile, access, ctrl.allow_push))
+        agent.append(parts.ability_hint(effective_profile, access, ctrl.allow_push))
         row(_("Agent profile"), agent)
         row(_("Role"), dropdown([(r, texts.role(r, planning=plan), True) for r in ("lead", "implementer", "reviewer")],
                                 member.get("role"), lambda v: ctrl.set_member(index, "role", v), not locked))
@@ -574,7 +577,7 @@ class ProjectDetail:
         else:
             # What this level allows for this agent (task 104), and the higher risk of Edit + commands
             # (agent-neutral: the shield names this agent's own limits).
-            facts = texts.capabilities_at(profile, access, ctrl.allow_push)
+            facts = texts.capabilities_at(effective_profile, access, ctrl.allow_push)
             if facts is not None and access != "read-only":
                 line = parts.label(texts.capability_line(facts), ("am-project-small",), wrap=True)
                 line.set_name(f"access-facts-{index}")
@@ -766,10 +769,7 @@ class ProjectDetail:
                              else member.get("access") or "project-edit")
                 card.append(parts.label(_("Effective permissions") + ": " + texts.access_label(effective)))
                 if effective == "project-commands":
-                    card.append(parts.label(
-                        _("Higher risk: runs commands on this PC, and builds and tests run the project's own code. "
-                          "The shield shows this agent's limits."),
-                        ("am-warn",), wrap=True))
+                    card.append(parts.warn_line(_(texts.COMMANDS_RISK)))
                 if member.get("instructions"):
                     card.append(parts.label(str(member["instructions"]), wrap=True))
                 box.append(card)
