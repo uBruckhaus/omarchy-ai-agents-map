@@ -65,7 +65,11 @@ The same features as Maprisma 2.x, inside the plugin:
   Their commands are reviewed profiles in `adapters/*.toml` (`[project]`); agents whose permissions
   cannot be fenced in from the command line (Cursor, Oh My Pi, Gemini CLI, DeepSeek Harness, Crush,
   OpenCode, Hermes, OpenClaw) have none. The shield beside a team member's agent shows what it can and
-  cannot do in this project.
+  cannot do in this project. Each team member also has an access level: **Read-only**, **Edit project
+  files**, or (for Claude Code, Codex and Antigravity) **Edit + commands**, with a separate **Allow
+  push** switch (off by default). Before a plan is approved or planning is skipped, AI Agents Map checks
+  which planned steps the chosen access cannot do and offers to raise access or leave those steps to you;
+  a run that leaves steps undone ends as **Done, steps left to you** with the list.
 - **Links between the tabs**: an agent's box on the map shows **Used in N projects** (opens the board
   with that agent's chip); **Show on map** in a project's Team graph and **Fix on map** on a problem
   switch to the AI Map, scroll to the box and mark it for a few seconds.
@@ -1084,7 +1088,7 @@ The full module map, with diagrams, is in [ARCHITECTURE.md](ARCHITECTURE.md). Th
 | `ai_popup.py` | The GTK4 app window: cards, map, pages, agents' terminals |
 | `main_tabs.py` | The header tabs Projects / AI Map, the departure guards and the links between the tabs |
 | `projects_page.py`, `projects_controller.py`, `project_detail_page.py`, `project_phases_page.py`, `project_messages_view.py`, `project_parts.py`, `project_texts.py` | The Projects tab: board, Phases, project page, messages |
-| `project_center.py`, `project_stage.py`, `project_supervisor.py` | The AI Project Center core: store, stages, issues, the agents' supervisor |
+| `project_center.py`, `project_access.py`, `project_stage.py`, `project_supervisor.py` | The AI Project Center core: store, access gaps, stages, issues, the agents' supervisor |
 | `reports_page.py`, `reports_ctl.py`, `activity_log.py`, `history_import.py`, `agent_activity_report.py`, `agent_activity_dialog.py`, `activity_mcp.py` | Reports, the activity log, Collect history, What is it doing? and the progress MCP server |
 | `provider_config.py`, `provider_config_page.py`, `provider_*.py` | Configure for this PC: hardware facts, recommendations, files, preview and Undo |
 | `map_3d.py` | The 3D look of the map |
