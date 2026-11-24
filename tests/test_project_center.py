@@ -2957,6 +2957,32 @@ class ProjectAccessTest(CenterCase):
         self.assertEqual(len(done["not_done"]), pc.MAX_NOT_DONE)
         self.assertEqual(done["not_done"][-1], {"kind": "gap", "need": "push", "text": "push"})
 
+    def test_approval_invalidates_when_add_dir_grant_changes_before_launch(self):
+        self.profiles[0].update(
+            access_modes=["read-only", "project-edit", "project-commands"],
+            run_commands_argv=["/fixture/agent", "commands", "--add-dir", ".git", "{prompt}"],
+            capabilities={"read-only": facts(), "project-edit": facts("edit"),
+                          "project-commands": facts("edit", "shell", "git_commit")})
+        dot_git = Path(self.workspace) / ".git"
+        # 1. Plan WITHOUT commit need approved while .git is a worktree file (so --add-dir .git omitted).
+        dot_git.write_text("gitdir: /somewhere/else\n")
+        item = self.save(title="NoCommitNeed", brief="Run tests", plan="1. Test\n```needs\nedit, test\n```",
+                         team=[{"agent": "fixture", "role": "lead", "access": "project-commands"}])
+        approved = self.review(item)
+        # If .git becomes a real directory before launch, the approval digest no longer matches.
+        dot_git.unlink()
+        dot_git.mkdir()
+        self.assertCode("project_plan_not_approved", self.run_it, approved)
+        self.assertEqual(self.commands, [])
+        dot_git.rmdir()
+        # 2. Plan WITH commit need approved with accept_gaps while .git is absent -> .git dir appears.
+        item2 = self.save(title="CommitGap", brief="Commit changes", plan="1. Commit\n```needs\nedit, commit\n```",
+                          team=[{"agent": "fixture", "role": "lead", "access": "project-commands"}])
+        approved2 = self.review(item2, accept_gaps=True)
+        dot_git.mkdir()
+        self.assertCode("project_plan_not_approved", self.run_it, approved2)
+        self.assertEqual(self.commands, [])
+
 
 if __name__ == "__main__":
     unittest.main()

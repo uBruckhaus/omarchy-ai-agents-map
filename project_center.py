@@ -1084,7 +1084,17 @@ class ProjectCenter:
             bindings = (runtimes.get(runtime) or {}).get("bindings") if runtime else None
             binding = bindings.get(member["agent"]) if isinstance(bindings, dict) else None
             key = _argv_key(member, phase, item.get("allow_push") is True, profile)
-            facts = {"argv": profile.get(key)}
+            raw_argv = profile.get(key)
+            if (phase != "setup" and isinstance(raw_argv, list) and isinstance(item.get("path"), str)
+                    and any(a == "--add-dir" or (isinstance(a, str) and a.startswith("--add-dir="))
+                            for a in raw_argv)):
+                try:
+                    argv_bound = _safe_add_dirs(raw_argv, item["path"])
+                except ProjectError:
+                    argv_bound = None
+            else:
+                argv_bound = raw_argv
+            facts = {"argv": argv_bound}
             # Only when declared (sorted): approvals saved before env existed stay valid, and an empty
             # table is no change.
             env = profile.get(_env_key(key))
