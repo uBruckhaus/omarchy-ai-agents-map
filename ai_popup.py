@@ -4723,8 +4723,11 @@ class AgentsMap(AskAiPage, RulesWindow, TextGuard, PageParts, SettingsPages, The
                 adapter = harnesses.get(agent.command)
                 if adapter is not None and adapter.install:
                     action = "uninstall" if agent.installed else "install"
-                    own = list(own) + [self.menu_item(_("Uninstall…") if agent.installed else _("Install…"), popover,
-                                                      lambda a=action: self.offer_install("agent", ident, a))]
+                    # Uninstall only where a way to remove it is known (not for a system package).
+                    if not agent.installed or install_recipes.choose(adapter.install, "uninstall",
+                                                                     agent.source) is not None:
+                        own = list(own) + [self.menu_item(_("Uninstall…") if agent.installed else _("Install…"),
+                                                          popover, lambda a=action: self.offer_install("agent", ident, a))]
                     # How it is updated comes from the same ways (mise, npm, pipx, uv, its own updater).
                     if agent.installed and install_recipes.choose(adapter.install, "update", agent.source) is not None:
                         own = list(own) + [self.menu_item(_("Update…"), popover,

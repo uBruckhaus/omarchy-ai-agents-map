@@ -119,6 +119,13 @@ class AgentsTest(unittest.TestCase):
         self.assertEqual(detect("claude"), (True, "2.1.332", "package"))
         self.assertEqual(detect("codex"), (True, "0.172.0", "package"))
         self.assertEqual(detect("cursor-agent"), (True, "2026.11.22.1.e9042b2", "package"))
+        # The user's own install in ~/.local/bin (Claude Code's own installer) comes before the package.
+        (self.bin / "claude").unlink()
+        own = Path(self.tmp.name) / "versions/2.1.400"
+        own.parent.mkdir(parents=True)
+        own.write_text("#!/bin/sh\n")
+        os.symlink(own, self.bin / "claude")
+        self.assertEqual(detect("claude")[2], "own")
         with unittest.mock.patch("install_ctl.AGENT_INSTALLERS", {}):
             self.assertFalse(detect("agy")[0])
             (self.db / "antigravity-cli-1.5.18-1").mkdir()                # an installer agent too

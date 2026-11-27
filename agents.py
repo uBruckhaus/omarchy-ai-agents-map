@@ -156,7 +156,7 @@ def mise_version(folder: Path) -> str:
                 return target
     try:
         versions = [p for p in itertools.islice(folder.iterdir(), MAX_DIR_ENTRIES)
-                    if p.is_dir() and not p.is_symlink() and _SEMVERISH.fullmatch(p.name)]
+                    if not p.is_symlink() and p.is_dir() and _SEMVERISH.fullmatch(p.name)]
     except OSError:
         return ""
     newest, when = "", -1.0
@@ -176,9 +176,9 @@ def mise_install(spec: str, mise_dir: Path = MISE_DIR) -> Path | None:
     installs = mise_dir / "installs"
     for name in install_dir_candidates(spec):
         folder = installs / name
-        if folder.is_dir() and not folder.is_symlink():
+        if not folder.is_symlink() and folder.is_dir():
             try:
-                if any(p.is_dir() and not p.is_symlink() for p in list(folder.iterdir())[:MAX_DIR_ENTRIES]):
+                if any(not p.is_symlink() and p.is_dir() for p in itertools.islice(folder.iterdir(), MAX_DIR_ENTRIES)):
                     return folder
             except OSError:
                 continue
@@ -187,25 +187,20 @@ def mise_install(spec: str, mise_dir: Path = MISE_DIR) -> Path | None:
 
 def package_version(name: str, db: Path = PACMAN_DB) -> str | None:
     """Version of an installed pacman package, or None when it is not installed."""
+    prefix = name + "-"
     try:
-        entries = list(itertools.islice(db.iterdir(), MAX_DIR_ENTRIES * 10))
+        for entry in itertools.islice(db.iterdir(), MAX_DIR_ENTRIES * 10):    # streamed, stops at the match
+            if not entry.name.startswith(prefix):
+                continue
+            # <name>-<pkgver>-<pkgrel>: exactly two parts left ("openclaw-desktop-1.0-1"
+            # is another package).
+            parts = entry.name[len(prefix):].split("-")
+            if len(parts) == 2 and parts[0] and parts[1].replace(".", "").isdigit():
+                version = parts[0].split(":", 1)[-1]   # without an epoch
+                if not entry.is_symlink() and entry.is_dir() and _SEMVERISH.fullmatch(version):
+                    return version
     except OSError:
         return None
-    prefix = name + "-"
-    for entry in entries:
-        if not entry.name.startswith(prefix):
-            continue
-        # <name>-<pkgver>-<pkgrel>: exactly two parts left ("openclaw-desktop-1.0-1"
-        # is another package).
-        parts = entry.name[len(prefix):].split("-")
-        if len(parts) == 2 and parts[0] and parts[1].replace(".", "").isdigit():
-            version = parts[0].split(":", 1)[-1]   # without an epoch
-            try:
-                real_folder = entry.is_dir() and not entry.is_symlink()
-            except OSError:
-                real_folder = False
-            if real_folder and _SEMVERISH.fullmatch(version):
-                return version
     return None
 
 
@@ -339,10 +334,6 @@ def detect(command: str, bin_dir: Path = BIN_DIR, mise_dir: Path = MISE_DIR,
         if folder is not None:
             return True, mise_version(folder), "mise"
         return (True, "", "system") if on_system_path(command, bin_dir, mise_dir) else (False, "", "")
-    if h is not None and h.package:
-        version = package_version(h.package, db)
-        if version is not None:
-            return True, version, "package"
     only = h is not None and h.package_only
     # Any program by the name, or only one proven the agent's (package_only, own_install_counts off)?
     anything = h is None or (h.own_install_counts and not only)
@@ -350,8 +341,14 @@ def detect(command: str, bin_dir: Path = BIN_DIR, mise_dir: Path = MISE_DIR,
     spec = wrapper_spec(command, bin_dir) or SPECS.get(command, command)
     folder = None if only else mise_install(spec, mise_dir)
     if own_install(command, bin_dir) and (anything or proven(bin_dir / command, marks)):
-        # A script of the user's own may still run mise's copy: show its version.
+        # The user's own install in ~/.local/bin comes first (before a system package, as for the
+        # agents with an installer of their own). A script of the user's own may still run mise's
+        # copy: show its version.
         return True, mise_version(folder) if folder is not None else "", "own"
+    if h is not None and h.package:
+        version = package_version(h.package, db)
+        if version is not None:
+            return True, version, "package"
     if folder is not None:
         return True, mise_version(folder), "mise"
     program = system_program(command, bin_dir, mise_dir)

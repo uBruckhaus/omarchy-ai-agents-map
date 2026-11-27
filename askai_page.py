@@ -881,7 +881,8 @@ class AskAiPage:
                     "version": getattr(agent, "version", "") or "",
                     "install": not installed and recipe,
                     "update": installed and f"agent:{h.command}" in updates,
-                    "remove": installed and (h.command in install_ctl.AGENT_INSTALLERS or (
+                    "remove": installed and ((h.command in install_ctl.AGENT_INSTALLERS
+                                              and install_ctl.AGENT_INSTALLERS[h.command].installed_folder() is not None) or (
                         bool(h.install) and install_recipes.choose(h.install, "uninstall", agent.source) is not None)),
                     "login": installed and self.sign_in_access(h.command) is not None,
                     "logout": False, "verify": False, "key": False,
