@@ -373,7 +373,8 @@ NEWER_FACTS = ("home", "activity", "details", "program_dir", "web_search", "chat
                "start", "research", "rewrite", "task", "closed", "advise", "models", "tools_setting", "sandbox_setting",
                "asks_setting", "replies", "subagents", "sessions", "install_marks", "plan_limits",
                "activity_reader", "activity_dir", "extra_dir_option",
-               "project")              # the AI Project Center's commands: without them Projects had no agent
+               "project",              # the AI Project Center's commands: without them Projects had no agent
+               "package")              # Omarchy 4.6's pacman package of the agent (claude-code, …)
 
 
 def _with_newer_facts(harness: Harness) -> Harness:

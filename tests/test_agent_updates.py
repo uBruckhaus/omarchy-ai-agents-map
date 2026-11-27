@@ -101,6 +101,26 @@ class AgentUpdatesTest(unittest.TestCase):
         au.check([cursor], [], now=1000 + au.CHECK_EVERY, cache=self.cache, sources={"mise": mise})
         self.assertEqual(mise.call_count, 2)
 
+    def test_cached_update_needs_the_same_kind_of_install(self):
+        """A cached `mise upgrade` or `claude update` is not offered once the agent is a system
+        package (Omarchy 4.6 moved it) at the same version, or was removed."""
+        mise = mock.Mock(return_value={"cursor-agent": ("1.0", "2.0")})
+        cursor = agent("cursor-agent", "1.0", "mise")
+        au.check([cursor], [], now=1000, cache=self.cache, sources={"mise": mise})
+        self.assertEqual(len(au.check([cursor], [], now=2000, cache=self.cache, sources={"mise": mise})), 1)
+        cursor.source = "package"
+        self.assertEqual(au.check([cursor], [], now=2000, cache=self.cache, sources={"mise": mise}), [])
+        cursor.source = "mise"
+        cursor.installed = False
+        self.assertEqual(au.check([cursor], [], now=2000, cache=self.cache, sources={"mise": mise}), [])
+        claude = agent("claude", "2.1.301", "own")
+        own = self.dir / "own.json"
+        with mock.patch.object(au.shutil, "which", return_value="/home/u/.local/bin/claude"), \
+                mock.patch.object(au, "channel", return_value="latest"):
+            self.assertEqual(len(au.check([claude], [], now=1, cache=own, sources={"claude": lambda chan: "2.1.302"})), 1)
+            claude.source = "package"
+            self.assertEqual(au.check([claude], [], now=2, cache=own, sources={"claude": lambda chan: "2.1.302"}), [])
+
     def test_claude_own_installer(self):
         claude = agent("claude", "2.1.301", "own")
         with mock.patch.object(au.shutil, "which", return_value="/home/u/.local/bin/claude"), \

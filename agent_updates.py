@@ -193,12 +193,18 @@ def _usable(u) -> bool:
 
 
 def still_open(found: list[Update], agent_list, runtimes) -> list[Update]:
-    """Cached updates not installed since (the installed version moved on)."""
-    versions = {a.command: a.version for a in agent_list if a.installed}
+    """Cached updates not installed since (the installed version moved on), and only while the
+    agent is still installed the way the update's command expects: `mise upgrade` for a mise
+    install, its own updater for its own install (never for a system package, e.g. Omarchy 4.6's)."""
+    installed = {a.command: a for a in agent_list if a.installed}
     left = []
     for u in found:
-        if u.kind == "agent" and u.command and versions.get(u.key) not in (None, u.current):
-            continue
+        if u.kind == "agent" and u.command:
+            agent = installed.get(u.key)
+            if agent is None or agent.version != u.current:
+                continue
+            if agent.source != ("mise" if u.command[:2] == ["mise", "upgrade"] else "own"):
+                continue
         if u.kind == "runtime" and not any(rt.key == u.key and rt.installed for rt in runtimes):
             continue
         if u.page:

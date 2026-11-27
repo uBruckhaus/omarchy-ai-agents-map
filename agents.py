@@ -18,6 +18,7 @@ Omarchy writes a wrapper into ~/.local/bin for every agent it offers, so a
 command on PATH says nothing about whether the agent is installed.
 """
 
+import itertools
 import json
 import os
 import re
@@ -154,11 +155,19 @@ def mise_version(folder: Path) -> str:
             if _SEMVERISH.fullmatch(target):
                 return target
     try:
-        versions = [p for p in list(folder.iterdir())[:MAX_DIR_ENTRIES]
+        versions = [p for p in itertools.islice(folder.iterdir(), MAX_DIR_ENTRIES)
                     if p.is_dir() and not p.is_symlink() and _SEMVERISH.fullmatch(p.name)]
     except OSError:
         return ""
-    return max(versions, key=lambda p: p.stat().st_mtime).name if versions else ""
+    newest, when = "", -1.0
+    for p in versions:
+        try:
+            mtime = p.stat().st_mtime
+        except OSError:
+            continue                          # removed meanwhile (mise prune)
+        if mtime > when:
+            newest, when = p.name, mtime
+    return newest
 
 
 def mise_install(spec: str, mise_dir: Path = MISE_DIR) -> Path | None:
@@ -179,7 +188,7 @@ def mise_install(spec: str, mise_dir: Path = MISE_DIR) -> Path | None:
 def package_version(name: str, db: Path = PACMAN_DB) -> str | None:
     """Version of an installed pacman package, or None when it is not installed."""
     try:
-        entries = list(db.iterdir())[:MAX_DIR_ENTRIES * 10]
+        entries = list(itertools.islice(db.iterdir(), MAX_DIR_ENTRIES * 10))
     except OSError:
         return None
     prefix = name + "-"
@@ -190,7 +199,13 @@ def package_version(name: str, db: Path = PACMAN_DB) -> str | None:
         # is another package).
         parts = entry.name[len(prefix):].split("-")
         if len(parts) == 2 and parts[0] and parts[1].replace(".", "").isdigit():
-            return parts[0].split(":", 1)[-1]   # without an epoch
+            version = parts[0].split(":", 1)[-1]   # without an epoch
+            try:
+                real_folder = entry.is_dir() and not entry.is_symlink()
+            except OSError:
+                real_folder = False
+            if real_folder and _SEMVERISH.fullmatch(version):
+                return version
     return None
 
 

@@ -125,6 +125,27 @@ class FactsTest(unittest.TestCase):
         theirs = dataclasses.replace(claude, project='{"plan": ["claude", "{prompt}"]}')
         self.assertEqual(harnesses._with_newer_facts(theirs).project, theirs.project)   # an add-on's own stays
 
+    def test_the_bundled_agent_add_ons_get_omarchy_4_6_package_names(self):
+        """2.3.2: the signed agent add-ons predate the package names of Omarchy 4.6; switched on, they
+        hid the built-in adapters, so Claude Code, Codex, … stayed "system" without a version."""
+        import shutil
+        if not shutil.which("ssh-keygen"):
+            self.skipTest("needs OpenSSH's ssh-keygen")
+        import addon_api
+        import addons
+        hooks = addon_api.Hooks()
+        packages = {"claude": "claude-code", "codex": "openai-codex", "agy": "antigravity-cli",
+                    "copilot": "github-copilot-cli", "crush": "crush-bin", "cursor-agent": "cursor-cli",
+                    "pi": "pi-coding-agent"}
+        try:
+            loaded = addons.load_all({f"agent-{c}" for c in packages}, hooks=hooks)
+            self.assertTrue({a.id for a in loaded if a.state == "loaded"} >= {f"agent-{c}" for c in packages})
+            for command, package in packages.items():
+                with self.subTest(agent=command):
+                    self.assertEqual(harnesses.get(command).package, package)
+        finally:
+            addons.load_all(set(), dirs=(), hooks=hooks)
+
     def test_an_older_text_look_up_gives_way_to_one_that_says_its_tokens(self):
         import dataclasses
         claude = next(h for h in harnesses.built_in_adapters() if h.command == "claude")
