@@ -1,6 +1,7 @@
 # Claude Code (docs/adapter-format.md): facts only, nothing in this file runs.
 command = "claude"
 name = "Claude Code"
+package = "claude-code"                 # Omarchy 4.6 installs it as this pacman package
 label = "Claude"
 full_name = "Claude Code"
 icon = "U+F06C4"                      # Nerd Font glyph (the app draws its own SVG of it)

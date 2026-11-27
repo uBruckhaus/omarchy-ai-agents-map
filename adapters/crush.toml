@@ -1,6 +1,7 @@
 # Charm's Crush (docs/adapter-format.md): facts only, nothing in this file runs.
 command = "crush"
 name = "Crush"
+package = "crush-bin"                 # Omarchy 4.6 installs it as this pacman package
 label = "Crush"
 icon = "U+F02D1"
 short_model_flag = true

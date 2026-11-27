@@ -1,6 +1,7 @@
 # Cursor CLI (docs/adapter-format.md): facts only, nothing in this file runs.
 command = "cursor-agent"
 name = "Cursor CLI"
+package = "cursor-cli"                 # Omarchy 4.6 installs it as this pacman package
 label = "Cursor CLI"
 icon = "U+E90D"
 icon_font = "omarchy"

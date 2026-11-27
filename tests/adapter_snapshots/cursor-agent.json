@@ -6,7 +6,7 @@
  "icon": "",
  "icon_font": "omarchy",
  "spec": "",
- "package": "",
+ "package": "cursor-cli",
  "package_only": false,
  "own_install_counts": true,
  "install_marks": [],

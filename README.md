@@ -191,6 +191,13 @@ installs what was named:
   Update page (checksum checked as on install);
 - system packages are left to the system's updates.
 
+**Omarchy 4.5 and 4.6.** Omarchy 4.6 installs the coding agents as pacman packages and removes their mise
+copies. Claude Code (`claude-code`), Codex (`openai-codex`), Antigravity CLI (`antigravity-cli`), GitHub
+Copilot (`github-copilot-cli`), Crush (`crush-bin`), Cursor CLI (`cursor-cli`) and Pi (`pi-coding-agent`)
+are then found as that package with its version (read from pacman's database, nothing is started), and
+updates are left to the system's updates (`omarchy update`). On Omarchy 4.5 the mise installs are found
+and updated as before (2.3.2).
+
 Nothing is installed or run by the check itself (except `mise outdated`); an update starts only on a
 click.
 

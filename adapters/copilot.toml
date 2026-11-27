@@ -1,6 +1,7 @@
 # GitHub Copilot CLI (docs/adapter-format.md): facts only, nothing in this file runs.
 command = "copilot"
 name = "GitHub Copilot"
+package = "github-copilot-cli"                 # Omarchy 4.6 installs it as this pacman package
 label = "Copilot"
 full_name = "GitHub Copilot"
 icon = "U+F4B8"

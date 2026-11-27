@@ -1,6 +1,7 @@
 # OpenAI's Codex CLI (docs/adapter-format.md): facts only, nothing in this file runs.
 command = "codex"
 name = "Codex"
+package = "openai-codex"                 # Omarchy 4.6 installs it as this pacman package
 label = "Codex"
 icon = "U+E905"
 icon_font = "omarchy"

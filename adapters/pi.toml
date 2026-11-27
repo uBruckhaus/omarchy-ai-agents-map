@@ -2,6 +2,7 @@
 # hooks (pi.py); everything else is facts.
 command = "pi"
 name = "Pi"
+package = "pi-coding-agent"                 # Omarchy 4.6 installs it as this pacman package
 label = "Pi"
 full_name = "Pi"
 icon = "U+E901"

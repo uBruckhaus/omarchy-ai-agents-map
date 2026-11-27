@@ -6,6 +6,7 @@
 # antigravity.google/docs/settings?tab=cli, /docs/mcp, /docs/skills, /docs/getting-started?tab=cli.
 command = "agy"
 name = "Antigravity CLI"
+package = "antigravity-cli"                 # Omarchy 4.6 installs it as this pacman package
 label = "Antigravity"
 full_name = "Antigravity CLI"
 icon = "U+F02AD"

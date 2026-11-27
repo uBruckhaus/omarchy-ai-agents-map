@@ -74,7 +74,9 @@ class AgentsTest(unittest.TestCase):
             self.assertEqual(agents.detect("codex", self.bin, self.mise, self.db), (False, "", ""))
 
     def test_wrapper_alone_is_not_installed(self):
-        self.assertFalse(self.listed()["claude"].installed)
+        # Only the test's own folders: since Omarchy 4.6 the real PATH has /usr/bin/claude.
+        with unittest.mock.patch.dict(os.environ, {"PATH": str(Path(self.tmp.name) / "empty")}):
+            self.assertFalse(self.listed()["claude"].installed)
 
     def test_mise_install_with_version(self):
         self.install("claude", "2.1.300")
@@ -101,6 +103,26 @@ class AgentsTest(unittest.TestCase):
         found = self.listed()["openclaw"]
         self.assertTrue(found.installed)
         self.assertEqual(found.version, "2026.10.1")
+
+    def test_omarchy_4_6_agent_packages_show_their_version(self):
+        """Omarchy 4.6 installs the agents as pacman packages (claude-code, openai-codex, …) and
+        removes the mise copies; Omarchy 4.5's mise installs are reported as before."""
+        detect = lambda c: agents.detect(c, self.bin, self.mise, self.db)
+        empty_path = unittest.mock.patch.dict(os.environ, {"PATH": str(Path(self.tmp.name) / "empty")})
+        empty_path.start()
+        self.addCleanup(empty_path.stop)
+        self.install("claude", "2.1.0")                                   # Omarchy 4.5: mise only
+        self.assertEqual(detect("claude"), (True, "2.1.0", "mise"))
+        (self.db / "claude-code-2.1.332-1").mkdir()                       # Omarchy 4.6
+        (self.db / "openai-codex-0.172.0-1").mkdir()
+        (self.db / "cursor-cli-1:2026.11.22.1.e9042b2-2").mkdir()        # an epoch
+        self.assertEqual(detect("claude"), (True, "2.1.332", "package"))
+        self.assertEqual(detect("codex"), (True, "0.172.0", "package"))
+        self.assertEqual(detect("cursor-agent"), (True, "2026.11.22.1.e9042b2", "package"))
+        with unittest.mock.patch("install_ctl.AGENT_INSTALLERS", {}):
+            self.assertFalse(detect("agy")[0])
+            (self.db / "antigravity-cli-1.5.18-1").mkdir()                # an installer agent too
+            self.assertEqual(detect("agy"), (True, "1.5.18", "package"))
 
     def test_openclaw_and_hermes_outside_their_packages_when_proven(self):
         """npm, upstream's installers, pipx or a wrapper of the user's count when the program is

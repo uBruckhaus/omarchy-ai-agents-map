@@ -315,6 +315,10 @@ def detect(command: str, bin_dir: Path = BIN_DIR, mise_dir: Path = MISE_DIR,
             return True, version.split("-")[0] if h.short_version else version, "own"
         if own_install(command, bin_dir):
             return True, "", "own"
+        if h.package:                       # Omarchy 4.6's package (antigravity-cli)
+            version = package_version(h.package, db)
+            if version is not None:
+                return True, version, "package"
         # Its recipe may install through mise first (Antigravity CLI).
         folder = mise_install(SPECS.get(command, command), mise_dir)
         if folder is not None:
